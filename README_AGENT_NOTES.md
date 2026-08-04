@@ -46,3 +46,44 @@ absoliuti pozicija, aukštas zIndex, globalus mount taškas). Jei problema karto
 pataisymo **native** aplikacijoje (ne web), reikės tolimesnio tyrimo — šis konkretus
 komponentas ten neveikia (`Platform.OS !== 'web'` early return), tad native atveju priežastis
 būtų kitokia.
+
+---
+
+## Etapas 2: Sandėlio/namų adresai reikalavo pakartotinio patvirtinimo
+
+**Root cause (jau žinomas iš ankstesnės diagnostikos):**
+[src/app/settings/locations.tsx](src/app/settings/locations.tsx) `endpoint()` funkcija
+visada išsaugodavo `normalizedAddress: null, latitude: null, longitude: null` —
+adresas niekada nebūdavo geokoduojamas Nustatymuose, todėl kiekvienas naujas maršrutas
+jį matydavo kaip nepatvirtintą, nepriklausomai nuo to, kiek kartų jis jau buvo panaudotas.
+Tas pats null-koordinačių pavyzdys buvo užkoduotas ir pačioje `migrationV10` sėkloje
+([src/database/migrations.ts:839-863](src/database/migrations.ts:839)), tad problema
+paveikė net švarią naują duomenų bazę.
+
+**Taisymas** ([src/app/settings/locations.tsx](src/app/settings/locations.tsx)):
+- Pridėtas `geocodeEndpoint()` — prieš `SaveDefaultLocation.execute()` iškvietimą, ekranas
+  dabar kviečia `GatewayAddressResolver` (tas pats resolveris, kurį naudoja Excel/foto
+  importo srautas per `gateway-geocoding-provider.ts`), pasirenka aukščiausio pasitikėjimo
+  kandidatą ir išsaugo pilną `RouteEndpoint` su `normalizedAddress`/`latitude`/`longitude`.
+- Jei geokodavimas nepavyksta (tinklo klaida, 0 kandidatų, Gateway nepasiekiamas) —
+  adresas vis tiek išsaugomas tekstu (`plainEndpoint()` fallback), bet vartotojui rodomas
+  aiškus `Alert` "Išsaugota be patvirtinimo", įvardijantis, kurio adreso (sandėlio ir/ar
+  namų) koordinatės liko nepatvirtintos.
+- UI po kiekvieno lauko rodo būsenos tekstą "Adresas patvirtintas ir geokoduotas ✓"
+  (žalia) arba "dar nepatvirtintas" (geltona/warning), kad būtų iškart matoma, ar
+  bus reikalaujama pakartotinio tvirtinimo kuriant maršrutą.
+- **Vienkartinis backfill esamiems null-koordinačių įrašams:** kiekvieną kartą atidarius
+  šį ekraną (`useFocusEffect`), jei išsaugotas sandėlio/namų endpoint'as neturi koordinačių,
+  ekranas tyliai (be Alert, tik `__DEV__` console.warn nesėkmės atveju) bando jį geokoduoti
+  fone ir, jei pavyksta, iš karto perrašo `saved_locations` įrašą su pilnomis koordinatėmis.
+  Tai automatiškai išspręs migracijos v10 seed'o ir bet kokių senų rankinių įrašų problemą
+  be atskiros SQL migracijos — pakanka, kad vartotojas bent kartą atidarytų
+  Nustatymai → Numatytosios vietos su veikiančiu tinklo ryšiu.
+
+**Kodėl ne SQL migracija:** duomenų perskaičiavimas reikalauja tinklo užklausos į geokodavimo
+Gateway, kurio migracijos (`migrateDatabase`, paleidžiama `SQLiteProvider onInit`) metu
+saugiai atlikti negalima (nėra garantuoto tinklo, negalima blokuoti DB init ilgai
+vykstančia async operacija). Todėl pasirinktas UI-lygio best-effort backfill, ne
+`migrationV12`. Jei nori privalomos/matomos migracijos su progress indikatoriumi visiems
+esamiems vartotojams iš karto (o ne tik apsilankius Nustatymuose), tai — atskiro sprendimo
+verta tema, čia nedaryta.
