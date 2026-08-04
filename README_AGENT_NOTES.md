@@ -87,3 +87,56 @@ vykstančia async operacija). Todėl pasirinktas UI-lygio best-effort backfill, 
 `migrationV12`. Jei nori privalomos/matomos migracijos su progress indikatoriumi visiems
 esamiems vartotojams iš karto (o ne tik apsilankius Nustatymuose), tai — atskiro sprendimo
 verta tema, čia nedaryta.
+
+---
+
+## Etapas 3: Per siauras layout telefone/PWA
+
+Patikrinta keturiais punktais, kaip prašyta:
+
+**1. Viewport meta tag** ([src/app/+html.tsx:10-13](src/app/+html.tsx:10)) — **jau buvo teisingas**,
+niekas netrūko:
+```html
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+```
+Tai NEBUVO problemos priežastis.
+
+**2. `metro.config.js`** — minimalus, standartinis `getDefaultConfig()` + WASM assetExt.
+Jokių plotį ribojančių nustatymų. NE priežastis.
+
+**3. `SafeAreaView` dvigubas padding — RASTAS IR PATAISYTAS konkretus defektas.**
+Patikrinau visus 16 `src/app/` ekranų — visi naudoja `SafeAreaView` (tiesiogiai arba per
+`FoundationScreen`, kuri irgi apgaubia `SafeAreaView`). Tuo pačiu metu
+[src/app/+html.tsx](src/app/+html.tsx) turėjo globalią CSS taisyklę:
+```css
+body { margin: 0; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+```
+Patikrinau `react-native-web` šaltinį
+(`node_modules/react-native-web/dist/exports/SafeAreaView/index.js`) — jo `SafeAreaView`
+web'e taip pat tiesiog priskiria `paddingTop/Right/Bottom/Left: env(safe-area-inset-*)`
+per CSS. T.y. **abu sluoksniai (globalus `body` CSS ir kiekvieno ekrano `SafeAreaView`)
+pritaikydavo TĄ PATĮ safe-area inset PADVIGUBINTAI** — kiekvienas ekranas gaudavo dvigubą
+kraštinį atitraukimą. Kadangi dešinės/kairės safe-area insets dažniausiai lygūs 0 portrete
+(nebent landscape/dinaminė sala kraštuose), praktinis poveikis pločiui priklauso nuo
+įrenginio/orientacijos, bet tai vis tiek yra objektyviai neteisingas, dubliuotas CSS —
+tvarkinga ir maža rizika pašalinti.
+
+**Taisymas** ([src/app/+html.tsx](src/app/+html.tsx)): pašalintas `padding: env(...)` iš
+globalios `body` CSS taisyklės, paliktas tik `margin: 0`. Kadangi VISI ekranai jau turi
+savo `SafeAreaView` sluoksnį, saugos insets liks pritaikyti — tik nebe dvigubai, ir tik
+per React komponentų medį (nuosekliau su native platformomis, kur `+html.tsx` CSS
+apskritai neegzistuoja).
+
+**4. Globalus `max-width` CSS konteineris** — rastas [src/ui/tokens.ts:22-25](src/ui/tokens.ts:22)
+`layout.maxContentWidth = 900`, naudojamas [src/components/screen-container.tsx](src/components/screen-container.tsx)
+`inner` stiliuje kaip **`maxWidth`** (ne fiksuotas `width`), su `width: '100%'`. Tai riboja
+turinį TIK plačiuose ekranuose (>900px, pvz. desktop/tablet), telefono ekrane (~360-430px)
+šis apribojimas neįsijungia. **Tai NE per-siauro layout priežastis telefone** — priešingai,
+tai apsauga nuo per-plataus layout dideliuose ekranuose. Jokio failo su `public/*.css`
+neradau (senas `src/global.css` pašalintas anksčiau, `public/` kataloge tik manifest,
+service-worker ir ikonos, jokio CSS).
+
+**Išvada:** rastas ir pataisytas vienintelis aiškus, mažos rizikos defektas — dvigubas
+safe-area padding. Jei "per siauras" pojūtis išlieka po šio pataisymo, priežastis
+nebėra CSS/viewport/SafeAreaView lygyje — reikėtų realaus įrenginio ekrano nuotraukos su
+konkrečiu ekranu ir matmenimis, kad būtų galima tęsti tyrimą.
