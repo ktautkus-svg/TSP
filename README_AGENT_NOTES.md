@@ -140,3 +140,52 @@ service-worker ir ikonos, jokio CSS).
 safe-area padding. Jei "per siauras" pojūtis išlieka po šio pataisymo, priežastis
 nebėra CSS/viewport/SafeAreaView lygyje — reikėtų realaus įrenginio ekrano nuotraukos su
 konkrečiu ekranu ir matmenimis, kad būtų galima tęsti tyrimą.
+
+---
+
+## Etapas 4: Maršruto dashboard sekcija (be GPS)
+
+Papildytas [src/app/route/[id]/delivery.tsx](src/app/route/%5Bid%5D/delivery.tsx) nauja
+`styles.dashboard` sekcija, įterpta VIRŠ esamos tekstinės `summary` santraukos (senoji
+santrauka palikta nepakeista žemiau — nieko nepašalinta, tik papildyta).
+
+**Nauji elementai:**
+- Du apskriti SVG matuokliai (`CircularGauge` — lokalus komponentas šiame faile, pagal
+  `RouteMapView` naudojamą `react-native-svg` konvenciją):
+  - Žalias (`colors.success`) — likęs žinomas svoris, užpildymas = pristatyto svorio dalis
+    (`(totalKnownWeightKg - remainingKnownWeightKg) / totalKnownWeightKg`, tos pačios
+    reikšmės, kurias skaičiuoja jau egzistuojantis `GetRouteProgress`).
+  - Mėlynas (naujas `colors.info` token'as, žr. žemiau) — likę taškai, užpildymas =
+    `deliveredStops / totalStops` (tas pats `progress.deliveryPercent` šaltinis).
+  - Užpildymas animuojamas `Animated.Value` + `strokeDashoffset`, paleidžiama kaskart, kai
+    pasikeičia `fraction` (taip pat ir pirmame render'e po užkrovimo).
+- "Sekantis taškas" kortelė — `stops.find(s => s.deliveryStatus === 'pending')`, atstumas ir
+  laikas per **tuos pačius** `legLabel()`/`etaLabel()` helperius, kuriuos jau naudoja kiekvienos
+  sustojimo kortelės eilutė žemiau (nė vieno naujo skaičiavimo šaltinio).
+- Statistikos eilutė: "Laikas kelyje" (`route.startedAt` iš schema, skaičiuojamas
+  `elapsedLabel()` render metu) ir "Pristatyta / viso" (`progress.deliveredStops`/`totalStops`).
+  **Nuvažiuotas atstumas praleistas** — kodo bazėje nėra "iki šiol nuvažiuota" duomenų
+  šaltinio (yra tik planinis `estimatedDistanceKm` ir po užbaigimo įrašomas `actualDistanceKm`,
+  bet ne live-progress reikšmė), tiksliai kaip nurodyta instrukcijoje.
+- Raudonas mygtukas "Stabdyti maršrutą" (`colors.danger`), su patvirtinimo `Alert`, kviečia
+  **jau egzistuojantį** `CancelDraftRoute(db).execute(routeId)` (šis komponentas atidaromas
+  tik kai `route.status === 'in_progress'` — kitos būsenos šiame ekrane niekada nepasiekiamos
+  dėl `load()` guard'o, tad papildomos šakos pagal statusą nereikėjo).
+
+**Stiliaus tokenai** ([src/ui/tokens.ts](src/ui/tokens.ts)) — pridėti du nauji, neliečiant esamų:
+- `colors.info = '#1D6FE0'` (mėlyna — projekto palete jos anksčiau neturėjo, tik
+  primary/success/warning/danger/border).
+- `fonts.mono` — kryžminės platformos monospace šriftas skaičiams (`Menlo` iOS, `monospace`
+  Android/web), naudojamas matuoklių ir statistikos skaičiams.
+
+**Dizainas:** be gradientų/šešėlių (flat, kaip visur kitur app'e — `StyleSheet` be
+`shadow*`/`elevation`), spalvos ir `spacing`/`colors` iš `@/ui/tokens`, kortelių stilius
+(`borderRadius`, `borderWidth: 1`, `borderColor: colors.border`, `backgroundColor:
+colors.surface`) atkartoja esamą `card`/`summary`/`finishCard` konvenciją tame pačiame faile.
+
+**GPS integracija ŠIAME etape sąmoningai NEDARYTA**, kaip nurodyta — tam reikės atskiros
+DB migracijos (`status` CHECK constraint papildymo `'paused'` reikšme, `trip_started_at`/
+`trip_ended_at` laukų), kuri paliekama atskiram etapui su vartotojo priežiūra.
+
+**Patikrinta:** `tsc --noEmit` (0 klaidų) ir pilnas `vitest run` (449/449 testai praėjo,
+42 failai) po šio ir visų ankstesnių etapų pakeitimų.
