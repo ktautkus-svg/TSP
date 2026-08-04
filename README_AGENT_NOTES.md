@@ -189,3 +189,85 @@ DB migracijos (`status` CHECK constraint papildymo `'paused'` reikšme, `trip_st
 
 **Patikrinta:** `tsc --noEmit` (0 klaidų) ir pilnas `vitest run` (449/449 testai praėjo,
 42 failai) po šio ir visų ankstesnių etapų pakeitimų.
+
+---
+
+## Etapas 5: Santrauka
+
+**Visi 4 etapai baigti be aklaviečių.** Joks deploy/push į production nebuvo paleistas —
+`cloud-run-deploy.ps1` niekada nekviestas. Visi commit'ai — tik lokalūs.
+
+### Commit'ai (chronologine tvarka)
+
+| Etapas | Commit | Failai |
+|---|---|---|
+| 1 | `16838cc` | `src/components/pwa-runtime.tsx`, `README_AGENT_NOTES.md` |
+| 2 | `f0c2180` | `src/app/settings/locations.tsx`, `README_AGENT_NOTES.md` |
+| 3 | `925961d` | `src/app/+html.tsx`, `README_AGENT_NOTES.md` |
+| 4 | `6bff918` | `src/app/route/[id]/delivery.tsx`, `src/ui/tokens.ts`, `README_AGENT_NOTES.md` |
+
+### Kas padaryta
+
+1. **"Išvalyti maršrutą" touch bug** — root cause rastas ir pataisytas (`PwaRuntime`
+   globalaus banner'io `pointerEvents` scoping). Patikrinamas kodo defektas, atitinka
+   simptomą, bet pasireiškia tik web/PWA + offline/update sąlygomis.
+2. **Adresų pakartotinis patvirtinimas** — sandėlio/namų adresai dabar geokoduojami
+   išsaugant, su fallback + įspėjimu, plius tylus esamų null-koordinačių įrašų backfill.
+3. **Per siauras PWA layout** — rastas ir pataisytas dvigubas safe-area padding
+   (`+html.tsx` body CSS + `SafeAreaView` React lygyje). Viewport meta tag, metro config,
+   max-width konteineris — patikrinti, nekalti.
+4. **Maršruto dashboard** — `delivery.tsx` papildytas animuotais SVG matuokliais
+   (svoris/taškai), sekančio taško kortele, statistikos eilute ir raudonu "Stabdyti
+   maršrutą" mygtuku. Be GPS, kaip nurodyta.
+
+### Kas NEBUVO padaryta ir kodėl
+
+- **GPS integracija** — sąmoningai praleista Etape 4 pagal aiškų nurodymą; reikės
+  atskiros DB migracijos (`'paused'` status reikšmės, `trip_started_at`/`trip_ended_at`
+  laukų) su vartotojo priežiūra.
+- **Nuvažiuoto atstumo lauke dashboard'e** — praleistas, nes kodo bazėje nėra
+  "iki šiol nuvažiuota" live-progress duomenų šaltinio (tik planinis ir po-užbaigimo).
+- **Formali SQL migracija Etape 2** (vietoje UI-lygio backfill) — nedaryta sąmoningai,
+  nes koordinačių perskaičiavimui reikia tinklo užklausos, kurios negalima saugiai atlikti
+  DB `onInit` migracijos metu. Jei norėsi privalomo/matomo backfill'o visiems vartotojams
+  iš karto (ne tik apsilankius Nustatymuose), tai atskira užduotis.
+
+### Ką rekomenduoju patikrinti PIRMIAUSIA, kai grįši
+
+1. **Rankiniu būdu paleisti app'ą** (dev serveris niekada nebuvo startuotas šios sesijos
+   metu — tikrinau tik `tsc --noEmit` ir `vitest run`, NE realų UI naršyklėje/telefone).
+   Ypač:
+   - Etapas 1: atsijungus nuo tinklo arba imituojant pending SW update, patikrinti, ar
+     "Išvalyti ir pradėti iš naujo" dabar reaguoja net kai banner'is rodomas.
+   - Etapas 3: patikrinti telefono/PWA layout plotį realiame įrenginyje (ypač su notch/
+     dynamic island), kad patvirtintum, ar pojūtis "per siauras" pranyko.
+   - Etapas 4: paleisti maršrutą iki `in_progress` būsenos ir pažiūrėti, ar matuoklių
+     animacija/skaičiai atrodo taip, kaip tikėtasi.
+2. **Etapas 2 Alert tekstas** — patikrinti, ar Gateway (lokalus `:8787` arba Cloud Run)
+   yra pasiekiamas tavo dev aplinkoje; jei ne, kiekvienas išsaugojimas rodys "Išsaugota be
+   patvirtinimo" perspėjimą, net jei adresas geras — tai laukiama, bet gali klaidinti,
+   jei pamiršai, kad Gateway neveikia.
+
+### Abejotini sprendimai, kuriuos verta peržiūrėti
+
+- **Etapas 1** taisymas (`pointerEvents="none"`/`"box-none"`) yra apibrėžtas, patikrinamas
+  kodo pataisymas geriausiai atitinkančiai hipotezei, bet **niekada nepatvirtintas realiu
+  touch testu** — jei problema kartojasi po šito, priežastis kitokia (native platforma,
+  ne web).
+- **Etapas 2**: pasirinkau "geriausios pasitikėjimo kandidato" (`reduce` pagal `confidence`)
+  automatinį priėmimą sandėlio/namų adresui BE vartotojo peržiūros ekrano (skirtingai nuo
+  importo flow'o, kuris rodo kandidatų sąrašą pasirinkimui). Tai sąmoningas paprastinimas
+  ("greita versija" dvasia) — jei sandėlio adresas dviprasmis (keli vienodo tikimo
+  kandidatai), gali būti pasirinktas ne tas variantas be vartotojo žinios. Jei nori,
+  galima pridėti kandidatų pasirinkimo UI, panašiai kaip `review.tsx`.
+- **Etapas 3**: pataisymas remiasi prielaida, kad VISI 16 ekranų visada praeina per
+  `SafeAreaView` — tai patikrinta grep'u šios sesijos metu, bet jei ateityje pridėsi naują
+  ekraną be `FoundationScreen`/`SafeAreaView`, jis liks be safe-area apsaugos web'e (anksčiau
+  tai kompensavo globalus `body` CSS, dabar — ne). Verta tai atsiminti kuriant naujus ekranus.
+- **Etapas 4**: palikau seną tekstinę `summary` sekciją NEPAŠALINTĄ, virš jos pridėdamas
+  naują vizualų dashboard'ą — dabar yra dalinis informacijos persidengimas (pvz. "Liko N"
+  rodoma ir matuoklyje, ir tekste žemiau). Tai sąmoningas pasirinkimas nerizikuoti pašalinti
+  funkcionalumą be tavo patvirtinimo, bet UI/UX redesign kontekste verta apsvarstyti, ar
+  seną `summary` bloką pašalinti visai, kai patvirtinsi naują dashboard'ą.
+- Pridėti du nauji design token'ai (`colors.info`, `fonts.mono`) — jei planuojamas platesnis
+  redesign su savo spalvų sistema, šiuos gali reikėti pertvarkyti/pervadinti.
