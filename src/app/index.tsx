@@ -157,10 +157,11 @@ export default function HomeScreen() {
           ) : null}
           <View style={styles.navigationCard}>
             <Link href="/history" asChild><Pressable style={styles.navigationButton}><Text style={styles.historyLink}>Istorija</Text></Pressable></Link>
+            <Link href={'/statistics' as Href} asChild><Pressable style={styles.navigationButton}><Text style={styles.historyLink}>Statistika</Text></Pressable></Link>
             <Link href={'/settings' as Href} asChild><Pressable style={styles.navigationButton}><Text style={styles.historyLink}>Nustatymai</Text></Pressable></Link>
           </View>
           <View style={styles.later}>
-            <Text style={styles.laterText}>Statistika, kelionės lapas, transportas ir degalai šiame etape nėra aktyvūs.</Text>
+            <Text style={styles.laterText}>Kelionės lapas, transportas ir degalai šiame etape nėra aktyvūs.</Text>
           </View>
         </ScrollView>
       </ScreenContainer>
