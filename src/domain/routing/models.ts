@@ -237,6 +237,9 @@ export type RouteOptimizationResult = {
   executionMode: ProviderExecutionMode;
   generatedAt: string;
   matrixFetchedAt: string;
+  /** The travel-cost matrix fetched for this run, exposed so a fixed (manually
+   * reordered) stop sequence can be re-evaluated locally without an extra API call. */
+  matrix: TravelMatrix;
   feasibleRouteFound: boolean;
   recommended: RouteCandidate | null;
   alternatives: RouteCandidate[];

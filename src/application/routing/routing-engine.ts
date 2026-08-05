@@ -85,6 +85,7 @@ export class RoutingEngine implements RouteOptimizer {
       executionMode: matrix.executionMode,
       generatedAt,
       matrixFetchedAt: matrix.fetchedAt,
+      matrix,
       feasibleRouteFound: recommended !== null,
       recommended,
       alternatives,

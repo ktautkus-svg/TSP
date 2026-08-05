@@ -8,6 +8,7 @@ import { resolveRoute, type ResolvedRouteDestination } from '@/application/route
 import { ActivateRoute, SaveSelectedRouteCandidate } from '@/application/routes/route-commands';
 import { extractOrderedLocationsFromCandidate } from '@/application/routing/route-polyline-service';
 import { RoutingEngine } from '@/application/routing/routing-engine';
+import { evaluateCandidate } from '@/domain/routing/evaluation/candidate-evaluator';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { RouteMapView } from '@/components/route-map';
 import { RouteRepository } from '@/database/repositories/route-repository';
@@ -37,6 +38,12 @@ export default function RouteAlternativesScreen() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [recoveryDestination, setRecoveryDestination] = useState<ResolvedRouteDestination | null>(null);
+  const [manualMode, setManualMode] = useState(false);
+  const [manualOrder, setManualOrder] = useState<string[]>([]);
+  const [manualExpandedId, setManualExpandedId] = useState<string | null>(null);
+  const [manualCandidate, setManualCandidate] = useState<RouteCandidate | null>(null);
+  const [manualError, setManualError] = useState<string | null>(null);
+  const [manualSaving, setManualSaving] = useState(false);
   const savingRef = useRef(false);
   const startedForRoute = useRef<string | null>(null);
 
@@ -148,6 +155,93 @@ export default function RouteAlternativesScreen() {
     }
   };
 
+  const toggleManualMode = () => {
+    setManualMode((current) => {
+      const next = !current;
+      if (next && request) {
+        setManualOrder((existing) =>
+          existing.length > 0 ? existing : (selectedCandidate?.stopSequence ?? request.stops.map((stop) => stop.id)),
+        );
+      }
+      return next;
+    });
+  };
+
+  const moveManualStop = (stopId: string, direction: -1 | 1) => {
+    setManualOrder((current) => {
+      const index = current.indexOf(stopId);
+      const targetIndex = index + direction;
+      if (index < 0 || targetIndex < 0 || targetIndex >= current.length) return current;
+      const next = [...current];
+      [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+      return next;
+    });
+    // Stale after reorder — force a fresh "Perskaičiuoti su šia seka" press
+    // before the user can act on numbers that no longer match the sequence.
+    setManualCandidate(null);
+    setManualError(null);
+  };
+
+  const recalculateManualSequence = () => {
+    if (!request || !result || manualOrder.length === 0) return;
+    const candidate = evaluateCandidate({
+      stopSequence: manualOrder,
+      generatedBy: ['manual_reorder'],
+      request,
+      matrix: result.matrix,
+    });
+    setManualCandidate(candidate);
+    const hardViolations = candidate.violations.filter((violation) => violation.type === 'hard');
+    setManualError(
+      hardViolations.length > 0
+        ? `Šioje sekoje yra ${hardViolations.length} pažeidimų (pvz. privalomas laiko langas ar keliamoji galia) — vis tiek galite ją naudoti, bet patikrinkite.`
+        : null,
+    );
+  };
+
+  const useManualSequence = async () => {
+    if (!request || !result || !manualCandidate || manualSaving) return;
+    setManualSaving(true);
+    setError(null);
+    try {
+      const current = await repository.getById(routeId);
+      if (!current) throw new Error('Maršrutas nerastas.');
+      if (current.status !== 'draft') {
+        const destination = resolveRoute(current);
+        setRecoveryDestination(destination);
+        router.replace({
+          pathname: destination.pathname,
+          params: destination.params ? { ...destination.params, redirectReason: 'stale-planning-screen' } : undefined,
+        } as Href);
+        return;
+      }
+      const manualResult: RouteOptimizationResult = {
+        requestId: `${routeId}-manual-${Date.now()}`,
+        provider: manualCandidate.provider,
+        executionMode: result.executionMode,
+        generatedAt: new Date().toISOString(),
+        matrixFetchedAt: result.matrixFetchedAt,
+        matrix: result.matrix,
+        feasibleRouteFound: manualCandidate.feasible,
+        recommended: manualCandidate,
+        alternatives: [],
+        diagnosticCandidate: null,
+        candidates: [manualCandidate],
+        conflictingConstraints: [],
+        suggestions: [],
+        warnings: manualCandidate.warnings,
+      };
+      await new SQLiteRoutingAuditRepository(db).saveOptimizationRun(routeId, request, manualResult);
+      await new SaveSelectedRouteCandidate(db).execute(routeId, manualResult.requestId, manualCandidate.id);
+      await new ActivateRoute(db).execute(routeId);
+      router.replace({ pathname: '/route/[id]/loading', params: { id: routeId } });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Rankinės sekos išsaugoti nepavyko.');
+    } finally {
+      setManualSaving(false);
+    }
+  };
+
   const orderedLocations = selectedCandidate && request
     ? extractOrderedLocationsFromCandidate(selectedCandidate, request)
     : null;
@@ -225,6 +319,72 @@ export default function RouteAlternativesScreen() {
               onSelect={() => setSelectedId(candidate.id)}
             />
           ))}
+        </View>
+      ) : null}
+      {request ? (
+        <Pressable style={styles.secondaryButton} onPress={toggleManualMode} testID="toggle-manual-sequencing">
+          <Text style={styles.secondaryText}>{manualMode ? 'Išjungti rankinį maršrutizavimą' : 'Įjungti rankinį maršrutizavimą'}</Text>
+        </Pressable>
+      ) : null}
+      {manualMode && request ? (
+        <View style={styles.manualCard} testID="manual-sequencing-panel">
+          <Text style={styles.title}>Rankinė seka</Text>
+          <Text style={styles.description}>
+            Sutvarkykite taškus rodyklėmis, tada paspauskite „Perskaičiuoti su šia seka“ — bus paskaičiuotas atstumas ir laikas TIK šiai tvarkai, be automatinio optimizavimo.
+          </Text>
+          {manualOrder.map((stopId, index) => {
+            const stop = request.stops.find((item) => item.id === stopId);
+            if (!stop) return null;
+            const expanded = manualExpandedId === stopId;
+            return (
+              <View key={stopId} style={styles.manualRow}>
+                <View style={styles.manualRowHeader}>
+                  <Pressable
+                    style={styles.manualRowLabelTouch}
+                    onPress={() => setManualExpandedId(expanded ? null : stopId)}>
+                    <Text style={styles.manualRowLabel}>{index + 1}. {stop.location.label}</Text>
+                  </Pressable>
+                  <View style={styles.manualRowButtons}>
+                    <Pressable
+                      disabled={index === 0}
+                      style={[styles.miniButton, index === 0 && styles.disabled]}
+                      onPress={() => moveManualStop(stopId, -1)}>
+                      <Text style={styles.secondaryText}>↑</Text>
+                    </Pressable>
+                    <Pressable
+                      disabled={index === manualOrder.length - 1}
+                      style={[styles.miniButton, index === manualOrder.length - 1 && styles.disabled]}
+                      onPress={() => moveManualStop(stopId, 1)}>
+                      <Text style={styles.secondaryText}>↓</Text>
+                    </Pressable>
+                  </View>
+                </View>
+                {expanded ? (
+                  <View style={styles.manualRowDetail}>
+                    <Text style={styles.description}>{stop.location.address}</Text>
+                    <Text style={styles.description}>{stop.weightKg !== null ? `${stop.weightKg} kg` : 'Svoris nežinomas'}</Text>
+                  </View>
+                ) : null}
+              </View>
+            );
+          })}
+          <Pressable style={styles.primaryButton} onPress={recalculateManualSequence} testID="recalculate-manual-sequence">
+            <Text style={styles.primaryText}>Perskaičiuoti su šia seka</Text>
+          </Pressable>
+          {manualError ? <Text style={styles.error}>{manualError}</Text> : null}
+          {manualCandidate ? (
+            <View style={styles.manualResultCard} testID="manual-sequence-result">
+              <Text style={styles.metrics}>
+                {Math.round(manualCandidate.totalWorkMinutes)} min · {manualCandidate.totalDistanceKm.toFixed(1)} km
+              </Text>
+              <Pressable
+                disabled={manualSaving}
+                style={[styles.selectButton, manualSaving && styles.disabled]}
+                onPress={() => { void useManualSequence(); }}>
+                {manualSaving ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>Naudoti šią seką</Text>}
+              </Pressable>
+            </View>
+          ) : null}
         </View>
       ) : null}
       {result && !result.feasibleRouteFound && result.conflictingConstraints.length > 0 ? (
@@ -318,9 +478,20 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   selectButton: { minHeight: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary, marginTop: spacing.md },
   primaryButton: { minHeight: 56, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary },
   primaryText: { color: '#fff', fontWeight: '800' },
+  secondaryButton: { minHeight: 48, borderRadius: 14, borderWidth: 1, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
+  secondaryText: { color: colors.primary, fontWeight: '800' },
   error: { color: colors.danger, fontWeight: '700' },
   errorCard: { padding: spacing.lg, borderRadius: 18, borderWidth: 1, borderColor: colors.danger },
   warningCard: { padding: spacing.lg, borderRadius: 18, borderWidth: 1, borderColor: colors.warning ?? '#f59e0b', backgroundColor: colors.surface },
   warningTitle: { color: colors.warning ?? '#f59e0b', fontSize: 16, fontWeight: '800' },
   disabled: { opacity: 0.45 },
+  manualCard: { padding: spacing.lg, borderRadius: 18, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
+  manualRow: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm, gap: spacing.xs },
+  manualRowHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
+  manualRowLabelTouch: { flex: 1, minHeight: 44, justifyContent: 'center' },
+  manualRowLabel: { color: colors.text, fontWeight: '700' },
+  manualRowButtons: { flexDirection: 'row', gap: spacing.xs },
+  miniButton: { minWidth: 44, minHeight: 44, borderRadius: 10, borderWidth: 1, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+  manualRowDetail: { gap: 2, paddingBottom: spacing.xs },
+  manualResultCard: { gap: spacing.sm, marginTop: spacing.sm },
 });

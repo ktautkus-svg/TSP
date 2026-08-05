@@ -726,3 +726,158 @@ naršyklės testavimo įrankį (tamsi tema): #1 (perskaičiavimo kortelė matoma
 be kodo pakeitimų delivery sraute, patikrinti kodo skaitymu ir esamais automatiniais testais.
 
 **Deploy STATUSAS: NEPALEISTAS.** Laukiama vartotojo komandos ir papildomo dizaino punkto.
+
+---
+
+# Sesija 2026-08-05 (po deploy'aus #2): 3 nauji testavimo punktai
+
+## Būsima idėja (NEĮGYVENDINTA sąmoningai): swipe gestai statusams
+
+Vartotojas paprašė **neįgyvendinti dabar**, tik užrašyti kaip idėją ateičiai:
+
+Leisti braukti (swipe) per pristatymo taško eilutę [delivery.tsx](src/app/route/%5Bid%5D/delivery.tsx)/
+[loading.tsx](src/app/route/%5Bid%5D/loading.tsx), kad pažymėtų "pristatyta"/"nepavyko" arba
+"pakrauta"/"nepakrauta" vietoj mygtukų paspaudimo. Grynai pagalbinis patogumas — dabartinis
+mygtukų būdas jau veikia gerai, tai nepakeičia esamo funkcionalumo, tik pridėtų alternatyvų
+greitąjį kelią.
+
+**Pastaba įgyvendinimui, kai bus paprašyta:** projekte jau yra `SwipeActionCard`
+([src/components/swipe-action-card.tsx](src/components/swipe-action-card.tsx)), naudojamas
+`delivery.tsx` sustojimo kortelėms (`onSwipeRight`/`onSwipeLeft` props jau prijungti prie
+`delivered()`/`beginFailed()`) — t.y. **swipe-to-pristatyta/nepavyko delivery.tsx ekrane JAU
+VEIKIA** (patikrinta kodu, komponentas turi swipe logiką). Tai, ko dar NĖRA — tas pats
+`loading.tsx` (pakrauta/nepakrauta pažymėjimui per swipe, ne tik mygtuku) ir bet koks
+vizualus/haptic patvirtinimas ar atradimo užuomina (pvz. pirmas kartas parodyti "braukite
+kortelę" hint'ą), kad vartotojas apskritai sužinotų apie šią galimybę.
+
+## 2. Neatpažinto adreso taisymas tiesiai importo ekrane
+
+**Root cause priminimas:** "N adreso(-ų) nepavyko atpažinti" kortelė
+[src/app/import/index.tsx](src/app/import/index.tsx) rodė problemą, bet neturėjo jokio veiksmo —
+tos Excel eilutės (`row.normalizedAddress === null`) niekada nepatenka į `excelPreview.groups`
+(žr. `groupExcelRows()` `logistics-excel-v1.ts`), tad `excelPreviewToDraftStops()` jas visiškai
+praleidžia kuriant maršrutą.
+
+**Sprendimas — naujas `UnresolvedRowFixer` komponentas** (renderinamas kiekvienai
+`unresolvedExcelRows` eilutei tiesiai įspėjimo kortelėje):
+1. Redaguojamas adreso `TextInput`, pradinė reikšmė iš `row.rawColumnE ?? row.rawColumnD`.
+2. "Bandyti geokoduoti iš naujo" — naudoja **jau esamą** `addressResolver`
+   (`GatewayAddressResolver`, tas pats, kurį naudoja visas likęs importo srautas
+   `resolveDeliveryAddresses()` per `revalidate()`) — jokio naujo geokodavimo kliento.
+   Vienareikšmis rezultatas → `addressValidationState: 'auto_confirmed'`. Kelios kandidatės →
+   `'unconfirmed'` su įspėjimu patikrinti planavimo ekrane.
+3. "Įvesti koordinates rankiniu būdu" — du skaitiniai laukai (platuma/ilguma), validacija
+   (`-90..90`/`-180..180`), jei geokodavimas nepavyko.
+4. "Pridėti tašką be geokodavimo" — priima vien tekstą, `latitude`/`longitude: null`,
+   `addressValidationState: 'unconfirmed'`.
+
+**Kaip šie taškai patenka į maršrutą:** `sendToRouting()` dabar renka `manualStops` iš
+`manualRowResolutions` state'o (adresas + koordinatės + likę lauko duomenys: svoris, laiko
+langas, gavėjas iš originalios `ExcelSourceRow`), su `originalOrder` pratęstu po
+`excelPreviewToDraftStops()` rezultato, ir sujungia (`[...baseStops, ...manualStops]`) prieš
+kviečiant `CreateDraftRouteWithStops`. Taškai su `'unconfirmed'`/be koordinačių patenka į TĄ
+PATĮ jau egzistuojantį [review.tsx](src/app/route/%5Bid%5D/review.tsx) `StopEditor` srautą, kuris
+JAU moka prašyti vartotojo patvirtinti/pataisyti tokius taškus (naudojamas ir kitiems
+importo/OCR keliams) — jokios naujos "patvirtinimo" UI nereikėjo statyti.
+
+**Patikrinimo pastaba (svarbu):** `tsc --noEmit` švarus. Duomenų sluoksnio elgesį (kad
+"XXXXX ZZZZZ..." tipo tekstas TIKRAI lieka `normalizedAddress: null` ir patenka į
+`unresolvedExcelRows`, o ne kur nors tyliai "prilimpa" prie tiekėjo/company teksto per
+`looksLikeLooseStreetAddress` fallback) patikrinau griežtai — sukūriau minimalų sintetinį
+`.xlsx` (per `fflate` `zipSync`, rankomis surašytas `xl/worksheets/sheet1.xml`) ir perleidau
+per **tikrą** `parseLogisticsExcelWorkbook()` laikinajame vienetiniame teste — patvirtinta:
+lygiai 1 nepatvirtintas įrašas, tiksliai laukiamas. **Pilno UI click-through per naršyklės
+testavimo įrankį NEPAVYKO pasiekti** — `expo-document-picker` web versija atveria tikrą OS
+lygio failo dialogą (arba naudoja `showOpenFilePicker()` File System Access API), o abu bandymai
+tai apeiti (sintetinis `input[type=file].files` + `change` event per `DataTransfer`, ir
+`window.showOpenFilePicker` shim'as) nesukėlė jokios app'o reakcijos — tai automatizuoto
+naršyklės įrankio apribojimas, ne kodo problema. Vietoj to pasitikiu: (a) griežtu duomenų
+sluoksnio patikrinimu aukščiau, (b) tuo, kad `UnresolvedRowFixer` naudoja TĄ PATĮ
+`GatewayAddressResolver.resolve()`, kurį šios sesijos metu jau patvirtinau veikiantį gyvai
+("Katedros a. 4" adreso pridėjimas maršruto viduryje) po `.env` pataisymo (žr. žemiau).
+
+**PAPILDOMAS RADINYS šios sesijos metu (svarbu jums, nesusiję su šiuo punktu tiesiogiai):**
+lokalus `.env` faile `EXPO_PUBLIC_GATEWAY_URL=http://172.20.10.5:8787` yra **pasenusi LAN IP**
+— šios mašinos dabartiniai adresai yra `10.5.0.2`/`192.168.0.171`, ne `172.20.10.x` (tai atrodo
+kaip anksčiau naudoto telefono/hotspot IP likutis). **Tai NEPALIEČIA jūsų production/deployed
+app'o** (Cloud Run versija naudoja `/api/*` proxy per tą patį domeną, ne šitą kintamąjį — žr.
+`scripts/pwa-build.mjs`, kuris šį kintamąjį PAŠALINA prieš production build'ą). Tai paveikia TIK
+lokalų `expo start --web`/dev serverio testavimą per telefoną tame pačiame LAN, jei kada tai
+darysite — geokodavimas ten neveiks, kol IP neatnaujinsite `.env` faile. Šiai sesijai laikinai
+pasikeičiau į `http://localhost:8787` testavimui ir **grąžinau atgal** originalų `172.20.10.5`
+prieš baigdamas — jūsų `.env` liko toks, koks buvo, aš tik atkreipiau dėmesį į problemą.
+
+## 3. Rankinis maršruto sekos tvarkymas (naujas funkcionalumas)
+
+**Vieta:** [src/app/route/[id]/alternatives.tsx](src/app/route/%5Bid%5D/alternatives.tsx) —
+"Maršruto variantai" ekranas, kur jau rodoma optimizuota seka kandidatų kortelėse.
+
+**Drag&drop biblioteka:** patikrinau `package.json` — projekte tokios NĖRA. Pagal nurodymą
+naudojau paprastus ↑/↓ mygtukus (`moveManualStop()` sukeičia gretimus elementus masyve).
+
+**Srautas:**
+1. Mygtukas "Įjungti rankinį maršrutizavimą" — pasirodo, kai `request` jau apskaičiuotas.
+   Pirmą kartą įjungus, `manualOrder` inicializuojamas iš `selectedCandidate.stopSequence`
+   (patogus atspirties taškas, ne tuščia/pradinė importo tvarka).
+2. Įjungus — sąrašas SUSKLEISTAS (tik `index+1. adresas`), su ↑/↓ mygtukais kiekvienai eilutei
+   (kraštinės eilutės atitinkamai `disabled`). Paspaudus ant paties adreso teksto (atskiras
+   `Pressable`, NE tas pats, kuriame yra ↑/↓, kad išvengčiau įdėtų `Pressable` konfliktų
+   web'e) — išsiskleidžia adresas + svoris.
+3. "Perskaičiuoti su šia seka" — **RASTA IR PANAUDOTA jau esanti** `evaluateCandidate()`
+   funkcija ([src/domain/routing/evaluation/candidate-evaluator.ts](src/domain/routing/evaluation/candidate-evaluator.ts)),
+   kuri jau egzistavo kaip `improveWithLocalSearch()`'o pirmas žingsnis — ji apskaičiuoja
+   PILNĄ `RouteCandidate` (atstumas/laikas/grafikas/pažeidimai) FIKSUOTAI sekai, BE jokio
+   local-search patobulinimo. Tai tiksliai atitinka reikalavimą "ne optimizuoja iš naujo
+   automatiškai" — jokios naujos skaičiavimo logikos nerašiau, tik panaudojau esamą pure
+   funkciją nauju būdu.
+   - Kad `evaluateCandidate()` turėtų prieigą prie matricos be papildomo API skambučio,
+     pridėjau `matrix: TravelMatrix` lauką į `RouteOptimizationResult` tipą
+     ([src/domain/routing/models.ts](src/domain/routing/models.ts)) ir vieną eilutę
+     `routing-engine.ts`'e, kad jį grąžintų — matrica jau būdavo gaunama vidury `optimize()`,
+     tiesiog niekada nebuvo eksportuojama į iškvietėją. Adityvus, atgaline tvarka suderinamas
+     pakeitimas (patikrinta grep'u — jokia kita vieta nekuria `RouteOptimizationResult`
+     literalo be `matrix`).
+4. "Naudoti šią seką" — **PILNAS integravimas su esamu pasirinkimo/išsaugojimo mechanizmu**,
+   ne tik skaičiuoklė be išėjimo: sukuriamas naujas `RouteOptimizationResult`-formos objektas
+   su rankine kandidate kaip `recommended`/`candidates[0]`, išsaugomas per **jau esamą**
+   `SQLiteRoutingAuditRepository.saveOptimizationRun()` (naujas `routing_engine_runs` įrašas,
+   nauja `requestId`), tada **jau esamas** `SaveSelectedRouteCandidate` + `ActivateRoute` —
+   lygiai tas pats mechanizmas, kurį naudoja įprastas "Išsaugoti ir krautis" mygtukas. Jokios
+   naujos DB lentelės/stulpelio nereikėjo.
+
+**Patikrinta PILNAI gyvai per naršyklės testavimo įrankį** (po `.env` LAN IP pataisymo, žr.
+punktą #2 aukščiau — be šito geokodavimas visur grąžindavo "Failed to fetch"):
+1. Sukurtas naujas maršrutas rankiniu būdu (4 adresai), patikrinta, apskaičiuota →
+   "Rekomenduojamas 107 min · 15.8 km", seka: Konstitucijos pr. 7 → Ozo g. 25 → Savanorių pr. 1
+   → Gedimino pr. 9.
+2. Paspaudus "Įjungti rankinį maršrutizavimą" — pasirodė suskleistas sąrašas TA PAČIA
+   pradine seka.
+3. Paspaudus ↓ prie 1-o taško — sukeitė vietomis su 2-uoju (patvirtinta tekstu ekrane).
+4. Paspaudus "Perskaičiuoti su šia seka" — parodė **KITOKĮ, BLOGESNĮ** rezultatą
+   ("118 min · 18.7 km" vs originalus optimizuotas "107 min · 15.8 km") — tiksliai taip, kaip
+   tikėtasi: rankiniu būdu sudaryta (sąmoningai ne optimali) seka duoda blogesnius skaičius,
+   įrodo, kad tai TIKRAI fiksuotos sekos skaičiavimas, o ne pakartotinis optimizavimas.
+5. Paspaudus "Naudoti šią seką" — app'as pilnai perėjo į "Krovimasis" (loading) ekraną,
+   sustojimų sąrašas ten rodomas ATVIRKŠTINE tvarka (kaip krovimo ekranas visada daro) TIKSLIAI
+   pagal mano rankiniu būdu nustatytą seką (Gedimino pr. 9 → Savanorių pr. 1 → Konstitucijos
+   pr. 7 → Ozo g. 25) — patvirtina, kad `SaveSelectedRouteCandidate`/`ActivateRoute` realiai
+   priėmė ir pritaikė rankinę seką, ne tik parodė skaičius.
+
+**Pastaba dėl naršyklės įrankio patikimumo (sau ateičiai):** šioje sesijoje pastebėjau, kad
+paprastas sintetinis `element.click()` per JS kartais NEPASIEKIA `react-native-web`'o
+`Pressable` `onPress` handlerio (tikriausiai dėl gesture responder sistemos), o pilna
+`pointerdown`+`mousedown`+`pointerup`+`mouseup`+`click` event seka su teisingu `clientX/clientY`
+ant TIKSLAUS elemento (per `testID`/`data-testid`, kai įmanoma, arba per teksto mazgo tiesioginį
+tėvą) veikia patikimai. Grynas `computer` įrankio `left_click` su `ref` (ne koordinatėmis) taip
+pat veikė patikimai, kai `read_page` grąžindavo šviežią (ne cache'uotą iš ankstesnio ekrano)
+medį.
+
+## Patikrinimai po visų 3 punktų
+
+`tsc --noEmit` — 0 klaidų. `vitest run` — 467/467. Gyvai patikrinta per naršyklės testavimo
+įrankį (tamsi tema): #2 duomenų sluoksnis (laikinu vienetiniu testu su sintetiniu `.xlsx`) +
+kodo peržiūra (UI click-through nepasiektas dėl file-picker automatizavimo apribojimo,
+paaiškinta aukščiau); #3 pilnai, visas srautas nuo įjungimo iki realaus maršruto aktyvavimo su
+rankine seka.
+
+**Deploy STATUSAS: NEPALEISTAS.** Laukiama vartotojo komandos ir 6 dizaino variantų.

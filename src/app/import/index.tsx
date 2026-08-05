@@ -33,6 +33,7 @@ import {
   CancelDraftRoute,
   CreateDraftRouteWithStops,
   RouteCommandError,
+  type DraftStopInput,
 } from '@/application/routes/route-commands';
 import {
   importedDeliveriesToDraftStops,
@@ -44,6 +45,7 @@ import {
   LOGISTICS_EXCEL_V1,
   type ExcelColumnMapping,
   type ExcelImportPreview,
+  type ExcelSourceRow,
 } from '@/domain/import/excel-models';
 import type { ImportDocument, ImportField, ImportResult, ParsedDelivery } from '@/domain/import/models';
 import type { PlanningMode, RouteEndpoint } from '@/domain/route';
@@ -59,6 +61,13 @@ import { SQLiteImportAuditRepository } from '@/infrastructure/import/sqlite-impo
 import { spacing } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
+
+type ManualRowResolution = {
+  address: string;
+  latitude: number | null;
+  longitude: number | null;
+  addressValidationState: 'auto_confirmed' | 'unconfirmed';
+};
 
 export default function ImportScreen() {
   const router = useRouter();
@@ -85,6 +94,7 @@ export default function ImportScreen() {
   const [warehouseEndpoint, setWarehouseEndpoint] = useState<RouteEndpoint | null>(null);
   const [homeEndpoint, setHomeEndpoint] = useState<RouteEndpoint | null>(null);
   const addressResolver = useMemo(() => new GatewayAddressResolver(), []);
+  const [manualRowResolutions, setManualRowResolutions] = useState<Record<string, ManualRowResolution>>({});
   const creationInFlight = useRef(false);
   const creationCommandId = useRef<string | null>(null);
   const excelBytes = useRef<Uint8Array | null>(null);
@@ -515,6 +525,36 @@ export default function ImportScreen() {
       const endLocation: RouteEndpoint = endMode === 'home' ? homeEndpoint! : warehouseEndpoint;
       await new RouteEndPreference(db).save(endMode);
       await new PlanningModePreference(db).save(planningMode);
+      const baseStops = excelPreview
+        ? excelPreviewToDraftStops(excelPreview, result.deliveries)
+        : importedDeliveriesToDraftStops(result.deliveries);
+      // Rows that never made it into any Excel group (unrecognized address text) but
+      // the user manually resolved via the "N adreso(-ų) nepavyko atpažinti" warning
+      // card — appended as extra stops, offset past the base stops' order numbers.
+      const manualStops: DraftStopInput[] = excelPreview
+        ? Object.entries(manualRowResolutions).map(([rowId, resolution], index) => {
+            const row = excelPreview.rows.find((item) => item.id === rowId);
+            return {
+              sourceStopId: `excel-manual:${excelPreview.id}:${rowId}`,
+              originalOrder: baseStops.length + index + 1,
+              orderNumber: row?.orderNumber ?? null,
+              recipient: row?.recipient ?? null,
+              originalAddress: row?.rawColumnE ?? row?.rawColumnD ?? resolution.address,
+              geocodingQuery: resolution.address,
+              normalizedAddress: resolution.address,
+              addressValidationState: resolution.addressValidationState,
+              geocodingError: null,
+              latitude: resolution.latitude,
+              longitude: resolution.longitude,
+              deliveryTimeFrom: row?.deliveryTimeFrom ?? null,
+              deliveryTimeTo: row?.deliveryTimeTo ?? null,
+              requiredTimeWindow: Boolean(row?.deliveryTimeFrom && row?.deliveryTimeTo),
+              weightKg: row?.weightGrams ? row.weightGrams / 1000 : null,
+              phone: null,
+              notes: null,
+            } satisfies DraftStopInput;
+          })
+        : [];
       const created = await new CreateDraftRouteWithStops(db).execute({
         commandId: creationCommandId.current!,
         plannedDepartureAt: new Date().toISOString(),
@@ -533,9 +573,7 @@ export default function ImportScreen() {
           originalText: excelPreview ? JSON.stringify(excelPreview.summary) : result.ocr.text,
           imageReference: document?.uri ?? null,
         },
-        stops: excelPreview
-          ? excelPreviewToDraftStops(excelPreview, result.deliveries)
-          : importedDeliveriesToDraftStops(result.deliveries),
+        stops: [...baseStops, ...manualStops],
       });
       if (excelPreview) await excelRepository.markRouted(excelPreview.id, created.routeId);
       router.push({ pathname: '/route/[id]/review', params: { id: created.routeId } });
@@ -676,13 +714,26 @@ export default function ImportScreen() {
               <View style={styles.warningCard} testID="excel-unresolved-rows">
                 <Text style={styles.cardTitle}>⚠️ {unresolvedExcelRows.length} adreso(-ų) nepavyko atpažinti</Text>
                 <Text style={styles.helper}>
-                  Šios Excel eilutės NEPATEKO į maršrutą, nes adresas jose nebuvo atpažintas. Patikrinkite ir pataisykite adresą Excel faile arba įveskite jį rankiniu būdu žemiau.
+                  Šios Excel eilutės NEPATEKO į maršrutą, nes adresas jose nebuvo atpažintas. Pataisykite adresą žemiau ir bandykite dar kartą, arba pridėkite tašką rankiniu būdu.
                 </Text>
                 {unresolvedExcelRows.map((row) => (
-                  <View key={row.id} style={styles.excelRow}>
-                    <Text style={styles.label}>Eilutė {row.sourceRowNumber}</Text>
-                    <Text style={styles.issueText}>{row.rawColumnE ?? row.rawColumnD ?? '(tuščia)'}</Text>
-                  </View>
+                  <UnresolvedRowFixer
+                    key={row.id}
+                    row={row}
+                    styles={styles}
+                    colors={colors}
+                    resolver={addressResolver}
+                    resolution={manualRowResolutions[row.id]}
+                    onResolved={(rowId, resolution) => {
+                      setManualRowResolutions((current) => {
+                        if (!resolution) {
+                          const { [rowId]: _removed, ...rest } = current;
+                          return rest;
+                        }
+                        return { ...current, [rowId]: resolution };
+                      });
+                    }}
+                  />
                 ))}
               </View>
             ) : null}
@@ -939,6 +990,138 @@ function SourceButton({ styles, title, onPress }: { styles: ReturnType<typeof cr
   return <Pressable style={styles.sourceButton} onPress={onPress}><Text style={styles.secondaryText}>{title}</Text></Pressable>;
 }
 
+function UnresolvedRowFixer({
+  row,
+  styles,
+  colors,
+  resolver,
+  resolution,
+  onResolved,
+}: {
+  row: ExcelSourceRow;
+  styles: ReturnType<typeof createStyles>;
+  colors: ColorPalette;
+  resolver: GatewayAddressResolver;
+  resolution: ManualRowResolution | undefined;
+  onResolved: (rowId: string, resolution: ManualRowResolution | null) => void;
+}) {
+  const [address, setAddress] = useState(row.rawColumnE ?? row.rawColumnD ?? '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [showManualCoords, setShowManualCoords] = useState(false);
+  const [manualLat, setManualLat] = useState('');
+  const [manualLng, setManualLng] = useState('');
+
+  if (resolution) {
+    return (
+      <View style={styles.excelRow}>
+        <Text style={styles.label}>Eilutė {row.sourceRowNumber} · ✓ pridėta</Text>
+        <Text style={styles.high}>
+          {resolution.address}
+          {resolution.latitude === null ? ' (be koordinačių — patvirtinkite planavimo ekrane)' : ''}
+        </Text>
+        <Pressable style={styles.compactButton} onPress={() => onResolved(row.id, null)}>
+          <Text style={styles.linkText}>Taisyti iš naujo</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  const retryGeocode = async () => {
+    if (!address.trim() || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const candidates = await resolver.resolve(address.trim());
+      const best = candidates[0];
+      if (!best) {
+        setError('Adreso rasti nepavyko. Įveskite koordinates rankiniu būdu arba pridėkite be geokodavimo.');
+        return;
+      }
+      if (candidates.length === 1) {
+        onResolved(row.id, {
+          address: best.normalizedAddress,
+          latitude: best.latitude,
+          longitude: best.longitude,
+          addressValidationState: 'auto_confirmed',
+        });
+      } else {
+        onResolved(row.id, {
+          address: best.normalizedAddress,
+          latitude: best.latitude,
+          longitude: best.longitude,
+          addressValidationState: 'unconfirmed',
+        });
+        setError('Adresas neaiškus (keli variantai) — patikrinkite jį planavimo ekrane prieš skaičiuojant maršrutą.');
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Geokodavimas nepavyko.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const applyManualCoords = () => {
+    const lat = Number(manualLat.trim().replace(',', '.'));
+    const lng = Number(manualLng.trim().replace(',', '.'));
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+      setError('Neteisingos koordinatės. Formatas: platuma (pvz. 55.7418), ilguma (pvz. 24.3618).');
+      return;
+    }
+    onResolved(row.id, {
+      address: address.trim() || (row.rawColumnE ?? row.rawColumnD ?? 'Adresas'),
+      latitude: lat,
+      longitude: lng,
+      addressValidationState: 'auto_confirmed',
+    });
+    setError(null);
+  };
+
+  const addWithoutGeocoding = () => {
+    if (!address.trim()) {
+      setError('Įveskite adresą.');
+      return;
+    }
+    onResolved(row.id, {
+      address: address.trim(),
+      latitude: null,
+      longitude: null,
+      addressValidationState: 'unconfirmed',
+    });
+    setError(null);
+  };
+
+  return (
+    <View style={styles.excelRow}>
+      <Text style={styles.label}>Eilutė {row.sourceRowNumber}</Text>
+      <TextInput
+        value={address}
+        onChangeText={setAddress}
+        style={styles.input}
+        placeholder="Pataisytas adresas"
+        placeholderTextColor={colors.textMuted}
+      />
+      <Pressable disabled={busy || !address.trim()} style={[styles.secondaryButton, (busy || !address.trim()) && styles.disabled]} onPress={() => { void retryGeocode(); }}>
+        {busy ? <ActivityIndicator color={colors.primary} /> : <Text style={styles.secondaryText}>Bandyti geokoduoti iš naujo</Text>}
+      </Pressable>
+      {error ? <Text style={styles.danger}>{error}</Text> : null}
+      <Pressable style={styles.compactButton} onPress={() => setShowManualCoords((value) => !value)}>
+        <Text style={styles.linkText}>{showManualCoords ? 'Slėpti koordinačių įvedimą' : 'Įvesti koordinates rankiniu būdu'}</Text>
+      </Pressable>
+      {showManualCoords ? (
+        <View style={styles.fieldGroup}>
+          <TextInput value={manualLat} onChangeText={setManualLat} keyboardType="decimal-pad" placeholder="Platuma, pvz. 55.7418" placeholderTextColor={colors.textMuted} style={styles.input} />
+          <TextInput value={manualLng} onChangeText={setManualLng} keyboardType="decimal-pad" placeholder="Ilguma, pvz. 24.3618" placeholderTextColor={colors.textMuted} style={styles.input} />
+          <Pressable style={styles.secondaryButton} onPress={applyManualCoords}><Text style={styles.secondaryText}>Naudoti šias koordinates</Text></Pressable>
+        </View>
+      ) : null}
+      <Pressable style={styles.compactButton} onPress={addWithoutGeocoding}>
+        <Text style={styles.linkText}>Pridėti tašką be geokodavimo</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 function Choice(props: { styles: ReturnType<typeof createStyles>; label: string; selected: boolean; disabled?: boolean; onPress: () => void }) {
   const { styles } = props;
   return <Pressable disabled={props.disabled} style={[styles.choice, props.selected && styles.choiceSelected, props.disabled && styles.disabled]} onPress={props.onPress}><Text style={props.selected ? styles.choiceTextSelected : styles.choiceText}>{props.label}</Text></Pressable>;
@@ -1075,6 +1258,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   label: { color: colors.text, fontWeight: '700' },
   confidence: { fontWeight: '800' },
   input: { minHeight: 44, borderRadius: 12, borderWidth: 2, paddingHorizontal: spacing.md, color: colors.text, backgroundColor: colors.background },
+  linkText: { color: colors.primary, fontWeight: '700', textDecorationLine: 'underline' },
   high: { color: '#13795B' },
   warning: { color: '#A15C00' },
   danger: { color: '#B42318' },
