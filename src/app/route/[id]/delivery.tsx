@@ -3,7 +3,7 @@ import { Animated, BackHandler, Easing, KeyboardAvoidingView, Linking, Modal, Pl
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Circle } from 'react-native-svg';
+import Svg, { Circle, G, Line, Path, Rect } from 'react-native-svg';
 
 import { Alert } from '@/ui/alert';
 import { buildNavigationUrls, navigationTargetFromStop } from '@/application/navigation/navigation-url-builder';
@@ -34,17 +34,28 @@ import { SwipeActionCard } from '@/components/swipe-action-card';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import { DELIVERY_FAILURE_REASONS, deliveryMatchesFilter, type DeliveryFailureReason } from '@/domain/delivery-failure';
 import type { DeliveryFilter, DeliveryStop, Route } from '@/domain/route';
-import { colors, fonts, spacing } from '@/ui/tokens';
+import { fonts, spacing } from '@/ui/tokens';
+import { useTheme } from '@/ui/theme';
+import type { ColorPalette } from '@/ui/theme-palette';
 import { failedDeliveryLabel, userVisibleStopNote } from '@/ui/route-labels';
 import { etaLabel, legLabel, offlineEtaLabel, scheduleLabel, windowLabel } from '@/ui/route-eta-labels';
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+const AnimatedG = Animated.createAnimatedComponent(G);
+
+// Automotive-dashboard gauge geometry: a 270° sweep starting at "7:30" and
+// ending at "4:30" (like a speedometer), leaving a 90° gap at the bottom.
+const GAUGE_START_ANGLE = -225;
+const GAUGE_SWEEP = 270;
+const GAUGE_TICK_COUNT = 28;
 
 export default function DeliveryScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { id: routeId = '', redirectReason } = useLocalSearchParams<{ id: string; redirectReason?: string }>();
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const repository = useMemo(() => new RouteRepository(db), [db]);
   const [route, setRoute] = useState<Route | null>(null);
   const [stops, setStops] = useState<DeliveryStop[]>([]);
@@ -329,7 +340,8 @@ export default function DeliveryScreen() {
       {progress ? (
         <View style={styles.dashboard} testID="route-dashboard">
           <View style={styles.gaugeRow}>
-            <CircularGauge
+            <DashboardGauge
+              colors={colors}
               fraction={progress.totalKnownWeightKg > 0
                 ? (progress.totalKnownWeightKg - progress.remainingKnownWeightKg) / progress.totalKnownWeightKg
                 : 0}
@@ -337,7 +349,8 @@ export default function DeliveryScreen() {
               label={`${progress.remainingKnownWeightKg.toFixed(1)} kg`}
               sublabel="Likęs svoris"
             />
-            <CircularGauge
+            <DashboardGauge
+              colors={colors}
               fraction={progress.totalStops > 0 ? progress.deliveredStops / progress.totalStops : 0}
               color={colors.info}
               label={String(progress.remainingStops)}
@@ -359,12 +372,19 @@ export default function DeliveryScreen() {
           )}
           <View style={styles.statsRow}>
             <View style={styles.statItem}>
+              <ClockIcon color={colors.textMuted} />
               <Text style={styles.statValue}>{elapsedLabel(route?.startedAt ?? null)}</Text>
               <Text style={styles.statCaption}>Laikas kelyje</Text>
             </View>
             <View style={styles.statItem}>
+              <BoxIcon color={colors.textMuted} />
               <Text style={styles.statValue}>{progress.deliveredStops}/{progress.totalStops}</Text>
               <Text style={styles.statCaption}>Pristatyta / viso</Text>
+            </View>
+            <View style={styles.statItem}>
+              <RoadIcon color={colors.textMuted} />
+              <Text style={styles.statValue}>{progress.preliminaryRemainingDistanceKm?.toFixed(0) ?? '—'} km</Text>
+              <Text style={styles.statCaption}>Liko nuvažiuoti</Text>
             </View>
           </View>
           <Pressable
@@ -372,6 +392,7 @@ export default function DeliveryScreen() {
             testID="stop-route-button"
             style={[styles.stopRouteButton, busy && styles.disabled]}
             onPress={stopRoute}>
+            <StopIcon color="#fff" />
             <Text style={styles.stopRouteText}>Stabdyti maršrutą</Text>
           </Pressable>
         </View>
@@ -512,11 +533,15 @@ export default function DeliveryScreen() {
   );
 }
 
-function CircularGauge(props: { fraction: number; color: string; label: string; sublabel: string }) {
-  const size = 128;
+function DashboardGauge(props: { fraction: number; color: string; label: string; sublabel: string; colors: ColorPalette }) {
+  const { colors } = props;
+  const size = 148;
   const strokeWidth = 10;
-  const radius = (size - strokeWidth) / 2;
+  const radius = (size - strokeWidth) / 2 - 12;
+  const cx = size / 2;
+  const cy = size / 2;
   const circumference = 2 * Math.PI * radius;
+  const trackArcLength = (GAUGE_SWEEP / 360) * circumference;
   const clamped = Math.max(0, Math.min(1, Number.isFinite(props.fraction) ? props.fraction : 0));
   const animatedFraction = useRef(new Animated.Value(0)).current;
 
@@ -532,32 +557,125 @@ function CircularGauge(props: { fraction: number; color: string; label: string; 
 
   const strokeDashoffset = animatedFraction.interpolate({
     inputRange: [0, 1],
-    outputRange: [circumference, 0],
+    outputRange: [trackArcLength, 0],
+  });
+  const needleRotation = animatedFraction.interpolate({
+    inputRange: [0, 1],
+    outputRange: [GAUGE_START_ANGLE + 90, GAUGE_START_ANGLE + GAUGE_SWEEP + 90],
   });
 
+  const ticks = Array.from({ length: GAUGE_TICK_COUNT }, (_, index) => {
+    const angle = GAUGE_START_ANGLE + (index / (GAUGE_TICK_COUNT - 1)) * GAUGE_SWEEP;
+    const rad = (angle * Math.PI) / 180;
+    const major = index % 7 === 0;
+    const outerR = radius + strokeWidth / 2 + 3;
+    const innerR = outerR - (major ? 9 : 4);
+    return {
+      key: index,
+      major,
+      x1: cx + innerR * Math.cos(rad),
+      y1: cy + innerR * Math.sin(rad),
+      x2: cx + outerR * Math.cos(rad),
+      y2: cy + outerR * Math.sin(rad),
+    };
+  });
+
+  const needleLength = radius - 14;
+
   return (
-    <View style={styles.gauge}>
+    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
       <Svg width={size} height={size}>
-        <Circle cx={size / 2} cy={size / 2} r={radius} stroke={colors.border} strokeWidth={strokeWidth} fill="none" />
+        {ticks.map((tick) => (
+          <Line
+            key={tick.key}
+            x1={tick.x1}
+            y1={tick.y1}
+            x2={tick.x2}
+            y2={tick.y2}
+            stroke={tick.major ? colors.textMuted : colors.border}
+            strokeWidth={tick.major ? 2 : 1}
+          />
+        ))}
+        <Circle
+          cx={cx}
+          cy={cy}
+          r={radius}
+          stroke={colors.border}
+          strokeWidth={strokeWidth}
+          fill="none"
+          strokeDasharray={`${trackArcLength}, ${circumference}`}
+          rotation={GAUGE_START_ANGLE}
+          origin={`${cx}, ${cy}`}
+        />
         <AnimatedCircle
-          cx={size / 2}
-          cy={size / 2}
+          cx={cx}
+          cy={cy}
           r={radius}
           stroke={props.color}
           strokeWidth={strokeWidth}
           fill="none"
-          strokeDasharray={`${circumference}, ${circumference}`}
+          strokeDasharray={`${trackArcLength}, ${circumference}`}
           strokeDashoffset={strokeDashoffset}
           strokeLinecap="round"
-          rotation="-90"
-          origin={`${size / 2}, ${size / 2}`}
+          rotation={GAUGE_START_ANGLE}
+          origin={`${cx}, ${cy}`}
         />
+        <AnimatedG rotation={needleRotation} origin={`${cx}, ${cy}`}>
+          <Line x1={cx} y1={cy} x2={cx} y2={cy - needleLength} stroke={props.color} strokeWidth={3} strokeLinecap="round" />
+        </AnimatedG>
+        <Circle cx={cx} cy={cy} r={5} fill={props.color} stroke={colors.surface} strokeWidth={2} />
       </Svg>
-      <View style={styles.gaugeCenter} pointerEvents="none">
-        <Text style={styles.gaugeLabel}>{props.label}</Text>
-        <Text style={styles.gaugeSublabel}>{props.sublabel}</Text>
+      <View style={{ position: 'absolute', alignItems: 'center', justifyContent: 'center', top: size * 0.58 }} pointerEvents="none">
+        <Text style={{ color: colors.text, fontSize: 18, fontWeight: '800', fontFamily: fonts.mono }}>{props.label}</Text>
+        <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: '700', marginTop: 2, textAlign: 'center' }}>{props.sublabel}</Text>
       </View>
     </View>
+  );
+}
+
+function ClockIcon({ color }: { color: string }) {
+  return (
+    <Svg width={16} height={16} viewBox="0 0 24 24">
+      <Circle cx={12} cy={12} r={9} stroke={color} strokeWidth={2} fill="none" />
+      <Path d="M12 7v5l3.5 2" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+    </Svg>
+  );
+}
+
+function BoxIcon({ color }: { color: string }) {
+  return (
+    <Svg width={16} height={16} viewBox="0 0 24 24">
+      <Path
+        d="M4 8l8-4 8 4-8 4-8-4zm0 0v8l8 4m0-12v12m8-12v8l-8 4"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+      />
+    </Svg>
+  );
+}
+
+function RoadIcon({ color }: { color: string }) {
+  return (
+    <Svg width={16} height={16} viewBox="0 0 24 24">
+      <Path
+        d="M4 20c0-6 6-4 6-10S4 4 4 4M20 20c0-6-6-4-6-10s6-6 6-6"
+        stroke={color}
+        strokeWidth={2}
+        strokeLinecap="round"
+        fill="none"
+      />
+    </Svg>
+  );
+}
+
+function StopIcon({ color }: { color: string }) {
+  return (
+    <Svg width={16} height={16} viewBox="0 0 24 24">
+      <Rect x={5} y={5} width={14} height={14} rx={2} fill={color} />
+    </Svg>
   );
 }
 
@@ -586,23 +704,19 @@ function signed(value: number | null, unit: string): string {
   return `${value > 0 ? '+' : ''}${value.toFixed(1)} ${unit}`;
 }
 
-const styles = StyleSheet.create({
-  dashboard: { gap: spacing.md },
+const createStyles = (colors: ColorPalette) => StyleSheet.create({
+  dashboard: { gap: spacing.md, backgroundColor: colors.background },
   gaugeRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: spacing.lg },
-  gauge: { width: 128, height: 128, alignItems: 'center', justifyContent: 'center' },
-  gaugeCenter: { position: 'absolute', alignItems: 'center', justifyContent: 'center' },
-  gaugeLabel: { color: colors.text, fontSize: 20, fontWeight: '800', fontFamily: fonts.mono },
-  gaugeSublabel: { color: colors.textMuted, fontSize: 12, fontWeight: '700', marginTop: 2, textAlign: 'center' },
   nextStopCard: { padding: spacing.md, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.xs },
   dashboardCardLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '800', letterSpacing: 0.8 },
   nextStopAddress: { color: colors.text, fontSize: 18, fontWeight: '800' },
   nextStopMeta: { color: colors.textMuted, lineHeight: 20 },
   nextStopEta: { color: colors.info, fontSize: 16, fontWeight: '800' },
-  statsRow: { flexDirection: 'row', gap: spacing.md },
-  statItem: { flex: 1, padding: spacing.md, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: 'center', gap: 2 },
-  statValue: { color: colors.text, fontSize: 20, fontWeight: '800', fontFamily: fonts.mono },
-  statCaption: { color: colors.textMuted, fontSize: 12, fontWeight: '700' },
-  stopRouteButton: { minHeight: 56, borderRadius: 16, backgroundColor: colors.danger, alignItems: 'center', justifyContent: 'center' },
+  statsRow: { flexDirection: 'row', gap: spacing.sm },
+  statItem: { flex: 1, padding: spacing.sm, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: 'center', gap: 4 },
+  statValue: { color: colors.text, fontSize: 18, fontWeight: '800', fontFamily: fonts.mono },
+  statCaption: { color: colors.textMuted, fontSize: 11, fontWeight: '700', textAlign: 'center' },
+  stopRouteButton: { minHeight: 56, borderRadius: 16, backgroundColor: colors.danger, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm },
   stopRouteText: { color: '#fff', fontWeight: '800', fontSize: 16 },
   summary: { padding: spacing.md, borderRadius: 16, backgroundColor: colors.primarySoft, gap: spacing.xs },
   reminder: { padding: spacing.md, borderRadius: 16, borderWidth: 1, borderColor: colors.warning, backgroundColor: colors.surface, gap: spacing.sm },
