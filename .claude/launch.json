@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "expo-web",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["expo", "start", "--web"],
+      "port": 8081
+    },
+    {
+      "name": "gateway",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["tsx", "./gateway/server.ts"],
+      "port": 8787
+    }
+  ]
+}

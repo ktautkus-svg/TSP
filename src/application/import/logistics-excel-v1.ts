@@ -25,7 +25,7 @@ export type ParseLogisticsExcelOptions = {
   template?: LogisticsExcelTemplate;
 };
 
-const STREET_MARKER = /\b(?:g\.|gatv(?:ė|e)|pr\.|prospekt(?:as|o)|pl\.|plentas|kelias|takas|tak\.|al\.|alėja|aikšt(?:ė|e)|skg\.)\s*\d/iu;
+const STREET_MARKER = /\b(?:g\.|gatv(?:ė|e)|pr\.|prospekt(?:as|o)|pl\.|plentas|kelias|takas|tak\.|al\.|alėja|aikšt(?:ė|e)|a\.|skg\.)\s*\d/iu;
 const ORDER_NUMBER = /^\p{L}{1,3}\d{5,}[\p{L}\d-]*$/iu;
 const ROUTE_CODE = /^[A-Z]{1,3}\d{2,4}$/iu;
 
@@ -151,7 +151,7 @@ export function normalizeLithuanianAddress(
     .trim()
     .replace(/\s+/g, ' ')
     .replace(/([A-ZĄČĘĖĮŠŲŪŽ])\.(?=[A-ZĄČĘĖĮŠŲŪŽ])/gu, '$1. ')
-    .replace(/\b(g|pr|pl|al|skg)\.(?=\d)/giu, '$1. ')
+    .replace(/\b(g|pr|pl|al|a|skg)\.(?=\d)/giu, '$1. ')
     .replace(/(\d+[A-Za-z]?)(?=[A-ZĄČĘĖĮŠŲŪŽ][a-ząčęėįšųūž])/gu, '$1, ')
     .replace(/\s*,\s*/g, ', ')
     .replace(/,+/g, ',')
@@ -492,7 +492,7 @@ function supplierTokenPattern(token: string): string {
   return escapeRegExp(token);
 }
 
-function looksLikeAddress(value: string): boolean {
+export function looksLikeAddress(value: string): boolean {
   return STREET_MARKER.test(value.replace(/([A-Za-zĄČĘĖĮŠŲŪŽąčęėįšųūž])\.(?=\d)/g, '$1. '));
 }
 
@@ -500,7 +500,7 @@ function looksLikeLooseStreetAddress(value: string): boolean {
   return /^\p{L}[\p{L}\s.'’‘-]+\s\d+[A-ZĄČĘĖĮŠŲŪŽ]?(?:\s*,.*)?$/iu.test(value.trim());
 }
 
-function extractAddressText(value: string | null): string | null {
+export function extractAddressText(value: string | null): string | null {
   if (!value) return null;
   const lines = value
     .split(/\r?\n/)

@@ -18,6 +18,7 @@ import {
   MarkAllStopsLoaded,
   MarkStopDelivered,
   MarkStopFailed,
+  AddStopDuringDelivery,
   MarkStopLoaded,
   MarkStopUnloaded,
   parseOdometer,
@@ -517,6 +518,55 @@ describe('reopen route for planning', () => {
     const { db } = createDb();
     await startedRoute(db);
     await expect(new ReopenRouteForPlanning(db).execute('route-1')).rejects.toThrow();
+  });
+});
+
+describe('add stop during delivery', () => {
+  const newStop = {
+    originalAddress: 'Katedros a. 4, Vilnius',
+    normalizedAddress: 'Katedros a. 4, Vilnius, Lietuva',
+    latitude: 54.6841,
+    longitude: 25.2876,
+    weightKg: 12.5,
+    recipient: 'Naujas klientas',
+  };
+
+  it('inserts a new pending stop and recomputes route totals from live delivery status (not treating delivered stops as remaining)', async () => {
+    const { db } = createDb();
+    await startedRoute(db); // route-1: stop-1 & stop-2, both loaded, route in_progress
+    await new MarkStopDelivered(db).execute('route-1', 'stop-1');
+
+    const { stopId } = await new AddStopDuringDelivery(db).execute('route-1', newStop);
+    const stops = await new RouteRepository(db).getStops('route-1');
+    const added = stops.find((item) => item.id === stopId)!;
+    expect(added.deliveryStatus).toBe('pending');
+    expect(added.loadingStatus).toBe('loaded');
+    expect(added.addressValidationState).toBe('auto_confirmed');
+    expect(added.latitude).toBe(newStop.latitude);
+    expect(added.longitude).toBe(newStop.longitude);
+    expect(added.weightKg).toBe(newStop.weightKg);
+    expect(added.recipient).toBe(newStop.recipient);
+
+    const route = await new RouteRepository(db).getById('route-1');
+    // stop-1 delivered (10kg), stop-2 pending (null weight), new stop pending (12.5kg)
+    expect(route?.totalStops).toBe(3);
+    expect(route?.remainingStops).toBe(2); // stop-2 + new stop, NOT stop-1 (already delivered)
+    expect(route?.totalWeightKg).toBe(22.5);
+    expect(route?.remainingWeightKg).toBe(12.5); // only the new stop has known weight among the pending ones
+  });
+
+  it('refuses to add a stop before the route is in progress', async () => {
+    const { db } = createDb();
+    await loadingRoute(db); // route-1 is still 'loading', not 'in_progress'
+    await expect(new AddStopDuringDelivery(db).execute('route-1', newStop)).rejects.toThrow();
+  });
+
+  it('rejects an unconfirmed address or invalid coordinates', async () => {
+    const { db } = createDb();
+    await startedRoute(db);
+    await expect(new AddStopDuringDelivery(db).execute('route-1', { ...newStop, normalizedAddress: '' })).rejects.toThrow();
+    await expect(new AddStopDuringDelivery(db).execute('route-1', { ...newStop, latitude: Number.NaN })).rejects.toThrow();
+    await expect(new AddStopDuringDelivery(db).execute('route-1', { ...newStop, weightKg: -1 })).rejects.toThrow();
   });
 });
 

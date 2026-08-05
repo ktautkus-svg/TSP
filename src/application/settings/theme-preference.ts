@@ -9,7 +9,11 @@ export class ThemePreference {
     const row = await this.db.getFirstAsync<{ value: string }>(
       "SELECT value FROM app_preferences WHERE key = 'theme_preference'",
     );
-    return row?.value === 'light' || row?.value === 'dark' ? row.value : 'system';
+    if (row?.value === 'light' || row?.value === 'dark' || row?.value === 'system') return row.value;
+    // No preference saved yet (first launch): default to dark rather than
+    // following the system theme, per explicit product decision. The user
+    // can still switch to Šviesus/Sistema in Settings at any time.
+    return 'dark';
   }
 
   async save(value: ThemeMode, now = new Date().toISOString()): Promise<void> {

@@ -7,7 +7,9 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import { excelPreviewToDraftStops, excelPreviewToImportResult } from '../../src/application/import/excel-route-mapper';
 import {
+  extractAddressText,
   filterExcelPreviewByRouteCodes,
+  looksLikeAddress,
   normalizeLithuanianAddress,
   parseLithuanianWeightToGrams,
   parseLogisticsExcelWorkbook,
@@ -110,6 +112,16 @@ describe('LOGISTICS_EXCEL_V1 direct cell parser', () => {
     ['Architektų g.9CŠiauliai', 'Architektų g. 9C, Šiauliai, Lietuva'],
   ])('normalizes missing spaces in %s', (raw, normalized) => {
     expect(normalizeLithuanianAddress(raw, 'Šiauliai', 'Lietuva')).toBe(normalized);
+  });
+
+  it.each([
+    'Katedros a. 4',
+    'Katedros a.4',
+    'Katedros a. 4, Vilnius',
+  ])('recognizes an "aikštė" (square) address abbreviated as "a." — %s — instead of silently dropping it', (raw) => {
+    expect(looksLikeAddress(raw)).toBe(true);
+    expect(extractAddressText(raw)).not.toBeNull();
+    expect(normalizeLithuanianAddress(extractAddressText(raw)!, 'Vilnius', 'Lietuva')).toContain('Katedros a. 4');
   });
 
   it('accepts a street-name address even when the source omits the street suffix', () => {

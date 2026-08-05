@@ -14,6 +14,7 @@ import {
 } from '@/application/routes/route-recalculation';
 import { CancelDraftRoute } from '@/application/routes/route-commands';
 import {
+  AddStopDuringDelivery,
   BeginRouteCompletion,
   CompleteRoute,
   GetLatestUndoableAction,
@@ -32,6 +33,7 @@ import { RefreshRouteEtas } from '@/application/routes/route-eta';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { SwipeActionCard } from '@/components/swipe-action-card';
 import { RouteRepository } from '@/database/repositories/route-repository';
+import { GatewayGeocodingProvider } from '@/infrastructure/routing/providers/gateway-geocoding-provider';
 import { DELIVERY_FAILURE_REASONS, deliveryMatchesFilter, type DeliveryFailureReason } from '@/domain/delivery-failure';
 import type { DeliveryFilter, DeliveryStop, Route } from '@/domain/route';
 import { fonts, spacing } from '@/ui/tokens';
@@ -48,6 +50,11 @@ const AnimatedG = Animated.createAnimatedComponent(G);
 const GAUGE_START_ANGLE = -225;
 const GAUGE_SWEEP = 270;
 const GAUGE_TICK_COUNT = 28;
+
+// Whichever of deliveredAt/failedAt is set is when the stop was resolved.
+function recalcTimestamp(stop: DeliveryStop): string | null {
+  return stop.deliveryStatus === 'delivered' ? stop.deliveredAt : stop.deliveryStatus === 'failed' ? stop.failedAt : null;
+}
 
 export default function DeliveryScreen() {
   const db = useSQLiteContext();
@@ -72,8 +79,13 @@ export default function DeliveryScreen() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [expandedStopId, setExpandedStopId] = useState<string | null>(null);
+  const [showAddStop, setShowAddStop] = useState(false);
+  const [newStopAddress, setNewStopAddress] = useState('');
+  const [newStopWeight, setNewStopWeight] = useState('');
+  const [addingStop, setAddingStop] = useState(false);
   const completionDismissed = useRef(false);
   const draftSaveQueue = useRef<Promise<void>>(Promise.resolve());
+  const geocoder = useMemo(() => new GatewayGeocodingProvider(), []);
 
   const load = useCallback(async () => {
     try {
@@ -161,6 +173,54 @@ export default function DeliveryScreen() {
       await load();
     } catch (reason) {
       Alert.alert('Sekos pakeisti nepavyko', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
+    }
+  };
+
+  const addStop = async () => {
+    const address = newStopAddress.trim();
+    if (!address || addingStop) return;
+    setAddingStop(true);
+    try {
+      const response = await geocoder.geocode(address);
+      if (!response.isUnambiguous || !response.result) {
+        Alert.alert(
+          'Adresas neatpažintas vienareikšmiškai',
+          'Pabandykite įvesti tikslesnį adresą (su miestu ar gatvės numeriu).',
+        );
+        return;
+      }
+      const weightText = newStopWeight.trim().replace(',', '.');
+      const weightKg = weightText ? Number(weightText) : null;
+      if (weightKg !== null && (!Number.isFinite(weightKg) || weightKg < 0)) {
+        Alert.alert('Neteisingas svoris', 'Įveskite teigiamą skaičių arba palikite tuščią.');
+        return;
+      }
+      await new AddStopDuringDelivery(db).execute(routeId, {
+        originalAddress: address,
+        normalizedAddress: response.result.normalizedAddress,
+        latitude: response.result.latitude,
+        longitude: response.result.longitude,
+        weightKg,
+      });
+      setNewStopAddress('');
+      setNewStopWeight('');
+      setShowAddStop(false);
+      await load();
+      // Anchor recalculation on the most recently completed stop, so the new
+      // stop gets positioned "according to the route" (per closest-to-current
+      // travel cost) rather than just appended at the end.
+      const anchor = [...stops]
+        .filter((stop) => stop.deliveryStatus === 'delivered' || stop.deliveryStatus === 'failed')
+        .sort((left, right) => (recalcTimestamp(right) ?? '').localeCompare(recalcTimestamp(left) ?? ''))[0];
+      if (anchor) {
+        await proposeRecalculation(anchor.id);
+      } else {
+        Alert.alert('Taškas pridėtas', 'Kadangi dar nė vienas taškas nepristatytas, naujas taškas pridėtas sekos gale. Perskaičiuoti pagal maršrutą galėsite pristatę bent vieną tašką.');
+      }
+    } catch (reason) {
+      Alert.alert('Nepavyko pridėti taško', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
+    } finally {
+      setAddingStop(false);
     }
   };
 
@@ -301,9 +361,13 @@ export default function DeliveryScreen() {
     return stop ? (stop.recipient || stop.normalizedAddress || stop.originalAddress) : stopId;
   };
   const visibleStops = stops.filter((stop) => deliveryMatchesFilter(filter, stop.deliveryStatus));
+  // Anchor on whichever non-pending stop was resolved most recently — a
+  // failed stop OR a delivered one — so recalculation is offerable right
+  // after a normal delivery too (e.g. adding a new stop mid-route), not
+  // only after a failure.
   const recalculationAnchor = [...stops]
-    .filter((stop) => stop.deliveryStatus === 'failed')
-    .sort((left, right) => (right.failedAt ?? '').localeCompare(left.failedAt ?? ''))[0] ?? null;
+    .filter((stop) => stop.deliveryStatus === 'failed' || stop.deliveryStatus === 'delivered')
+    .sort((left, right) => (recalcTimestamp(right) ?? '').localeCompare(recalcTimestamp(left) ?? ''))[0] ?? null;
   const canRecalculateRemaining = Boolean(recalculationAnchor && stops.some((stop) => stop.deliveryStatus === 'pending'));
   const nextStop = stops.find((stop) => stop.deliveryStatus === 'pending') ?? null;
 
@@ -353,7 +417,7 @@ export default function DeliveryScreen() {
               colors={colors}
               fraction={progress.totalStops > 0 ? progress.deliveredStops / progress.totalStops : 0}
               color={colors.info}
-              label={String(progress.remainingStops)}
+              label={String(progress.totalStops - progress.deliveredStops)}
               sublabel="Likę taškai"
             />
           </View>
@@ -397,14 +461,6 @@ export default function DeliveryScreen() {
           </Pressable>
         </View>
       ) : null}
-      {progress ? (
-        <View style={styles.summary} testID="delivery-progress">
-          <Text style={styles.heading}>Pristatyta {progress.deliveredStops} / {progress.totalStops} ({progress.deliveryPercent}%)</Text>
-          <Text style={styles.meta}>Liko {progress.remainingStops} · {progress.remainingKnownWeightKg.toFixed(1)} kg žinomo svorio</Text>
-          {progress.remainingUnknownWeightStops ? <Text style={styles.meta}>{progress.remainingUnknownWeightStops} likusių taškų svoris nežinomas</Text> : null}
-          <Text style={styles.meta}>Preliminariai liko: {progress.preliminaryRemainingDistanceKm?.toFixed(1) ?? '—'} km</Text>
-        </View>
-      ) : null}
       {route?.startOdometer === null ? (
         <View style={styles.reminder}>
           <Text style={styles.heading}>Trūksta pradinio odometro</Text>
@@ -413,6 +469,39 @@ export default function DeliveryScreen() {
         </View>
       ) : null}
       {undo ? <Pressable style={styles.undoButton} onPress={undoLast}><Text style={styles.undoText}>Atšaukti paskutinį veiksmą</Text></Pressable> : null}
+      <Pressable
+        testID="toggle-add-stop"
+        style={styles.secondaryButton}
+        onPress={() => setShowAddStop((value) => !value)}>
+        <Text style={styles.secondaryText}>{showAddStop ? 'Atšaukti naujo taško pridėjimą' : '+ Pridėti tašką'}</Text>
+      </Pressable>
+      {showAddStop ? (
+        <View style={styles.reminder} testID="add-stop-form">
+          <Text style={styles.heading}>Naujas taškas</Text>
+          <TextInput
+            testID="add-stop-address"
+            value={newStopAddress}
+            onChangeText={setNewStopAddress}
+            placeholder="Adresas, pvz. Katedros a. 4, Vilnius"
+            style={styles.input}
+          />
+          <TextInput
+            testID="add-stop-weight"
+            value={newStopWeight}
+            onChangeText={setNewStopWeight}
+            keyboardType="decimal-pad"
+            placeholder="Svoris, kg (nebūtina)"
+            style={styles.input}
+          />
+          <Pressable
+            testID="add-stop-submit"
+            disabled={addingStop || !newStopAddress.trim()}
+            style={[styles.secondaryButton, (addingStop || !newStopAddress.trim()) && styles.disabled]}
+            onPress={() => { void addStop(); }}>
+            <Text style={styles.secondaryText}>{addingStop ? 'Pridedama…' : 'Pridėti tašką'}</Text>
+          </Pressable>
+        </View>
+      ) : null}
       <View style={styles.filters}>
         {(['undelivered', 'all', 'delivered', 'failed'] as DeliveryFilter[]).map((value) => (
           <Pressable key={value} onPress={() => setFilter(value)}><Text style={filter === value ? styles.active : styles.filter}>{filterLabel(value)}</Text></Pressable>
@@ -718,7 +807,6 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   statCaption: { color: colors.textMuted, fontSize: 11, fontWeight: '700', textAlign: 'center' },
   stopRouteButton: { minHeight: 56, borderRadius: 16, backgroundColor: colors.danger, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm },
   stopRouteText: { color: '#fff', fontWeight: '800', fontSize: 16 },
-  summary: { padding: spacing.md, borderRadius: 16, backgroundColor: colors.primarySoft, gap: spacing.xs },
   reminder: { padding: spacing.md, borderRadius: 16, borderWidth: 1, borderColor: colors.warning, backgroundColor: colors.surface, gap: spacing.sm },
   filters: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   filter: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: 999, color: colors.text, backgroundColor: colors.surface, overflow: 'hidden' },

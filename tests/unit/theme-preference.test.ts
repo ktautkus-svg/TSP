@@ -46,28 +46,31 @@ function createDb(through = 11): SQLiteDatabase {
 }
 
 describe('ThemePreference', () => {
-  it('defaults to system when nothing is stored', async () => {
+  it('defaults to dark when nothing is stored (first launch, before any user choice)', async () => {
     const db = createDb();
-    expect(await new ThemePreference(db).get()).toBe('system');
+    expect(await new ThemePreference(db).get()).toBe('dark');
   });
 
-  it('persists and reloads the chosen mode', async () => {
+  it('persists and reloads the chosen mode, including an explicit system choice', async () => {
     const db = createDb();
     const preference = new ThemePreference(db);
-    await preference.save('dark');
-    expect(await preference.get()).toBe('dark');
-
     await preference.save('light');
     expect(await preference.get()).toBe('light');
+
+    await preference.save('system');
+    expect(await preference.get()).toBe('system');
+
+    await preference.save('dark');
+    expect(await preference.get()).toBe('dark');
   });
 
-  it('falls back to system for an unexpected stored value', async () => {
+  it('falls back to dark for an unexpected stored value', async () => {
     const db = createDb();
     await db.runAsync(
       `INSERT INTO app_preferences (key, value, updated_at) VALUES ('theme_preference', 'garbled', ?)`,
       new Date().toISOString(),
     );
-    expect(await new ThemePreference(db).get()).toBe('system');
+    expect(await new ThemePreference(db).get()).toBe('dark');
   });
 });
 

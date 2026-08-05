@@ -1,7 +1,50 @@
 import { createBaseRequest } from '@/domain/routing/scenarios';
-import type { RouteOptimizationRequest } from '@/domain/routing/models';
+import type { OptimizationStop, RouteOptimizationRequest } from '@/domain/routing/models';
 import type { DeliveryStop, Route } from '@/domain/route';
 import { normalizeProviderDepartureAt } from '@/application/parsing/text-parser';
+
+/**
+ * Shared DeliveryStop -> OptimizationStop mapping, used both for the initial
+ * plan (buildOptimizationRequestFromRoute) and for mid-route recalculation
+ * (route-recalculation.ts), so a stop added after the route already started
+ * gets exactly the same shape as one planned from the start.
+ */
+export function buildOptimizationStop(
+  stop: DeliveryStop,
+  route: Pick<Route, 'planningMode'>,
+  plannedDepartureAt: string,
+): OptimizationStop {
+  if (stop.addressValidationState !== 'auto_confirmed' || stop.latitude === null || stop.longitude === null || !stop.normalizedAddress) {
+    throw new Error(`Taškas „${stop.originalAddress}“ dar neturi patvirtintų koordinačių.`);
+  }
+  return {
+    id: stop.id,
+    location: {
+      id: stop.id,
+      label: stop.recipient || stop.normalizedAddress,
+      address: stop.normalizedAddress,
+      latitude: stop.latitude,
+      longitude: stop.longitude,
+    },
+    weightKg: stop.weightKg,
+    serviceDurationMinutes: stop.serviceDurationMinutes,
+    informationalTimeWindow:
+      stop.deliveryTimeFrom && stop.deliveryTimeTo
+        ? absoluteWindow(stop.deliveryTimeFrom, stop.deliveryTimeTo, plannedDepartureAt)
+        : undefined,
+    requiredTimeWindow:
+      route.planningMode === 'with_time_windows' && stop.requiredTimeWindow && stop.deliveryTimeFrom && stop.deliveryTimeTo
+        ? absoluteWindow(stop.deliveryTimeFrom, stop.deliveryTimeTo, plannedDepartureAt)
+        : undefined,
+    priority: stop.priorityFirst ? 5 : 1,
+    deliverBeforeStopIds: [],
+    deliverAfterStopIds: [],
+    preferEarly: false,
+    preferLate: false,
+    mustBeFirst: stop.priorityFirst,
+    mustBeLast: false,
+  };
+}
 
 export function buildOptimizationRequestFromRoute(
   route: Route,
@@ -36,33 +79,7 @@ export function buildOptimizationRequestFromRoute(
     latitude: end.latitude!,
     longitude: end.longitude!,
   };
-  const optimizationStops = stops.map((stop) => ({
-    id: stop.id,
-    location: {
-      id: stop.id,
-      label: stop.recipient || stop.normalizedAddress!,
-      address: stop.normalizedAddress!,
-      latitude: stop.latitude!,
-      longitude: stop.longitude!,
-    },
-    weightKg: stop.weightKg,
-    serviceDurationMinutes: stop.serviceDurationMinutes,
-    informationalTimeWindow:
-      stop.deliveryTimeFrom && stop.deliveryTimeTo
-        ? absoluteWindow(stop.deliveryTimeFrom, stop.deliveryTimeTo, plannedDepartureAt)
-        : undefined,
-    requiredTimeWindow:
-      route.planningMode === 'with_time_windows' && stop.requiredTimeWindow && stop.deliveryTimeFrom && stop.deliveryTimeTo
-        ? absoluteWindow(stop.deliveryTimeFrom, stop.deliveryTimeTo, plannedDepartureAt)
-        : undefined,
-    priority: stop.priorityFirst ? 5 : 1,
-    deliverBeforeStopIds: [],
-    deliverAfterStopIds: [],
-    preferEarly: false,
-    preferLate: false,
-    mustBeFirst: stop.priorityFirst,
-    mustBeLast: false,
-  }));
+  const optimizationStops = stops.map((stop) => buildOptimizationStop(stop, route, plannedDepartureAt));
   return {
     ...base,
     routeId: route.id,

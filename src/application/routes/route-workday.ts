@@ -371,6 +371,87 @@ export class ReverseStopOrder extends WorkdayCommand {
   }
 }
 
+export type AddStopDuringDeliveryInput = {
+  originalAddress: string;
+  normalizedAddress: string;
+  latitude: number;
+  longitude: number;
+  weightKg: number | null;
+  recipient?: string | null;
+  notes?: string | null;
+};
+
+export class AddStopDuringDelivery extends WorkdayCommand {
+  /** Lets the driver add a new stop (e.g. an unplanned pickup) once the route is already in progress. */
+  async execute(routeId: string, input: AddStopDuringDeliveryInput): Promise<{ stopId: string }> {
+    const route = await this.route(routeId);
+    if (route.status !== 'in_progress') {
+      throw new RouteCommandError('INVALID_ROUTE_STATE', 'Naują tašką galima pridėti tik vykdomame maršrute.');
+    }
+    if (!input.originalAddress.trim() || !input.normalizedAddress.trim()) {
+      throw new RouteCommandError('INVALID_STOP', 'Adresas privalomas.');
+    }
+    if (!Number.isFinite(input.latitude) || !Number.isFinite(input.longitude)) {
+      throw new RouteCommandError('INVALID_STOP', 'Adreso koordinatės nepatvirtintos.');
+    }
+    if (input.weightKg !== null && (!Number.isFinite(input.weightKg) || input.weightKg < 0)) {
+      throw new RouteCommandError('INVALID_STOP', 'Svoris turi būti teigiamas skaičius.');
+    }
+    const stopId = this.idFactory('stop');
+    const now = this.clock();
+    await this.db.withTransactionAsync(async () => {
+      const orders = await this.db.getFirstAsync<{ maxOriginal: number; maxActive: number }>(
+        `SELECT COALESCE(MAX(original_order), 0) AS maxOriginal, COALESCE(MAX(active_order), 0) AS maxActive
+         FROM delivery_stops WHERE route_id = ?`,
+        routeId,
+      );
+      const originalOrder = (orders?.maxOriginal ?? 0) + 1;
+      const activeOrder = (orders?.maxActive ?? 0) + 1;
+      await this.db.runAsync(
+        `INSERT INTO delivery_stops (
+          id, route_id, original_order, active_order, recipient, address,
+          original_address, geocoding_query, normalized_address, address_validation_state,
+          latitude, longitude, weight_kg, notes, loading_status, delivery_status,
+          created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'auto_confirmed', ?, ?, ?, ?, 'loaded', 'pending', ?, ?)`,
+        stopId,
+        routeId,
+        originalOrder,
+        activeOrder,
+        input.recipient?.trim() || '',
+        input.normalizedAddress,
+        input.originalAddress,
+        input.originalAddress,
+        input.normalizedAddress,
+        input.latitude,
+        input.longitude,
+        input.weightKg,
+        input.notes?.trim() || null,
+        now,
+        now,
+      );
+      // Recomputed directly from delivery_status, unlike the draft-phase
+      // updateRouteTotals() in route-commands.ts which treats every stop as
+      // "remaining" — that would be wrong here since some stops are already
+      // delivered/failed.
+      await this.db.runAsync(
+        `UPDATE routes SET
+          total_weight_kg = COALESCE((SELECT SUM(weight_kg) FROM delivery_stops WHERE route_id = ?), 0),
+          total_stops = (SELECT COUNT(*) FROM delivery_stops WHERE route_id = ?),
+          remaining_weight_kg = COALESCE((SELECT SUM(weight_kg) FROM delivery_stops WHERE route_id = ? AND delivery_status = 'pending'), 0),
+          remaining_stops = (SELECT COUNT(*) FROM delivery_stops WHERE route_id = ? AND delivery_status = 'pending'),
+          unknown_weight_stops = (SELECT COUNT(*) FROM delivery_stops WHERE route_id = ? AND weight_kg IS NULL),
+          remaining_unknown_weight_stops = (SELECT COUNT(*) FROM delivery_stops WHERE route_id = ? AND weight_kg IS NULL AND delivery_status = 'pending'),
+          updated_at = ?
+        WHERE id = ?`,
+        routeId, routeId, routeId, routeId, routeId, routeId, now, routeId,
+      );
+      await this.journal(routeId, stopId, 'stop_added_during_delivery', {}, { ...input, stopId });
+    });
+    return { stopId };
+  }
+}
+
 export class MarkStopDelivered extends WorkdayCommand {
   async execute(routeId: string, stopId: string): Promise<{ idempotent: boolean; actionId: string | null }> {
     const route = await this.route(routeId);

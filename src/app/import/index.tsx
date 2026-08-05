@@ -606,6 +606,10 @@ export default function ImportScreen() {
   const visibleExcelGroups = excelPreview?.groups.filter((group) =>
     !filterByProblem || excelGroupNeedsAction(group, excelDeliveriesById.get(group.id), planningMode),
   ) ?? [];
+  // Rows that never made it into any group (unrecognized address text) used to
+  // vanish with zero indication anywhere in the UI. Surface them explicitly so
+  // "the address was in Excel but never became a stop" is always visible.
+  const unresolvedExcelRows = excelPreview?.rows.filter((row) => !row.excluded && !row.normalizedAddress) ?? [];
 
   return (
     <FoundationScreen
@@ -667,6 +671,21 @@ export default function ImportScreen() {
               </View>
               <Text style={styles.helper}>Duomenys prasideda nuo {excelPreview.firstDataRow} eilutės. OCR Excel failui nenaudojamas.</Text>
             </View>
+
+            {unresolvedExcelRows.length > 0 ? (
+              <View style={styles.warningCard} testID="excel-unresolved-rows">
+                <Text style={styles.cardTitle}>⚠️ {unresolvedExcelRows.length} adreso(-ų) nepavyko atpažinti</Text>
+                <Text style={styles.helper}>
+                  Šios Excel eilutės NEPATEKO į maršrutą, nes adresas jose nebuvo atpažintas. Patikrinkite ir pataisykite adresą Excel faile arba įveskite jį rankiniu būdu žemiau.
+                </Text>
+                {unresolvedExcelRows.map((row) => (
+                  <View key={row.id} style={styles.excelRow}>
+                    <Text style={styles.label}>Eilutė {row.sourceRowNumber}</Text>
+                    <Text style={styles.issueText}>{row.rawColumnE ?? row.rawColumnD ?? '(tuščia)'}</Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
 
             {!excelPreview.mappingRecognized ? (
               <View style={styles.warningCard}>

@@ -2,6 +2,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { RoutingEngine } from '@/application/routing/routing-engine';
 import { normalizeProviderDepartureAt } from '@/application/parsing/text-parser';
+import { buildOptimizationStop } from '@/application/routes/route-request-builder';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import type { CandidateLeg, CandidateStopSchedule, RouteOptimizationRequest } from '@/domain/routing/models';
 import { SQLiteRoutingAuditRepository } from '@/infrastructure/routing/persistence/sqlite-routing-audit-repository';
@@ -45,22 +46,24 @@ export class ProposeRemainingRouteRecalculation {
       throw new Error('Dabartinė vieta neturi patvirtintų koordinačių. Esama seka nekeičiama.');
     }
     const completedIds = persisted.stops.filter((stop) => stop.deliveryStatus !== 'pending').map((stop) => stop.id);
-    const remainingIds = persisted.stops.filter((stop) => stop.deliveryStatus === 'pending').map((stop) => stop.id);
-    const remainingSet = new Set(remainingIds);
+    const remainingStops = persisted.stops.filter((stop) => stop.deliveryStatus === 'pending');
+    const remainingIds = remainingStops.map((stop) => stop.id);
+    const plannedDepartureAt = normalizeProviderDepartureAt(this.clock());
+    // Built from the CURRENT persisted stops (not the frozen `original.stops`
+    // snapshot) so a stop added after the route already started — via
+    // AddStopDuringDelivery — is included in the re-optimized remaining route.
     const request: RouteOptimizationRequest = {
       ...original,
       routeId,
-      plannedDepartureAt: normalizeProviderDepartureAt(this.clock()),
+      plannedDepartureAt,
       startLocation: {
         id: `current-${currentStop.id}`,
         label: 'Dabartinė vieta',
         latitude: currentStop.latitude,
         longitude: currentStop.longitude,
       },
-      stops: original.stops.filter((stop) => remainingSet.has(stop.id)),
-      initialLoadKg: persisted.stops
-        .filter((stop) => remainingSet.has(stop.id))
-        .reduce((sum, stop) => sum + (stop.weightKg ?? 0), 0),
+      stops: remainingStops.map((stop) => buildOptimizationStop(stop, persisted.route, plannedDepartureAt)),
+      initialLoadKg: remainingStops.reduce((sum, stop) => sum + (stop.weightKg ?? 0), 0),
     };
     const provider = new FallbackTravelCostProvider([
       new GoogleTravelCostProvider(),
