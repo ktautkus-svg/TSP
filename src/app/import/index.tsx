@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -15,6 +14,7 @@ import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
+import { Alert } from '@/ui/alert';
 import { resolveDeliveryAddresses } from '@/application/import/address-resolver';
 import {
   excelPreviewToDraftStops,

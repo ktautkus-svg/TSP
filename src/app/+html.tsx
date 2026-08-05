@@ -23,9 +23,16 @@ export default function RootHtml({ children }: PropsWithChildren) {
         />
         <link rel="manifest" href="/manifest.webmanifest" />
         <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+        <link
+          rel="stylesheet"
+          href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+          crossOrigin=""
+        />
         <ScrollViewStyleReset />
         <style dangerouslySetInnerHTML={{ __html: `
           html, body, #root { min-height: 100%; background: #F6F7F9; }
+          html, body { overflow-x: hidden; max-width: 100vw; }
           body { margin: 0; }
           * { box-sizing: border-box; }
         ` }} />

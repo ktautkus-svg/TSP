@@ -403,6 +403,40 @@ export class UpdateDraftStop extends RouteCommandBase {
   }
 }
 
+export class SetStopPriority extends RouteCommandBase {
+  /** Only one stop per route can be priority-first; marking a new one clears any previous pick. */
+  async execute(routeId: string, stopId: string, priorityFirst: boolean): Promise<void> {
+    await this.requireDraft(routeId);
+    const stops = await this.routes.getStops(routeId);
+    const current = stops.find((stop) => stop.id === stopId);
+    if (!current) throw new RouteCommandError('STOP_NOT_FOUND', 'Pristatymo taškas nerastas.', { stopId });
+    const now = this.clock();
+    await this.db.withTransactionAsync(async () => {
+      if (priorityFirst) {
+        await this.db.runAsync(
+          'UPDATE delivery_stops SET priority_first = 0, updated_at = ? WHERE route_id = ? AND priority_first = 1',
+          now,
+          routeId,
+        );
+      }
+      await this.db.runAsync(
+        'UPDATE delivery_stops SET priority_first = ?, updated_at = ? WHERE id = ? AND route_id = ?',
+        priorityFirst ? 1 : 0,
+        now,
+        stopId,
+        routeId,
+      );
+      await this.audit(
+        routeId,
+        'draft_stop_priority_set',
+        { priorityFirst: current.priorityFirst },
+        { priorityFirst },
+        stopId,
+      );
+    });
+  }
+}
+
 export class DeleteDraftStop extends RouteCommandBase {
   async execute(routeId: string, stopId: string): Promise<void> {
     await this.requireDraft(routeId);
@@ -582,6 +616,33 @@ export class ActivateRoute extends RouteCommandBase {
       await this.audit(routeId, 'route_activated_for_loading', { status: route.status }, { status: 'loading' });
     });
     return { idempotent: false };
+  }
+}
+
+export class ReopenRouteForPlanning extends RouteCommandBase {
+  /** Lets the user back out of a chosen route alternative before loading starts, so alternatives.tsx can recompute. */
+  async execute(routeId: string): Promise<void> {
+    const route = await this.requireRoute(routeId);
+    if (!['planned', 'loading'].includes(route.status)) {
+      throw new RouteCommandError('INVALID_ROUTE_STATE', 'Maršruto varianto pasirinkimą pakeisti galima tik prieš pradedant krautis.');
+    }
+    assertRouteTransition(route.status, 'draft');
+    const now = this.clock();
+    await this.db.withTransactionAsync(async () => {
+      await this.db.runAsync(
+        `UPDATE routes SET status = 'draft', selected_run_id = NULL, selected_candidate_id = NULL,
+         estimated_distance_km = NULL, estimated_duration_minutes = NULL, updated_at = ?
+         WHERE id = ?`,
+        now,
+        routeId,
+      );
+      await this.db.runAsync(
+        'UPDATE delivery_stops SET optimized_order = NULL, active_order = NULL, updated_at = ? WHERE route_id = ?',
+        now,
+        routeId,
+      );
+      await this.audit(routeId, 'route_reopened_for_planning', { status: route.status }, { status: 'draft' });
+    });
   }
 }
 

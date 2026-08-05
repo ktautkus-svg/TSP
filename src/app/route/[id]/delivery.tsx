@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Animated, BackHandler, Easing, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Animated, BackHandler, Easing, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle } from 'react-native-svg';
 
+import { Alert } from '@/ui/alert';
 import { buildNavigationUrls, navigationTargetFromStop } from '@/application/navigation/navigation-url-builder';
 import {
   ProposeRemainingRouteRecalculation,
@@ -59,6 +60,7 @@ export default function DeliveryScreen() {
   const [endOdometer, setEndOdometer] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [expandedStopId, setExpandedStopId] = useState<string | null>(null);
   const completionDismissed = useRef(false);
   const draftSaveQueue = useRef<Promise<void>>(Promise.resolve());
 
@@ -275,6 +277,10 @@ export default function DeliveryScreen() {
     return () => subscription.remove();
   }, [handleBack]);
 
+  const stopLabel = (stopId: string): string => {
+    const stop = stops.find((item) => item.id === stopId);
+    return stop ? (stop.recipient || stop.normalizedAddress || stop.originalAddress) : stopId;
+  };
   const visibleStops = stops.filter((stop) => deliveryMatchesFilter(filter, stop.deliveryStatus));
   const recalculationAnchor = [...stops]
     .filter((stop) => stop.deliveryStatus === 'failed')
@@ -392,34 +398,49 @@ export default function DeliveryScreen() {
           <Text style={styles.secondaryText}>Perskaičiuoti likusį maršrutą</Text>
         </Pressable>
       ) : null}
-      {visibleStops.map((stop) => (
-        <SwipeActionCard key={stop.id} onSwipeRight={() => { void delivered(stop.id); }} onSwipeLeft={() => beginFailed(stop.id)} style={[styles.card, stop.deliveryStatus === 'delivered' && styles.deliveredCard, stop.deliveryStatus === 'failed' && styles.failedCard]}>
-          <Text style={styles.order}>{statusLabel(stop)}</Text>
-          <Pressable onPress={() => navigate(stop)}><Text style={styles.address}>{stop.normalizedAddress ?? stop.originalAddress}</Text></Pressable>
-          <Text style={styles.weight}>{stop.weightKg === null ? 'Svoris nežinomas' : `${stop.weightKg} kg`}</Text>
-          <Text style={styles.eta}>{etaLabel(stop)}</Text>
-          <Text style={styles.meta}>{legLabel(stop)}</Text>
-          <Text style={styles.schedule}>{scheduleLabel(stop)}</Text>
-          {windowLabel(stop, route?.planningMode ?? null) ? <Text style={route?.planningMode === 'ignore_time_windows' ? styles.informational : styles.meta}>{windowLabel(stop, route?.planningMode ?? null)}</Text> : null}
-          {offlineEtaLabel(stop) ? <Text style={styles.offline}>{offlineEtaLabel(stop)}</Text> : null}
-          {userVisibleStopNote(stop.notes) ? <Text style={styles.meta}>Pastabos: {userVisibleStopNote(stop.notes)}</Text> : null}
-          {stop.deliveryStatus === 'failed' ? (
-            <Text style={styles.failure}>{failedDeliveryLabel(stop.failureReason, stop.failureComment)}</Text>
-          ) : null}
-          <View style={styles.actions}>
-          <Pressable style={styles.navigateButton} onPress={() => { void navigate(stop); }}><Text style={styles.secondaryText}>Navigacija</Text></Pressable>
-          <Pressable style={styles.deliverButton} onPress={() => { void delivered(stop.id); }}><Text style={styles.buttonText}>Pristatyta</Text></Pressable>
-            <Pressable style={styles.failButton} onPress={() => beginFailed(stop.id)}><Text style={styles.failText}>Nepavyko</Text></Pressable>
-          </View>
-        </SwipeActionCard>
-      ))}
+      {visibleStops.map((stop) => {
+        const expanded = expandedStopId === stop.id;
+        return (
+          <SwipeActionCard key={stop.id} onSwipeRight={() => { void delivered(stop.id); }} onSwipeLeft={() => beginFailed(stop.id)} style={[styles.card, stop.deliveryStatus === 'delivered' && styles.deliveredCard, stop.deliveryStatus === 'failed' && styles.failedCard]}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setExpandedStopId(expanded ? null : stop.id)}
+              style={styles.cardHeader}>
+              <View style={styles.cardHeaderText}>
+                <Text style={styles.order}>{statusLabel(stop)}{stop.priorityFirst ? ' ⭐' : ''}</Text>
+                <Text style={styles.address}>{stop.normalizedAddress ?? stop.originalAddress}</Text>
+              </View>
+              <Text style={styles.weight}>{stop.weightKg === null ? 'Svoris nežinomas' : `${stop.weightKg} kg`}</Text>
+              <Text style={styles.chevron}>{expanded ? '▾' : '▸'}</Text>
+            </Pressable>
+            {expanded ? (
+              <>
+                <Text style={styles.eta}>{etaLabel(stop)}</Text>
+                <Text style={styles.meta}>{legLabel(stop)}</Text>
+                <Text style={styles.schedule}>{scheduleLabel(stop)}</Text>
+                {windowLabel(stop, route?.planningMode ?? null) ? <Text style={route?.planningMode === 'ignore_time_windows' ? styles.informational : styles.meta}>{windowLabel(stop, route?.planningMode ?? null)}</Text> : null}
+                {offlineEtaLabel(stop) ? <Text style={styles.offline}>{offlineEtaLabel(stop)}</Text> : null}
+                {userVisibleStopNote(stop.notes) ? <Text style={styles.meta}>Pastabos: {userVisibleStopNote(stop.notes)}</Text> : null}
+                {stop.deliveryStatus === 'failed' ? (
+                  <Text style={styles.failure}>{failedDeliveryLabel(stop.failureReason, stop.failureComment)}</Text>
+                ) : null}
+                <View style={styles.actions}>
+                  <Pressable style={styles.navigateButton} onPress={() => { void navigate(stop); }}><Text style={styles.secondaryText}>Navigacija</Text></Pressable>
+                  <Pressable style={styles.deliverButton} onPress={() => { void delivered(stop.id); }}><Text style={styles.buttonText}>Pristatyta</Text></Pressable>
+                  <Pressable style={styles.failButton} onPress={() => beginFailed(stop.id)}><Text style={styles.failText}>Nepavyko</Text></Pressable>
+                </View>
+              </>
+            ) : null}
+          </SwipeActionCard>
+        );
+      })}
       {recalculation ? (
         <View style={styles.recalculationCard} testID="recalculation-proposal">
           <Text style={styles.heading}>Naujas likusios sekos variantas</Text>
           <Text style={styles.meta}>Kilometrų skirtumas: {signed(recalculation.distanceDeltaKm, 'km')}</Text>
           <Text style={styles.meta}>Laiko skirtumas: {signed(recalculation.timeDeltaMinutes, 'min')}</Text>
-          <Text style={styles.meta}>Esama: {recalculation.orderBefore.join(' → ')}</Text>
-          <Text style={styles.meta}>Nauja: {recalculation.orderAfter.join(' → ')}</Text>
+          <Text style={styles.meta}>Esama: {recalculation.orderBefore.map(stopLabel).join(' → ')}</Text>
+          <Text style={styles.meta}>Nauja: {recalculation.orderAfter.map(stopLabel).join(' → ')}</Text>
           <Pressable style={styles.finishButton} onPress={() => { void resolveRecalculation(true); }}><Text style={styles.buttonText}>Patvirtinti naują seką</Text></Pressable>
           <Pressable style={styles.cancelButton} onPress={() => { void resolveRecalculation(false); }}><Text style={styles.secondaryText}>Palikti esamą seką</Text></Pressable>
         </View>
@@ -559,7 +580,7 @@ function signed(value: number | null, unit: string): string {
 
 const styles = StyleSheet.create({
   dashboard: { gap: spacing.md },
-  gaugeRow: { flexDirection: 'row', justifyContent: 'center', gap: spacing.lg },
+  gaugeRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: spacing.lg },
   gauge: { width: 128, height: 128, alignItems: 'center', justifyContent: 'center' },
   gaugeCenter: { position: 'absolute', alignItems: 'center', justifyContent: 'center' },
   gaugeLabel: { color: colors.text, fontSize: 20, fontWeight: '800', fontFamily: fonts.mono },
@@ -583,8 +604,11 @@ const styles = StyleSheet.create({
   card: { padding: spacing.md, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.xs },
   deliveredCard: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
   failedCard: { borderColor: colors.danger },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 44 },
+  cardHeaderText: { flex: 1, minWidth: 0 },
+  chevron: { color: colors.textMuted, fontSize: 16, fontWeight: '800' },
   order: { color: colors.primary, fontWeight: '800' },
-  address: { color: colors.text, fontSize: 17, fontWeight: '800', textDecorationLine: 'underline' },
+  address: { color: colors.text, fontSize: 17, fontWeight: '800' },
   weight: { color: colors.text, fontSize: 16, fontWeight: '700' },
   eta: { color: colors.primary, fontSize: 17, fontWeight: '800' },
   schedule: { color: colors.text, fontWeight: '700' },

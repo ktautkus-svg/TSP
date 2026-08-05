@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Stack, useFocusEffect, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
@@ -8,6 +8,7 @@ import { FoundationScreen } from '@/components/foundation-screen';
 import { GatewayAddressResolver } from '@/infrastructure/import/gateway-address-resolver';
 import type { RouteEndpoint, SavedLocation } from '@/domain/route';
 import { colors, spacing } from '@/ui/tokens';
+import { Alert } from '@/ui/alert';
 
 export default function LocationSettingsScreen() {
   const db = useSQLiteContext();
