@@ -8,6 +8,7 @@ import { Pressable, Text, View } from 'react-native';
 import { PwaRuntime } from '@/components/pwa-runtime';
 import { migrateDatabase } from '@/database/migrations';
 import { ThemeProvider } from '@/ui/theme';
+import { AlertHost } from '@/ui/alert';
 
 void SplashScreen.preventAutoHideAsync().catch((reason) => {
   if (__DEV__) console.warn('SPLASH_PREVENT_HIDE_FAILED', reason);
@@ -73,6 +74,7 @@ export default function RootLayout() {
         setDbError(error instanceof Error ? error : new Error('Vietinės bazės klaida: ' + String(error)));
       }}>
       <ThemeProvider>
+        <AlertHost />
         <PwaRuntime />
         <StatusBar style="dark" />
         <Stack

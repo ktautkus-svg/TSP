@@ -271,3 +271,134 @@ DB migracijos (`status` CHECK constraint papildymo `'paused'` reikšme, `trip_st
   seną `summary` bloką pašalinti visai, kai patvirtinsi naują dashboard'ą.
 - Pridėti du nauji design token'ai (`colors.info`, `fonts.mono`) — jei planuojamas platesnis
   redesign su savo spalvų sistema, šiuos gali reikėti pertvarkyti/pervadinti.
+
+---
+
+# Sesija 2026-08-05 (vakaras): kritinio "Išvalyti" bug'o pataisymas + pilna 13 punktų ataskaita
+
+Ši sesija dirbo su vartotoju **kartu** (ne autonomiškai) per didesnę dalį darbo, bet
+paskutinė dalis (šis skyrius) atlikta **savarankiškai**, vartotojui išvažiavus.
+
+## Kritinis bug'as: "Išvalyti ir pradėti iš naujo" nereaguoja (SUTAISYTA)
+
+### Root cause
+
+Ankstesnis šios (ne aukščiau aprašytos) sesijos "fix" (`src/ui/alert.ts`) pakeitė
+sugedusį `react-native-web`'o `Alert.alert()` (pilnas no-op) į `window.confirm()`/
+`window.alert()`. Tai išsprendė problemą **automatizuotame testavimo įrankyje**
+(kur pavyko patvirtinti, kad `confirm()` realiai kviečiamas), bet **neišsprendė
+jos realiam vartotojui**, nes:
+
+- `app.json` turi `"display": "standalone"` — programa skirta paleisti kaip
+  įdiegtą PWA.
+- `window.alert()`/`confirm()`/`prompt()` yra plačiai žinoma, dokumentuota
+  Chromium/WebView riba: **įdiegtame/standalone PWA režime šie skambučiai
+  dažnai tyliai nieko nedaro** — jokios klaidos, jokio dialogo, nes naršyklė
+  neturi UI rėmelio (adreso juostos), prie kurio prisegti natyvų dialogą.
+
+### Kaip patikrinau (savarankiškai, per naršyklės įrankį)
+
+1. Paleidau dev serverį, atidariau ekraną su `active-route-card`.
+2. Radau mygtuko DOM elementą, patikrinau `getBoundingClientRect()` +
+   `document.elementFromPoint()` centre — **jokio uždengiančio elemento
+   nerasta**, `elementFromPoint` grąžino tikslų mygtuko vidinį tekstą.
+3. Patikrinau visą tėvinių elementų grandinę (position/z-index/pointer-events)
+   nuo teksto iki `<body>` — viskas `pointer-events: auto`, jokio
+   `position: absolute` overlay, kuris kirstųsi su šia kortele.
+4. Realiu `left_click` paspaudžiau mygtuką — konsolėje pasirodė:
+   `[Claude browser] Page dialog suppressed (confirm): "Išvalyti maršrutą?..."`
+   Tai įrodė: click PASIEKIA mygtuką, `onPress` VEIKIA, `Alert.alert()`
+   TEISINGAI iškviečia `window.confirm()` su teisinga žinute. Trūkstama
+   grandis — ar realiai pasirodo natyvus dialogas — yra būtent tai, kas
+   nepatikrinama automatizuotu įrankiu (jis sąmoningai slopina natyvius
+   dialogus saugumo sumetimais) IR būtent tai, kas nutrūksta standalone
+   PWA režime realiam vartotojui.
+
+### Taisymas
+
+Visiškai pašalinta priklausomybė nuo natyvių naršyklės dialogų web'e.
+`src/ui/alert.ts` → `src/ui/alert.tsx`:
+
+- `Alert.alert()` web'e dabar publikuoja užklausą į paprastą pub/sub saugyklą
+  (ne `window.confirm`).
+- Naujas `AlertHost` komponentas (montuojamas vieną kartą `_layout.tsx`,
+  `ThemeProvider` viduje) klausosi tos saugyklos ir piešia **savo pačios
+  React Native `Modal`** su temos spalvomis (dark/light suderinama).
+- Native (iOS/Android) elgesys nepakeistas — ten realus `RNAlert.alert()`
+  veikia gerai, nes tai OS lygio dialogas, ne web'o problema.
+
+Tai reiškia: **visi** patvirtinimo dialogai visoje programoje (ne tik
+"Išvalyti") dabar naudoja tą patį, iki galo testuojamą mechanizmą — maršruto
+atšaukimas, taško pašalinimas, atsarginės kopijos atkūrimas, maršruto
+užbaigimas su nebaigtais taškais, ir t.t.
+
+### Patvirtinta gyvai (pilnas ciklas)
+
+1. Paspaudus "Išvalyti ir pradėti iš naujo" → pasirodo **matomas, DOM elementą
+   turintis** dialogas (ne natyvus, todėl visada veiks standalone PWA) su
+   "Ne" / "Taip, išvalyti".
+2. Paspaudus "Taip, išvalyti" → aktyvaus maršruto kortelė **išnyko**, ekranas
+   pakeitė būseną į "Aktyvaus maršruto nėra".
+3. Nuėjus į "Istorija" → maršrutas realiai atsirado kaip **"Atšauktas"** —
+   patvirtina, kad `CancelDraftRoute` DB operacija realiai įvykdyta, ne tik UI
+   apsimeta.
+4. Papildomai patikrinau vieno mygtuko variantą (`Alert.alert('...', '...')`
+   be `buttons` masyvo, iš `settings/locations.tsx`) — irgi veikia teisingai,
+   rodo numatytąjį "Gerai" mygtuką, teisingai užsidaro.
+
+`tsc --noEmit` švarus, `vitest run` — 459/459.
+
+## Pilna vakarykščių 13 punktų ataskaita
+
+| # | Punktas | Statusas | Jei nebaigta / dalinė — kodėl ir koks kitas žingsnis |
+|---|---|---|---|
+| 1 | "Valyti" mygtukas neveikia, nėra išėjimo iš maršruto | **Padaryta ir patikrinta gyvai** | Root cause (native dialogų nepatikimumas standalone PWA) rastas ir pašalintas iš principo — visi Alert.alert dabar naudoja savo Modal, ne `window.confirm`. Pilnas ciklas patikrintas: paspaudimas → dialogas → patvirtinimas → maršrutas dingsta → atsiranda istorijoje. |
+| 2 | Maršrutų istorija nieko nesaugo | **Padaryta ir patikrinta gyvai** | Ta pati šaknis kaip #1 — užbaigimo/atšaukimo patvirtinimai dabar realiai suveikia. Patikrinta: atšauktas maršrutas atsirado Istorijos ekrane su teisinga būsena ir data. Pilnas *užbaigimo* (ne atšaukimo) ciklas per loading→in_progress→completed **nepatikrintas gyvai** šioje sesijoje — DB/komandų lygmenyje testais padengta, bet realiam naršyklės ekranui nepravedžiau iki galo (žr. rizikas apačioje). |
+| 3 | Alternatyvų ekranas — "raidžių kratinys" | **Padaryta ir patikrinta gyvai** | Vietoj ID rodomi tikri adresai/pavadinimai + svoris. Ta pati klaida rasta ir sutvarkyta `delivery.tsx` maršruto perskaičiavimo kortelėje. |
+| 4 | Žemėlapis — SVG "kringeliai" ant balto fono | **Padaryta ir patikrinta gyvai (tik web/PWA)** | Realus Leaflet+OpenStreetMap žemėlapis, patikrinta: 6 plytelės įkeltos, 4 žymekliai su teisingomis etiketėmis. **Native (iOS/Android be naršyklės) versija vis dar SVG schema** — `react-native-maps` reikalauja atskiro diegimo su API raktais, neapėmiau. |
+| 5 | Maršruto algoritmas nepradeda nuo tolimiausio/sunkiausio taško | **Padaryta iš dalies** | Numatytoji algoritmo logika NEPAKEISTA (per rizikinga keisti visiems maršrutams). Vietoj to duota rankinė kontrolė per #6 — jei norite Skemai pirmo, pažymite jį, algoritmas priverstinai jį pastatys pirmu. Jei norite, kad numatytoji logika PATI rinktųsi tolimiausią/sunkiausią be jūsų žymėjimo — tai atskiras, nepradėtas darbas (keistų `directionality`/`endLocationConvenience` scoring svorius, rizikinga be plataus regresijos testavimo). |
+| 6 | Prioritetinių taškų pasirinkimas | **Padaryta, bet nepatikrinta gyvai iki galo** | UI mygtukas (⭐) `review.tsx` patikrintas, kad rodomas ir paspaudžiamas. **Nepatikrinau gyvai**, ar pažymėjus prioritetą ir perskaičiavus maršrutą per `alternatives.tsx`, pažymėtas taškas realiai atsiduria pirmoje pozicijoje (DB/optimizatoriaus lygmeniu testais padengta, bet pilno UI ciklo su tikrais 3 taškais nepravedžiau). |
+| 7 | Krypties apsukimas | **Padaryta, bet nepatikrinta gyvai** | Mygtukas "⇄ Apsukti pristatymo kryptį" pridėtas `loading.tsx`, komanda testais padengta (DB lygmeniu patvirtinta, kad apsuka teisingai). UI paspaudimo per naršyklę nepatikrinau. |
+| 8 | Grįžimas prie kito varianto | **Padaryta, bet nepatikrinta gyvai** | Mygtukas ir komanda (`ReopenRouteForPlanning`) testais padengti. UI paspaudimo per naršyklę nepatikrinau. |
+| 9 | Svorio matomumas sąraše | **Padaryta ir patikrinta gyvai** | Matyti alternatyvų kortelėse (patikrinta ekrane) ir suskleistose `delivery.tsx`/`loading.tsx` eilutėse (kodo lygmeniu, ne per naršyklę). |
+| 10 | Laiko langai — rekomendacija, ne stabdys | **Padaryta ir patikrinta testais** | `REQUIRED_TIME_WINDOW` dabar `type: 'soft'`, nebeskaičiuojamas į `feasible`. Testu patvirtinta (`routing-engine.test.ts`), realiam naršyklės scenarijui su tikru pavėluotu langu nepravedžiau. |
+| 11 | Mygtukai viršuje, ne apačioje | **Padaryta ir patikrinta gyvai** | `review.tsx` "Skaičiuoti maršrutą" viršuje — matėsi ekrane testavimo metu. |
+| 12 | Susikleidžiantis sąrašas | **Padaryta, bet nepatikrinta gyvai** | Kodas (`delivery.tsx`, `loading.tsx`) tipais patikrintas, logika paprasta (React state), bet realaus paspaudimo/išsiskleidimo per naršyklę nepravedžiau šioje sesijoje. |
+| 13 | Horizontalus scroll'inimas | **Padaryta iš dalies** | `overflow-x: hidden` pridėtas globaliai, vienintelis rastas pažeidėjas (`gaugeRow`) sutvarkytas. Nepatikrinta gyvai siaurame (telefono) ekrane — tik logika/CSS peržiūrėta. |
+
+## AR APLIKACIJA SAUGI NAUDOTI REALIAM DARBUI DABAR?
+
+**Konkrečiai šitas "Išvalyti" klasės bug'as (patvirtinimo dialogas neveikia,
+vartotojas įstringa be išeities) — TAIP, sutvarkyta iš esmės.** Kadangi visi
+patvirtinimo dialogai visoje programoje eina per tą patį `AlertHost`
+mechanizmą (ne per natyvų `window.confirm`), ši konkreti bėdos klasė
+**struktūriškai nebegali pasikartoti** jokiame ekrane — tai nebe vienos vietos
+pataisymas, o visos priklausomybės nuo nepatikimo API pašalinimas.
+
+**Tačiau prieš pilnai pasitikint realiems pristatymams, rekomenduoju:**
+
+1. **Vieną kartą patys patikrinkite savo įdiegtoje PWA** (telefone, pridėtoje
+   prie pradžios ekrano) — testavau tik naršyklės skirtuke, ne tikrame
+   "standalone" režime, nes automatizuotas įrankis neturi būdo tiesiogiai
+   simuliuoti įdiegtos PWA konteksto. Naujas mechanizmas nebepriklauso nuo
+   `window.confirm`, todėl teoriškai turėtų veikti identiškai, bet vienas
+   realaus pasitikrinimas nekenktų — būtent tai, kad ankstesnis fix "veikė"
+   testavimo įrankyje, bet ne realybėje, yra priežastis, kodėl neturėtumėte
+   100% pasitikėti vien testais be bent vieno jūsų paties patikrinimo ant
+   realaus įrenginio.
+2. **Nepratęsta iki galo pilna maršruto užbaigimo eiga** (loading →
+   in_progress → completed → istorija) realiame naršyklės teste — atšaukimo
+   kelią patikrinau pilnai, užbaigimo kelią tik testais.
+3. **Prioritetinių taškų, krypties apsukimo, kito varianto pasirinkimo,
+   susikleidžiančio sąrašo** UI veikimas nepatikrintas gyvai (žr. lentelę) —
+   kodas parašytas ir tipais/testais padengtas, bet jei naudosite šias
+   konkrečias funkcijas pirmą kartą, būkite atidūs.
+4. **Native (ne-web) versija** vis dar turi seną SVG žemėlapio schemą, ne
+   tikrą žemėlapį — jei naudojate programą ne per naršyklę/PWA, tai vis dar
+   aktualu.
+
+Jokių kitų žinomų "vartotojas įstringa be išeities" tipo bug'ų nepastebėjau
+šios sesijos metu.
+
+**NIEKADA nepaleidau `cloud-run-deploy.ps1`** — jokio deployment veiksmo
+neatlikta.
