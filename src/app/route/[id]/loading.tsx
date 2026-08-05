@@ -235,7 +235,11 @@ export default function LoadingScreen() {
       {stops.map((stop) => {
         const expanded = expandedStopId === stop.id;
         return (
-          <SwipeActionCard key={stop.id} disabled={stop.loadingStatus === 'loaded'} onSwipeRight={() => markLoaded(stop.id)} style={[styles.card, stop.loadingStatus === 'loaded' && styles.loadedCard]}>
+          <SwipeActionCard
+            key={stop.id}
+            onSwipeRight={stop.loadingStatus === 'loaded' ? undefined : () => markLoaded(stop.id)}
+            onSwipeLeft={stop.loadingStatus === 'loaded' ? () => markUnloaded(stop.id) : undefined}
+            style={[styles.card, stop.loadingStatus === 'loaded' && styles.loadedCard]}>
             <Pressable
               accessibilityRole="button"
               onPress={() => setExpandedStopId(expanded ? null : stop.id)}

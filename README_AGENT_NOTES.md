@@ -881,3 +881,75 @@ paaiškinta aukščiau); #3 pilnai, visas srautas nuo įjungimo iki realaus mar�
 rankine seka.
 
 **Deploy STATUSAS: NEPALEISTAS.** Laukiama vartotojo komandos ir 6 dizaino variantų.
+
+---
+
+# Sesija 2026-08-05 (vėlyvas vakaras): Statistikos modulis + swipe užbaigimas
+
+## Statistikos modulis
+
+Naujas `/statistics` ekranas (žr. commit `c93fd44`) — km per dieną/mėnesį/šiandien/savaitę/
+12 mėn., pristatymo baigčių suskirstymas, nesėkmės priežastys, geriausia diena, vidurkiai.
+Detalus dizainas/sprendimai — žr. `graceful-honking-swing.md` plano failą (aktyvus planas,
+sekcija "Statistikos modulis").
+
+**Svarbus radinys patikrinimo metu:** naujas `StatBarChart` komponentas iš pradžių naudojo
+React Native `onLayout` konteinerio pločiui matuoti — **niekada neveikė** šiame
+react-native-web setup'e (0 `<svg>` elementų DOM'e, nors konteineris turėjo teisingą,
+išmatuotą plotį per `getBoundingClientRect()`). Kadangi projekte NIEKUR kitur `onLayout`
+nebuvo naudojamas (patikrinta grep'u — jokio precedento), tai pirmas kartas, kai šis defektas
+būtų pastebėtas. Pataisyta perrašant su `useWindowDimensions()` hook'u — patikimai veikiantis
+alternatyvus būdas, patvirtinta gyvai (30 + 12 `<rect>` elementų DOM'e po pataisymo).
+
+**Patikrinta pilnai gyvai su REALIAIS duomenimis** (ne tik sintetiniais testais): sukūriau ir
+užbaigiau tikrą maršrutą per visą UI srautą (geokodavimas → planavimas → krovimas → pradinis
+odometras → 1 pristatyta + 1 nepavyko su priežastimi "Netilpo" → galutinis odometras →
+užbaigimas), tada patikrinau `/statistics` — visi skaičiai (27 km bendrai = 18.7 nuo
+anksčiau atšaukto maršruto + 8.0 faktinio šio, 1 pristatyta/1 nepavyko, "Netilpo: 1", vidurkiai
+km/taškui ir taškai/maršrutui) matematiškai tiksliai sutapo su ranka paskaičiuotais. "Geriausia
+diena" teisingai pažymėta "(planuota)", nes tos dienos suma apėmė VIENĄ maršrutą su estimated
+(atšauktas) IR kitą su actual (užbaigtas) atstumu — konservatyvus "ne visai faktinis" žymėjimas
+suveikė tiksliai kaip suprojektuota.
+
+13 naujų testų `tests/unit/statistics.test.ts` (10 grynos funkcijos + 3 repository integracijos
+su tikra SQLite/migracijomis).
+
+**Sąmoningai NEĮTRAUKTA:** degalų/transporto/kainos statistika — `vehicles`/`trip_sheets`/
+`fuel_entries` lentelės egzistuoja schema, bet jokis kodas jų neskaito/nerašo, tad tai reikštų
+rodyti išgalvotus, ne realius skaičius.
+
+## Swipe gestai — patikslinimas ir užbaigimas
+
+Ankstesnėje šios dienos sesijos dalyje klaidingai užrašiau, kad `loading.tsx` VISAI neturi
+swipe gestų. Perskaičius kodą iš naujo paaiškėjo: **swipe DEŠINĖN į "pakrauta" JAU BUVO**
+(`onSwipeRight={() => markLoaded(stop.id)}`, su `disabled={stop.loadingStatus === 'loaded'}`
+blokuojančiu VISĄ swipe sritį po pakrovimo). Tikrasis trūkstamas gabalas — swipe KAIRĖN
+atžymėjimui (jau pakrauto taško grąžinimui į "nepakrauta"), veidrodinis `delivery.tsx`
+pristatyta/nepavyko poros pavyzdžiui.
+
+**Taisymas** ([src/app/route/[id]/loading.tsx](src/app/route/%5Bid%5D/loading.tsx)):
+pašalintas blokuojantis `disabled` prop'as, vietoj to abi kryptys visada aktyvios, bet
+veikia priklausomai nuo esamos taško būsenos:
+```tsx
+onSwipeRight={stop.loadingStatus === 'loaded' ? undefined : () => markLoaded(stop.id)}
+onSwipeLeft={stop.loadingStatus === 'loaded' ? () => markUnloaded(stop.id) : undefined}
+```
+Nepakrautam taškui swipe dešinėn pakrauna, swipe kairėn nieko nedaro (handler `undefined`).
+Pakrautam — atvirkščiai. Naudoja TĄ PATĮ `SwipeActionCard` komponentą, tą patį prop pattern'ą,
+kaip jau įrodytas veikiantis `delivery.tsx`.
+
+**Patikrinimo apribojimas:** faktinio braukimo gesto (drag su `pointermove` delta) **nepavyko
+patikimai simuliuoti** per naršyklės automatizavimo įrankį — tas pats apribojimo tipas kaip
+anksčiau su Excel failo įkėlimu (žr. aukščiau). Bandžiau `pointerdown`→`pointermove` (dx=100px)
+→`pointerup` sekas ant `SwipeActionCard`'o šakninio elemento, be rezultato. Vietoj to patikrinau
+gyvai **mygtukų kelią** (esamas alternatyvus būdas — "Pakrauta"/"Atžymėti" mygtukai
+išskleistoje kortelėje), kad įsitikinčiau, jog mano pakeitimas nesulaužė nieko: paspaudus
+"Pakrauta" → "1/2 (50%)", paspaudus "Atžymėti" → grąžino į "0/2" — abu keliai veikia teisingai.
+Pati swipe laidų dalis (props perdavimas) identiška jau įrodytai `delivery.tsx` schemai, tad
+pasitikiu ja be tiesioginio drag-testo, bet tai NĖRA pilnai patikrinta gyvai per naršyklę —
+jei norėsite 100% tikrumo, patikrinkite patys realiame telefone/PWA su tikru pirštu.
+
+`tsc --noEmit` — 0 klaidų. `vitest run` — 480/480 (be pakeitimų šiam konkrečiam pataisymui,
+nes tai grynai UI laidų pakeitimas, jokios naujos verslo logikos).
+
+**Deploy STATUSAS: NEPALEISTAS.** Laukiama vartotojo komandos ir 6 dizaino variantų.
