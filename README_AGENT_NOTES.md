@@ -565,3 +565,164 @@ Naujas `DashboardGauge` komponentas pakeičia senąjį paprastą žiedą:
 *(Pastaba: pirmas bandymas commit'inti Grupę 1 be pilno pathspec'o per klaidą
 įtraukė nesusijusį 51-failų senos Expo šablono bloką — tai IŠTAISYTA per
 `git reset --soft HEAD~1` prieš tęsiant, jokio duomenų praradimo nebuvo.)*
+
+---
+
+# Sesija 2026-08-05 (deploy'o diena): 3 UX pataisymai + 2 tyrimai
+
+Šioje sesijoje **jau buvo atliktas VIENAS deploy** (revizija `logistikos-pristatymai-00015-bjd`,
+patikrinta gyvai prieš deploy'inant, vartotojo aiškiai autorizuota kaip vienkartinė išimtis).
+Visi TOLESNI šio skyriaus pakeitimai — **tik lokalūs commit'ai, deploy NEPALEISTAS**, kaip
+aiškiai nurodyta: vartotojas nori viską kelti vienu kitu deploy'umi kartu su papildomu
+dizaino punktu, kurio dar laukia.
+
+## 1. "Perskaičiuoti likusį maršrutą" — rezultatas atsirasdavo už matomos srities
+
+**Root cause:** [src/app/route/[id]/delivery.tsx](src/app/route/%5Bid%5D/delivery.tsx) —
+mygtukas (`testID="recalculate-remaining-route"`) buvo virš sustojimų sąrašo, o
+`recalculation` pasiūlymo kortelė (`testID="recalculation-proposal"`) buvo renderinama
+**po** viso `visibleStops.map(...)` sąrašo, prieš "Užbaigti maršrutą" mygtuką — t.y.
+kelių ekranų aukščio atstumu žemiau paties mygtuko. Paspaudus mygtuką ekranas
+nesiscrollindavo, tad vartotojui atrodydavo, kad niekas neįvyko.
+
+**Taisymas:** paprasčiausias/saugiausias variantas pagal esamą layout — perkelta
+`recalculation` kortelės JSX blokas taip, kad renderintųsi **iškart po** pačiu
+"Perskaičiuoti likusį maršrutą" mygtuku (prieš sustojimų sąrašą), o ne po jo. Jokios
+naujos `scrollTo`/`ref` logikos nereikėjo — React Native `ScrollView` vis tiek automatiškai
+laiko srauto tvarką, todėl pakako pakeisti JSX poziciją.
+
+**Patikrinta gyvai:** pridėjus naują tašką vykdomame maršrute (žr. praėjusios sesijos
+dalies "add stop" testą), pasiūlymo kortelė "Naujas likusios sekos variantas" su
+"Patvirtinti naują seką"/"Palikti esamą seką" pasirodė **iškart matomoje srityje**, be
+scrollinimo.
+
+## 2. Žalias/oranžinis taškas prie atvykimo laiko
+
+**Duomenų šaltinis:** panaudota **jau esanti** [src/application/routes/route-eta.ts](src/application/routes/route-eta.ts)
+`etaScheduleState(stop)` funkcija — ji jau lygina `latestEstimatedArrivalAt` su
+`plannedArrivalAt` ir grąžina `'on_time' | 'late' | 'early' | 'unavailable'`. Ši funkcija
+JAU naudojama `scheduleLabel()` tekstui ("Pagal planą" / "X min. vėliau") rodyti — jokios
+naujos skaičiavimo logikos nerašyta, tik naujas spalvos mapper'is virš to paties rezultato:
+[src/ui/route-eta-labels.ts](src/ui/route-eta-labels.ts) `scheduleDotColor()`:
+`'late' → warning (oranžinė)`, `'on_time'/'early' → success (žalia)`, `'unavailable' → null` (jokio taško).
+
+**Svarbi pastaba dėl interpretacijos:** užduotyje minima "ar atvykimas tilpsta į nustatytą
+laiko langą" pažodžiui reikštų palyginimą su `deliveryTimeFrom`/`deliveryTimeTo` (kliento
+pageidaujamu langu), o ne su `plannedArrivalAt` (pirminiu maršruto planu). Patikrinau —
+tikrasis laiko-lango minkštas įspėjimas (`REQUIRED_TIME_WINDOW`, tipas `'soft'`,
+[src/domain/routing/constraints/constraint-evaluator.ts:113-131](src/domain/routing/constraints/constraint-evaluator.ts))
+egzistuoja TIK maršruto planavimo/optimizavimo metu (per `CandidateStopSchedule.lateMinutes`),
+**neišsaugomas** kiekvienam `DeliveryStop` DB įraše vėlesniam gyvam naudojimui pristatymo
+metu. Kadangi užduotis aiškiai prašė NErašyti naujos skaičiavimo logikos, o `etaScheduleState`
+yra vienintelis JAU EGZISTUOJANTIS, JAU DB duomenimis paremtas, JAU UI sluoksnyje rodomas
+"ar viskas pagal planą" signalas kiekvienam taškui — panaudojau būtent jį. Praktiškai
+skirtumas nedidelis (jei maršrutas vėluoja nuo plano, greičiausiai vėluos ir nuo kliento
+lango), bet jei norėsite TIKSLIAI pagal `deliveryTimeFrom`/`deliveryTimeTo` langą — tai
+reikštų arba naują palyginimo funkciją (pažeistų "jokios naujos logikos" nurodymą), arba
+`lateMinutes` persistinimą kiekvienam stop'ui po kiekvieno perskaičiavimo (didesnė, atskira
+užduotis). Pasakykite, jei norite šito varianto.
+
+Taškas rodomas **abiejose** vietose, kur rodomas `etaLabel()`: dashboard'o "SEKANTIS TAŠKAS"
+kortelėje ir kiekvieno išplėsto sustojimo kortelėje.
+
+**Patikrinta gyvai:** naujai sukurtame maršrute su realiais Google duomenimis, dar be
+laiko langų (`deliveryTimeFrom`/`To` nenustatyti importo metu) — `etaScheduleState`
+grąžina `'unavailable'` kol `plannedArrivalAt` neužpildytas, taškas teisingai nerodomas
+(jokios klaidos, jokio netikėto spalvoto taško be pagrindo).
+
+## 3. Trys užbaigimo mygtukai — patikslinta užduotis, NIEKAS NEPAŠALINTA
+
+Pagal vartotojo pačio patikslinimą (nuotraukoje trys, ne du mygtukai) ir paties duotą
+kriterijų ("jei tas pats veiksmas dviem žingsniais — NĖRA dubliavimas, palik abu"):
+
+| Mygtukas | Spalva | `onPress` | Ką realiai daro |
+|---|---|---|---|
+| "Atšaukti paskutinį veiksmą" | geltona | `undoLast()` → `UndoRouteAction` | Visiškai **nesusijęs** su užbaigimu — atšaukia PASKUTINĮ sustojimo veiksmą (pakrauta/pristatyta/nepavyko), jei jis atliktas per paskutines kelias minutes (`GetLatestUndoableAction`, `undo_expires_at` langas). Rodomas tik kai toks atšaukiamas veiksmas egzistuoja. |
+| "Tęsti užbaigimą" (arba "Užbaigti maršrutą", jei dar nepradėta) | žalia | `beginFinish()` → `BeginRouteCompletion` | **1-as žingsnis.** Pažymi `completion_started_at` DB įraše (kad, jei app'as užsidarytų per pusę užbaigimo, grįžus vėl atsidarytų ta pati forma) ir **atidaro** santraukos/odometro formą (`setShowFinish(true)`). **NEUŽBAIGIA maršruto.** Etiketė "Tęsti" vietoj "Užbaigti" rodoma, jei `route.completionStartedAt` jau užpildytas — t.y. vartotojas anksčiau pradėjo, bet nebaigė (uždarė app'ą), dabar tiesiog grąžinamas ten, kur buvo. |
+| "Patvirtinti užbaigimą" (matomas tik atidarius formą) | žalia | `finish()` → `CompleteRoute` | **2-as žingsnis.** Realiai užbaigia maršrutą (`status='completed'`), įrašo galutinį odometrą, apskaičiuoja faktinį atstumą, ir nukreipia į rezultatų ekraną. |
+
+**Išvada: tai NĖRA dubliuota funkcija.** "Tęsti užbaigimą" ir "Patvirtinti užbaigimą" yra du
+to paties vieno veiksmo (maršruto užbaigimo) žingsniai — atidarymas ir patvirtinimas, lygiai
+kaip vartotojas pats numatė kaip "nėra dubliavimo" pavyzdį. "Atšaukti paskutinį veiksmą" yra
+trečia, visiškai atskira funkcija (klaidos taisymas per paskutines minutes), ne užbaigimo
+dalis. **Jokio mygtuko nepašalinau** — visi trys turi skirtingą, nepersidengiančią paskirtį.
+
+## 4. Vizualinis panašumas su "Tradiala" — PATIKRINTA, PANAŠUMO NERASTA
+
+Ieškota kodo bazėje:
+- `LinearGradient`/CSS `gradient` naudojimo UI fone/antraštėse: rasta **tik viena** vieta —
+  [src/components/route-map.tsx](src/components/route-map.tsx) SVG `<LinearGradient>` maršruto
+  linijai nuspalvinti (native fallback žemėlapyje), **ne** puslapio antraštė/fonas. Jokio
+  tamsiai mėlyno/žalio gradiento header'io niekur nėra.
+- PIN kodo/prisijungimo ekrano: **tokio ekrano visai nėra** programoje (nėra autentifikacijos
+  sistemos — vienas lokalus vairuotojas, be paskyrų).
+- Didelio šūkio/hero teksto: didžiausias `fontSize` visame `src/`: `32` — tik ekranų
+  antraštės (pvz. "Mano pristatymai" [src/app/index.tsx:192](src/app/index.tsx:192)), be
+  jokio gradiento fone, be šūkio didžiosiomis raidėmis.
+- Statistikos kortelių tinklelio ant permatomo overlay: dashboard'as (`delivery.tsx`)
+  naudoja lygų (flat) tamsų foną, apskritus tick-matuoklius ir monospace skaičius paprastose
+  kortelėse (`borderWidth:1`, `borderColor`, jokio overlay/permatomumo efekto).
+
+**Išvada:** dabartinis "automobilio prietaisų skydelio" dizainas (tick matuokliai, monospace
+skaičiai, paprastos kortelės be gradientų, jokio PIN ekrano, jokio didelio šūkio) yra
+vizualiai aiškiai skirtingas nuo aprašyto "Tradiala" dizaino. **Nieko nekeista** šiuo punktu,
+kaip prašyta.
+
+## 5. Dubliuotas istorijos įrašas — IŠTIRTA, STRUKTŪRINIO BUG'O NERASTA
+
+**Kaip veikia istorija:** [src/database/repositories/route-repository.ts:224-232](src/database/repositories/route-repository.ts:224)
+`listHistory()` — paprastas `SELECT * FROM routes WHERE status IN ('completed','cancelled')`,
+be jokio JOIN. Nėra atskiros "history" lentelės — kiekvienas įrašas Istorijos ekrane
+atitinka **vieną konkretų `routes` lentelės eilutę** (vieną `route_id`).
+
+**Patikrinta, ar `CompleteRoute`/`CancelDraftRoute` gali sukurti antrą įrašą tam pačiam
+`route_id`:**
+- [src/application/routes/route-commands.ts:657-675](src/application/routes/route-commands.ts:657)
+  `CancelDraftRoute` — `UPDATE routes SET status='cancelled' ... WHERE id = ?`. **UPDATE, ne
+  INSERT.**
+- [src/application/routes/route-workday.ts:676-745](src/application/routes/route-workday.ts:676)
+  `CompleteRoute` — `UPDATE routes SET status='completed' ... WHERE id = ? AND status =
+  'in_progress'`, su papildoma apsauga: jei `result.changes !== 1`, meta klaidą "Maršruto
+  būsena jau pasikeitė". Taip pat **UPDATE, ne INSERT**, ir dar su explicit guard'u prieš
+  lenktynių sąlygą (race condition).
+- Abi komandos pradžioje tikrina `route.status` per `assertRouteTransition()` — maršrutas
+  jau esantis `'cancelled'` NEGALI pereiti į `'completed'` (ir atvirkščiai): kiekvienas
+  `route_id` gali pasiekti **tik vieną** iš dviejų galutinių būsenų, niekada abi.
+- Papildomai patikrinau `CreateDraftRoute` ([route-commands.ts:163-190](src/application/routes/route-commands.ts:163)) —
+  jau turi dvi apsaugas nuo atsitiktinio dubliavimo: `commandId` deduplikacijos lentelė
+  (`route_creation_commands`) pakartotiniam tos pačios komandos siuntimui, ir
+  `getActive()` patikrinimas, kuris **neleidžia** sukurti naujo maršruto, kol esamas
+  nebaigtas/neatšauktas (`draft`/`planned`/`loading`/`loaded`/`in_progress`).
+
+**Išvada:** kodas struktūriškai **negali** sukurti dviejų istorijos įrašų tam pačiam
+`route_id` — nei `CompleteRoute`, nei `CancelDraftRoute` niekada neįterpia naujos eilutės,
+abi tik atnaujina esamą, su apsaugotais, tarpusavyje išskiriančiais perėjimais. Taisyti
+nėra ko — **jokio kodo pakeitimo šiuo punktu nepadaryta.**
+
+**Kas tada yra tie du įrašai:** tai **du skirtingi `route_id`** su ta pačia adresų
+sąranga (14 taškų, 1191.3 kg) — t.y. tas pats adresų sąrašas buvo naudotas kuriant maršrutą
+**du kartus** (pvz. tas pats Excel/adresų sąrašas importuotas/įvestas iš naujo). Tai patvirtina
+ir patys duomenys: skirtingi apskaičiuoti atstumai (519.3 km vs 663.5 km — du **skirtingi**
+optimizavimo paleidimai, ne ta pati eilutė), ir vienas turi REALŲ pristatymo progresą
+(13 sėkmingų, 208 km faktinis), o kitas — jokio (0 sėkmingų, atšauktas prieš pradedant).
+Kadangi `CreateDraftRoute` neleidžia turėti dviejų aktyvių maršrutų vienu metu (žr. aukščiau),
+šie du maršrutai turėjo būti sukurti **nuosekliai, dviem atskirais vartotojo veiksmais**
+(sukurta #1 → atšaukta #1 → sukurta #2 → užbaigta #2), ne vienu bug'u. Tai atitinka
+ankstesnės šios dienos sesijos dalies ("vakaras" skyrius aukščiau, 3 punktas) aprašytą
+"Valyti"/Alert-fix testavimą, kai maršrutas su realiais adresais buvo sąmoningai sukurtas
+ir atšauktas testavimo tikslais.
+
+**Neturiu prieigos prie jūsų realios telefono DB**, tad negaliu 100% patvirtinti, kad tai
+buvo BŪTENT tas testavimas, o ne, pvz., pačio vairuotojo atsitiktinis dvigubas maršruto
+sukūrimas. Bet kodo lygmenyje esu tikras: tai **vienkartinis įvykis** (du atskiri vartotojo
+sprendimai), **ne pasikartojantis bug'as** — struktūra tiesiog neleidžia to atsitikti
+automatiškai/tyliai.
+
+## Patikrinimai po visų 5 punktų
+
+`tsc --noEmit` — 0 klaidų. `vitest run` — visi testai praėję. Gyvai patikrinta per
+naršyklės testavimo įrankį (tamsi tema): #1 (perskaičiavimo kortelė matoma iškart), #2
+(taškas rodomas/nerodomas teisingai priklausomai nuo duomenų). #3–#5 yra tyrimai/dokumentacija
+be kodo pakeitimų delivery sraute, patikrinti kodo skaitymu ir esamais automatiniais testais.
+
+**Deploy STATUSAS: NEPALEISTAS.** Laukiama vartotojo komandos ir papildomo dizaino punkto.

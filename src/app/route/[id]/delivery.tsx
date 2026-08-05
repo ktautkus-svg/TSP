@@ -40,10 +40,16 @@ import { fonts, spacing } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { failedDeliveryLabel, userVisibleStopNote } from '@/ui/route-labels';
-import { etaLabel, legLabel, offlineEtaLabel, scheduleLabel, windowLabel } from '@/ui/route-eta-labels';
+import { etaLabel, legLabel, offlineEtaLabel, scheduleDotColor, scheduleLabel, windowLabel } from '@/ui/route-eta-labels';
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 const AnimatedG = Animated.createAnimatedComponent(G);
+
+function ScheduleDot({ stop, colors }: { stop?: DeliveryStop | null; colors: ColorPalette }) {
+  const color = scheduleDotColor(stop);
+  if (!color) return null;
+  return <View testID="schedule-dot" style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors[color] }} />;
+}
 
 // Automotive-dashboard gauge geometry: a 270° sweep starting at "7:30" and
 // ending at "4:30" (like a speedometer), leaving a 90° gap at the bottom.
@@ -426,7 +432,10 @@ export default function DeliveryScreen() {
               <Text style={styles.dashboardCardLabel}>SEKANTIS TAŠKAS</Text>
               <Text style={styles.nextStopAddress}>{nextStop.normalizedAddress ?? nextStop.originalAddress}</Text>
               <Text style={styles.nextStopMeta}>{legLabel(nextStop)}</Text>
-              <Text style={styles.nextStopEta}>{etaLabel(nextStop)}</Text>
+              <View style={styles.etaRow}>
+                <ScheduleDot stop={nextStop} colors={colors} />
+                <Text style={styles.nextStopEta}>{etaLabel(nextStop)}</Text>
+              </View>
             </View>
           ) : (
             <View style={styles.nextStopCard} testID="dashboard-next-stop">
@@ -516,6 +525,17 @@ export default function DeliveryScreen() {
           <Text style={styles.secondaryText}>Perskaičiuoti likusį maršrutą</Text>
         </Pressable>
       ) : null}
+      {recalculation ? (
+        <View style={styles.recalculationCard} testID="recalculation-proposal">
+          <Text style={styles.heading}>Naujas likusios sekos variantas</Text>
+          <Text style={styles.meta}>Kilometrų skirtumas: {signed(recalculation.distanceDeltaKm, 'km')}</Text>
+          <Text style={styles.meta}>Laiko skirtumas: {signed(recalculation.timeDeltaMinutes, 'min')}</Text>
+          <Text style={styles.meta}>Esama: {recalculation.orderBefore.map(stopLabel).join(' → ')}</Text>
+          <Text style={styles.meta}>Nauja: {recalculation.orderAfter.map(stopLabel).join(' → ')}</Text>
+          <Pressable style={styles.finishButton} onPress={() => { void resolveRecalculation(true); }}><Text style={styles.buttonText}>Patvirtinti naują seką</Text></Pressable>
+          <Pressable style={styles.cancelButton} onPress={() => { void resolveRecalculation(false); }}><Text style={styles.secondaryText}>Palikti esamą seką</Text></Pressable>
+        </View>
+      ) : null}
       {visibleStops.map((stop) => {
         const expanded = expandedStopId === stop.id;
         return (
@@ -533,7 +553,10 @@ export default function DeliveryScreen() {
             </Pressable>
             {expanded ? (
               <>
-                <Text style={styles.eta}>{etaLabel(stop)}</Text>
+                <View style={styles.etaRow}>
+                  <ScheduleDot stop={stop} colors={colors} />
+                  <Text style={styles.eta}>{etaLabel(stop)}</Text>
+                </View>
                 <Text style={styles.meta}>{legLabel(stop)}</Text>
                 <Text style={styles.schedule}>{scheduleLabel(stop)}</Text>
                 {windowLabel(stop, route?.planningMode ?? null) ? <Text style={route?.planningMode === 'ignore_time_windows' ? styles.informational : styles.meta}>{windowLabel(stop, route?.planningMode ?? null)}</Text> : null}
@@ -552,17 +575,6 @@ export default function DeliveryScreen() {
           </SwipeActionCard>
         );
       })}
-      {recalculation ? (
-        <View style={styles.recalculationCard} testID="recalculation-proposal">
-          <Text style={styles.heading}>Naujas likusios sekos variantas</Text>
-          <Text style={styles.meta}>Kilometrų skirtumas: {signed(recalculation.distanceDeltaKm, 'km')}</Text>
-          <Text style={styles.meta}>Laiko skirtumas: {signed(recalculation.timeDeltaMinutes, 'min')}</Text>
-          <Text style={styles.meta}>Esama: {recalculation.orderBefore.map(stopLabel).join(' → ')}</Text>
-          <Text style={styles.meta}>Nauja: {recalculation.orderAfter.map(stopLabel).join(' → ')}</Text>
-          <Pressable style={styles.finishButton} onPress={() => { void resolveRecalculation(true); }}><Text style={styles.buttonText}>Patvirtinti naują seką</Text></Pressable>
-          <Pressable style={styles.cancelButton} onPress={() => { void resolveRecalculation(false); }}><Text style={styles.secondaryText}>Palikti esamą seką</Text></Pressable>
-        </View>
-      ) : null}
       <Pressable disabled={busy} style={[styles.finishButton, busy && styles.disabled]} onPress={() => void beginFinish()}><Text style={styles.buttonText}>{route?.completionStartedAt ? 'Tęsti užbaigimą' : 'Užbaigti maršrutą'}</Text></Pressable>
       {showFinish ? (
         <View style={styles.finishCard} testID="route-finish-summary">
@@ -801,6 +813,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   nextStopAddress: { color: colors.text, fontSize: 18, fontWeight: '800' },
   nextStopMeta: { color: colors.textMuted, lineHeight: 20 },
   nextStopEta: { color: colors.info, fontSize: 16, fontWeight: '800' },
+  etaRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   statsRow: { flexDirection: 'row', gap: spacing.sm },
   statItem: { flex: 1, padding: spacing.sm, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: 'center', gap: 4 },
   statValue: { color: colors.text, fontSize: 18, fontWeight: '800', fontFamily: fonts.mono },
