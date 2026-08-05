@@ -402,3 +402,166 @@ Jokių kitų žinomų "vartotojas įstringa be išeities" tipo bug'ų nepastebė
 
 **NIEKADA nepaleidau `cloud-run-deploy.ps1`** — jokio deployment veiksmo
 neatlikta.
+
+---
+
+# Sesija 2026-08-05 (naktis): du live bug'ai + dizaino etapas (temos + dashboard)
+
+Dirbta savarankiškai, vartotojui išvažiavus. **Deploy'inta: NE — dirbta tik
+lokaliai pagal nurodymą.** `cloud-run-deploy.ps1` nepaleistas nė karto.
+
+## Du bug'ai iš realaus testavimo instaliuotoje PWA
+
+### BUG 1: Žemėlapis rodė neteisingą regioną (Skandinavija vietoj Panevėžio)
+
+**Ištirta:** `route-map.web.tsx` Leaflet integracija patikrinta kodo lygmeniu —
+`[latitude, longitude]` tvarka nuosekli visur (Leaflet konvencija), o
+`decodePolyline()` teisingai dekoduoja Google polyline formatą (lat delta
+pirmiau, tada lng delta). Jokio koordinačių sukeitimo klaidos rendering kode
+nerasta.
+
+**Tikroji šaknis:** `gateway/providers/google-geocoding-adapter.ts` siuntė tik
+minkštą `region: 'lt'` nuorodą Google Geocoding API — tai TIK paveikia
+rezultatus, NEAPRIBOJA jų Lietuva. `gateway/service.ts`'o
+`isUnambiguous = candidates.length === 1` neturėjo jokio geografinio
+patikrinimo — jei Google grąžina TIK VIENĄ rezultatą (net jei jis visiškai
+neteisingoje šalyje), jis automatiškai priimamas be vartotojo peržiūros.
+
+**Taisymas:**
+1. Pridėtas `components=country:LT` (kietas apribojimas, ne vien bias) prie
+   geokodavimo užklausos.
+2. Pridėtas Lietuvos bounding-box patikrinimas `toGeocodeResponse()` — jei
+   vienintelis kandidatas yra už Lietuvos ribų, jis NEBEPRIIMAMAS automatiškai
+   (demote'inamas į "ambiguous", reikalaujantis rankinio patvirtinimo).
+
+**Svarbu:** NEPAVYKO atkurti TIKSLIAUS pranešto atvejo su spėtais adresais
+("Vilties g. 10, Panevėžys" ir pan. geokodavosi teisingai net PRIEŠ taisymą) —
+neturiu prieigos prie jūsų realių išsaugotų duomenų. Abu taisymai vis tiek
+uždaro visą šią klaidų klasę nepriklausomai nuo tikslaus trigerio. **Šis
+taisymas yra gateway kode — reikės gateway redeploy'inimo, kad pasiektų jūsų
+gyvą PWA** (nedariau, kaip nurodyta).
+
+Ta pati "ID vietoj pavadinimo" logika taikoma ir čia — jei problema kartojasi,
+parašykite man TIKSLŲ adresą iš to maršruto, kad galėčiau tirti su realiais
+duomenimis.
+
+### BUG 2: "Navigacija" atidarė Google Maps vietoj Waze
+
+**Šaknis rasta:** `delivery.tsx`'o `navigate()`:
+```ts
+const canWaze = Platform.OS !== 'web' && await Linking.canOpenURL(urls.waze);
+```
+Web'e `canWaze` VISADA `false` (trumpo jungimo dėka, prieš net pasiekiant
+`await`), tad visada krito į Google/Apple Maps fallback. `buildNavigationUrls()`
+JAU generavo teisingą web-suderinamą Waze universal link
+(`https://waze.com/ul?...`) web platformai — jis tiesiog niekada nebuvo
+naudojamas.
+
+**Taisymas:** web'e dabar tiesiogiai naudojamas `urls.waze` (universal link,
+nereikia `canOpenURL` patikrinimo, kurio `waze://` custom schema reikalauja,
+bet kurio naršyklės patikimai negali patikrinti).
+
+**Patikrinta gyvai:** `window.open` perimtas per JS — paspaudus "Navigacija"
+realiai iškviečiama `window.open("https://waze.com/ul?ll=55.7418223,24.3618089&navigate=yes", "_blank", "noopener")` su teisingomis koordinatėmis, ne Google Maps URL.
+
+## Dizaino etapas
+
+### Žingsnis 1: Temos statuso patikrinimas
+
+B1 (ThemeContext/ThemeProvider/ThemePreference/app_preferences) ir B2
+(Nustatymų perjungiklis + `settings/index.tsx` konvertavimas) — **abu jau
+buvo pilnai padaryti** ankstesnėje šios dienos sesijoje. Patvirtinta grep'u:
+`settings/index.tsx` neimportuoja statinio `colors`, naudoja `useTheme()`.
+
+### Žingsnis 2: Likusių 17 ekranų konvertavimas
+
+Visi 17 likę failai konvertuoti į `createStyles(colors)` pattern'ą, 4 grupėmis
+su atskirais commit'ais:
+- **Grupė 1** (6 komponentai): `empty-state.tsx`, `foundation-screen.tsx`,
+  `pwa-runtime.tsx`, `shipment-lines-summary.tsx`, `route-map.tsx`,
+  `route-map.web.tsx`.
+- **Grupė 2A** (5 ekranai): `history.tsx`, `history/[id].tsx`,
+  `route/[id]/result.tsx`, `route/new.tsx`, `settings/locations.tsx`.
+- **Grupė 2B** (5 ekranų su sub-komponentais): `index.tsx`, `import/index.tsx`
+  (didžiausias failas, 3 sub-komponentai: `DeliveryEditor`, `SourceButton`,
+  `Choice`), `loading.tsx`, `review.tsx` (3 sub-komponentai: `StopEditor`,
+  `Candidate`, `StateLabel`), `alternatives.tsx` (`CandidateCard`).
+- **`delivery.tsx`** konvertuotas kartu su Žingsniu 3 (žr. žemiau), nes vis
+  tiek reikėjo pilno perrašymo.
+
+Sub-komponentai, renderinami kaip JSX broliai/seserys (ne per hook'ą tame
+pačiame render'e), gauna `styles` (ir kur reikia `colors`, pvz.
+`placeholderTextColor`) kaip explicit prop'ą, nes negali patys kviesti
+`useTheme()` per tėvinio komponento render'ą.
+
+**Patikrinta gyvai abiem temomis** (šviesi/tamsi) per naršyklės įrankį: fonas,
+kortelių fonas, "Stabdyti maršrutą" mygtuko fonas, tick žymeklių spalvos —
+visos teisingai perjungė reikšmes be jokio hardcoded hex likučio (patvirtinta
+`grep -rl "^import { colors"` grąžina 0 rezultatų).
+
+### Žingsnis 3: Delivery.tsx "prietaisų skydelio" dashboard
+
+Naujas `DashboardGauge` komponentas pakeičia senąjį paprastą žiedą:
+- 28 tick žymekliai per -225°..45° (270°) lanką, kas 7-tas ilgesnis/ryškesnis.
+- Animuota rodyklė (needle) nuo centro iki dabartinės reikšmės pozicijos, su
+  mažu apskritimu (hub) centre.
+- Skaičiai monospace šriftu (`fonts.mono` iš `tokens.ts`).
+- VISOS spalvos per `useTheme()`/`colors` prop'ą, jokio hardcoded hex.
+- Statistikos eilutė papildyta TREČIU lauku (atstumas) su 3 rankomis
+  nupieštomis SVG ikonomis (laikrodis, dėžutė, S-kreivės kelias) — bibliotekos
+  neradau projekte (`@expo/vector-icons` ir pan. nėra `package.json`), tad
+  nupiešiau pačiam per `react-native-svg` (jau naudojamas projekte).
+- "Stabdyti maršrutą" mygtukas gavo kvadrato (stop) ikoną šalia teksto.
+- Duomenų logika NEPALIESTA — visi skaičiai iš jau egzistuojančio
+  `GetRouteProgress`, tik vizualas pakeistas.
+
+**Patikrinta gyvai abiem režimais:**
+- Šviesus: dashboard fonas `rgb(246,247,249)` (#F6F7F9), kortelės
+  `rgb(255,255,255)`, stabdymo mygtukas `rgb(180,35,24)` (#B42318).
+- Tamsus: dashboard fonas `rgb(20,23,28)` (#14171C), kortelės
+  `rgb(29,33,41)` (#1D2129), stabdymo mygtukas `rgb(240,69,63)` (#F0453F),
+  major tick spalva `#8A8F98`.
+- SVG struktūra patikrinta per JS: kiekvienas gauge turi 29 `<line>`
+  (28 tick + 1 needle) ir 3 `<circle>` (track/progress/hub) — atitinka dizainą.
+
+### Žingsnis 4: Bendra vizualinė kokybė
+
+- Spacing/typography: jau nuosekliai per `tokens.ts` `spacing`/`fonts` visame
+  kode (patikrinta per visą šios sesijos darbą, jokių hardcoded reikšmių
+  naujuose pakeitimuose).
+- Border-radius: nuosekliai 12–18 diapazone visur, jokių akivaizdžių
+  neatitikimų nepastebėta.
+- Siauro ekrano (375px) patikrinimas per naršyklės įrankį:
+  `delivery.tsx` (su nauju dashboard'u), `history.tsx`, `settings/index.tsx`,
+  `import/index.tsx` — **jokio horizontalaus scroll'inimo nerasta**
+  (`document.body.scrollWidth === document.body.clientWidth === 375` visur).
+- Didelių struktūrinių pakeitimų nedariau, kaip nurodyta.
+
+## Kas liko neaišku / nebaigta
+
+1. **BUG 1 (žemėlapis)** — taisymas pagrįstas, bet NEPATVIRTINTAS su TIKRAIS
+   pranešto atvejo duomenimis (neturiu prieigos prie jūsų DB). Reikės jūsų
+   patikrinimo su realiu maršrutu POST-deploy.
+2. **Gateway pakeitimai reikalauja atskiro deploy**, kad pasiektų jūsų gyvą
+   PWA — aš to nedariau (kaip nurodyta).
+3. `alternatives.tsx` žemėlapis (Leaflet) rodo tik web'e — native versija vis
+   dar SVG schema (nepakito šią sesiją, žinoma iš anksčiau).
+4. Naujas `DashboardGauge` NEpatikrintas su realiu skaičiu artimu 0 arba 1
+   (kraštinės reikšmės) — testuota tik su realiu progreso duomenimis
+   (0 iš 2 pristatyta), needle/arc elgesys ties fraction=0/1 tikėtinas
+   teisingas pagal formulę, bet nepravestas explicit testas.
+
+## Commit'ai šios sesijos (chronologine tvarka)
+
+| Tema | Commit |
+|---|---|
+| Alert modalo fix'as (ankstesnė šios dienos dalis) | `2ed32f6` |
+| BUG 1 + BUG 2 (geokodavimas + Waze) | `678d311` |
+| Temos grupė 1 (komponentai) | `377b683` |
+| Temos grupė 2A (history/result/new/locations) | `5a4024e` |
+| Temos grupė 2B (index/import/loading/review/alternatives) | `db8b7cc` |
+| Dashboard redesign + delivery.tsx tema | `bf0af34` |
+
+*(Pastaba: pirmas bandymas commit'inti Grupę 1 be pilno pathspec'o per klaidą
+įtraukė nesusijusį 51-failų senos Expo šablono bloką — tai IŠTAISYTA per
+`git reset --soft HEAD~1` prieš tęsiant, jokio duomenų praradimo nebuvo.)*
