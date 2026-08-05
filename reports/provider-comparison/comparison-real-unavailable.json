@@ -1,0 +1,12 @@
+{
+  "benchmark": "Vilnius routing provider comparison",
+  "generatedAt": "2026-07-31T17:57:26.505Z",
+  "mode": "real",
+  "status": "not_run",
+  "reason": "Real benchmark sustabdytas prieš tinklo užklausas: trūksta HERE_API_KEY.",
+  "realExternalRequests": 0,
+  "cacheHits": 0,
+  "hereResults": null,
+  "googleResults": null,
+  "recommendation": "Dar nepakanka duomenų tiekėjui pasirinkti."
+}

@@ -1,0 +1,71 @@
+{
+  "generatedAt": "2026-08-02T21:28:48.425Z",
+  "runtime": {
+    "node": "v24.18.0",
+    "platform": "win32",
+    "arch": "x64"
+  },
+  "methodology": "Vienas šiltas Node.js proceso paleidimas; CPU – process.cpuUsage; RAM – process.memoryUsage prieš ir po scenarijaus.",
+  "measurements": [
+    {
+      "scenario": "mock-pdf-1-pages",
+      "units": 1,
+      "durationMs": 2.01,
+      "cpuUserMs": 0,
+      "cpuSystemMs": 0,
+      "rssBeforeMb": 83.08,
+      "rssAfterMb": 83.14,
+      "heapBeforeMb": 8.77,
+      "heapAfterMb": 8.81,
+      "outputCount": 12
+    },
+    {
+      "scenario": "mock-pdf-5-pages",
+      "units": 5,
+      "durationMs": 0.12,
+      "cpuUserMs": 0,
+      "cpuSystemMs": 0,
+      "rssBeforeMb": 83.14,
+      "rssAfterMb": 83.14,
+      "heapBeforeMb": 8.82,
+      "heapAfterMb": 8.87,
+      "outputCount": 60
+    },
+    {
+      "scenario": "mock-pdf-10-pages",
+      "units": 10,
+      "durationMs": 0.16,
+      "cpuUserMs": 0,
+      "cpuSystemMs": 0,
+      "rssBeforeMb": 83.14,
+      "rssAfterMb": 83.15,
+      "heapBeforeMb": 8.99,
+      "heapAfterMb": 8.96,
+      "outputCount": 120
+    },
+    {
+      "scenario": "parse-100-deliveries",
+      "units": 100,
+      "durationMs": 14.57,
+      "cpuUserMs": 16,
+      "cpuSystemMs": 0,
+      "rssBeforeMb": 83.15,
+      "rssAfterMb": 84.18,
+      "heapBeforeMb": 8.96,
+      "heapAfterMb": 8.91,
+      "outputCount": 100
+    },
+    {
+      "scenario": "parse-200-deliveries",
+      "units": 200,
+      "durationMs": 7.89,
+      "cpuUserMs": 0,
+      "cpuSystemMs": 0,
+      "rssBeforeMb": 84.18,
+      "rssAfterMb": 84.59,
+      "heapBeforeMb": 8.91,
+      "heapAfterMb": 9.36,
+      "outputCount": 200
+    }
+  ]
+}

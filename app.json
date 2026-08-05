@@ -1,0 +1,85 @@
+{
+  "expo": {
+    "name": "Mano pristatymai",
+    "slug": "logistikos-pristatymai",
+    "version": "1.0.0",
+    "orientation": "default",
+    "icon": "./assets/images/icon.png",
+    "scheme": "logistikospristatymai",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "icon": "./assets/expo.icon",
+      "supportsTablet": true,
+      "bundleIdentifier": "lt.asmeninis.manopristatymai",
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "Vystymo metu programa jungiasi prie maršrutizavimo gateway tame pačiame vietiniame tinkle.",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        }
+      }
+    },
+    "android": {
+      "package": "lt.asmeninis.manopristatymai",
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundImage": "./assets/images/android-icon-background.png",
+        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "output": "single",
+      "favicon": "./assets/images/favicon.png",
+      "name": "Logistikos pristatymai",
+      "shortName": "Pristatymai",
+      "description": "Asmeninė pristatymų maršruto planavimo ir vykdymo aplikacija.",
+      "lang": "lt",
+      "scope": "/",
+      "startUrl": "/",
+      "display": "standalone",
+      "orientation": "portrait",
+      "themeColor": "#0E766E",
+      "backgroundColor": "#F6F7F9"
+    },
+    "plugins": [
+      [
+        "expo-router",
+        {
+          "headers": {
+            "Cross-Origin-Embedder-Policy": "credentialless",
+            "Cross-Origin-Opener-Policy": "same-origin"
+          }
+        }
+      ],
+      "expo-sqlite",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Leisti pasirinkti pristatymo dokumentų nuotraukas.",
+          "cameraPermission": "Leisti fotografuoti pristatymo dokumentus.",
+          "microphonePermission": false
+        }
+      ],
+      "expo-document-picker",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Leisti naudoti dabartinę vietą kaip maršruto pradžią ir perskaičiavimo atskaitos tašką."
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#208AEF",
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 76
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}

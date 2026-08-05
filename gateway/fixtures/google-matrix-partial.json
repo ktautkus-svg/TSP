@@ -1,0 +1,10 @@
+[
+  {"originIndex":0,"destinationIndex":0,"status":{},"condition":"ROUTE_EXISTS","distanceMeters":0,"duration":"0s"},
+  {"originIndex":0,"destinationIndex":1,"status":{},"condition":"ROUTE_EXISTS","distanceMeters":5100,"duration":"570s"},
+  {"originIndex":0,"destinationIndex":2,"status":{"code":5,"message":"No route"},"condition":"ROUTE_NOT_FOUND"},
+  {"originIndex":1,"destinationIndex":0,"status":{},"condition":"ROUTE_EXISTS","distanceMeters":5300,"duration":"650s"},
+  {"originIndex":1,"destinationIndex":1,"status":{},"condition":"ROUTE_EXISTS","distanceMeters":0,"duration":"0s"},
+  {"originIndex":1,"destinationIndex":2,"status":{},"condition":"ROUTE_EXISTS","distanceMeters":4000,"duration":"500s"},
+  {"originIndex":2,"destinationIndex":0,"status":{},"condition":"ROUTE_EXISTS","distanceMeters":8000,"duration":"910s"},
+  {"originIndex":2,"destinationIndex":1,"status":{},"condition":"ROUTE_EXISTS","distanceMeters":4200,"duration":"520s"}
+]

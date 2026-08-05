@@ -1,0 +1,39 @@
+env: load .env
+env: export EXPO_PUBLIC_API_URL EXPO_PUBLIC_GATEWAY_URL GATEWAY_HOST GOOGLE_API_KEY GOOGLE_ROUTES_API_KEY
+Starting project at C:\Users\Karolis\Desktop\logistikos-pristatymai
+Using src/app as the root directory for Expo Router.
+React Compiler enabled
+Metro is running in CI mode, reloads are disabled. Remove CI=true to enable watch mode.
+Starting Metro Bundler
+
+Waiting on http://localhost:8082
+
+Logs for your project will appear below.
+λ Bundled 1343ms node_modules\expo\node_modules\@expo\cli\node_modules\@expo\router-server\node\render.js (1044 modules)
+Web Bundled 1783ms node_modules\expo-router\entry.js (1061 modules)
+Web Bundled 352ms node_modules\expo-router\entry.js (1065 modules)
+Web  INFO  %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+Web  LOG  Running application "main" with appParams:
+ {"hydrate": undefined, "rootTag": "#root"} 
+Development-level warnings: ON.
+Performance optimizations: OFF.
+Web Bundled 63ms node_modules\expo-sqlite\web\worker.ts (1 module)
+λ Bundled 49ms node_modules\expo\node_modules\@expo\cli\node_modules\@expo\router-server\node\render.js (1 module)
+Web Bundled 350ms node_modules\expo-router\entry.js (1 module)
+Web Bundled 52ms node_modules\expo-router\entry.js (1 module)
+Web  INFO  %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+Web  LOG  Running application "main" with appParams:
+ {"hydrate": undefined, "rootTag": "#root"} 
+Development-level warnings: ON.
+Performance optimizations: OFF.
+Web Bundled 4ms node_modules\expo-sqlite\web\worker.ts (1 module)
+λ Bundled 29ms node_modules\expo\node_modules\@expo\cli\node_modules\@expo\router-server\node\render.js (1 module)
+Web Bundled 216ms node_modules\expo-router\entry.js (1 module)
+Web Bundled 24ms node_modules\expo-router\entry.js (1 module)
+Web  INFO  %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+Web  LOG  Running application "main" with appParams:
+ {"hydrate": undefined, "rootTag": "#root"} 
+Development-level warnings: ON.
+Performance optimizations: OFF.
+Web Bundled 3ms node_modules\expo-sqlite\web\worker.ts (1 module)
+Web  WARN  SQLite DB init error: [Error: NoModificationAllowedError: Failed to execute 'createSyncAccessHandle' on 'FileSystemFileHandle': Access Handles cannot be created if there is another open Access Handle or Writable stream associated with the same file.]
