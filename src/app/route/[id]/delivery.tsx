@@ -168,7 +168,15 @@ export default function DeliveryScreen() {
       const target = navigationTargetFromStop(stop);
       const platform = Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'web';
       const urls = buildNavigationUrls(target, platform);
-      const canWaze = Platform.OS !== 'web' && await Linking.canOpenURL(urls.waze);
+      if (platform === 'web') {
+        // https://waze.com/ul is a universal link: it opens the installed Waze
+        // app directly on iOS/Android, or falls back to Waze's own website —
+        // no canOpenURL probe needed (unlike the waze:// custom scheme, which
+        // browsers can't reliably check, hence it was always skipped on web).
+        await Linking.openURL(urls.waze);
+        return;
+      }
+      const canWaze = await Linking.canOpenURL(urls.waze);
       await Linking.openURL(canWaze ? urls.waze : urls.fallback);
     } catch (reason) {
       Alert.alert('Navigacija neatidaryta', reason instanceof Error ? reason.message : 'Adresas netinkamas navigacijai.');

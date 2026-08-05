@@ -77,4 +77,43 @@ describe('gateway geocoding', () => {
     expect(fetcher).toHaveBeenCalledOnce();
     expect(String(fetcher.mock.calls[0][0])).toContain('maps.googleapis.com/maps/api/geocode/json');
   });
+
+  it('sends a hard country restriction alongside the region bias', async () => {
+    const payload = {
+      status: 'OK',
+      results: [
+        { formatted_address: 'A g. 1, Vilnius', place_id: 'a', types: ['street_address'], geometry: { location: { lat: 54.7, lng: 25.3 }, location_type: 'ROOFTOP' } },
+      ],
+    };
+    const fetcher = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => Response.json(payload));
+    const geocoder = new GoogleGeocodingAdapter('server-secret', fetcher as typeof fetch);
+    await geocoder.geocode(parseGatewayGeocodeRequest({ address: 'A g. 1, Lietuva' }));
+    expect(String(fetcher.mock.calls[0][0])).toContain('components=country%3ALT');
+  });
+
+  it('refuses to auto-accept a single geographically implausible result (wrong country)', async () => {
+    const payload = {
+      status: 'OK',
+      results: [
+        // A single confident-looking match, but far outside Lithuania (e.g. Scandinavia).
+        { formatted_address: 'Vilties gata 10, Stockholm, Sweden', place_id: 'z', types: ['street_address'], geometry: { location: { lat: 59.33, lng: 18.06 }, location_type: 'ROOFTOP' } },
+      ],
+    };
+    const fetcher = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => Response.json(payload));
+    const geocoder = new GoogleGeocodingAdapter('server-secret', fetcher as typeof fetch);
+    const service = new OptimizationGatewayService(
+      loadGatewayConfig({ GOOGLE_ROUTES_API_KEY: 'server-secret' }),
+      { google: unusedAdapter, here: { ...unusedAdapter, provider: 'here' } },
+      new MemoryMatrixResultCache(),
+      undefined,
+      undefined,
+      geocoder,
+      new MemoryGatewayResponseCache(),
+    );
+    const response = await service.geocode(parseGatewayGeocodeRequest({ address: 'Vilties g. 10' }));
+    expect(response.isUnambiguous).toBe(false);
+    expect(response.result).toBeNull();
+    // The raw candidate is still surfaced as an alternative for visibility/debugging.
+    expect(response.alternatives).toHaveLength(1);
+  });
 });
