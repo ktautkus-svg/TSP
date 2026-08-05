@@ -56,11 +56,15 @@ import { GatewayAddressResolver } from '@/infrastructure/import/gateway-address-
 import { GoogleVisionOcrProvider } from '@/infrastructure/import/ocr/google-vision-ocr-provider';
 import { MockOcrProvider } from '@/infrastructure/import/ocr/mock-ocr-provider';
 import { SQLiteImportAuditRepository } from '@/infrastructure/import/sqlite-import-audit-repository';
-import { colors, spacing } from '@/ui/tokens';
+import { spacing } from '@/ui/tokens';
+import { useTheme } from '@/ui/theme';
+import type { ColorPalette } from '@/ui/theme-palette';
 
 export default function ImportScreen() {
   const router = useRouter();
   const db = useSQLiteContext();
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const repository = useMemo(() => new RouteRepository(db), [db]);
   const excelRepository = useMemo(() => new ExcelImportRepository(db), [db]);
   const [pastedText, setPastedText] = useState('');
@@ -610,10 +614,10 @@ export default function ImportScreen() {
       description="Fotografuokite, pasirinkite vaizdus ar PDF arba įklijuokite tekstą. Prieš maršrutą visada matysite atpažintus laukus.">
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.sourceGrid}>
-          <SourceButton title="Fotografuoti" onPress={capture} />
-          <SourceButton title="Galerija" onPress={pickImages} />
-          <SourceButton title="PDF" onPress={pickPdf} />
-          <SourceButton title="Excel (.xlsx)" onPress={pickExcel} />
+          <SourceButton styles={styles} title="Fotografuoti" onPress={capture} />
+          <SourceButton styles={styles} title="Galerija" onPress={pickImages} />
+          <SourceButton styles={styles} title="PDF" onPress={pickPdf} />
+          <SourceButton styles={styles} title="Excel (.xlsx)" onPress={pickExcel} />
         </View>
 
         <View style={styles.card}>
@@ -658,7 +662,7 @@ export default function ImportScreen() {
               <Text style={styles.label}>Lapai</Text>
               <View style={styles.choiceRow}>
                 {excelPreview.sheets.map((sheet) => (
-                  <Choice key={sheet.name} label={`${sheet.name} (${sheet.rowCount})`} selected={sheet.name === excelPreview.selectedSheetName} onPress={() => { void reparseExcel(sheet.name); }} />
+                  <Choice styles={styles} key={sheet.name} label={`${sheet.name} (${sheet.rowCount})`} selected={sheet.name === excelPreview.selectedSheetName} onPress={() => { void reparseExcel(sheet.name); }} />
                 ))}
               </View>
               <Text style={styles.helper}>Duomenys prasideda nuo {excelPreview.firstDataRow} eilutės. OCR Excel failui nenaudojamas.</Text>
@@ -689,9 +693,9 @@ export default function ImportScreen() {
                 <Text style={styles.cardTitle}>Maršruto kodai</Text>
                 <Text style={styles.helper}>Pažymėkite vieną, kelis arba visus. Kodas nekeičia optimizavimo logikos.</Text>
                 <View style={styles.choiceRow}>
-                  <Choice label="Visi" selected={excelPreview.selectedRouteCodes.length === allRouteCodes(excelPreview).length} onPress={() => { void openExcelPreview(filterExcelPreviewByRouteCodes(excelPreview, allRouteCodes(excelPreview))); }} />
+                  <Choice styles={styles} label="Visi" selected={excelPreview.selectedRouteCodes.length === allRouteCodes(excelPreview).length} onPress={() => { void openExcelPreview(filterExcelPreviewByRouteCodes(excelPreview, allRouteCodes(excelPreview))); }} />
                   {allRouteCodes(excelPreview).map((code) => (
-                    <Choice key={code} label={code} selected={excelPreview.selectedRouteCodes.includes(code)} onPress={() => { void toggleRouteCode(code); }} />
+                    <Choice styles={styles} key={code} label={code} selected={excelPreview.selectedRouteCodes.includes(code)} onPress={() => { void toggleRouteCode(code); }} />
                   ))}
                 </View>
               </View>
@@ -720,7 +724,7 @@ export default function ImportScreen() {
                     <Text style={styles.secondaryText}>{expanded ? 'Slėpti detales' : 'Keisti detales'}</Text>
                   </Pressable>
                   {expanded && delivery ? (
-                    <DeliveryEditor delivery={delivery} index={excelPreview.groups.indexOf(group)} onChange={updateField} onChooseAddress={chooseAddress} compact />
+                    <DeliveryEditor styles={styles} colors={colors} delivery={delivery} index={excelPreview.groups.indexOf(group)} onChange={updateField} onChooseAddress={chooseAddress} compact />
                   ) : null}
                   {expanded ? rows.map((row) => (
                     <View key={row.id} style={[styles.excelRow, row.excluded && styles.excludedRow]}>
@@ -767,6 +771,8 @@ export default function ImportScreen() {
             </View> : null}
             {!excelPreview ? result.deliveries.map((delivery, index) => (
               <DeliveryEditor
+                styles={styles}
+                colors={colors}
                 key={delivery.id}
                 delivery={delivery}
                 index={index}
@@ -783,15 +789,17 @@ export default function ImportScreen() {
               <Text style={styles.label}>Pradžia</Text>
               <Text style={styles.endpointText}>{warehouseAddress || 'Sandėlio vieta nenustatyta'}</Text>
               <Text style={styles.label}>Pabaiga</Text>
-              <Choice label="Grįžti į Savanorių pr. 180, Vilnius" selected={endMode === 'warehouse'} disabled={!warehouseEndpoint} onPress={() => setEndMode('warehouse')} />
-              <Choice label="Baigti Alinkos g. 1A, Elektrėnai" selected={endMode === 'home'} disabled={!homeEndpoint} onPress={() => setEndMode('home')} />
+              <Choice styles={styles} label="Grįžti į Savanorių pr. 180, Vilnius" selected={endMode === 'warehouse'} disabled={!warehouseEndpoint} onPress={() => setEndMode('warehouse')} />
+              <Choice styles={styles} label="Baigti Alinkos g. 1A, Elektrėnai" selected={endMode === 'home'} disabled={!homeEndpoint} onPress={() => setEndMode('home')} />
               <Text style={styles.label}>Pristatymo laikai</Text>
               <Choice
+                styles={styles}
                 label="Atsižvelgti į pristatymo laikus"
                 selected={planningMode === 'with_time_windows'}
                 onPress={() => { setPlanningMode('with_time_windows'); setShowOnlyExcelProblems(false); }}
               />
               <Choice
+                styles={styles}
                 label="Neatsižvelgti į pristatymo laikus"
                 selected={planningMode === 'ignore_time_windows'}
                 onPress={() => { setPlanningMode('ignore_time_windows'); setShowOnlyExcelProblems(false); }}
@@ -823,12 +831,15 @@ export default function ImportScreen() {
 type EditableField = 'address' | 'orderNumber' | 'weightKg' | 'deliveryTime' | 'phone' | 'recipient' | 'notes';
 
 function DeliveryEditor(props: {
+  styles: ReturnType<typeof createStyles>;
+  colors: ColorPalette;
   delivery: ParsedDelivery;
   index: number;
   onChange: (id: string, field: EditableField, value: string) => void;
   onChooseAddress: (id: string, index: number) => void;
   compact?: boolean;
 }) {
+  const { styles, colors } = props;
   const [expandedOptionalFields, setExpandedOptionalFields] = useState<EditableField[]>([]);
   const fields: Array<{ key: EditableField; label: string; field: ImportField<string | number> }> = [
     { key: 'address', label: 'Adresas', field: props.delivery.address },
@@ -905,11 +916,12 @@ function DeliveryEditor(props: {
   );
 }
 
-function SourceButton({ title, onPress }: { title: string; onPress: () => void }) {
+function SourceButton({ styles, title, onPress }: { styles: ReturnType<typeof createStyles>; title: string; onPress: () => void }) {
   return <Pressable style={styles.sourceButton} onPress={onPress}><Text style={styles.secondaryText}>{title}</Text></Pressable>;
 }
 
-function Choice(props: { label: string; selected: boolean; disabled?: boolean; onPress: () => void }) {
+function Choice(props: { styles: ReturnType<typeof createStyles>; label: string; selected: boolean; disabled?: boolean; onPress: () => void }) {
+  const { styles } = props;
   return <Pressable disabled={props.disabled} style={[styles.choice, props.selected && styles.choiceSelected, props.disabled && styles.disabled]} onPress={props.onPress}><Text style={props.selected ? styles.choiceTextSelected : styles.choiceText}>{props.label}</Text></Pressable>;
 }
 
@@ -1006,7 +1018,7 @@ function mappingLabel(key: keyof ExcelColumnMapping): string {
   return labels[key];
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ColorPalette) => StyleSheet.create({
   content: { gap: spacing.md, paddingBottom: 80 },
   sourceGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   sourceButton: { flexGrow: 1, minWidth: '30%', minHeight: 48, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.sm },

@@ -18,12 +18,16 @@ import { FallbackTravelCostProvider } from '@/infrastructure/routing/providers/f
 import { GoogleTravelCostProvider, HereTravelCostProvider } from '@/infrastructure/routing/providers/gateway-travel-cost-provider';
 import { SyntheticTravelCostProvider } from '@/infrastructure/routing/providers/synthetic-travel-cost-provider';
 import { presentRoutingDataSource } from '@/ui/routing-data-source';
-import { colors, spacing } from '@/ui/tokens';
+import { spacing } from '@/ui/tokens';
+import { useTheme } from '@/ui/theme';
+import type { ColorPalette } from '@/ui/theme-palette';
 
 export default function RouteAlternativesScreen() {
   const router = useRouter();
   const db = useSQLiteContext();
   const { id: routeId = '' } = useLocalSearchParams<{ id: string }>();
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const repository = useMemo(() => new RouteRepository(db), [db]);
   const [request, setRequest] = useState<RouteOptimizationRequest | null>(null);
   const [result, setResult] = useState<RouteOptimizationResult | null>(null);
@@ -212,6 +216,7 @@ export default function RouteAlternativesScreen() {
         <View style={styles.list}>
           {candidates.map((candidate, index) => (
             <CandidateCard
+              styles={styles}
               key={candidate.id}
               candidate={candidate}
               request={request}
@@ -261,12 +266,14 @@ export default function RouteAlternativesScreen() {
 }
 
 function CandidateCard(props: {
+  styles: ReturnType<typeof createStyles>;
   candidate: RouteCandidate;
   request: RouteOptimizationRequest;
   recommended: boolean;
   selected: boolean;
   onSelect: () => void;
 }) {
+  const { styles } = props;
   const stopMap = useMemo(
     () => new Map(props.request.stops.map((stop) => [stop.id, stop])),
     [props.request.stops],
@@ -294,7 +301,7 @@ function CandidateCard(props: {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ColorPalette) => StyleSheet.create({
   list: { gap: spacing.md },
   loading: { alignItems: 'center', gap: spacing.sm, padding: spacing.lg },
   notice: { padding: spacing.md, borderRadius: 12, backgroundColor: colors.primarySoft },

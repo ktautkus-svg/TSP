@@ -12,7 +12,9 @@ import { GetRouteProgress, type RouteProgress } from '@/application/routes/route
 import { ScreenContainer } from '@/components/screen-container';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import type { DeliveryStop, Route } from '@/domain/route';
-import { colors, spacing } from '@/ui/tokens';
+import { spacing } from '@/ui/tokens';
+import { useTheme } from '@/ui/theme';
+import type { ColorPalette } from '@/ui/theme-palette';
 import { Alert } from '@/ui/alert';
 import { etaLabel, legLabel, offlineEtaLabel, scheduleLabel } from '@/ui/route-eta-labels';
 
@@ -21,6 +23,8 @@ let initialActiveRouteRestoreHandled = false;
 export default function HomeScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const repository = useMemo(() => new RouteRepository(db), [db]);
   const [active, setActive] = useState<Route | null>(null);
   const [progress, setProgress] = useState<RouteProgress | null>(null);
@@ -181,7 +185,7 @@ function activeRouteAction(route?: Route | null): string {
   return route.completionStartedAt ? 'Tęsti užbaigimą' : 'Tęsti maršrutą';
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ColorPalette) => StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background },
   content: { flexGrow: 1, padding: spacing.lg, paddingBottom: 80, gap: spacing.lg },
   eyebrow: { color: colors.textMuted, fontSize: 12, fontWeight: '700', letterSpacing: 1 },

@@ -34,12 +34,16 @@ import {
   GatewayGeocodingProvider,
   type GeocodeCandidate,
 } from '@/infrastructure/routing/providers/gateway-geocoding-provider';
-import { colors, spacing } from '@/ui/tokens';
+import { spacing } from '@/ui/tokens';
+import { useTheme } from '@/ui/theme';
+import type { ColorPalette } from '@/ui/theme-palette';
 
 export default function RouteReviewScreen() {
   const router = useRouter();
   const db = useSQLiteContext();
   const { id: routeId = '' } = useLocalSearchParams<{ id: string }>();
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const repository = useMemo(() => new RouteRepository(db), [db]);
   const provider = useMemo(() => new GatewayGeocodingProvider(), []);
   const [route, setRoute] = useState<Route | null>(null);
@@ -378,15 +382,15 @@ export default function RouteReviewScreen() {
       <View style={styles.card}>
         <Text style={styles.heading}>Startas ir grįžimas</Text>
         <Text style={styles.query}>{route.startLocation?.originalAddress}</Text>
-        <StateLabel ready={startReady} state={startReady ? 'auto_confirmed' : 'unconfirmed'} />
+        <StateLabel styles={styles} ready={startReady} state={startReady ? 'auto_confirmed' : 'unconfirmed'} />
         {candidates.start?.map((candidate) => (
-          <Candidate key={candidate.normalizedAddress} candidate={candidate} onPress={() => selectStart(candidate)} />
+          <Candidate styles={styles} key={candidate.normalizedAddress} candidate={candidate} onPress={() => selectStart(candidate)} />
         ))}
         <Text style={styles.heading}>Pabaiga</Text>
         <Text style={styles.query}>{route.endLocation?.originalAddress}</Text>
-        <StateLabel ready={endReady} state={endReady ? 'auto_confirmed' : 'unconfirmed'} />
+        <StateLabel styles={styles} ready={endReady} state={endReady ? 'auto_confirmed' : 'unconfirmed'} />
         {candidates.end?.map((candidate) => (
-          <Candidate key={candidate.normalizedAddress} candidate={candidate} onPress={() => selectEnd(candidate)} />
+          <Candidate styles={styles} key={candidate.normalizedAddress} candidate={candidate} onPress={() => selectEnd(candidate)} />
         ))}
       </View>
 
@@ -397,6 +401,7 @@ export default function RouteReviewScreen() {
 
       {stops.map((stop) => (
         <StopEditor
+          styles={styles}
           key={stop.id}
           stop={stop}
           candidates={candidates[stop.id] ?? []}
@@ -442,6 +447,7 @@ function parseTimeWindowInput(val: string): { deliveryTimeFrom: string | null; d
 }
 
 function StopEditor(props: {
+  styles: ReturnType<typeof createStyles>;
   stop: DeliveryStop;
   candidates: GeocodeCandidate[];
   onCandidate: (candidate: GeocodeCandidate) => void;
@@ -450,7 +456,7 @@ function StopEditor(props: {
   onMove: (stopId: string, delta: -1 | 1) => void;
   onSetPriority: (priorityFirst: boolean) => void;
 }) {
-  const { stop } = props;
+  const { stop, styles } = props;
   const [address, setAddress] = useState(stop.originalAddress);
   const [weight, setWeight] = useState(stop.weightKg === null ? '' : String(stop.weightKg));
   const [recipient, setRecipient] = useState(stop.recipient);
@@ -467,7 +473,7 @@ function StopEditor(props: {
     <View style={[styles.card, stop.addressValidationState !== 'auto_confirmed' && styles.problemCard]}>
       <View style={styles.rowBetween}>
         <Text style={styles.heading}>Taškas {stop.originalOrder}{stop.priorityFirst ? ' ⭐' : ''}</Text>
-        <StateLabel ready={stop.addressValidationState === 'auto_confirmed'} state={stop.addressValidationState} />
+        <StateLabel styles={styles} ready={stop.addressValidationState === 'auto_confirmed'} state={stop.addressValidationState} />
       </View>
       <TextInput
         value={address}
@@ -490,7 +496,7 @@ function StopEditor(props: {
       {stop.normalizedAddress ? <Text style={styles.auditText}>Patvirtinta: {stop.normalizedAddress}</Text> : null}
       {stop.geocodingError ? <Text style={styles.error}>{stop.geocodingError}</Text> : null}
       {props.candidates.map((candidate) => (
-        <Candidate key={candidate.normalizedAddress} candidate={candidate} onPress={() => props.onCandidate(candidate)} />
+        <Candidate styles={styles} key={candidate.normalizedAddress} candidate={candidate} onPress={() => props.onCandidate(candidate)} />
       ))}
       <View style={styles.twoColumns}>
         <TextInput value={weight} onChangeText={setWeight} onBlur={() => { void props.onEdit({ weightKg: nullableNumber(weight) }); }} placeholder="Svoris, kg (neprivaloma)" keyboardType="decimal-pad" style={styles.input} />
@@ -514,7 +520,7 @@ function StopEditor(props: {
   );
 }
 
-function Candidate({ candidate, onPress }: { candidate: GeocodeCandidate; onPress: () => void }) {
+function Candidate({ styles, candidate, onPress }: { styles: ReturnType<typeof createStyles>; candidate: GeocodeCandidate; onPress: () => void }) {
   return (
     <Pressable style={styles.candidate} onPress={onPress}>
       <Text style={styles.candidateText}>{candidate.normalizedAddress}</Text>
@@ -523,7 +529,7 @@ function Candidate({ candidate, onPress }: { candidate: GeocodeCandidate; onPres
   );
 }
 
-function StateLabel({ ready, state }: { ready: boolean; state: DeliveryStop['addressValidationState'] }) {
+function StateLabel({ styles, ready, state }: { styles: ReturnType<typeof createStyles>; ready: boolean; state: DeliveryStop['addressValidationState'] }) {
   const labels: Record<DeliveryStop['addressValidationState'], string> = {
     auto_confirmed: 'Automatiškai patvirtinta',
     ambiguous: 'Keli variantai',
@@ -538,7 +544,7 @@ function nullableNumber(value: string): number | null {
   return value.trim() && Number.isFinite(parsed) ? parsed : null;
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ColorPalette) => StyleSheet.create({
   card: { padding: spacing.md, borderRadius: 18, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
   problemCard: { borderColor: colors.warning, borderWidth: 2 },
   heading: { color: colors.text, fontSize: 17, fontWeight: '800' },

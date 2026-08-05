@@ -27,12 +27,16 @@ import type { DeliveryStop, Route } from '@/domain/route';
 import { Alert } from '@/ui/alert';
 import { etaLabel, legLabel, windowLabel } from '@/ui/route-eta-labels';
 import { userVisibleStopNote } from '@/ui/route-labels';
-import { colors, spacing } from '@/ui/tokens';
+import { spacing } from '@/ui/tokens';
+import { useTheme } from '@/ui/theme';
+import type { ColorPalette } from '@/ui/theme-palette';
 
 export default function LoadingScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
   const { id: routeId = '' } = useLocalSearchParams<{ id: string }>();
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const repository = useMemo(() => new RouteRepository(db), [db]);
   const [route, setRoute] = useState<Route | null>(null);
   const [stops, setStops] = useState<DeliveryStop[]>([]);
@@ -272,7 +276,7 @@ export default function LoadingScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ColorPalette) => StyleSheet.create({
   summary: { padding: spacing.md, borderRadius: 16, backgroundColor: colors.primarySoft, gap: spacing.xs },
   summaryTitle: { color: colors.text, fontSize: 18, fontWeight: '800' },
   summaryText: { color: colors.textMuted, lineHeight: 20 },
