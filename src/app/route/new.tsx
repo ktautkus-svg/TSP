@@ -13,12 +13,16 @@ import { manualAddressesToDraftStops } from '@/application/routes/route-draft-ma
 import { resolveRoute } from '@/application/routes/route-navigation';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { RouteRepository } from '@/database/repositories/route-repository';
-import { colors, spacing } from '@/ui/tokens';
+import { spacing } from '@/ui/tokens';
+import { useTheme } from '@/ui/theme';
+import type { ColorPalette } from '@/ui/theme-palette';
 import { Alert } from '@/ui/alert';
 
 export default function NewRouteScreen() {
   const router = useRouter();
   const db = useSQLiteContext();
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const repository = useMemo(() => new RouteRepository(db), [db]);
   const [sourceText, setSourceText] = useState('');
   const [startAddress, setStartAddress] = useState('');
@@ -172,7 +176,7 @@ export default function NewRouteScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ColorPalette) => StyleSheet.create({
   formCard: {
     padding: spacing.lg,
     borderRadius: 18,

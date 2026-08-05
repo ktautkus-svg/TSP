@@ -13,7 +13,9 @@ import { ShipmentLineRepository } from '@/database/repositories/shipment-line-re
 import type { DeliveryStop, Route } from '@/domain/route';
 import type { ShipmentLine } from '@/domain/shipment-line';
 import { deliveryStatusLabel, formatLithuanianDateTime, loadingStatusLabel } from '@/ui/history-labels';
-import { colors, spacing } from '@/ui/tokens';
+import { spacing } from '@/ui/tokens';
+import { useTheme } from '@/ui/theme';
+import type { ColorPalette } from '@/ui/theme-palette';
 import { Alert } from '@/ui/alert';
 
 type Audit = Awaited<ReturnType<RouteRepository['listAudit']>>[number];
@@ -22,6 +24,8 @@ export default function RouteHistoryDetailScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
   const { id: routeId = '' } = useLocalSearchParams<{ id: string }>();
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const repository = useMemo(() => new RouteRepository(db), [db]);
   const shipmentRepository = useMemo(() => new ShipmentLineRepository(db), [db]);
   const [route, setRoute] = useState<Route | null>(null);
@@ -136,7 +140,7 @@ export default function RouteHistoryDetailScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ColorPalette) => StyleSheet.create({
   summary: { padding: spacing.md, borderRadius: 16, backgroundColor: colors.primarySoft, gap: spacing.xs },
   card: { padding: spacing.md, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.xs },
   title: { color: colors.text, fontSize: 17, fontWeight: '800' },

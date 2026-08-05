@@ -7,12 +7,16 @@ import { GetDefaultLocations, SaveDefaultLocation } from '@/application/routes/s
 import { FoundationScreen } from '@/components/foundation-screen';
 import { GatewayAddressResolver } from '@/infrastructure/import/gateway-address-resolver';
 import type { RouteEndpoint, SavedLocation } from '@/domain/route';
-import { colors, spacing } from '@/ui/tokens';
+import { spacing } from '@/ui/tokens';
+import { useTheme } from '@/ui/theme';
+import type { ColorPalette } from '@/ui/theme-palette';
 import { Alert } from '@/ui/alert';
 
 export default function LocationSettingsScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const service = useMemo(() => new GetDefaultLocations(db), [db]);
   const resolver = useMemo(() => new GatewayAddressResolver(), []);
   const [warehouse, setWarehouse] = useState('');
@@ -172,7 +176,7 @@ function plainEndpoint(address: string): RouteEndpoint {
   return { originalAddress: value, geocodingQuery: value, normalizedAddress: null, latitude: null, longitude: null };
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ColorPalette) => StyleSheet.create({
   card: { padding: spacing.md, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
   label: { color: colors.text, fontWeight: '800' },
   input: { minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.md, color: colors.text },
