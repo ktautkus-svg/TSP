@@ -1,12 +1,16 @@
 import { useSQLiteContext } from 'expo-sqlite';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { PWA_SERVICE_WORKER_VERSION_KEY } from '@/pwa/runtime';
-import { colors, spacing } from '@/ui/tokens';
+import { spacing } from '@/ui/tokens';
+import { useTheme } from '@/ui/theme';
+import type { ColorPalette } from '@/ui/theme-palette';
 
 export function PwaRuntime() {
   const db = useSQLiteContext();
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const registration = useRef<ServiceWorkerRegistration | null>(null);
   const refreshRequested = useRef(false);
   const [updateReady, setUpdateReady] = useState(false);
@@ -84,7 +88,7 @@ export function PwaRuntime() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ColorPalette) => StyleSheet.create({
   host: { position: 'absolute', left: spacing.md, right: spacing.md, bottom: `max(${spacing.md}px, env(safe-area-inset-bottom))` as unknown as number, zIndex: 1000, gap: spacing.sm },
   offline: { minHeight: 44, paddingHorizontal: spacing.md, borderRadius: 14, backgroundColor: '#FFF3CD', justifyContent: 'center' },
   offlineText: { color: '#6B4F00', fontWeight: '800', textAlign: 'center' },

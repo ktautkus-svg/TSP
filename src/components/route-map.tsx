@@ -1,7 +1,14 @@
-import { useEffect, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import L from 'leaflet';
-import { MapContainer, Marker, Polyline, TileLayer, useMap } from 'react-leaflet';
+import Svg, {
+  Circle,
+  Defs,
+  G,
+  LinearGradient,
+  Polyline,
+  Stop,
+  Text as SvgText,
+} from 'react-native-svg';
 
 import { decodePolyline } from '@/domain/routing/evaluation/geo';
 import type { RoutingLocation } from '@/domain/routing/models';
@@ -20,33 +27,9 @@ type RouteMapViewProps = {
   polylineError?: string | null;
 };
 
-function pinIcon(color: string, label: string): L.DivIcon {
-  return L.divIcon({
-    className: 'route-map-pin',
-    html: `<div style="
-      width: 26px; height: 26px; border-radius: 50%;
-      background: ${color}; border: 2px solid #fff;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.4);
-      display: flex; align-items: center; justify-content: center;
-      color: #fff; font-weight: 800; font-size: 11px; font-family: sans-serif;
-    ">${label}</div>`,
-    iconSize: [26, 26],
-    iconAnchor: [13, 13],
-  });
-}
-
-function FitBounds({ points }: { points: [number, number][] }) {
-  const map = useMap();
-  useEffect(() => {
-    if (points.length === 0) return;
-    if (points.length === 1) {
-      map.setView(points[0], 13);
-      return;
-    }
-    map.fitBounds(points, { padding: [24, 24] });
-  }, [map, points]);
-  return null;
-}
+const WIDTH = 320;
+const HEIGHT = 200;
+const PADDING = 35;
 
 export function RouteMapView({
   startLocation,
@@ -60,29 +43,44 @@ export function RouteMapView({
 }: RouteMapViewProps) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const routePoints = useMemo(() => (
-    encodedPolyline
-      ? decodePolyline(encodedPolyline)
-      : allowStraightLineFallback
-        ? [startLocation, ...orderedStops, endLocation]
-        : []
-  ), [encodedPolyline, allowStraightLineFallback, startLocation, orderedStops, endLocation]);
-
-  const polylinePositions: [number, number][] = routePoints.map((point) => [point.latitude, point.longitude]);
-  const allPoints: [number, number][] = ([
-    [startLocation.latitude, startLocation.longitude],
-    ...orderedStops.map((stop): [number, number] => [stop.latitude, stop.longitude]),
-    [endLocation.latitude, endLocation.longitude],
-    ...polylinePositions,
-  ] as [number, number][]).filter(([lat, lng]) => Number.isFinite(lat) && Number.isFinite(lng));
-
-  const startIcon = useMemo(() => pinIcon('#10B981', 'S'), []);
-  const endIcon = useMemo(() => pinIcon('#EF4444', 'G'), []);
+  const routePoints = encodedPolyline
+    ? decodePolyline(encodedPolyline)
+    : allowStraightLineFallback
+      ? [startLocation, ...orderedStops, endLocation]
+      : [];
+  const projectionPoints = [...routePoints, startLocation, ...orderedStops, endLocation];
+  const validPoints = projectionPoints.filter(
+    (point) => Number.isFinite(point.latitude) && Number.isFinite(point.longitude),
+  );
+  const latitudes = validPoints.map((point) => point.latitude);
+  const longitudes = validPoints.map((point) => point.longitude);
+  const minLat = latitudes.length ? Math.min(...latitudes) : 0;
+  const maxLat = latitudes.length ? Math.max(...latitudes) : 0;
+  const minLng = longitudes.length ? Math.min(...longitudes) : 0;
+  const maxLng = longitudes.length ? Math.max(...longitudes) : 0;
+  const latSpan = Math.max(0.0005, maxLat - minLat);
+  const lngSpan = Math.max(0.0005, maxLng - minLng);
+  const project = (point: { latitude: number; longitude: number }) => ({
+    x: PADDING + ((point.longitude - minLng) / lngSpan) * (WIDTH - 2 * PADDING),
+    y: HEIGHT - (PADDING + ((point.latitude - minLat) / latSpan) * (HEIGHT - 2 * PADDING)),
+  });
+  const start = project(startLocation);
+  const rawEnd = project(endLocation);
+  const samePhysicalEnd =
+    startLocation.latitude === endLocation.latitude &&
+    startLocation.longitude === endLocation.longitude;
+  const end = samePhysicalEnd
+    ? { x: Math.min(WIDTH - 12, rawEnd.x + 12), y: Math.min(HEIGHT - 12, rawEnd.y + 12) }
+    : rawEnd;
+  const polylinePoints = routePoints
+    .map(project)
+    .map(({ x, y }) => `${x.toFixed(1)},${y.toFixed(1)}`)
+    .join(' ');
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Maršruto žemėlapis</Text>
+        <Text style={styles.title}>Maršruto schema</Text>
         {totalDistanceKm !== undefined && totalDurationMinutes !== undefined ? (
           <Text style={styles.badge}>
             {totalDistanceKm.toFixed(1)} km · {Math.round(totalDurationMinutes)} min
@@ -91,29 +89,39 @@ export function RouteMapView({
       </View>
 
       <View style={styles.canvasContainer}>
-        <MapContainer
-          center={[startLocation.latitude, startLocation.longitude]}
-          zoom={12}
-          scrollWheelZoom
-          style={{ width: '100%', height: '100%' }}>
-          <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          />
-          <FitBounds points={allPoints} />
-          {polylinePositions.length > 1 ? (
-            <Polyline positions={polylinePositions} pathOptions={{ color: '#2563EB', weight: 4, opacity: 0.85 }} />
-          ) : null}
-          <Marker position={[startLocation.latitude, startLocation.longitude]} icon={startIcon} />
-          {orderedStops.map((stop, index) => (
-            <Marker
-              key={stop.id}
-              position={[stop.latitude, stop.longitude]}
-              icon={pinIcon('#2563EB', String(index + 1))}
+        <Svg width="100%" height="100%" viewBox={`0 0 ${WIDTH} ${HEIGHT}`}>
+          <Defs>
+            <LinearGradient id="routeGradient" x1="0" y1="0" x2="1" y2="1">
+              <Stop offset="0" stopColor="#2563EB" stopOpacity={0.9} />
+              <Stop offset="1" stopColor="#7C3AED" stopOpacity={0.9} />
+            </LinearGradient>
+          </Defs>
+          {routePoints.length > 1 ? (
+            <Polyline
+              points={polylinePoints}
+              fill="none"
+              stroke="url(#routeGradient)"
+              strokeWidth={4}
+              strokeLinecap="round"
+              strokeLinejoin="round"
             />
-          ))}
-          <Marker position={[endLocation.latitude, endLocation.longitude]} icon={endIcon} />
-        </MapContainer>
+          ) : null}
+          <Marker x={start.x} y={start.y} color="#10B981" label="S" />
+          {orderedStops.map((stop, index) => {
+            const point = project(stop);
+            return (
+              <Marker
+                key={stop.id}
+                x={point.x}
+                y={point.y}
+                color="#2563EB"
+                label={String(index + 1)}
+                radius={7}
+              />
+            );
+          })}
+          <Marker x={end.x} y={end.y} color="#EF4444" label="G" />
+        </Svg>
       </View>
 
       {polylineError ? (
@@ -132,6 +140,24 @@ export function RouteMapView({
         <Legend styles={styles} color="#EF4444" text={`Grįžimas: ${endLocation.label}`} />
       </View>
     </View>
+  );
+}
+
+function Marker(props: { x: number; y: number; color: string; label: string; radius?: number }) {
+  const radius = props.radius ?? 8;
+  return (
+    <G>
+      <Circle cx={props.x} cy={props.y} r={radius} fill={props.color} stroke="#FFFFFF" strokeWidth={2} />
+      <SvgText
+        x={props.x}
+        y={props.y + 3}
+        textAnchor="middle"
+        fill="#FFFFFF"
+        fontSize={8}
+        fontWeight="bold">
+        {props.label}
+      </SvgText>
+    </G>
   );
 }
 
@@ -166,8 +192,8 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   },
   canvasContainer: {
     width: '100%',
-    minHeight: 260,
-    height: 260,
+    minHeight: 200,
+    height: 200,
     borderRadius: 12,
     backgroundColor: colors.background,
     overflow: 'hidden',
