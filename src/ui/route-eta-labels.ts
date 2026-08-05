@@ -12,12 +12,21 @@ export function etaLabel(stop?: DeliveryStop | null): string {
   }).format(new Date(value))}`;
 }
 
+/** Formats a minute count as "X val. Y min." once it reaches an hour, instead of e.g. "170 min." */
+export function durationLabel(totalMinutes: number): string {
+  const abs = Math.round(Math.abs(totalMinutes));
+  const hours = Math.floor(abs / 60);
+  const minutes = abs % 60;
+  if (hours === 0) return `${minutes} min.`;
+  return minutes === 0 ? `${hours} val.` : `${hours} val. ${minutes} min.`;
+}
+
 export function legLabel(stop?: DeliveryStop | null): string {
   if (!stop) return 'Iki taško — km · — min.';
   const distance = stop.legDistanceKm === null || stop.legDistanceKm === undefined
     ? '— km'
     : `${new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(stop.legDistanceKm)} km`;
-  const minutes = stop.legDurationMinutes === null || stop.legDurationMinutes === undefined ? '— min.' : `${Math.round(stop.legDurationMinutes)} min.`;
+  const minutes = stop.legDurationMinutes === null || stop.legDurationMinutes === undefined ? '— min.' : durationLabel(stop.legDurationMinutes);
   return `Iki taško ${distance} · ${minutes}`;
 }
 
@@ -37,8 +46,8 @@ export function scheduleLabel(stop?: DeliveryStop | null): string {
   if (!stop) return 'Plano palyginimas dar negalimas';
   const result = etaScheduleState(stop);
   if (result.state === 'on_time') return 'Pagal planą';
-  if (result.state === 'late') return `Apie ${Math.abs(result.differenceMinutes ?? 0)} min. vėliau`;
-  if (result.state === 'early') return `Apie ${Math.abs(result.differenceMinutes ?? 0)} min. anksčiau`;
+  if (result.state === 'late') return `Apie ${durationLabel(result.differenceMinutes ?? 0)} vėliau`;
+  if (result.state === 'early') return `Apie ${durationLabel(result.differenceMinutes ?? 0)} anksčiau`;
   return 'Plano palyginimas dar negalimas';
 }
 
