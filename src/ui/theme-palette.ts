@@ -15,4 +15,8 @@ export const darkColors: ColorPalette = {
   danger: '#F0453F',
   info: '#4FA3F7',
   border: '#2A2F3A',
+  accent: '#46b250',
+  accentSoft: '#18361a',
+  accentStrong: '#2f9f3d',
+  brandNavy: '#003306',
 };

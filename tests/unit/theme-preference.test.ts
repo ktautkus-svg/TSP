@@ -14,6 +14,7 @@ import { darkColors } from '../../src/ui/theme-palette';
 const expectedPaletteKeys = [
   'background', 'surface', 'text', 'textMuted', 'primary',
   'primarySoft', 'success', 'warning', 'danger', 'info', 'border',
+  'accent', 'accentSoft', 'accentStrong', 'brandNavy',
 ];
 
 class ExpoLikeDatabase {

@@ -7,7 +7,7 @@ import { FoundationScreen } from '@/components/foundation-screen';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import type { Route } from '@/domain/route';
 import { formatLithuanianDate, routeStatusLabel } from '@/ui/history-labels';
-import { spacing } from '@/ui/tokens';
+import { fonts, spacing } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 
@@ -50,10 +50,13 @@ export default function HistoryScreen() {
         const summary = route.completionSummary;
         return (
           <Pressable key={route.id} testID={`history-route-${route.id}`} style={styles.card} onPress={() => router.push(`/history/${route.id}` as Href)}>
-            <Text style={styles.title}>{formatLithuanianDate(route.date)} · {routeStatusLabel(route.status)}</Text>
-            <Text style={styles.meta}>Taškai: {route.totalStops} · sėkmingi {summary?.deliveredStops ?? 0} · nepavykę {summary?.failedStops ?? 0}</Text>
-            <Text style={styles.meta}>Žinomas svoris: {route.totalWeightKg.toFixed(1)} kg</Text>
-            <Text style={styles.meta}>Planuota: {route.estimatedDistanceKm?.toFixed(1) ?? '—'} km · faktinė: {route.actualDistanceKm?.toFixed(1) ?? '—'} km</Text>
+            <View style={[styles.statusStripe, route.status === 'completed' ? styles.statusStripeCompleted : styles.statusStripeCancelled]} />
+            <View style={styles.cardBody}>
+              <Text style={styles.title}>{formatLithuanianDate(route.date)} · {routeStatusLabel(route.status)}</Text>
+              <Text style={styles.meta}>Taškai: {route.totalStops} · sėkmingi {summary?.deliveredStops ?? 0} · nepavykę {summary?.failedStops ?? 0}</Text>
+              <Text style={styles.meta}>Žinomas svoris: {route.totalWeightKg.toFixed(1)} kg</Text>
+              <Text style={styles.meta}>Planuota: {route.estimatedDistanceKm?.toFixed(1) ?? '—'} km · faktinė: {route.actualDistanceKm?.toFixed(1) ?? '—'} km</Text>
+            </View>
           </Pressable>
         );
       })}
@@ -64,13 +67,17 @@ export default function HistoryScreen() {
 }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
-  empty: { padding: spacing.lg, borderRadius: 16, backgroundColor: colors.surface },
-  card: { padding: spacing.md, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.xs },
-  title: { color: colors.text, fontSize: 17, fontWeight: '800' },
+  empty: { padding: spacing.lg, borderWidth: 2, borderColor: colors.border, backgroundColor: colors.surface },
+  card: { flexDirection: 'row', borderWidth: 2, borderColor: colors.border, backgroundColor: colors.surface },
+  statusStripe: { width: 6 },
+  statusStripeCompleted: { backgroundColor: colors.accent },
+  statusStripeCancelled: { backgroundColor: colors.border },
+  cardBody: { flex: 1, padding: spacing.md, gap: spacing.xs },
+  title: { color: colors.text, fontSize: 17, fontFamily: fonts.heading },
   meta: { color: colors.textMuted, lineHeight: 20 },
-  homeButton: { minHeight: 52, borderRadius: 16, borderWidth: 1, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  homeText: { color: colors.primary, fontWeight: '800' },
+  homeButton: { minHeight: 52, borderWidth: 2, borderColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
+  homeText: { color: colors.accent, fontFamily: fonts.heading },
   headerAction: { minWidth: 84, minHeight: 44, justifyContent: 'center' },
-  headerText: { color: colors.primary, fontWeight: '800' },
-  error: { color: colors.danger, fontWeight: '700' },
+  headerText: { color: colors.accent, fontFamily: fonts.heading },
+  error: { color: colors.danger, fontFamily: fonts.headingSemiBold },
 });

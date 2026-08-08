@@ -68,3 +68,24 @@ export function scheduleDotColor(stop?: DeliveryStop | null): 'success' | 'warni
   if (result.state === 'on_time' || result.state === 'early') return 'success';
   return null;
 }
+
+/**
+ * Window-urgency status: how close the stop's own delivery deadline
+ * (`deliveryTimeTo`, the client's own promised window) is to the current
+ * real clock — not a comparison against our route plan like scheduleDotColor.
+ * green: more than 60 min of slack left; warning: 60 min or less; danger:
+ * deadline already passed. Returns null when the stop has no window set.
+ */
+export function windowUrgencyColor(
+  stop: DeliveryStop | null | undefined,
+  routeDate: string | null | undefined,
+  now: number = Date.now(),
+): 'success' | 'warning' | 'danger' | null {
+  if (!stop || !stop.deliveryTimeTo || !routeDate) return null;
+  const deadline = new Date(`${routeDate}T${stop.deliveryTimeTo}:00`).getTime();
+  if (!Number.isFinite(deadline)) return null;
+  const minutesRemaining = (deadline - now) / 60_000;
+  if (minutesRemaining < 0) return 'danger';
+  if (minutesRemaining <= 60) return 'warning';
+  return 'success';
+}

@@ -31,6 +31,7 @@ import {
 import { resolveRoute } from '@/application/routes/route-navigation';
 import { RefreshRouteEtas } from '@/application/routes/route-eta';
 import { FoundationScreen } from '@/components/foundation-screen';
+import { RoadProgressBar } from '@/components/road-progress-bar';
 import { SwipeActionCard } from '@/components/swipe-action-card';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import { GatewayGeocodingProvider } from '@/infrastructure/routing/providers/gateway-geocoding-provider';
@@ -40,15 +41,15 @@ import { fonts, spacing } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { failedDeliveryLabel, userVisibleStopNote } from '@/ui/route-labels';
-import { etaLabel, legLabel, offlineEtaLabel, scheduleDotColor, scheduleLabel, windowLabel } from '@/ui/route-eta-labels';
+import { durationLabel, etaLabel, legLabel, offlineEtaLabel, scheduleLabel, windowLabel, windowUrgencyColor } from '@/ui/route-eta-labels';
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 const AnimatedG = Animated.createAnimatedComponent(G);
 
-function ScheduleDot({ stop, colors }: { stop?: DeliveryStop | null; colors: ColorPalette }) {
-  const color = scheduleDotColor(stop);
+function ScheduleDot({ stop, colors, routeDate }: { stop?: DeliveryStop | null; colors: ColorPalette; routeDate?: string | null }) {
+  const color = windowUrgencyColor(stop, routeDate);
   if (!color) return null;
-  return <View testID="schedule-dot" style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors[color] }} />;
+  return <View testID="schedule-dot" style={{ width: 9, height: 9, backgroundColor: colors[color] }} />;
 }
 
 // Automotive-dashboard gauge geometry: a 270° sweep starting at "7:30" and
@@ -427,14 +428,29 @@ export default function DeliveryScreen() {
               sublabel="Likę taškai"
             />
           </View>
+          <RoadProgressBar
+            colors={colors}
+            fraction={progress.totalKnownWeightKg > 0
+              ? (progress.totalKnownWeightKg - progress.remainingKnownWeightKg) / progress.totalKnownWeightKg
+              : 0}
+          />
           {nextStop ? (
             <View style={styles.nextStopCard} testID="dashboard-next-stop">
               <Text style={styles.dashboardCardLabel}>SEKANTIS TAŠKAS</Text>
               <Text style={styles.nextStopAddress}>{nextStop.normalizedAddress ?? nextStop.originalAddress}</Text>
-              <Text style={styles.nextStopMeta}>{legLabel(nextStop)}</Text>
               <View style={styles.etaRow}>
-                <ScheduleDot stop={nextStop} colors={colors} />
+                <ScheduleDot stop={nextStop} colors={colors} routeDate={route?.date} />
                 <Text style={styles.nextStopEta}>{etaLabel(nextStop)}</Text>
+              </View>
+              <View style={styles.tileRow}>
+                <View style={styles.tile}>
+                  <Text style={styles.tileValue}>{nextStop.legDistanceKm === null || nextStop.legDistanceKm === undefined ? '—' : new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(nextStop.legDistanceKm)}</Text>
+                  <Text style={styles.tileCaption}>KM IKI TAŠKO</Text>
+                </View>
+                <View style={styles.tile}>
+                  <Text style={styles.tileValue}>{nextStop.legDurationMinutes === null || nextStop.legDurationMinutes === undefined ? '—' : durationLabel(nextStop.legDurationMinutes)}</Text>
+                  <Text style={styles.tileCaption}>LAIKAS IKI TAŠKO</Text>
+                </View>
               </View>
             </View>
           ) : (
@@ -481,36 +497,9 @@ export default function DeliveryScreen() {
       <Pressable
         testID="toggle-add-stop"
         style={styles.secondaryButton}
-        onPress={() => setShowAddStop((value) => !value)}>
-        <Text style={styles.secondaryText}>{showAddStop ? 'Atšaukti naujo taško pridėjimą' : '+ Pridėti tašką'}</Text>
+        onPress={() => setShowAddStop(true)}>
+        <Text style={styles.secondaryText}>+ ĮTRAUKTI SUSTOJIMĄ</Text>
       </Pressable>
-      {showAddStop ? (
-        <View style={styles.reminder} testID="add-stop-form">
-          <Text style={styles.heading}>Naujas taškas</Text>
-          <TextInput
-            testID="add-stop-address"
-            value={newStopAddress}
-            onChangeText={setNewStopAddress}
-            placeholder="Adresas, pvz. Katedros a. 4, Vilnius"
-            style={styles.input}
-          />
-          <TextInput
-            testID="add-stop-weight"
-            value={newStopWeight}
-            onChangeText={setNewStopWeight}
-            keyboardType="decimal-pad"
-            placeholder="Svoris, kg (nebūtina)"
-            style={styles.input}
-          />
-          <Pressable
-            testID="add-stop-submit"
-            disabled={addingStop || !newStopAddress.trim()}
-            style={[styles.secondaryButton, (addingStop || !newStopAddress.trim()) && styles.disabled]}
-            onPress={() => { void addStop(); }}>
-            <Text style={styles.secondaryText}>{addingStop ? 'Pridedama…' : 'Pridėti tašką'}</Text>
-          </Pressable>
-        </View>
-      ) : null}
       <View style={styles.filters}>
         {(['undelivered', 'all', 'delivered', 'failed'] as DeliveryFilter[]).map((value) => (
           <Pressable key={value} onPress={() => setFilter(value)}><Text style={filter === value ? styles.active : styles.filter}>{filterLabel(value)}</Text></Pressable>
@@ -544,6 +533,7 @@ export default function DeliveryScreen() {
               accessibilityRole="button"
               onPress={() => setExpandedStopId(expanded ? null : stop.id)}
               style={styles.cardHeader}>
+              <ScheduleDot stop={stop} colors={colors} routeDate={route?.date} />
               <View style={styles.cardHeaderText}>
                 <Text style={styles.order}>{statusLabel(stop)}{stop.priorityFirst ? ' ⭐' : ''}</Text>
                 <Text style={styles.address}>{stop.normalizedAddress ?? stop.originalAddress}</Text>
@@ -554,7 +544,7 @@ export default function DeliveryScreen() {
             {expanded ? (
               <>
                 <View style={styles.etaRow}>
-                  <ScheduleDot stop={stop} colors={colors} />
+                  <ScheduleDot stop={stop} colors={colors} routeDate={route?.date} />
                   <Text style={styles.eta}>{etaLabel(stop)}</Text>
                 </View>
                 <Text style={styles.meta}>{legLabel(stop)}</Text>
@@ -590,6 +580,49 @@ export default function DeliveryScreen() {
         </View>
       ) : null}
     </FoundationScreen>
+    <Modal
+      animationType="fade"
+      onRequestClose={() => { if (!addingStop) setShowAddStop(false); }}
+      statusBarTranslucent
+      transparent
+      visible={showAddStop}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalKeyboard}>
+        <View style={styles.centeredBackdrop} testID="add-stop-form">
+          <View style={styles.addStopDialog}>
+            <Text style={styles.heading}>NAUJAS SUSTOJIMAS</Text>
+            <TextInput
+              testID="add-stop-address"
+              value={newStopAddress}
+              onChangeText={setNewStopAddress}
+              placeholder="Adresas, pvz. Katedros a. 4, Vilnius"
+              placeholderTextColor={colors.textMuted}
+              style={styles.input}
+            />
+            <TextInput
+              testID="add-stop-weight"
+              value={newStopWeight}
+              onChangeText={setNewStopWeight}
+              keyboardType="decimal-pad"
+              placeholder="Svoris, kg (nebūtina)"
+              placeholderTextColor={colors.textMuted}
+              style={styles.input}
+            />
+            <View style={styles.modalActions}>
+              <Pressable
+                testID="add-stop-submit"
+                disabled={addingStop || !newStopAddress.trim()}
+                style={[styles.finishButton, (addingStop || !newStopAddress.trim()) && styles.disabled]}
+                onPress={() => { void addStop(); }}>
+                <Text style={styles.buttonText}>{addingStop ? 'Pridedama…' : 'Pridėti tašką'}</Text>
+              </Pressable>
+              <Pressable disabled={addingStop} style={styles.cancelButton} onPress={() => setShowAddStop(false)}>
+                <Text style={styles.secondaryText}>Atšaukti</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
     <Modal
       animationType="slide"
       onRequestClose={() => { if (!busy) setFailedStopId(null); }}
@@ -636,9 +669,9 @@ export default function DeliveryScreen() {
 
 function DashboardGauge(props: { fraction: number; color: string; label: string; sublabel: string; colors: ColorPalette }) {
   const { colors } = props;
-  const size = 148;
-  const strokeWidth = 10;
-  const radius = (size - strokeWidth) / 2 - 12;
+  const size = 156;
+  const strokeWidth = 15;
+  const radius = (size - strokeWidth) / 2 - 14;
   const cx = size / 2;
   const cy = size / 2;
   const circumference = 2 * Math.PI * radius;
@@ -660,7 +693,7 @@ function DashboardGauge(props: { fraction: number; color: string; label: string;
     inputRange: [0, 1],
     outputRange: [trackArcLength, 0],
   });
-  const needleRotation = animatedFraction.interpolate({
+  const capRotation = animatedFraction.interpolate({
     inputRange: [0, 1],
     outputRange: [GAUGE_START_ANGLE + 90, GAUGE_START_ANGLE + GAUGE_SWEEP + 90],
   });
@@ -669,8 +702,8 @@ function DashboardGauge(props: { fraction: number; color: string; label: string;
     const angle = GAUGE_START_ANGLE + (index / (GAUGE_TICK_COUNT - 1)) * GAUGE_SWEEP;
     const rad = (angle * Math.PI) / 180;
     const major = index % 7 === 0;
-    const outerR = radius + strokeWidth / 2 + 3;
-    const innerR = outerR - (major ? 9 : 4);
+    const outerR = radius + strokeWidth / 2 + 5;
+    const innerR = outerR - (major ? 11 : 5);
     return {
       key: index,
       major,
@@ -681,7 +714,7 @@ function DashboardGauge(props: { fraction: number; color: string; label: string;
     };
   });
 
-  const needleLength = radius - 14;
+  const capDistance = radius;
 
   return (
     <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
@@ -693,8 +726,9 @@ function DashboardGauge(props: { fraction: number; color: string; label: string;
             y1={tick.y1}
             x2={tick.x2}
             y2={tick.y2}
-            stroke={tick.major ? colors.textMuted : colors.border}
-            strokeWidth={tick.major ? 2 : 1}
+            stroke={tick.major ? colors.text : colors.border}
+            strokeWidth={tick.major ? 2.5 : 1.2}
+            strokeLinecap="round"
           />
         ))}
         <Circle
@@ -717,18 +751,20 @@ function DashboardGauge(props: { fraction: number; color: string; label: string;
           fill="none"
           strokeDasharray={`${trackArcLength}, ${circumference}`}
           strokeDashoffset={strokeDashoffset}
-          strokeLinecap="round"
+          strokeLinecap="butt"
           rotation={GAUGE_START_ANGLE}
           origin={`${cx}, ${cy}`}
         />
-        <AnimatedG rotation={needleRotation} origin={`${cx}, ${cy}`}>
-          <Line x1={cx} y1={cy} x2={cx} y2={cy - needleLength} stroke={props.color} strokeWidth={3} strokeLinecap="round" />
+        {/* Small accent cap marking the current end of the filled arc — the
+            "harder" detail beyond a flat progress ring, without a full needle. */}
+        <AnimatedG rotation={capRotation} origin={`${cx}, ${cy}`}>
+          <Circle cx={cx} cy={cy - capDistance} r={strokeWidth / 2 + 2} fill={colors.surface} stroke={props.color} strokeWidth={3} />
+          <Circle cx={cx} cy={cy - capDistance} r={3} fill={props.color} />
         </AnimatedG>
-        <Circle cx={cx} cy={cy} r={5} fill={props.color} stroke={colors.surface} strokeWidth={2} />
       </Svg>
       <View style={{ position: 'absolute', alignItems: 'center', justifyContent: 'center', top: size * 0.58 }} pointerEvents="none">
-        <Text style={{ color: colors.text, fontSize: 18, fontWeight: '800', fontFamily: fonts.mono }}>{props.label}</Text>
-        <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: '700', marginTop: 2, textAlign: 'center' }}>{props.sublabel}</Text>
+        <Text style={{ color: colors.text, fontSize: 19, fontFamily: fonts.headingExtraBold }}>{props.label}</Text>
+        <Text style={{ color: colors.textMuted, fontSize: 11, fontFamily: fonts.headingSemiBold, marginTop: 2, textAlign: 'center', letterSpacing: 0.5 }}>{props.sublabel.toUpperCase()}</Text>
       </View>
     </View>
   );
@@ -808,66 +844,72 @@ function signed(value: number | null, unit: string): string {
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   dashboard: { gap: spacing.md, backgroundColor: colors.background },
   gaugeRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: spacing.lg },
-  nextStopCard: { padding: spacing.md, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.xs },
-  dashboardCardLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '800', letterSpacing: 0.8 },
-  nextStopAddress: { color: colors.text, fontSize: 18, fontWeight: '800' },
+  nextStopCard: { padding: spacing.md, borderWidth: 2, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.xs },
+  dashboardCardLabel: { color: colors.textMuted, fontSize: 12, fontFamily: fonts.headingSemiBold, letterSpacing: 0.8 },
+  nextStopAddress: { color: colors.text, fontSize: 18, fontFamily: fonts.heading },
   nextStopMeta: { color: colors.textMuted, lineHeight: 20 },
-  nextStopEta: { color: colors.info, fontSize: 16, fontWeight: '800' },
+  nextStopEta: { color: colors.accent, fontSize: 16, fontFamily: fonts.heading },
   etaRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  tileRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs },
+  tile: { flex: 1, padding: spacing.sm, borderWidth: 2, borderColor: colors.border, backgroundColor: colors.background, alignItems: 'center', gap: 2 },
+  tileValue: { color: colors.text, fontSize: 20, fontFamily: fonts.headingExtraBold },
+  tileCaption: { color: colors.textMuted, fontSize: 10, fontFamily: fonts.headingSemiBold, letterSpacing: 0.6, textAlign: 'center' },
   statsRow: { flexDirection: 'row', gap: spacing.sm },
-  statItem: { flex: 1, padding: spacing.sm, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: 'center', gap: 4 },
-  statValue: { color: colors.text, fontSize: 18, fontWeight: '800', fontFamily: fonts.mono },
-  statCaption: { color: colors.textMuted, fontSize: 11, fontWeight: '700', textAlign: 'center' },
-  stopRouteButton: { minHeight: 56, borderRadius: 16, backgroundColor: colors.danger, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm },
-  stopRouteText: { color: '#fff', fontWeight: '800', fontSize: 16 },
-  reminder: { padding: spacing.md, borderRadius: 16, borderWidth: 1, borderColor: colors.warning, backgroundColor: colors.surface, gap: spacing.sm },
+  statItem: { flex: 1, padding: spacing.sm, borderWidth: 2, borderColor: colors.border, backgroundColor: colors.surface, alignItems: 'center', gap: 4 },
+  statValue: { color: colors.text, fontSize: 18, fontFamily: fonts.headingExtraBold },
+  statCaption: { color: colors.textMuted, fontSize: 11, fontFamily: fonts.headingSemiBold, textAlign: 'center' },
+  stopRouteButton: { minHeight: 56, backgroundColor: colors.danger, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm },
+  stopRouteText: { color: '#fff', fontFamily: fonts.heading, fontSize: 16 },
+  reminder: { padding: spacing.md, borderWidth: 2, borderColor: colors.warning, backgroundColor: colors.surface, gap: spacing.sm },
   filters: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  filter: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: 999, color: colors.text, backgroundColor: colors.surface, overflow: 'hidden' },
-  active: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: 999, color: '#fff', fontWeight: '800', backgroundColor: colors.primary, overflow: 'hidden' },
-  card: { padding: spacing.md, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.xs },
-  deliveredCard: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
+  filter: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm, color: colors.text, backgroundColor: colors.surface, borderWidth: 2, borderColor: colors.border, overflow: 'hidden', fontFamily: fonts.headingSemiBold },
+  active: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm, color: '#fff', fontFamily: fonts.heading, backgroundColor: colors.accent, borderWidth: 2, borderColor: colors.accent, overflow: 'hidden' },
+  card: { padding: spacing.md, borderWidth: 2, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.xs },
+  deliveredCard: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
   failedCard: { borderColor: colors.danger },
   cardHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 44 },
   cardHeaderText: { flex: 1, minWidth: 0 },
-  chevron: { color: colors.textMuted, fontSize: 16, fontWeight: '800' },
-  order: { color: colors.primary, fontWeight: '800' },
-  address: { color: colors.text, fontSize: 17, fontWeight: '800' },
-  weight: { color: colors.text, fontSize: 16, fontWeight: '700' },
-  eta: { color: colors.primary, fontSize: 17, fontWeight: '800' },
-  schedule: { color: colors.text, fontWeight: '700' },
+  chevron: { color: colors.textMuted, fontSize: 16, fontFamily: fonts.heading },
+  order: { color: colors.accent, fontFamily: fonts.headingSemiBold },
+  address: { color: colors.text, fontSize: 17, fontFamily: fonts.heading },
+  weight: { color: colors.text, fontSize: 16, fontFamily: fonts.headingSemiBold },
+  eta: { color: colors.accent, fontSize: 17, fontFamily: fonts.heading },
+  schedule: { color: colors.text, fontFamily: fonts.headingSemiBold },
   informational: { color: colors.textMuted, opacity: 0.7, lineHeight: 20 },
-  offline: { color: colors.warning, fontSize: 13, fontWeight: '700' },
-  heading: { color: colors.text, fontSize: 17, fontWeight: '800' },
+  offline: { color: colors.warning, fontSize: 13, fontFamily: fonts.headingSemiBold },
+  heading: { color: colors.text, fontSize: 17, fontFamily: fonts.heading },
   meta: { color: colors.textMuted, lineHeight: 20 },
-  failure: { color: colors.danger, fontWeight: '700' },
+  failure: { color: colors.danger, fontFamily: fonts.headingSemiBold },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.sm },
-  navigateButton: { flex: 1, minWidth: 100, minHeight: 46, borderRadius: 12, borderWidth: 1, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  deliverButton: { flex: 1, minWidth: 100, minHeight: 46, borderRadius: 12, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  failButton: { flex: 1, minWidth: 100, minHeight: 46, borderRadius: 12, borderWidth: 1, borderColor: colors.danger, alignItems: 'center', justifyContent: 'center' },
-  buttonText: { color: '#fff', fontWeight: '800' },
-  failText: { color: colors.danger, fontWeight: '800' },
-  recalculateButton: { minHeight: 46, borderRadius: 12, borderWidth: 1, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+  navigateButton: { flex: 1, minWidth: 100, minHeight: 46, borderWidth: 2, borderColor: colors.brandNavy, alignItems: 'center', justifyContent: 'center' },
+  deliverButton: { flex: 1, minWidth: 100, minHeight: 46, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
+  failButton: { flex: 1, minWidth: 100, minHeight: 46, borderWidth: 2, borderColor: colors.danger, alignItems: 'center', justifyContent: 'center' },
+  buttonText: { color: '#fff', fontFamily: fonts.heading },
+  failText: { color: colors.danger, fontFamily: fonts.heading },
+  recalculateButton: { minHeight: 46, borderWidth: 2, borderColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
   modalKeyboard: { flex: 1 },
-  modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(15, 23, 42, 0.42)' },
-  failureSheet: { maxHeight: '92%', paddingTop: spacing.sm, paddingHorizontal: spacing.lg, borderTopLeftRadius: 24, borderTopRightRadius: 24, backgroundColor: colors.surface, gap: spacing.md },
-  sheetHandle: { alignSelf: 'center', width: 44, height: 5, borderRadius: 999, backgroundColor: colors.border },
+  modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0, 10, 2, 0.5)' },
+  centeredBackdrop: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg, backgroundColor: 'rgba(0, 10, 2, 0.5)' },
+  addStopDialog: { width: '100%', maxWidth: 420, padding: spacing.lg, borderWidth: 2, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
+  failureSheet: { maxHeight: '92%', paddingTop: spacing.sm, paddingHorizontal: spacing.lg, backgroundColor: colors.surface, gap: spacing.md },
+  sheetHandle: { alignSelf: 'center', width: 44, height: 5, backgroundColor: colors.border },
   reasonGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  reason: { padding: spacing.sm, borderRadius: 999, borderWidth: 1, borderColor: colors.border, color: colors.text, overflow: 'hidden' },
-  activeReason: { padding: spacing.sm, borderRadius: 999, backgroundColor: colors.danger, color: '#fff', fontWeight: '800', overflow: 'hidden' },
-  textArea: { minHeight: 88, borderRadius: 12, borderWidth: 1, borderColor: colors.border, padding: spacing.md, color: colors.text, textAlignVertical: 'top' },
-  failConfirm: { minHeight: 50, borderRadius: 12, backgroundColor: colors.danger, alignItems: 'center', justifyContent: 'center' },
+  reason: { padding: spacing.sm, borderWidth: 2, borderColor: colors.border, color: colors.text, overflow: 'hidden' },
+  activeReason: { padding: spacing.sm, backgroundColor: colors.danger, color: '#fff', fontFamily: fonts.heading, borderWidth: 2, borderColor: colors.danger, overflow: 'hidden' },
+  textArea: { minHeight: 88, borderWidth: 2, borderColor: colors.border, padding: spacing.md, color: colors.text, textAlignVertical: 'top' },
+  failConfirm: { minHeight: 50, backgroundColor: colors.danger, alignItems: 'center', justifyContent: 'center' },
   modalActions: { gap: spacing.xs },
   cancelButton: { minHeight: 44, alignItems: 'center', justifyContent: 'center' },
-  finishButton: { minHeight: 56, borderRadius: 16, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  finishCard: { padding: spacing.md, borderRadius: 16, borderWidth: 1, borderColor: colors.primary, backgroundColor: colors.surface, gap: spacing.sm },
-  recalculationCard: { padding: spacing.md, borderRadius: 16, borderWidth: 2, borderColor: colors.primary, backgroundColor: colors.primarySoft, gap: spacing.sm },
-  input: { minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.md, color: colors.text },
-  secondaryButton: { minHeight: 46, borderRadius: 12, borderWidth: 1, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  secondaryText: { color: colors.primary, fontWeight: '800' },
-  undoButton: { minHeight: 46, borderRadius: 12, borderWidth: 1, borderColor: colors.warning, alignItems: 'center', justifyContent: 'center' },
-  undoText: { color: colors.warning, fontWeight: '800' },
-  error: { color: colors.danger, fontWeight: '700' },
-  notice: { color: colors.primary, fontWeight: '800' },
+  finishButton: { minHeight: 56, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
+  finishCard: { padding: spacing.md, borderWidth: 2, borderColor: colors.accent, backgroundColor: colors.surface, gap: spacing.sm },
+  recalculationCard: { padding: spacing.md, borderWidth: 2, borderColor: colors.accent, backgroundColor: colors.accentSoft, gap: spacing.sm },
+  input: { minHeight: 48, borderWidth: 2, borderColor: colors.border, paddingHorizontal: spacing.md, color: colors.text, fontFamily: fonts.body },
+  secondaryButton: { minHeight: 46, borderWidth: 2, borderColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
+  secondaryText: { color: colors.accent, fontFamily: fonts.heading },
+  undoButton: { minHeight: 46, borderWidth: 2, borderColor: colors.warning, alignItems: 'center', justifyContent: 'center' },
+  undoText: { color: colors.warning, fontFamily: fonts.heading },
+  error: { color: colors.danger, fontFamily: fonts.headingSemiBold },
+  notice: { color: colors.accent, fontFamily: fonts.heading },
   headerBack: { minWidth: 72, minHeight: 44, justifyContent: 'center' },
   disabled: { opacity: 0.5 },
 });

@@ -12,10 +12,19 @@ export const colors = {
   danger: '#B42318',
   info: '#1D6FE0',
   border: '#DDE1E7',
+  // "Tautveža" redesign palette — used only by the sharp-corner delivery/loading/history screens.
+  accent: '#007a11',
+  accentSoft: '#c7f7c7',
+  accentStrong: '#005600',
+  brandNavy: '#003306',
 } as const;
 
 export const fonts = {
   mono: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }) as string,
+  heading: 'Archivo_700Bold',
+  headingExtraBold: 'Archivo_800ExtraBold',
+  headingSemiBold: 'Archivo_600SemiBold',
+  body: 'Archivo_400Regular',
 } as const;
 
 export const spacing = {

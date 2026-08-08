@@ -4,6 +4,13 @@ import { SQLiteProvider } from 'expo-sqlite';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
+import {
+  useFonts,
+  Archivo_400Regular,
+  Archivo_600SemiBold,
+  Archivo_700Bold,
+  Archivo_800ExtraBold,
+} from '@expo-google-fonts/archivo';
 
 import { PwaRuntime } from '@/components/pwa-runtime';
 import { migrateDatabase } from '@/database/migrations';
@@ -34,12 +41,23 @@ export function ErrorBoundary({ error, retry }: { error: Error; retry: () => Pro
 
 export default function RootLayout() {
   const [dbError, setDbError] = useState<Error | null>(null);
+  const [fontsLoaded, fontsError] = useFonts({
+    Archivo_400Regular,
+    Archivo_600SemiBold,
+    Archivo_700Bold,
+    Archivo_800ExtraBold,
+  });
 
   useEffect(() => {
+    if (!fontsLoaded && !fontsError) return;
     void SplashScreen.hideAsync().catch((reason) => {
       if (__DEV__) console.warn('SPLASH_HIDE_FAILED', reason);
     });
-  }, []);
+  }, [fontsLoaded, fontsError]);
+
+  if (!fontsLoaded && !fontsError) {
+    return null;
+  }
 
   if (dbError) {
     return (
