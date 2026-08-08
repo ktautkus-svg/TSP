@@ -36,9 +36,6 @@ export function RoadProgressBar({ fraction, colors }: { fraction: number; colors
     outputRange: [TRUCK_MIN_X, TRUCK_MAX_X],
   });
 
-  const dashCount = 14;
-  const dashes = Array.from({ length: dashCount }, (_, index) => index);
-
   return (
     <View style={styles.container}>
       <View style={styles.headerRow}>
@@ -82,17 +79,9 @@ export function RoadProgressBar({ fraction, colors }: { fraction: number; colors
         <Rect x={0} y={ASPHALT_TOP + 5} width={VIEW_WIDTH} height={1.6} fill="#e8e6df" opacity={0.85} />
         <Rect x={0} y={ASPHALT_BOTTOM - 6.6} width={VIEW_WIDTH} height={1.6} fill="#e8e6df" opacity={0.85} />
 
-        {/* Dashed center line */}
-        {dashes.map((index) => (
-          <Rect
-            key={`dash-${index}`}
-            x={(VIEW_WIDTH / dashCount) * index + 10}
-            y={(ASPHALT_TOP + ASPHALT_BOTTOM) / 2 - 1.6}
-            width={26}
-            height={3.2}
-            fill="#e8c93a"
-          />
-        ))}
+        {/* Double solid yellow center line, like a real two-lane road */}
+        <Rect x={0} y={(ASPHALT_TOP + ASPHALT_BOTTOM) / 2 - 3.4} width={VIEW_WIDTH} height={1.8} fill="#e8c93a" />
+        <Rect x={0} y={(ASPHALT_TOP + ASPHALT_BOTTOM) / 2 + 1.6} width={VIEW_WIDTH} height={1.8} fill="#e8c93a" />
 
         {/* Start sign */}
         <G>
@@ -145,9 +134,9 @@ export function RoadProgressBar({ fraction, colors }: { fraction: number; colors
 
           {/* Cab */}
           <Rect x={88} y={58} width={34} height={30} fill={colors.brandNavy} />
-          <Rect x={88} y={80} width={34} height={8} fill="#001f03" />
+          <Rect x={88} y={80} width={34} height={8} fill="#000" opacity={0.35} />
           <Polygon points="92,58 118,58 114,68 96,68" fill="#bfe4f5" opacity={0.9} />
-          <Rect x={92} y={69} width={22} height={2} fill="#001f03" opacity={0.5} />
+          <Rect x={92} y={69} width={22} height={2} fill="#000" opacity={0.35} />
           <Rect x={86} y={62} width={4} height={4} fill="#5c6570" />
 
           {/* Bumper + lights */}

@@ -12,11 +12,12 @@ export const colors = {
   danger: '#B42318',
   info: '#1D6FE0',
   border: '#DDE1E7',
-  // "Tautveža" redesign palette — used only by the sharp-corner delivery/loading/history screens.
-  accent: '#007a11',
-  accentSoft: '#c7f7c7',
-  accentStrong: '#005600',
-  brandNavy: '#003306',
+  // Redesign palette (matched to the "Handelshus" wordmark) — used only by the
+  // sharp-corner delivery/loading/history screens.
+  accent: '#7A1E35',
+  accentSoft: '#efe4e7',
+  accentStrong: '#4f1422',
+  brandNavy: '#24275E',
 } as const;
 
 export const fonts = {
