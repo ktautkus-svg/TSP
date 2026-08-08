@@ -3,7 +3,7 @@ import { Animated, BackHandler, Easing, KeyboardAvoidingView, Linking, Modal, Pl
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Circle, G, Line, Path, Rect } from 'react-native-svg';
+import Svg, { Circle, Line, Path, Rect } from 'react-native-svg';
 
 import { Alert } from '@/ui/alert';
 import { buildNavigationUrls, navigationTargetFromStop } from '@/application/navigation/navigation-url-builder';
@@ -44,7 +44,6 @@ import { failedDeliveryLabel, userVisibleStopNote } from '@/ui/route-labels';
 import { durationLabel, etaLabel, legLabel, offlineEtaLabel, scheduleLabel, windowLabel, windowUrgencyColor } from '@/ui/route-eta-labels';
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
-const AnimatedG = Animated.createAnimatedComponent(G);
 
 function ScheduleDot({ stop, colors, routeDate }: { stop?: DeliveryStop | null; colors: ColorPalette; routeDate?: string | null }) {
   const color = windowUrgencyColor(stop, routeDate);
@@ -52,11 +51,13 @@ function ScheduleDot({ stop, colors, routeDate }: { stop?: DeliveryStop | null; 
   return <View testID="schedule-dot" style={{ width: 9, height: 9, backgroundColor: colors[color] }} />;
 }
 
-// Automotive-dashboard gauge geometry: a 270° sweep starting at "7:30" and
-// ending at "4:30" (like a speedometer), leaving a 90° gap at the bottom.
-const GAUGE_START_ANGLE = -225;
-const GAUGE_SWEEP = 270;
-const GAUGE_TICK_COUNT = 28;
+// Mirrors the design mockup's gauge geometry 1:1: a full-circle ring
+// (viewBox 0 0 200 200, r=86, stroke-width 12) with 12 identical tick
+// marks at 30° increments starting from the top, no needle.
+const GAUGE_VIEW_SIZE = 200;
+const GAUGE_RADIUS = 86;
+const GAUGE_STROKE_WIDTH = 12;
+const GAUGE_TICK_COUNT = 12;
 
 // Whichever of deliveredAt/failedAt is set is when the stop was resolved.
 function recalcTimestamp(stop: DeliveryStop): string | null {
@@ -669,13 +670,10 @@ export default function DeliveryScreen() {
 
 function DashboardGauge(props: { fraction: number; color: string; label: string; sublabel: string; colors: ColorPalette }) {
   const { colors } = props;
-  const size = 156;
-  const strokeWidth = 15;
-  const radius = (size - strokeWidth) / 2 - 14;
-  const cx = size / 2;
-  const cy = size / 2;
-  const circumference = 2 * Math.PI * radius;
-  const trackArcLength = (GAUGE_SWEEP / 360) * circumference;
+  const size = 132;
+  const cx = GAUGE_VIEW_SIZE / 2;
+  const cy = GAUGE_VIEW_SIZE / 2;
+  const circumference = 2 * Math.PI * GAUGE_RADIUS;
   const clamped = Math.max(0, Math.min(1, Number.isFinite(props.fraction) ? props.fraction : 0));
   const animatedFraction = useRef(new Animated.Value(0)).current;
 
@@ -691,81 +689,49 @@ function DashboardGauge(props: { fraction: number; color: string; label: string;
 
   const strokeDashoffset = animatedFraction.interpolate({
     inputRange: [0, 1],
-    outputRange: [trackArcLength, 0],
-  });
-  const capRotation = animatedFraction.interpolate({
-    inputRange: [0, 1],
-    outputRange: [GAUGE_START_ANGLE + 90, GAUGE_START_ANGLE + GAUGE_SWEEP + 90],
+    outputRange: [circumference, 0],
   });
 
-  const ticks = Array.from({ length: GAUGE_TICK_COUNT }, (_, index) => {
-    const angle = GAUGE_START_ANGLE + (index / (GAUGE_TICK_COUNT - 1)) * GAUGE_SWEEP;
-    const rad = (angle * Math.PI) / 180;
-    const major = index % 7 === 0;
-    const outerR = radius + strokeWidth / 2 + 5;
-    const innerR = outerR - (major ? 11 : 5);
-    return {
-      key: index,
-      major,
-      x1: cx + innerR * Math.cos(rad),
-      y1: cy + innerR * Math.sin(rad),
-      x2: cx + outerR * Math.cos(rad),
-      y2: cy + outerR * Math.sin(rad),
-    };
-  });
-
-  const capDistance = radius;
+  // 12 identical tick marks at 30° increments, starting from the top —
+  // no major/minor distinction, matching the mockup exactly.
+  const ticks = Array.from({ length: GAUGE_TICK_COUNT }, (_, index) => index * 30);
 
   return (
-    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
-      <Svg width={size} height={size}>
-        {ticks.map((tick) => (
-          <Line
-            key={tick.key}
-            x1={tick.x1}
-            y1={tick.y1}
-            x2={tick.x2}
-            y2={tick.y2}
-            stroke={tick.major ? colors.text : colors.border}
-            strokeWidth={tick.major ? 2.5 : 1.2}
-            strokeLinecap="round"
+    <View style={{ alignItems: 'center' }}>
+      <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+        <Svg width={size} height={size} viewBox={`0 0 ${GAUGE_VIEW_SIZE} ${GAUGE_VIEW_SIZE}`}>
+          {ticks.map((angle) => (
+            <Line
+              key={angle}
+              x1={cx}
+              y1={8}
+              x2={cx}
+              y2={18}
+              stroke={colors.textMuted}
+              strokeWidth={2}
+              rotation={angle}
+              origin={`${cx}, ${cy}`}
+            />
+          ))}
+          <Circle cx={cx} cy={cy} r={GAUGE_RADIUS} stroke={colors.border} strokeWidth={GAUGE_STROKE_WIDTH} fill="none" />
+          <AnimatedCircle
+            cx={cx}
+            cy={cy}
+            r={GAUGE_RADIUS}
+            stroke={props.color}
+            strokeWidth={GAUGE_STROKE_WIDTH}
+            fill="none"
+            strokeDasharray={`${circumference}, ${circumference}`}
+            strokeDashoffset={strokeDashoffset}
+            rotation={-90}
+            origin={`${cx}, ${cy}`}
           />
-        ))}
-        <Circle
-          cx={cx}
-          cy={cy}
-          r={radius}
-          stroke={colors.border}
-          strokeWidth={strokeWidth}
-          fill="none"
-          strokeDasharray={`${trackArcLength}, ${circumference}`}
-          rotation={GAUGE_START_ANGLE}
-          origin={`${cx}, ${cy}`}
-        />
-        <AnimatedCircle
-          cx={cx}
-          cy={cy}
-          r={radius}
-          stroke={props.color}
-          strokeWidth={strokeWidth}
-          fill="none"
-          strokeDasharray={`${trackArcLength}, ${circumference}`}
-          strokeDashoffset={strokeDashoffset}
-          strokeLinecap="butt"
-          rotation={GAUGE_START_ANGLE}
-          origin={`${cx}, ${cy}`}
-        />
-        {/* Small accent cap marking the current end of the filled arc — the
-            "harder" detail beyond a flat progress ring, without a full needle. */}
-        <AnimatedG rotation={capRotation} origin={`${cx}, ${cy}`}>
-          <Circle cx={cx} cy={cy - capDistance} r={strokeWidth / 2 + 2} fill={colors.surface} stroke={props.color} strokeWidth={3} />
-          <Circle cx={cx} cy={cy - capDistance} r={3} fill={props.color} />
-        </AnimatedG>
-      </Svg>
-      <View style={{ position: 'absolute', alignItems: 'center', justifyContent: 'center', top: size * 0.58 }} pointerEvents="none">
-        <Text style={{ color: colors.text, fontSize: 19, fontFamily: fonts.headingExtraBold }}>{props.label}</Text>
-        <Text style={{ color: colors.textMuted, fontSize: 11, fontFamily: fonts.headingSemiBold, marginTop: 2, textAlign: 'center', letterSpacing: 0.5 }}>{props.sublabel.toUpperCase()}</Text>
+        </Svg>
+        <View style={{ position: 'absolute', alignItems: 'center', justifyContent: 'center' }} pointerEvents="none">
+          <Text style={{ color: colors.text, fontSize: 22, fontFamily: fonts.headingExtraBold }}>{props.label}</Text>
+        </View>
       </View>
+      <Text style={{ color: colors.textMuted, fontSize: 10, fontFamily: fonts.headingSemiBold, marginTop: spacing.xs, textAlign: 'center', letterSpacing: 0.6 }}>{props.sublabel.toUpperCase()}</Text>
     </View>
   );
 }
