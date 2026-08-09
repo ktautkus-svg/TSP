@@ -99,6 +99,11 @@ export function evaluateCandidate(input: {
     previousId = stopId;
   }
 
+  // Sitting at the depot until doors open is free; sitting at the kerb is not.
+  // If the plan left hours early (e.g. 04:00 for 06:00 windows), shift the
+  // first leg forward so the truck departs just in time and the wait vanishes.
+  compressLeadingDepotWait(legs, schedules);
+
   const endCell = getCell(matrix, matrixIndex, previousId, request.endLocation.id);
   const endDuration = usable(endCell?.durationMinutes);
   const endDistance = usable(endCell?.distanceKm);
@@ -202,6 +207,17 @@ export function evaluateCandidate(input: {
     warnings: [...new Set(warnings)],
     explanations: [],
   };
+}
+
+function compressLeadingDepotWait(legs: CandidateLeg[], schedules: CandidateStopSchedule[]): void {
+  const first = schedules[0];
+  const firstLeg = legs[0];
+  if (!first || !firstLeg || first.waitingMinutes <= 0) return;
+  const shiftMs = first.waitingMinutes * 60_000;
+  firstLeg.departureAt = new Date(Date.parse(firstLeg.departureAt) + shiftMs).toISOString();
+  firstLeg.arrivalAt = first.serviceStartAt;
+  first.arrivalAt = first.serviceStartAt;
+  first.waitingMinutes = 0;
 }
 
 function getCell(

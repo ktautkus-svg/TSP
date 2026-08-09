@@ -576,12 +576,14 @@ export class SaveSelectedRouteCandidate extends RouteCommandBase {
       );
       await this.db.runAsync(
         `UPDATE routes SET status = 'planned', selected_run_id = ?, selected_candidate_id = ?,
-         estimated_distance_km = ?, estimated_duration_minutes = ?, updated_at = ?
+         estimated_distance_km = ?, estimated_duration_minutes = ?,
+         planned_departure_at = COALESCE(?, planned_departure_at), updated_at = ?
          WHERE id = ?`,
         runId,
         candidateId,
         candidate.total_distance_km,
         candidate.total_work_minutes,
+        legs[0]?.departureAt ?? null,
         now,
         routeId,
       );

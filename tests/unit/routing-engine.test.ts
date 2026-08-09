@@ -289,7 +289,12 @@ describe('time-window planning stays geographically sane', () => {
     const timedKm = timed.recommended!.totalDistanceKm;
     const untimedKm = untimed.recommended!.totalDistanceKm;
     expect(timedKm).toBeLessThanOrEqual(untimedKm * 1.05);
-    expect(timed.recommended!.waitingMinutes).toBeGreaterThan(0);
+    // Idle time before the first door opens is spent at the depot, not scored as
+    // kerbside waiting - the first leg simply leaves later.
+    expect(timed.recommended!.schedules[0]!.waitingMinutes).toBe(0);
+    expect(Date.parse(timed.recommended!.legs[0]!.departureAt)).toBeGreaterThan(
+      Date.parse(request.plannedDepartureAt),
+    );
   });
 
   it('does not charge an early arrival twice as waiting and as a window mismatch', async () => {
@@ -300,8 +305,31 @@ describe('time-window planning stays geographically sane', () => {
       stop.informationalTimeWindow = stop.requiredTimeWindow;
     }
     const result = await new RoutingEngine(new SyntheticTravelCostProvider('linear')).optimize(request);
-    expect(result.recommended!.waitingMinutes).toBeGreaterThan(0);
     expect(result.recommended!.rawScoreComponents.informationalTimeMismatch).toBe(0);
+  });
+
+  it('still waits mid-route when a later stop opens after the truck arrives', async () => {
+    const request = twoClusterRequest(2);
+    request.plannedDepartureAt = '2026-06-15T07:00:00.000Z';
+    const [first, second] = request.stops;
+    first!.requiredTimeWindow = { from: '2026-06-15T07:00:00.000Z', to: '2026-06-15T09:00:00.000Z' };
+    second!.requiredTimeWindow = { from: '2026-06-15T12:00:00.000Z', to: '2026-06-15T16:00:00.000Z' };
+    const matrix = await new SyntheticTravelCostProvider('linear').getMatrix({
+      locations: [request.startLocation, ...request.stops.map((stop) => stop.location), request.endLocation],
+      vehicle: request.vehicle,
+      departureAt: request.plannedDepartureAt,
+      trafficMode: 'live',
+      timeoutMs: 1_000,
+    });
+    const { evaluateCandidate } = await import('../../src/domain/routing/evaluation/candidate-evaluator');
+    const candidate = evaluateCandidate({
+      stopSequence: [first!.id, second!.id],
+      generatedBy: ['fixture'],
+      request,
+      matrix,
+    });
+    expect(candidate.schedules[0]!.waitingMinutes).toBe(0);
+    expect(candidate.schedules[1]!.waitingMinutes).toBeGreaterThan(60);
   });
 
   it('never blocks a route just because a window cannot be met', async () => {

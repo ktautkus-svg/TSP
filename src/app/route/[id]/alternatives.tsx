@@ -486,7 +486,7 @@ function CandidateCard(props: {
   // Handover times, not raw arrivals: waiting for a door that opens at 08:00 is
   // already baked into the schedule, so the first delivery reads honestly.
   const scheduleById = new Map(props.candidate.schedules.map((item) => [item.stopId, item]));
-  const departure = clockLabel(props.request.plannedDepartureAt);
+  const departure = clockLabel(props.candidate.legs[0]?.departureAt ?? props.request.plannedDepartureAt);
   const firstDelivery = clockLabel(props.candidate.schedules[0]?.serviceStartAt);
   const lastDelivery = clockLabel(props.candidate.schedules.at(-1)?.departureAt);
   const waitingMinutes = Math.round(props.candidate.waitingMinutes);

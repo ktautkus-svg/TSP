@@ -29,7 +29,8 @@ describe('compact daily Excel UI', () => {
     expect(importScreen).toContain('defaultPlanningDate');
     expect(importScreen).toContain('plannedDepartureAt');
     expect(importScreen).toContain('Tęsti: pasirinkti prioritetus');
-    expect(importScreen).toContain('placeholder="04:00"');
+    expect(importScreen).toContain('placeholder="06:00"');
+    expect(importScreen).toContain('suggestPlanningTimeFromWindows');
     expect(importScreen).toContain("pathname: '/route/[id]/review'");
     expect(importScreen).toContain("result && (!excelPreview || excelProblemCount === 0)");
     expect(importScreen).not.toContain('Duomenys prasideda nuo');

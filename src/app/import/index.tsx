@@ -12,6 +12,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
+import { useLocalAccess } from '@/application/auth/local-access-context';
 
 import { Alert } from '@/ui/alert';
 import { resolveDeliveryAddresses } from '@/application/import/address-resolver';
@@ -38,7 +39,7 @@ import {
   importedDeliveriesToDraftStops,
 } from '@/application/routes/route-draft-mappers';
 import { resolveRoute } from '@/application/routes/route-navigation';
-import { defaultPlanningDate, defaultPlanningTime, planningDepartureIso } from '@/application/routes/planning-schedule';
+import { defaultPlanningDate, defaultPlanningTime, planningDepartureIso, suggestPlanningTimeFromWindows } from '@/application/routes/planning-schedule';
 import { GetDefaultLocations, PlanningModePreference, RouteEndPreference, SaveDefaultLocation } from '@/application/routes/saved-locations';
 import { confidenceLevel } from '@/domain/import/confidence';
 import {
@@ -70,6 +71,7 @@ type ManualRowResolution = {
 };
 
 export default function ImportScreen() {
+  const { profile } = useLocalAccess();
   const router = useRouter();
   const db = useSQLiteContext();
   const { colors } = useTheme();
@@ -90,9 +92,14 @@ export default function ImportScreen() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [endMode, setEndMode] = useState<'warehouse' | 'home'>('warehouse');
+
+  useEffect(() => {
+    if (profile.role === 'driver' && !profile.permissions?.canCreateRoutes) router.replace('/' as Href);
+  }, [profile, router]);
   const [planningMode, setPlanningMode] = useState<PlanningMode>('with_time_windows');
   const [planningDate, setPlanningDate] = useState(() => defaultPlanningDate());
   const [planningTime, setPlanningTime] = useState(() => defaultPlanningTime());
+  const planningTimeTouched = useRef(false);
   const [warehouseAddress, setWarehouseAddress] = useState('');
   const [homeAddress, setHomeAddress] = useState('');
   const [warehouseEndpoint, setWarehouseEndpoint] = useState<RouteEndpoint | null>(null);
@@ -291,6 +298,11 @@ export default function ImportScreen() {
     }
   };
 
+  const applySuggestedPlanningTime = (windows: Array<{ from: string | null | undefined }>) => {
+    if (planningTimeTouched.current) return;
+    setPlanningTime(suggestPlanningTimeFromWindows(windows));
+  };
+
   const openExcelPreview = async (preview: ExcelImportPreview, restoredResult?: ImportResult | null) => {
     await excelRepository.savePreview(preview);
     const imported = restoredResult ?? excelPreviewToImportResult(preview);
@@ -298,6 +310,7 @@ export default function ImportScreen() {
     setExcelPreview(preview);
     setExcelDuplicate(null);
     setResult(imported);
+    applySuggestedPlanningTime(preview.groups.map((group) => ({ from: group.deliveryTimeFrom })));
     setDocument(null);
     setExpandedExcelGroups([]);
     setShowOnlyExcelProblems(true);
@@ -448,6 +461,12 @@ export default function ImportScreen() {
       );
       const imported = await engine.import(document);
       setResult(imported);
+      applySuggestedPlanningTime(
+        imported.deliveries.map((delivery) => {
+          const match = delivery.deliveryTime.value?.match(/(\d{1,2}):(\d{2})/);
+          return { from: match ? `${match[1]!.padStart(2, '0')}:${match[2]}` : null };
+        }),
+      );
       setMessage(imported.requiresReview ? 'Patikrinkite ir patvirtinkite pažymėtus adresus.' : 'Dokumentas paruoštas maršrutui.');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Dokumento importas nepavyko.');
@@ -778,9 +797,12 @@ export default function ImportScreen() {
                 <Text style={styles.fieldCaption}>Starto laikas</Text>
                 <TextInput
                   value={planningTime}
-                  onChangeText={setPlanningTime}
+                  onChangeText={(value) => {
+                    planningTimeTouched.current = true;
+                    setPlanningTime(value);
+                  }}
                   style={styles.scheduleInput}
-                  placeholder="04:00"
+                  placeholder="06:00"
                   placeholderTextColor={colors.textMuted}
                   {...({ type: 'time' } as object)}
                   testID="planning-time"
