@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "Logistikos pristatymai",
-  "short_name": "Pristatymai",
-  "description": "Asmeninė pristatymų maršruto planavimo ir vykdymo aplikacija.",
+  "name": "TSP – Tikslus siuntų pristatymas",
+  "short_name": "TSP",
+  "description": "Tikslus siuntų maršruto planavimas ir pristatymo vykdymas.",
   "lang": "lt",
   "start_url": "/",
   "scope": "/",

@@ -6,7 +6,8 @@ export type RouteScreen =
   | 'loading'
   | 'delivery'
   | 'history-detail'
-  | 'history';
+  | 'history'
+  | 'dashboard';
 
 export type RouteNavigationContext = {
   routeId: string;
@@ -22,7 +23,8 @@ export type ResolvedRouteDestination = {
     | '/route/[id]/loading'
     | '/route/[id]/delivery'
     | '/history/[id]'
-    | '/history';
+    | '/history'
+    | '/';
   params: { id: string; resumeCompletion?: '1'; redirectReason?: string } | undefined;
   resumeCompletion: boolean;
 };
@@ -60,7 +62,7 @@ export function resolveRouteDestination(
 
 export function resolveRoute(route?: Route | null): ResolvedRouteDestination {
   if (!route || !route.status) {
-    return { screen: 'history', pathname: '/history', params: undefined, resumeCompletion: false };
+    return { screen: 'dashboard', pathname: '/', params: undefined, resumeCompletion: false };
   }
   return resolveRouteDestination(route.status, {
     routeId: route?.id ?? 'unknown',

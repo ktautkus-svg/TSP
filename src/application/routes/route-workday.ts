@@ -2,6 +2,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { RouteRepository } from '@/database/repositories/route-repository';
 import { isDeliveryFailureReason } from '@/domain/delivery-failure';
+import { isLoadingFailureReason, type LoadingFailureReason } from '@/domain/loading-failure';
 import type { DeliveryStop, Route, RouteCompletionSummary } from '@/domain/route';
 import { assertRouteTransition } from '@/domain/transitions';
 import { RouteCommandError } from './route-commands';
@@ -18,6 +19,8 @@ const UNDO_WINDOW_MS = 15 * 60 * 1000;
 export type RouteProgress = {
   totalStops: number;
   loadedStops: number;
+  notLoadedStops: number;
+  loadingResolvedStops: number;
   deliveredStops: number;
   failedStops: number;
   remainingStops: number;
@@ -36,7 +39,7 @@ export type UndoableAction = {
   id: string;
   routeId: string;
   stopId: string;
-  actionType: 'stop_loaded' | 'stop_delivered' | 'stop_failed';
+  actionType: 'stop_loaded' | 'stop_not_loaded' | 'stop_delivered' | 'stop_failed';
   createdAt: string;
   undoExpiresAt: string;
 };
@@ -102,7 +105,7 @@ export class MarkStopLoaded extends WorkdayCommand {
     if (stop.loadingStatus === 'loaded') {
       return { idempotent: true, actionId: null, allLoaded: route.status === 'loaded' };
     }
-    if (route.status !== 'loading') {
+    if (!['loading', 'loaded'].includes(route.status)) {
       throw new RouteCommandError('INVALID_ROUTE_STATE', 'Taškus galima krauti tik krovimo būsenoje.');
     }
     const now = this.clock();
@@ -110,7 +113,9 @@ export class MarkStopLoaded extends WorkdayCommand {
     let allLoaded = false;
     await this.db.withTransactionAsync(async () => {
       await this.db.runAsync(
-        `UPDATE delivery_stops SET loading_status = 'loaded', loaded_at = ?, updated_at = ?
+        `UPDATE delivery_stops SET loading_status = 'loaded', loaded_at = ?,
+         delivery_status = 'pending', delivered_at = NULL, failed_at = NULL,
+         failure_reason = NULL, failure_comment = NULL, updated_at = ?
          WHERE id = ? AND route_id = ? AND loading_status = 'pending'`,
         now,
         now,
@@ -118,11 +123,11 @@ export class MarkStopLoaded extends WorkdayCommand {
         routeId,
       );
       const pending = await this.db.getFirstAsync<{ count: number }>(
-        "SELECT COUNT(*) AS count FROM delivery_stops WHERE route_id = ? AND loading_status <> 'loaded'",
+        "SELECT COUNT(*) AS count FROM delivery_stops WHERE route_id = ? AND delivery_status = 'pending' AND loading_status <> 'loaded'",
         routeId,
       );
       allLoaded = (pending?.count ?? 0) === 0;
-      if (allLoaded) {
+      if (allLoaded && route.status === 'loading') {
         assertRouteTransition('loading', 'loaded');
         await this.db.runAsync("UPDATE routes SET status = 'loaded', updated_at = ? WHERE id = ?", now, routeId);
       }
@@ -130,8 +135,9 @@ export class MarkStopLoaded extends WorkdayCommand {
         routeId,
         stopId,
         'stop_loaded',
-        { loadingStatus: stop.loadingStatus, loadedAt: stop.loadedAt, routeStatus: route.status },
-        { loadingStatus: 'loaded', loadedAt: now, routeStatus: allLoaded ? 'loaded' : 'loading' },
+        { ...stopState(stop), loadingStatus: stop.loadingStatus, loadedAt: stop.loadedAt, routeStatus: route.status },
+        { deliveryStatus: 'pending', deliveredAt: null, failedAt: null, failureReason: null, failureComment: null,
+          loadingStatus: 'loaded', loadedAt: now, routeStatus: allLoaded ? 'loaded' : route.status },
         true,
       );
     });
@@ -159,11 +165,20 @@ export class MarkAllStopsLoaded extends WorkdayCommand {
       if (!route) throw new RouteCommandError('ROUTE_NOT_FOUND', 'Maršrutas nerastas.', { routeId });
 
       const pendingStops = await this.db.getAllAsync<{ id: string }>(
-        "SELECT id FROM delivery_stops WHERE route_id = ? AND loading_status = 'pending' ORDER BY id",
+        "SELECT id FROM delivery_stops WHERE route_id = ? AND delivery_status = 'pending' AND loading_status = 'pending' ORDER BY id",
         routeId,
       );
       if (pendingStops.length === 0) {
-        allLoaded = route.status === 'loaded';
+        const unresolved = await this.db.getFirstAsync<{ count: number }>(
+          "SELECT COUNT(*) AS count FROM delivery_stops WHERE route_id = ? AND delivery_status = 'pending' AND loading_status <> 'loaded'",
+          routeId,
+        );
+        allLoaded = (unresolved?.count ?? 0) === 0;
+        if (allLoaded && route.status === 'loading') {
+          assertRouteTransition('loading', 'loaded');
+          const now = this.clock();
+          await this.db.runAsync("UPDATE routes SET status = 'loaded', updated_at = ? WHERE id = ? AND status = 'loading'", now, routeId);
+        }
         return;
       }
       if (route.status !== 'loading') {
@@ -173,7 +188,7 @@ export class MarkAllStopsLoaded extends WorkdayCommand {
       const now = this.clock();
       const update = await this.db.runAsync(
         `UPDATE delivery_stops SET loading_status = 'loaded', loaded_at = ?, updated_at = ?
-         WHERE route_id = ? AND loading_status = 'pending'`,
+         WHERE route_id = ? AND delivery_status = 'pending' AND loading_status = 'pending'`,
         now,
         now,
         routeId,
@@ -249,6 +264,63 @@ export class MarkStopUnloaded extends WorkdayCommand {
   }
 }
 
+export class MarkStopNotLoaded extends WorkdayCommand {
+  async execute(
+    routeId: string,
+    stopId: string,
+    reason: LoadingFailureReason,
+  ): Promise<{ idempotent: boolean; actionId: string | null; allResolved: boolean }> {
+    if (!isLoadingFailureReason(reason)) {
+      throw new RouteCommandError('INVALID_STOP', 'Pasirinkite nepakrovimo priežastį.');
+    }
+    const route = await this.route(routeId);
+    const stop = await this.stop(routeId, stopId);
+    if (!['loading', 'loaded'].includes(route.status)) {
+      throw new RouteCommandError('INVALID_ROUTE_STATE', 'Nepakrautą krovinį galima žymėti tik krovimo ekrane.');
+    }
+    if (stop.deliveryStatus === 'failed' && stop.failureReason === reason && stop.loadingStatus === 'pending') {
+      return { idempotent: true, actionId: null, allResolved: route.status === 'loaded' };
+    }
+
+    const now = this.clock();
+    let actionId: string | null = null;
+    let allResolved = false;
+    await this.db.withTransactionAsync(async () => {
+      await this.db.runAsync(
+        `UPDATE delivery_stops SET loading_status = 'pending', loaded_at = NULL,
+         delivery_status = 'failed', delivered_at = NULL, failed_at = ?,
+         failure_reason = ?, failure_comment = NULL, updated_at = ?
+         WHERE id = ? AND route_id = ?`,
+        now,
+        reason,
+        now,
+        stopId,
+        routeId,
+      );
+      await refreshRemaining(this.db, routeId, now);
+      const unresolved = await this.db.getFirstAsync<{ count: number }>(
+        "SELECT COUNT(*) AS count FROM delivery_stops WHERE route_id = ? AND delivery_status = 'pending' AND loading_status <> 'loaded'",
+        routeId,
+      );
+      allResolved = (unresolved?.count ?? 0) === 0;
+      if (allResolved && route.status === 'loading') {
+        assertRouteTransition('loading', 'loaded');
+        await this.db.runAsync("UPDATE routes SET status = 'loaded', updated_at = ? WHERE id = ? AND status = 'loading'", now, routeId);
+      }
+      actionId = await this.journal(
+        routeId,
+        stopId,
+        'stop_not_loaded',
+        { ...stopState(stop), loadingStatus: stop.loadingStatus, loadedAt: stop.loadedAt, routeStatus: route.status },
+        { deliveryStatus: 'failed', deliveredAt: null, failedAt: now, failureReason: reason, failureComment: null,
+          loadingStatus: 'pending', loadedAt: null, routeStatus: allResolved ? 'loaded' : 'loading' },
+        true,
+      );
+    });
+    return { idempotent: false, actionId, allResolved };
+  }
+}
+
 export class SaveStartOdometer extends WorkdayCommand {
   async execute(routeId: string, value: number): Promise<{ idempotent: boolean }> {
     validateOdometer(value);
@@ -304,7 +376,7 @@ export class StartRoute extends WorkdayCommand {
       throw new RouteCommandError('INVALID_ROUTE_STATE', 'Maršrutą galima pradėti tik užbaigus krovimą.');
     }
     const pending = await this.db.getFirstAsync<{ count: number }>(
-      "SELECT COUNT(*) AS count FROM delivery_stops WHERE route_id = ? AND loading_status <> 'loaded'",
+      "SELECT COUNT(*) AS count FROM delivery_stops WHERE route_id = ? AND delivery_status = 'pending' AND loading_status <> 'loaded'",
       routeId,
     );
     if ((pending?.count ?? 0) > 0) {
@@ -556,7 +628,7 @@ export class UndoRouteAction extends WorkdayCommand {
       before_json: string; after_json: string; created_at: string;
       undo_expires_at: string | null; undone_at: string | null;
     }>('SELECT * FROM action_journal WHERE id = ?', actionId);
-    if (!action || !action.stop_id || !['stop_loaded', 'stop_delivered', 'stop_failed'].includes(action.action_type)) {
+    if (!action || !action.stop_id || !['stop_loaded', 'stop_not_loaded', 'stop_delivered', 'stop_failed'].includes(action.action_type)) {
       throw new RouteCommandError('INVALID_STOP', 'Atšaukiamas veiksmas nerastas.');
     }
     if (action.undone_at) return { idempotent: true };
@@ -583,16 +655,23 @@ export class UndoRouteAction extends WorkdayCommand {
       throw new RouteCommandError('INVALID_ROUTE_STATE', 'Pradėjus maršrutą pakrovimo veiksmo atšaukti nebegalima.');
     }
     await this.db.withTransactionAsync(async () => {
-      if (action.action_type === 'stop_loaded') {
+      if (action.action_type === 'stop_loaded' || action.action_type === 'stop_not_loaded') {
         await this.db.runAsync(
-          `UPDATE delivery_stops SET loading_status = ?, loaded_at = ?, updated_at = ? WHERE id = ?`,
+          `UPDATE delivery_stops SET loading_status = ?, loaded_at = ?, delivery_status = ?,
+           delivered_at = ?, failed_at = ?, failure_reason = ?, failure_comment = ?, updated_at = ? WHERE id = ?`,
           String(before.loadingStatus),
           nullableString(before.loadedAt),
+          String(before.deliveryStatus),
+          nullableString(before.deliveredAt),
+          nullableString(before.failedAt),
+          nullableString(before.failureReason),
+          nullableString(before.failureComment),
           now,
           action.stop_id,
         );
-        if (route.status === 'loaded') {
-          await this.db.runAsync("UPDATE routes SET status = 'loading', updated_at = ? WHERE id = ?", now, action.route_id);
+        await refreshRemaining(this.db, action.route_id, now);
+        if (route.status === 'loaded' && before.routeStatus === 'loading') {
+          await this.db.runAsync("UPDATE routes SET status = 'loading', updated_at = ? WHERE id = ? AND status = 'loaded'", now, action.route_id);
         }
       } else {
         await this.db.runAsync(
@@ -628,7 +707,7 @@ export class GetLatestUndoableAction extends WorkdayCommand {
     }>(
       `SELECT id, route_id, stop_id, action_type, created_at, undo_expires_at
        FROM action_journal WHERE route_id = ? AND stop_id IS NOT NULL
-       AND action_type IN ('stop_loaded','stop_delivered','stop_failed')
+       AND action_type IN ('stop_loaded','stop_not_loaded','stop_delivered','stop_failed')
        AND undone_at IS NULL AND undo_expires_at >= ?
        ORDER BY created_at DESC, id DESC LIMIT 1`,
       routeId,
@@ -650,11 +729,15 @@ export class GetRouteProgress extends WorkdayCommand {
     const route = await this.route(routeId);
     const stops = await this.routes.getStops(routeId);
     const loaded = stops.filter((stop) => stop.loadingStatus === 'loaded');
+    const notLoaded = stops.filter((stop) => stop.loadingStatus === 'pending' && stop.deliveryStatus === 'failed');
+    const loadingResolved = [...loaded, ...notLoaded];
     const delivered = stops.filter((stop) => stop.deliveryStatus === 'delivered');
     const remaining = stops.filter((stop) => stop.deliveryStatus === 'pending');
     return {
       totalStops: stops.length,
       loadedStops: loaded.length,
+      notLoadedStops: notLoaded.length,
+      loadingResolvedStops: loadingResolved.length,
       deliveredStops: delivered.length,
       failedStops: stops.filter((stop) => stop.deliveryStatus === 'failed').length,
       remainingStops: remaining.length,
@@ -664,7 +747,7 @@ export class GetRouteProgress extends WorkdayCommand {
       totalUnknownWeightStops: stops.filter((stop) => stop.weightKg === null).length,
       loadedUnknownWeightStops: loaded.filter((stop) => stop.weightKg === null).length,
       remainingUnknownWeightStops: remaining.filter((stop) => stop.weightKg === null).length,
-      loadingPercent: percent(loaded.length, stops.length),
+      loadingPercent: percent(loadingResolved.length, stops.length),
       deliveryPercent: percent(delivered.length, stops.length),
       preliminaryRemainingDistanceKm: route.estimatedDistanceKm === null || stops.length === 0
         ? null

@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -16,10 +15,10 @@ import { useSQLiteContext } from 'expo-sqlite';
 
 import { Alert } from '@/ui/alert';
 import { resolveDeliveryAddresses } from '@/application/import/address-resolver';
+import { getRouteCreationBlockers, hasRouteCoordinates } from '@/application/import/route-creation-readiness';
 import {
   excelPreviewToDraftStops,
   excelPreviewToImportResult,
-  unresolvedExcelIssues,
 } from '@/application/import/excel-route-mapper';
 import { ImagePreprocessingPipeline } from '@/application/import/image-preprocessing';
 import { ImportEngine } from '@/application/import/import-engine';
@@ -39,7 +38,8 @@ import {
   importedDeliveriesToDraftStops,
 } from '@/application/routes/route-draft-mappers';
 import { resolveRoute } from '@/application/routes/route-navigation';
-import { GetDefaultLocations, PlanningModePreference, RouteEndPreference } from '@/application/routes/saved-locations';
+import { defaultPlanningDate, defaultPlanningTime, planningDepartureIso } from '@/application/routes/planning-schedule';
+import { GetDefaultLocations, PlanningModePreference, RouteEndPreference, SaveDefaultLocation } from '@/application/routes/saved-locations';
 import { confidenceLevel } from '@/domain/import/confidence';
 import {
   LOGISTICS_EXCEL_V1,
@@ -82,13 +82,17 @@ export default function ImportScreen() {
   const [excelPreview, setExcelPreview] = useState<ExcelImportPreview | null>(null);
   const [excelDuplicate, setExcelDuplicate] = useState<ExcelImportPreview | null>(null);
   const [expandedExcelGroups, setExpandedExcelGroups] = useState<string[]>([]);
-  const [showOnlyExcelProblems, setShowOnlyExcelProblems] = useState(false);
+  const [showOnlyExcelProblems, setShowOnlyExcelProblems] = useState(true);
+  const [excelProblemIndex, setExcelProblemIndex] = useState(0);
+  const [showExcelOptions, setShowExcelOptions] = useState(false);
   const [movingExcelLineId, setMovingExcelLineId] = useState<string | null>(null);
   const [columnMapping, setColumnMapping] = useState<ExcelColumnMapping>(LOGISTICS_EXCEL_V1.columns);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [endMode, setEndMode] = useState<'warehouse' | 'home'>('warehouse');
   const [planningMode, setPlanningMode] = useState<PlanningMode>('with_time_windows');
+  const [planningDate, setPlanningDate] = useState(() => defaultPlanningDate());
+  const [planningTime, setPlanningTime] = useState(() => defaultPlanningTime());
   const [warehouseAddress, setWarehouseAddress] = useState('');
   const [homeAddress, setHomeAddress] = useState('');
   const [warehouseEndpoint, setWarehouseEndpoint] = useState<RouteEndpoint | null>(null);
@@ -106,26 +110,67 @@ export default function ImportScreen() {
 
   useEffect(() => {
     let active = true;
-    void excelRepository.getLatestReview().then((restored) => {
+    void excelRepository.getLatestReview().then(async (restored) => {
       if (!active || !restored || result || document) return;
+      const restoredResult = restored.result ?? excelPreviewToImportResult(restored.preview);
+      const unresolved = restoredResult.deliveries.filter((delivery) =>
+        !delivery.selectedAddress || delivery.validationState !== 'valid',
+      );
+      let recoveredResult = restoredResult;
+      if (unresolved.length > 0) {
+        const resolved = await resolveDeliveryAddresses(unresolved, addressResolver);
+        const resolvedById = new Map(resolved.map((delivery) => [delivery.id, delivery]));
+        recoveredResult = {
+          ...restoredResult,
+          deliveries: restoredResult.deliveries.map((delivery) => resolvedById.get(delivery.id) ?? delivery),
+        };
+        recoveredResult.requiresReview = recoveredResult.deliveries.some((delivery) =>
+          !delivery.selectedAddress || delivery.validationState !== 'valid',
+        );
+        await excelRepository.saveReviewResult(restored.preview.id, recoveredResult);
+      }
+      if (!active) return;
       setExcelPreview(restored.preview);
       setColumnMapping(restored.preview.mapping);
-      setResult(restored.result ?? excelPreviewToImportResult(restored.preview));
-      setMessage('Atkurtas neužbaigtas Excel importas.');
+      setResult(recoveredResult);
+      setExpandedExcelGroups([]);
+      setShowOnlyExcelProblems(true);
+      setExcelProblemIndex(0);
+      setMessage(null);
     }).catch((reason) => {
       if (__DEV__) console.warn('EXCEL_IMPORT_RESTORE_FAILED', reason);
     });
     return () => { active = false; };
-  }, [document, excelRepository, result]);
+  }, [addressResolver, document, excelRepository, result]);
 
   useEffect(() => {
-    void new GetDefaultLocations(db).execute().then(({ warehouse, home }) => {
-      const warehouseValue = warehouse?.endpoint.originalAddress ?? '';
-      const homeValue = home?.endpoint.originalAddress ?? '';
+    void new GetDefaultLocations(db).execute().then(async ({ warehouse, home }) => {
+      const save = new SaveDefaultLocation(db);
+      const recover = async (saved: typeof warehouse, kind: 'warehouse' | 'home') => {
+        if (!saved || hasRouteCoordinates(saved.endpoint)) return saved?.endpoint ?? null;
+        const candidates = await addressResolver.resolve(saved.endpoint.originalAddress).catch(() => []);
+        const candidate = candidates.length === 1 ? candidates[0] : null;
+        if (!candidate) return saved.endpoint;
+        const endpoint: RouteEndpoint = {
+          originalAddress: saved.endpoint.originalAddress,
+          geocodingQuery: saved.endpoint.geocodingQuery ?? saved.endpoint.originalAddress,
+          normalizedAddress: candidate.normalizedAddress,
+          latitude: candidate.latitude,
+          longitude: candidate.longitude,
+        };
+        await save.execute(kind, saved.label, endpoint);
+        return endpoint;
+      };
+      const [recoveredWarehouse, recoveredHome] = await Promise.all([
+        recover(warehouse, 'warehouse'),
+        recover(home, 'home'),
+      ]);
+      const warehouseValue = recoveredWarehouse?.originalAddress ?? '';
+      const homeValue = recoveredHome?.originalAddress ?? '';
       setWarehouseAddress(warehouseValue);
       setHomeAddress(homeValue);
-      setWarehouseEndpoint(warehouse?.endpoint ?? null);
-      setHomeEndpoint(home?.endpoint ?? null);
+      setWarehouseEndpoint(recoveredWarehouse);
+      setHomeEndpoint(recoveredHome);
       return new RouteEndPreference(db).get();
     }).then((preference) => {
       setEndMode(preference);
@@ -133,7 +178,7 @@ export default function ImportScreen() {
       if (__DEV__) console.warn('DEFAULT_LOCATIONS_LOAD_FAILED', reason);
       setMessage('Išsaugotų vietų atkurti nepavyko. Galite įvesti vietą ranka.');
     });
-  }, [db]);
+  }, [addressResolver, db]);
 
   useEffect(() => {
     void new PlanningModePreference(db).get()
@@ -254,17 +299,12 @@ export default function ImportScreen() {
     setExcelDuplicate(null);
     setResult(imported);
     setDocument(null);
-    setExpandedExcelGroups(
-      preview.groups
-        .filter((group) => excelGroupNeedsAction(
-          group,
-          imported.deliveries.find((delivery) => delivery.id === group.id),
-          planningMode,
-        ))
-        .map((group) => group.id),
-    );
+    setExpandedExcelGroups([]);
+    setShowOnlyExcelProblems(true);
+    setExcelProblemIndex(0);
+    setShowExcelOptions(false);
     setMessage(preview.mappingRecognized
-      ? 'Excel langeliai perskaityti lokaliai. Patikrinkite grupes ir adresus.'
+      ? null
       : 'Stulpelių struktūra neatpažinta. Patikrinkite stulpelių susiejimą.');
   };
 
@@ -472,17 +512,11 @@ export default function ImportScreen() {
       setResult(next);
       persistExcelResult(next);
       if (excelPreview) {
-        setExpandedExcelGroups(
-          excelPreview.groups
-            .filter((group) => excelGroupNeedsAction(
-              group,
-              deliveries.find((delivery) => delivery.id === group.id),
-              planningMode,
-            ))
-            .map((group) => group.id),
-        );
+        setExpandedExcelGroups([]);
+        setShowOnlyExcelProblems(true);
+        setExcelProblemIndex(0);
       }
-      setMessage('Adresai patikrinti iš naujo.');
+      setMessage(null);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Adresų patikra nepavyko.');
     } finally {
@@ -512,15 +546,17 @@ export default function ImportScreen() {
   const sendToRouting = async () => {
     if (!result || creationInFlight.current) return;
     if (!readyForRoute) {
-      setMessage('Ne visi adresai patvirtinti (žali). Patikrinkite pažymėtus taškus prieš kurdami maršrutą.');
+      setMessage(routeCreationBlockers[0] ?? 'Maršruto duomenys dar neparuošti.');
       return;
     }
     creationInFlight.current = true;
     setBusy(true);
     creationCommandId.current ??= `create-route-${result.auditId}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     const persistAndOpen = async () => {
+      const plannedDepartureAt = planningDepartureIso(planningDate, planningTime);
+      if (!plannedDepartureAt) throw new Error('Pasirinkite teisingą maršruto datą ir pradžios laiką.');
       if (!warehouseEndpoint) throw new Error('Numatytasis išvykimas nenustatytas. Patikrinkite vietų nustatymus.');
-      if (endMode === 'home' && !homeEndpoint) throw new Error('Elektrėnų pabaigos vieta nenustatyta. Patikrinkite vietų nustatymus.');
+      if (endMode === 'home' && !homeEndpoint) throw new Error('Namų pabaigos vieta nenustatyta. Patikrinkite vietų nustatymus.');
       const startLocation: RouteEndpoint = warehouseEndpoint;
       const endLocation: RouteEndpoint = endMode === 'home' ? homeEndpoint! : warehouseEndpoint;
       await new RouteEndPreference(db).save(endMode);
@@ -557,7 +593,8 @@ export default function ImportScreen() {
         : [];
       const created = await new CreateDraftRouteWithStops(db).execute({
         commandId: creationCommandId.current!,
-        plannedDepartureAt: new Date().toISOString(),
+        date: planningDate,
+        plannedDepartureAt,
         planningMode,
         startLocation,
         endLocation,
@@ -576,6 +613,9 @@ export default function ImportScreen() {
         stops: [...baseStops, ...manualStops],
       });
       if (excelPreview) await excelRepository.markRouted(excelPreview.id, created.routeId);
+      // Po importo pereinama į trumpą prioritetų peržiūrą. Patvirtinti adresai
+      // nebetvirtinami antrą kartą, tačiau vairuotojas gali pažymėti kelis
+      // prioritetinius taškus arba iškart skaičiuoti maršrutą.
       router.push({ pathname: '/route/[id]/review', params: { id: created.routeId } });
     };
     try {
@@ -628,22 +668,27 @@ export default function ImportScreen() {
     }
   };
 
-  const readyForRoute =
-    Boolean(result?.deliveries.length) &&
-    result!.deliveries.every(
-      (item) =>
-        Boolean(item.address.value) &&
-        Boolean(item.selectedAddress) &&
-        item.validationState === 'valid',
-    ) && (!excelPreview || unresolvedExcelIssues(excelPreview, result!.deliveries, planningMode).length === 0);
+  const routeCreationBlockers = getRouteCreationBlockers({
+    result,
+    excelPreview,
+    planningMode,
+    warehouseEndpoint,
+    homeEndpoint,
+    endMode,
+    manuallyResolvedRowIds: new Set(Object.keys(manualRowResolutions)),
+  });
+  const readyForRoute = routeCreationBlockers.length === 0;
   const excelDeliveriesById = new Map(result?.deliveries.map((delivery) => [delivery.id, delivery]) ?? []);
   const excelProblemCount = excelPreview?.groups.filter((group) =>
     excelGroupNeedsAction(group, excelDeliveriesById.get(group.id), planningMode),
   ).length ?? 0;
-  const filterByProblem = showOnlyExcelProblems && excelProblemCount > 0;
-  const visibleExcelGroups = excelPreview?.groups.filter((group) =>
-    !filterByProblem || excelGroupNeedsAction(group, excelDeliveriesById.get(group.id), planningMode),
+  const excelProblemGroups = excelPreview?.groups.filter((group) =>
+    excelGroupNeedsAction(group, excelDeliveriesById.get(group.id), planningMode),
   ) ?? [];
+  const selectedProblemIndex = Math.min(excelProblemIndex, Math.max(0, excelProblemGroups.length - 1));
+  const visibleExcelGroups = showOnlyExcelProblems
+    ? excelProblemGroups.slice(selectedProblemIndex, selectedProblemIndex + 1)
+    : (excelPreview?.groups ?? []);
   // Rows that never made it into any group (unrecognized address text) used to
   // vanish with zero indication anywhere in the UI. Surface them explicitly so
   // "the address was in Excel but never became a stop" is always visible.
@@ -652,9 +697,11 @@ export default function ImportScreen() {
   return (
     <FoundationScreen
       showFoundationNotice={false}
-      title="Dokumentų importas"
-      description="Fotografuokite, pasirinkite vaizdus ar PDF arba įklijuokite tekstą. Prieš maršrutą visada matysite atpažintus laukus.">
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      showHeading={!result}
+      title="Importuoti maršrutą"
+      description="Pasirinkite Excel, PDF, nuotrauką arba įklijuokite tekstą.">
+      <View style={styles.content}>
+        {!result ? <>
         <View style={styles.sourceGrid}>
           <SourceButton styles={styles} title="Fotografuoti" onPress={capture} />
           <SourceButton styles={styles} title="Galerija" onPress={pickImages} />
@@ -680,7 +727,108 @@ export default function ImportScreen() {
         <Pressable disabled={!document || busy} style={[styles.primaryButton, (!document || busy) && styles.disabled]} onPress={analyze}>
           {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>Atpažinti dokumentą</Text>}
         </Pressable>
+        </> : (
+          <Pressable style={styles.changeFileButton} onPress={() => {
+            setResult(null);
+            setExcelPreview(null);
+            setExcelDuplicate(null);
+            setExpandedExcelGroups([]);
+            setMessage(null);
+          }}>
+            <Text style={styles.secondaryText}>Pasirinkti kitą failą</Text>
+          </Pressable>
+        )}
         {message ? <Text style={styles.message}>{message}</Text> : null}
+
+        {result && (!excelPreview || excelProblemCount === 0) ? (
+          <View style={styles.routeSetupTop} testID="route-setup-top">
+            <Text style={styles.cardTitle}>Paruošti maršrutą</Text>
+            <Text style={styles.label}>Pradžia</Text>
+            <Text style={styles.endpointText}>{warehouseAddress || 'Sandėlio vieta nenustatyta'}</Text>
+            <Text style={styles.label}>Pabaiga</Text>
+            <Choice
+              styles={styles}
+              label={warehouseAddress ? `Grįžti į ${warehouseAddress}` : 'Grįžti į sandėlį'}
+              selected={endMode === 'warehouse'}
+              disabled={!warehouseEndpoint?.latitude}
+              onPress={() => setEndMode('warehouse')}
+            />
+            <Choice
+              styles={styles}
+              label={homeAddress ? `Baigti ${homeAddress}` : 'Baigti namuose'}
+              selected={endMode === 'home'}
+              disabled={!homeEndpoint?.latitude}
+              onPress={() => setEndMode('home')}
+            />
+            <Text style={styles.label}>Kada</Text>
+            <View style={styles.scheduleRow}>
+              <View style={styles.scheduleField}>
+                <Text style={styles.fieldCaption}>Data</Text>
+                <TextInput
+                  value={planningDate}
+                  onChangeText={setPlanningDate}
+                  style={styles.scheduleInput}
+                  placeholder="YYYY-MM-DD"
+                  placeholderTextColor={colors.textMuted}
+                  {...({ type: 'date' } as object)}
+                  testID="planning-date"
+                />
+              </View>
+              <View style={styles.scheduleField}>
+                <Text style={styles.fieldCaption}>Starto laikas</Text>
+                <TextInput
+                  value={planningTime}
+                  onChangeText={setPlanningTime}
+                  style={styles.scheduleInput}
+                  placeholder="04:00"
+                  placeholderTextColor={colors.textMuted}
+                  {...({ type: 'time' } as object)}
+                  testID="planning-time"
+                />
+              </View>
+            </View>
+            {excelPreview && allRouteCodes(excelPreview).length > 1 ? (
+              <>
+                <Text style={styles.label}>Kryptis</Text>
+                <View style={styles.choiceRow}>
+                  {allRouteCodes(excelPreview).map((code) => (
+                    <Choice
+                      styles={styles}
+                      key={code}
+                      label={code}
+                      selected={excelPreview.selectedRouteCodes.includes(code)}
+                      onPress={() => { void toggleRouteCode(code); }}
+                    />
+                  ))}
+                </View>
+              </>
+            ) : null}
+            <Text style={styles.label}>Pristatymo laikai</Text>
+            <View style={styles.choiceRow}>
+              <Choice styles={styles} label="Atsižvelgti" selected={planningMode === 'with_time_windows'} onPress={() => setPlanningMode('with_time_windows')} />
+              <Choice styles={styles} label="Neatsižvelgti" selected={planningMode === 'ignore_time_windows'} onPress={() => setPlanningMode('ignore_time_windows')} />
+            </View>
+            {!readyForRoute ? (
+              <View style={styles.blockerList} testID="route-creation-blockers">
+                {excelPreview && excelProblemCount > 0 ? (
+                  <Text style={styles.issueText}>Reikia sutvarkyti {excelProblemCount} pristatymo {excelProblemCount === 1 ? 'tašką' : 'taškus'}.</Text>
+                ) : routeCreationBlockers.slice(0, 3).map((blocker) => <Text key={blocker} style={styles.issueText}>• {blocker}</Text>)}
+                {(!hasRouteCoordinates(warehouseEndpoint) || (endMode === 'home' && !hasRouteCoordinates(homeEndpoint))) ? (
+                  <Pressable style={styles.secondaryButton} onPress={() => router.push('/settings/locations' as Href)}>
+                    <Text style={styles.secondaryText}>Atidaryti vietų nustatymus</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : null}
+            <Pressable
+              disabled={!readyForRoute || busy}
+              style={[styles.primaryButton, (!readyForRoute || busy) && styles.disabled]}
+              onPress={sendToRouting}
+              testID="create-route-top">
+              <Text style={styles.primaryText}>Tęsti: pasirinkti prioritetus</Text>
+            </Pressable>
+          </View>
+        ) : null}
 
         {excelDuplicate ? (
           <View style={styles.warningCard}>
@@ -693,21 +841,22 @@ export default function ImportScreen() {
 
         {excelPreview ? (
           <>
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>Excel importo peržiūra</Text>
-              <Text style={styles.summaryText}>
-                {excelPreview.summary.includedRowCount} Excel eilutės → {excelPreview.summary.physicalStopCount} pristatymo taškai → {formatWeight(excelPreview.summary.totalWeightGrams)}
+            <View style={styles.compactSummary}>
+              <Text style={styles.summaryText}>{excelPreview.summary.physicalStopCount} taškų · {formatWeight(excelPreview.summary.totalWeightGrams)}</Text>
+              <Text style={excelProblemCount > 0 ? styles.issueText : styles.successText}>
+                {excelProblemCount > 0 ? `Patikrinkite ${excelProblemCount} ${excelProblemCount === 1 ? 'adresą' : 'adresus'}` : 'Paruošta planuoti'}
               </Text>
-              <Text style={styles.helper}>
-                Problemų: {excelProblemCount} · nežinomo svorio eilučių: {excelPreview.summary.unknownWeightLineCount}
-              </Text>
-              <Text style={styles.label}>Lapai</Text>
-              <View style={styles.choiceRow}>
-                {excelPreview.sheets.map((sheet) => (
-                  <Choice styles={styles} key={sheet.name} label={`${sheet.name} (${sheet.rowCount})`} selected={sheet.name === excelPreview.selectedSheetName} onPress={() => { void reparseExcel(sheet.name); }} />
-                ))}
-              </View>
-              <Text style={styles.helper}>Duomenys prasideda nuo {excelPreview.firstDataRow} eilutės. OCR Excel failui nenaudojamas.</Text>
+              <Pressable style={styles.optionsToggle} onPress={() => setShowExcelOptions((current) => !current)}>
+                <Text style={styles.secondaryText}>{showExcelOptions ? 'Slėpti pasirinkimus' : 'Keisti lapą ar kryptį'}</Text>
+              </Pressable>
+              {showExcelOptions ? <View style={styles.optionsPanel}>
+                <Text style={styles.label}>Excel lapas</Text>
+                <View style={styles.choiceRow}>
+                  {excelPreview.sheets.map((sheet) => (
+                    <Choice styles={styles} key={sheet.name} label={sheet.name} selected={sheet.name === excelPreview.selectedSheetName} onPress={() => { void reparseExcel(sheet.name); }} />
+                  ))}
+                </View>
+              </View> : null}
             </View>
 
             {unresolvedExcelRows.length > 0 ? (
@@ -758,27 +907,36 @@ export default function ImportScreen() {
               </View>
             ) : null}
 
-            {allRouteCodes(excelPreview).length ? (
-              <View style={styles.card}>
-                <Text style={styles.cardTitle}>Maršruto kodai</Text>
-                <Text style={styles.helper}>Pažymėkite vieną, kelis arba visus. Kodas nekeičia optimizavimo logikos.</Text>
-                <View style={styles.choiceRow}>
-                  <Choice styles={styles} label="Visi" selected={excelPreview.selectedRouteCodes.length === allRouteCodes(excelPreview).length} onPress={() => { void openExcelPreview(filterExcelPreviewByRouteCodes(excelPreview, allRouteCodes(excelPreview))); }} />
-                  {allRouteCodes(excelPreview).map((code) => (
-                    <Choice styles={styles} key={code} label={code} selected={excelPreview.selectedRouteCodes.includes(code)} onPress={() => { void toggleRouteCode(code); }} />
-                  ))}
-                </View>
-              </View>
-            ) : null}
-
-            <Pressable
+            {(excelProblemCount > 0 || !showOnlyExcelProblems) ? <Pressable
               testID="excel-problems-filter"
               style={styles.secondaryButton}
-              onPress={() => setShowOnlyExcelProblems((current) => !current)}>
+              onPress={() => {
+                setShowOnlyExcelProblems((current) => !current);
+                setExpandedExcelGroups([]);
+                setExcelProblemIndex(0);
+              }}>
               <Text style={styles.secondaryText}>
-                {showOnlyExcelProblems ? `Rodyti visus taškus (${excelPreview.groups.length})` : `Rodyti tik problemas (${excelProblemCount})`}
+                {showOnlyExcelProblems ? `Peržiūrėti visus taškus (${excelPreview.groups.length})` : `Grįžti prie taisytinų (${excelProblemCount})`}
               </Text>
-            </Pressable>
+            </Pressable> : null}
+
+            {showOnlyExcelProblems && excelProblemCount > 0 ? (
+              <View style={styles.problemNavigator} testID="excel-problem-navigator">
+                <Pressable
+                  disabled={selectedProblemIndex === 0}
+                  style={[styles.navigatorButton, selectedProblemIndex === 0 && styles.disabled]}
+                  onPress={() => { setExpandedExcelGroups([]); setExcelProblemIndex((current) => Math.max(0, current - 1)); }}>
+                  <Text style={styles.secondaryText}>← Ankstesnis</Text>
+                </Pressable>
+                <Text style={styles.problemCounter}>{selectedProblemIndex + 1} iš {excelProblemCount}</Text>
+                <Pressable
+                  disabled={selectedProblemIndex >= excelProblemCount - 1}
+                  style={[styles.navigatorButton, selectedProblemIndex >= excelProblemCount - 1 && styles.disabled]}
+                  onPress={() => { setExpandedExcelGroups([]); setExcelProblemIndex((current) => Math.min(excelProblemCount - 1, current + 1)); }}>
+                  <Text style={styles.secondaryText}>Kitas →</Text>
+                </Pressable>
+              </View>
+            ) : null}
 
             {visibleExcelGroups.map((group) => {
               const expanded = expandedExcelGroups.includes(group.id);
@@ -791,12 +949,12 @@ export default function ImportScreen() {
                   <Text style={styles.compactMeta}>{formatWeight(group.totalWeightGrams)} · {formatGroupTime(rows)}</Text>
                   {needsAction ? <Text style={styles.issueText}>{excelProblemText(group, delivery)}</Text> : null}
                   <Pressable style={styles.compactButton} onPress={() => setExpandedExcelGroups((current) => expanded ? current.filter((id) => id !== group.id) : [...current, group.id])}>
-                    <Text style={styles.secondaryText}>{expanded ? 'Slėpti detales' : 'Keisti detales'}</Text>
+                    <Text style={styles.secondaryText}>{expanded ? 'Uždaryti taisymą' : needsAction ? 'Taisyti šį adresą' : 'Peržiūrėti'}</Text>
                   </Pressable>
                   {expanded && delivery ? (
                     <DeliveryEditor styles={styles} colors={colors} delivery={delivery} index={excelPreview.groups.indexOf(group)} onChange={updateField} onChooseAddress={chooseAddress} compact />
                   ) : null}
-                  {expanded ? rows.map((row) => (
+                  {expanded && showExcelOptions ? rows.map((row) => (
                     <View key={row.id} style={[styles.excelRow, row.excluded && styles.excludedRow]}>
                       <Text style={styles.label}>Excel eilutė {row.sourceRowNumber} · {formatOptionalWeight(row.weightGrams)}</Text>
                       <Text style={styles.helper}>{row.recipient ?? 'Gavėjas nenurodytas'} · {row.deliveryTimeRaw ?? 'laikas nenurodytas'}</Text>
@@ -817,7 +975,7 @@ export default function ImportScreen() {
                       ) : null}
                     </View>
                   )) : null}
-                  {expanded && excelPreview.groups.length > 1 ? (
+                  {expanded && showExcelOptions && excelPreview.groups.length > 1 ? (
                     <View style={styles.moveTargets}>
                       <Text style={styles.label}>Sujungti visą sustojimą su:</Text>
                       {excelPreview.groups.filter((item) => item.id !== group.id).map((target) => (
@@ -853,47 +1011,12 @@ export default function ImportScreen() {
             {!excelPreview && result.duplicates.length ? (
               <View style={styles.warningCard}><Text style={styles.cardTitle}>Galimi dublikatai: {result.duplicates.length}</Text><Text style={styles.helper}>Patikrinkite pasikartojančius užsakymus ar panašius adresus.</Text></View>
             ) : null}
-            <Pressable style={styles.secondaryButton} onPress={revalidate}><Text style={styles.secondaryText}>Patikrinti pataisytus adresus</Text></Pressable>
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>Maršruto pradžia ir pabaiga</Text>
-              <Text style={styles.label}>Pradžia</Text>
-              <Text style={styles.endpointText}>{warehouseAddress || 'Sandėlio vieta nenustatyta'}</Text>
-              <Text style={styles.label}>Pabaiga</Text>
-              <Choice styles={styles} label="Grįžti į Savanorių pr. 180, Vilnius" selected={endMode === 'warehouse'} disabled={!warehouseEndpoint} onPress={() => setEndMode('warehouse')} />
-              <Choice styles={styles} label="Baigti Alinkos g. 1A, Elektrėnai" selected={endMode === 'home'} disabled={!homeEndpoint} onPress={() => setEndMode('home')} />
-              <Text style={styles.label}>Pristatymo laikai</Text>
-              <Choice
-                styles={styles}
-                label="Atsižvelgti į pristatymo laikus"
-                selected={planningMode === 'with_time_windows'}
-                onPress={() => { setPlanningMode('with_time_windows'); setShowOnlyExcelProblems(false); }}
-              />
-              <Choice
-                styles={styles}
-                label="Neatsižvelgti į pristatymo laikus"
-                selected={planningMode === 'ignore_time_windows'}
-                onPress={() => { setPlanningMode('ignore_time_windows'); setShowOnlyExcelProblems(false); }}
-              />
-              <Text style={styles.helper} testID="planning-mode-explanation">
-                {planningMode === 'with_time_windows'
-                  ? 'Laiko langai keis seką, o nesuderinami laikai turės būti pataisyti.'
-                  : 'Laikai liks kortelėse tik informacijai ir neblokuos maršruto.'}
-              </Text>
-            </View>
-            {!readyForRoute ? (
-              <Text style={styles.issueText}>
-                Ne visi adresai patvirtinti (žali). Patikrinkite pažymėtus taškus prieš kurdami maršrutą.
-              </Text>
-            ) : null}
-            <Pressable
-              disabled={!readyForRoute}
-              style={[styles.primaryButton, !readyForRoute && styles.disabled]}
-              onPress={sendToRouting}>
-              <Text style={styles.primaryText}>Kurti maršrutą</Text>
-            </Pressable>
+            {(!excelPreview || excelProblemCount > 0) ? <Pressable style={styles.primaryButton} onPress={revalidate} disabled={busy} testID="revalidate-visible-address">
+              {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>{excelPreview && showOnlyExcelProblems ? 'Patikrinti šį adresą' : 'Patikrinti pataisytus adresus'}</Text>}
+            </Pressable> : null}
           </>
         ) : null}
-      </ScrollView>
+      </View>
     </FoundationScreen>
   );
 }
@@ -911,6 +1034,7 @@ function DeliveryEditor(props: {
 }) {
   const { styles, colors } = props;
   const [expandedOptionalFields, setExpandedOptionalFields] = useState<EditableField[]>([]);
+  const [showCompactDetails, setShowCompactDetails] = useState(false);
   const fields: Array<{ key: EditableField; label: string; field: ImportField<string | number> }> = [
     { key: 'address', label: 'Adresas', field: props.delivery.address },
     { key: 'weightKg', label: 'Svoris, kg', field: props.delivery.weightKg },
@@ -918,10 +1042,13 @@ function DeliveryEditor(props: {
     { key: 'recipient', label: 'Gavėjas', field: props.delivery.recipient },
     { key: 'notes', label: 'Pastabos', field: props.delivery.notes },
   ];
+  const visibleFields = props.compact && !showCompactDetails
+    ? fields.filter((field) => field.key === 'address')
+    : fields;
   return (
     <View style={props.compact ? styles.compactEditor : styles.card} testID={`delivery-editor-${props.delivery.id}`}>
       {!props.compact ? <Text style={styles.cardTitle}>Pristatymas {props.index + 1}</Text> : null}
-      {fields.map(({ key, label, field }) => {
+      {visibleFields.map(({ key, label, field }) => {
         const required = key === 'address';
         const missing = field.value === null;
         const addressInvalid = required && props.delivery.validationState !== 'valid';
@@ -972,6 +1099,16 @@ function DeliveryEditor(props: {
           </View>
         );
       })}
+      {props.compact ? (
+        <Pressable
+          accessibilityRole="button"
+          style={styles.compactButton}
+          onPress={() => setShowCompactDetails((current) => !current)}>
+          <Text style={styles.secondaryText}>
+            {showCompactDetails ? 'Slėpti papildomus laukus' : 'Rodyti svorį, laiką ir gavėją'}
+          </Text>
+        </Pressable>
+      ) : null}
       {props.delivery.addressCandidates.length > 1 ? (
         <View style={styles.candidates}>
           <Text style={styles.label}>Pasirinkite adresą</Text>
@@ -1160,7 +1297,7 @@ function percent(value: number): string {
 }
 
 function formatWeight(grams: number): string {
-  return `${new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 3 }).format(grams / 1000)} kg`;
+  return `${new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 0 }).format(Math.round(grams / 1000))} kg`;
 }
 
 function formatOptionalWeight(grams: number | null): string {
@@ -1189,8 +1326,8 @@ function excelGroupNeedsAction(
       group.issueCodes.includes('TIME_WINDOW_CONFLICT') ||
       group.issueCodes.includes('INVALID_TIME_WINDOW')
     ))
-    || delivery?.validationState === 'ambiguous'
-    || delivery?.validationState === 'invalid';
+    || !delivery?.selectedAddress
+    || delivery.validationState !== 'valid';
 }
 
 function excelProblemText(group: ExcelImportPreview['groups'][number], delivery?: ParsedDelivery): string {
@@ -1221,21 +1358,36 @@ function mappingLabel(key: keyof ExcelColumnMapping): string {
 }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
-  content: { gap: spacing.md, paddingBottom: 80 },
+  content: { gap: spacing.md, paddingBottom: spacing.md },
   sourceGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   sourceButton: { flexGrow: 1, minWidth: '30%', minHeight: 48, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.sm },
   card: { padding: spacing.md, borderRadius: 18, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
+  routeSetupTop: { padding: spacing.md, borderRadius: 18, borderWidth: 2, borderColor: colors.primary, backgroundColor: colors.surface, gap: spacing.sm, shadowColor: '#183525', shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.1, shadowRadius: 12, elevation: 3 },
+  scheduleRow: { flexDirection: 'row', gap: spacing.sm },
+  scheduleField: { flex: 1, minWidth: 0, gap: 4 },
+  fieldCaption: { color: colors.textMuted, fontSize: 12, fontWeight: '700' },
+  scheduleInput: { minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.sm, color: colors.text, backgroundColor: colors.background, fontSize: 16, fontWeight: '700' },
+  compactSummary: { paddingHorizontal: spacing.xs, gap: 2 },
   excelCompactCard: { padding: spacing.sm, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.xs },
-  excelProblemCard: { borderColor: '#D92D20', backgroundColor: '#FFF9F8' },
+  excelProblemCard: { borderColor: '#D92D20', backgroundColor: colors.surface },
   compactMeta: { color: colors.textMuted, fontSize: 14, lineHeight: 19 },
   compactButton: { minHeight: 44, alignSelf: 'flex-start', justifyContent: 'center', paddingHorizontal: spacing.xs },
   compactEditor: { gap: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm },
   endpointText: { color: colors.text, fontWeight: '700', lineHeight: 21, paddingVertical: spacing.xs },
+  confirmedEndpoint: { color: colors.primary, fontSize: 12, fontWeight: '700', lineHeight: 17 },
+  changeFileButton: { minHeight: 44, alignSelf: 'flex-start', justifyContent: 'center', paddingHorizontal: spacing.sm },
+  successText: { color: '#13795B', fontWeight: '800', lineHeight: 20 },
+  optionsToggle: { minHeight: 44, justifyContent: 'center', alignItems: 'flex-start' },
+  optionsPanel: { gap: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm },
+  problemNavigator: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
+  navigatorButton: { minHeight: 44, minWidth: 104, borderRadius: 12, borderWidth: 1, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.sm },
+  problemCounter: { color: colors.text, fontWeight: '800', textAlign: 'center' },
   qualityCard: { padding: spacing.md, borderRadius: 14, backgroundColor: colors.primarySoft },
-  warningCard: { padding: spacing.md, borderRadius: 14, borderWidth: 1, borderColor: '#D69E2E', backgroundColor: '#FFF9DB' },
+  warningCard: { padding: spacing.md, borderRadius: 14, borderWidth: 1, borderColor: '#D69E2E', backgroundColor: colors.surface },
   cardTitle: { color: colors.text, fontSize: 17, fontWeight: '800' },
   summaryText: { color: colors.text, fontSize: 16, fontWeight: '800', lineHeight: 23 },
   issueText: { color: '#B42318', fontWeight: '700', lineHeight: 20 },
+  blockerList: { gap: spacing.xs },
   excelRow: { gap: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm },
   excludedRow: { opacity: 0.48 },
   rawText: { color: colors.textMuted, fontSize: 12, lineHeight: 18 },
@@ -1263,8 +1415,8 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   warning: { color: '#A15C00' },
   danger: { color: '#B42318' },
   highBorder: { borderColor: '#A7D7C5' },
-  warningBorder: { borderColor: '#E9B949', backgroundColor: '#FFFBEB' },
-  dangerBorder: { borderColor: '#D92D20', backgroundColor: '#FFF1F0' },
+  warningBorder: { borderColor: '#E9B949', backgroundColor: colors.surface },
+  dangerBorder: { borderColor: '#D92D20', backgroundColor: colors.surface },
   neutralBorder: { borderColor: colors.border, backgroundColor: colors.background },
   candidates: { gap: spacing.sm, marginTop: spacing.sm },
   choiceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },

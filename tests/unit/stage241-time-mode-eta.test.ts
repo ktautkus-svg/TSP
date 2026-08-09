@@ -80,6 +80,7 @@ describe('Etapas 2.4.1 time mode and ETA contract', () => {
       delivered_at: '2026-08-03T09:01:00.000Z',
       eta_approximate: 1,
     });
+    expect((db as unknown as ExpoLikeDatabase).transactionCalls).toBe(0);
   });
 
   it('labels a materially shifted ETA as late', () => {
@@ -126,12 +127,14 @@ function endpoint(label: string) {
 }
 
 class ExpoLikeDatabase {
+  transactionCalls = 0;
   constructor(readonly raw = new DatabaseSync(':memory:')) {}
   async execAsync(sql: string) { this.raw.exec(sql); }
   async runAsync(sql: string, ...params: unknown[]) { return this.raw.prepare(sql).run(...params as never[]); }
   async getFirstAsync<T>(sql: string, ...params: unknown[]): Promise<T | null> { return (this.raw.prepare(sql).get(...params as never[]) as T | undefined) ?? null; }
   async getAllAsync<T>(sql: string, ...params: unknown[]): Promise<T[]> { return this.raw.prepare(sql).all(...params as never[]) as T[]; }
   async withTransactionAsync(operation: () => Promise<void>) {
+    this.transactionCalls += 1;
     this.raw.exec('BEGIN IMMEDIATE');
     try { await operation(); this.raw.exec('COMMIT'); } catch (error) { this.raw.exec('ROLLBACK'); throw error; }
   }

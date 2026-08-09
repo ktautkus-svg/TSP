@@ -1,10 +1,91 @@
+import { useEffect, useMemo, useState } from 'react';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useSQLiteContext } from 'expo-sqlite';
+
 import { FoundationScreen } from '@/components/foundation-screen';
+import { TripSheetRepository } from '@/database/repositories/trip-sheet-repository';
+import type { FuelType } from '@/domain/vehicle-and-trip';
+import { spacing } from '@/ui/tokens';
+import { useTheme } from '@/ui/theme';
+import type { ColorPalette } from '@/ui/theme-palette';
+
+const fuelOptions: Array<{ value: FuelType; label: string }> = [
+  { value: 'diesel', label: 'Dyzelinas' },
+  { value: 'petrol', label: 'Benzinas' },
+  { value: 'electric', label: 'Elektra' },
+  { value: 'hybrid', label: 'Hibridas' },
+  { value: 'lpg', label: 'Dujos' },
+  { value: 'other', label: 'Kita' },
+];
 
 export default function VehicleScreen() {
+  const db = useSQLiteContext();
+  const repository = useMemo(() => new TripSheetRepository(db), [db]);
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const [name, setName] = useState('Darbinis automobilis');
+  const [registrationNumber, setRegistrationNumber] = useState('');
+  const [fuelType, setFuelType] = useState<FuelType>('diesel');
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    void repository.getVehicle().then((vehicle) => {
+      if (!vehicle) return;
+      setName(vehicle.name);
+      setRegistrationNumber(vehicle.registrationNumber === 'NENURODYTA' ? '' : vehicle.registrationNumber);
+      setFuelType(vehicle.fuelType);
+    }).catch((error) => setMessage(error instanceof Error ? error.message : 'Automobilio duomenų atkurti nepavyko.'));
+  }, [repository]);
+
+  const save = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await repository.saveVehicle({ name, registrationNumber, fuelType });
+      setMessage('Transporto priemonė išsaugota.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Išsaugoti nepavyko.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <FoundationScreen
-      title="Transporto priemonė"
-      description="Valstybinis numeris, degalų rūšis, bazinė norma, payload ir bendro svorio ribos, aukštis, plotis, ilgis, namų ir sandėlio vietos."
-    />
+    <FoundationScreen showFoundationNotice={false} title="Transporto priemonė" description="Minimalūs duomenys kelionės lapui.">
+      <View style={styles.card}>
+        <Text style={styles.label}>Pavadinimas</Text>
+        <TextInput value={name} onChangeText={setName} style={styles.input} placeholder="Darbinis automobilis" placeholderTextColor={colors.textMuted} />
+        <Text style={styles.label}>Valstybinis numeris</Text>
+        <TextInput value={registrationNumber} onChangeText={setRegistrationNumber} autoCapitalize="characters" style={styles.input} placeholder="Nebūtina pradžiai" placeholderTextColor={colors.textMuted} />
+        <Text style={styles.label}>Kuro rūšis</Text>
+        <View style={styles.options}>
+          {fuelOptions.map((option) => (
+            <Pressable key={option.value} onPress={() => setFuelType(option.value)} style={[styles.option, fuelType === option.value && styles.optionSelected]}>
+              <Text style={[styles.optionText, fuelType === option.value && styles.optionTextSelected]}>{option.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+      <Pressable disabled={busy} onPress={() => { void save(); }} style={[styles.button, busy && styles.disabled]} testID="save-vehicle">
+        <Text style={styles.buttonText}>{busy ? 'Saugoma…' : 'Išsaugoti'}</Text>
+      </Pressable>
+      {message ? <Text style={styles.message}>{message}</Text> : null}
+    </FoundationScreen>
   );
 }
+
+const createStyles = (colors: ColorPalette) => StyleSheet.create({
+  card: { padding: spacing.md, borderRadius: 18, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
+  label: { color: colors.text, fontWeight: '800' },
+  input: { minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.background, color: colors.text, paddingHorizontal: spacing.md },
+  options: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  option: { minHeight: 44, borderRadius: 999, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.md, alignItems: 'center', justifyContent: 'center' },
+  optionSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
+  optionText: { color: colors.text, fontWeight: '700' },
+  optionTextSelected: { color: '#fff' },
+  button: { minHeight: 54, borderRadius: 16, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+  buttonText: { color: '#fff', fontSize: 16, fontWeight: '800' },
+  disabled: { opacity: 0.55 },
+  message: { color: colors.textMuted, lineHeight: 20 },
+});

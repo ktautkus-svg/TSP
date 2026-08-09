@@ -84,19 +84,22 @@ export class RefreshRouteEtas {
 
     const now = this.clock();
     const updates = calculateRemainingEtas(persisted.route, persisted.stops, now);
-    await this.db.withTransactionAsync(async () => {
-      for (const update of updates) {
-        await this.db.runAsync(
-          `UPDATE delivery_stops SET latest_estimated_arrival_at = ?, eta_updated_at = ?,
-           eta_approximate = 1, updated_at = ? WHERE route_id = ? AND id = ?`,
-          update.arrivalAt,
-          now,
-          now,
-          routeId,
-          update.stopId,
-        );
-      }
-    });
+    // ETA values are a reproducible local projection, not the authoritative
+    // delivery state. Keeping this refresh outside a broad transaction avoids
+    // overlapping Expo SQLite web transactions when focus/interval refreshes
+    // meet a delivery action. A partial refresh is safely recomputed on the
+    // next load, while delivery commands retain their atomic transactions.
+    for (const update of updates) {
+      await this.db.runAsync(
+        `UPDATE delivery_stops SET latest_estimated_arrival_at = ?, eta_updated_at = ?,
+         eta_approximate = 1, updated_at = ? WHERE route_id = ? AND id = ?`,
+        update.arrivalAt,
+        now,
+        now,
+        routeId,
+        update.stopId,
+      );
+    }
     return { updated: updates.length, approximate: updates.length > 0 };
   }
 }

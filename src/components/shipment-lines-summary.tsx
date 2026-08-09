@@ -32,7 +32,7 @@ export function ShipmentLinesSummary({ lines }: { lines: ShipmentLine[] }) {
 }
 
 function formatWeight(grams: number): string {
-  return `${new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 3 }).format(grams / 1000)} kg`;
+  return `${new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 0 }).format(Math.round(grams / 1000))} kg`;
 }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({

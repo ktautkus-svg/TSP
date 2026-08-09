@@ -1,23 +1,22 @@
 import { Platform } from 'react-native';
 
 export const colors = {
-  background: '#F6F7F9',
+  background: '#F4F4EF',
   surface: '#FFFFFF',
-  text: '#17202A',
-  textMuted: '#697386',
-  primary: '#176B5B',
-  primarySoft: '#E6F2EF',
-  success: '#1C7C54',
+  text: '#112019',
+  textMuted: '#66736B',
+  primary: '#0B4A2B',
+  primarySoft: '#E6F0E9',
+  success: '#177245',
   warning: '#A45C00',
   danger: '#B42318',
   info: '#1D6FE0',
-  border: '#DDE1E7',
-  // "Tautveža" mockup palette, converted from its oklch() tokens to hex —
-  // used only by the sharp-corner delivery/loading/history screens.
-  accent: '#007a11',
-  accentSoft: '#e3f4e2',
-  accentStrong: '#004f00',
-  brandNavy: '#003306',
+  border: '#DDE3DE',
+  // TSP delivery-screen palette, converted from the original mockup tokens.
+  accent: '#0A5A31',
+  accentSoft: '#E7F2E9',
+  accentStrong: '#063A21',
+  brandNavy: '#072D1B',
 } as const;
 
 export const fonts = {

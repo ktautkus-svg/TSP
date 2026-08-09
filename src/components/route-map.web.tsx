@@ -2,6 +2,7 @@ import { useEffect, useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import L from 'leaflet';
 import { MapContainer, Marker, Polyline, TileLayer, useMap } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
 
 import { decodePolyline } from '@/domain/routing/evaluation/geo';
 import type { RoutingLocation } from '@/domain/routing/models';
@@ -39,11 +40,23 @@ function FitBounds({ points }: { points: [number, number][] }) {
   const map = useMap();
   useEffect(() => {
     if (points.length === 0) return;
-    if (points.length === 1) {
-      map.setView(points[0], 13);
-      return;
-    }
-    map.fitBounds(points, { padding: [24, 24] });
+    const fit = () => {
+      map.invalidateSize({ animate: false });
+      if (points.length === 1) map.setView(points[0], 13);
+      else map.fitBounds(points, { padding: [28, 28], animate: false });
+    };
+    fit();
+    const first = window.setTimeout(fit, 80);
+    const second = window.setTimeout(fit, 350);
+    const observer = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(fit);
+    observer?.observe(map.getContainer());
+    return () => {
+      window.clearTimeout(first);
+      window.clearTimeout(second);
+      observer?.disconnect();
+    };
   }, [map, points]);
   return null;
 }
@@ -95,7 +108,7 @@ export function RouteMapView({
           center={[startLocation.latitude, startLocation.longitude]}
           zoom={12}
           scrollWheelZoom
-          style={{ width: '100%', height: '100%' }}>
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}>
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -116,30 +129,9 @@ export function RouteMapView({
         </MapContainer>
       </View>
 
-      {polylineError ? (
-        <Text style={styles.error}>Kelio linijos gauti nepavyko: {polylineError}</Text>
-      ) : !encodedPolyline && !allowStraightLineFallback ? (
-        <Text style={styles.pending}>Tikroji kelio linija dar negauta.</Text>
-      ) : allowStraightLineFallback && !encodedPolyline ? (
-        <Text style={styles.synthetic}>Sintetinė schema jungia taškus tiesiomis linijomis.</Text>
+      {polylineError || (!encodedPolyline && !allowStraightLineFallback) ? (
+        <Text style={styles.pending}>Maršruto linija dar kraunama. Taškai jau rodomi žemėlapyje.</Text>
       ) : null}
-
-      <View style={styles.legend}>
-        <Legend styles={styles} color="#10B981" text={`Startas: ${startLocation.label}`} />
-        {orderedStops.map((stop, index) => (
-          <Legend styles={styles} key={stop.id} color="#2563EB" text={`${index + 1}. ${stop.label}`} />
-        ))}
-        <Legend styles={styles} color="#EF4444" text={`Grįžimas: ${endLocation.label}`} />
-      </View>
-    </View>
-  );
-}
-
-function Legend({ styles, color, text }: { styles: ReturnType<typeof createStyles>; color: string; text: string }) {
-  return (
-    <View style={styles.legendItem}>
-      <View style={[styles.dot, { backgroundColor: color }]} />
-      <Text style={styles.legendText}>{text}</Text>
     </View>
   );
 }
@@ -165,20 +157,15 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     borderRadius: 8,
   },
   canvasContainer: {
+    position: 'relative',
     width: '100%',
-    minHeight: 260,
-    height: 260,
+    minHeight: 330,
+    height: 330,
     borderRadius: 12,
     backgroundColor: colors.background,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: colors.border,
   },
-  error: { color: colors.danger, fontSize: 13, lineHeight: 18 },
   pending: { color: colors.textMuted, fontSize: 13 },
-  synthetic: { color: colors.warning, fontSize: 13 },
-  legend: { gap: 5, marginTop: spacing.xs },
-  legendItem: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  dot: { width: 10, height: 10, borderRadius: 5 },
-  legendText: { color: colors.text, fontSize: 13, flexShrink: 1 },
 });

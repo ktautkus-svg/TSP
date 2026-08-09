@@ -5,30 +5,31 @@ import { Link, useFocusEffect, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
 import { resolveRoute } from '@/application/routes/route-navigation';
-import { nextPendingStop, RefreshRouteEtas } from '@/application/routes/route-eta';
-import { CancelDraftRoute } from '@/application/routes/route-commands';
 import { ExportPilotRouteDiagnostic } from '@/application/routes/pilot-route-export';
 import { GetRouteProgress, type RouteProgress } from '@/application/routes/route-workday';
+import { BrandHeader } from '@/components/brand-header';
 import { ScreenContainer } from '@/components/screen-container';
 import { RouteRepository } from '@/database/repositories/route-repository';
-import type { DeliveryStop, Route } from '@/domain/route';
+import type { Route } from '@/domain/route';
 import { spacing } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
+import { formatWeightKg } from '@/ui/format-weight';
 import { Alert } from '@/ui/alert';
-import { etaLabel, legLabel, offlineEtaLabel, scheduleLabel } from '@/ui/route-eta-labels';
+import { useLocalAccess } from '@/application/auth/local-access-context';
+import { pullAssignedRoutes, pushRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
 
 let initialActiveRouteRestoreHandled = false;
 
 export default function HomeScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
+  const { profile, online } = useLocalAccess();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const repository = useMemo(() => new RouteRepository(db), [db]);
   const [active, setActive] = useState<Route | null>(null);
   const [progress, setProgress] = useState<RouteProgress | null>(null);
-  const [nextStop, setNextStop] = useState<DeliveryStop | null>(null);
   const [exporting, setExporting] = useState(false);
   const initialRestoreHandled = useRef(initialActiveRouteRestoreHandled);
 
@@ -52,17 +53,13 @@ export default function HomeScreen() {
     let mounted = true;
     void (async () => {
       try {
-        let route = await repository.getActive();
-        if (route?.status === 'in_progress') {
-          await new RefreshRouteEtas(db).execute(route.id);
-          route = await repository.getById(route.id);
-        }
+        if (online && profile.role === 'driver') await pullAssignedRoutes(db, profile);
+        const route = await repository.getActive();
         const nextProgress = route ? await new GetRouteProgress(db).execute(route.id) : null;
-        const stops = route ? await repository.getStops(route.id) : [];
+        if (online && route) void pushRouteAssignmentProgress(db, route.id).catch(() => undefined);
         if (!mounted) return;
         setActive(route);
         setProgress(nextProgress);
-        setNextStop(nextPendingStop(stops));
         if (!initialRestoreHandled.current && route?.status === 'in_progress') {
           initialRestoreHandled.current = true;
           initialActiveRouteRestoreHandled = true;
@@ -77,33 +74,55 @@ export default function HomeScreen() {
       }
     })();
     return () => { mounted = false; };
-  }, [db, repository, router]));
+  }, [db, online, profile, repository, router]));
 
   return (
     <SafeAreaView style={styles.safeArea}>
+      <BrandHeader />
       <ScreenContainer>
         <ScrollView contentContainerStyle={styles.content}>
-          <View><Text style={styles.eyebrow}>ŠIANDIEN</Text><Text style={styles.title}>Mano pristatymai</Text></View>
           {active ? (
             <View style={styles.activeCard} testID="active-route-card">
-              <Text style={styles.activeTitle}>{activeRouteTitle(active)}</Text>
-              {active?.status !== 'in_progress' ? <Text style={styles.activeText}>{active?.totalStops ?? 0} taškai · {(active?.totalWeightKg ?? 0).toFixed(1)} kg žinomo svorio</Text> : null}
+              <View style={styles.activeHeader}>
+                <View style={styles.activeHeaderText}>
+                  <Text style={styles.eyebrow}>AKTYVUS MARŠRUTAS</Text>
+                  <Text style={styles.activeTitle}>{activeRouteTitle(active)}</Text>
+                </View>
+                {active.status === 'in_progress' && progress ? <Text style={styles.progressBadge}>{progress.deliveryPercent}%</Text> : null}
+              </View>
+              {active?.status !== 'in_progress' ? <Text style={styles.activeText}>{active?.totalStops ?? 0} taškai · {formatWeightKg(active?.totalWeightKg ?? 0)} kg žinomo svorio</Text> : null}
               {active?.unknownWeightStops ? <Text style={styles.activeText}>{active.unknownWeightStops} taškų svoris nežinomas</Text> : null}
               {active?.status === 'loading' && progress ? <Text style={styles.activeText}>Pakrauta {progress?.loadedStops ?? 0} / {progress?.totalStops ?? 0} ({progress?.loadingPercent ?? 0}%)</Text> : null}
               {active?.status === 'loaded' ? <Text style={styles.activeText}>{active?.startOdometer === null || active?.startOdometer === undefined ? 'Pradinis odometras neįvestas' : `Pradinis odometras: ${active.startOdometer}`}</Text> : null}
               {active?.status === 'in_progress' && progress ? (
                 <>
-                  {nextStop ? (
-                    <View style={styles.nextStop} testID="dashboard-next-stop">
-                      <Text style={styles.nextLabel}>KITAS PRISTATYMAS</Text>
-                      <Text style={styles.nextAddress}>{nextStop?.normalizedAddress ?? nextStop?.originalAddress ?? 'Nenurodytas adresas'}</Text>
-                      <Text style={styles.nextWeight}>{nextStop?.weightKg === null || nextStop?.weightKg === undefined ? 'Svoris nežinomas' : `${nextStop.weightKg} kg`}</Text>
-                      <Text style={styles.nextEta}>{etaLabel(nextStop)}</Text>
-                      <Text style={styles.activeText}>{legLabel(nextStop)}</Text>
-                      <Text style={styles.nextSchedule}>{scheduleLabel(nextStop)}</Text>
-                      {offlineEtaLabel(nextStop) ? <Text style={styles.warningText}>{offlineEtaLabel(nextStop)}</Text> : null}
+                  <View style={styles.routeSummary} testID="dashboard-route-summary">
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryLabel}>TAŠKAI</Text>
+                      <View style={styles.summaryNumbers}>
+                        <Text style={styles.summaryValue}>{progress.totalStops}</Text>
+                        <Text style={styles.summaryRemaining}>Liko {progress.remainingStops}</Text>
+                      </View>
                     </View>
-                  ) : null}
+                    <View style={styles.summaryDivider} />
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryLabel}>SVORIS</Text>
+                      <View style={styles.summaryNumbers}>
+                        <Text style={styles.summaryValue}>{formatWeightKg(progress.totalKnownWeightKg)} kg</Text>
+                        <Text style={styles.summaryRemaining}>Liko {formatWeightKg(progress.remainingKnownWeightKg)} kg</Text>
+                      </View>
+                    </View>
+                    <View style={styles.summaryDivider} />
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryLabel}>ATSTUMAS</Text>
+                      <View style={styles.summaryNumbers}>
+                        <Text style={styles.summaryValue}>{formatMetric(active.estimatedDistanceKm)} km</Text>
+                        <Text style={styles.summaryRemaining}>Liko ~{formatMetric(progress.preliminaryRemainingDistanceKm)} km</Text>
+                      </View>
+                    </View>
+                  </View>
+                  <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${progress.deliveryPercent}%` }]} /></View>
+                  {progress.totalUnknownWeightStops > 0 ? <Text style={styles.summaryNote}>{progress.totalUnknownWeightStops} taškų svoris nenurodytas ir į kg sumą neįtrauktas.</Text> : null}
                   {active?.startOdometer === null || active?.startOdometer === undefined ? <Text style={styles.warningText}>Priminimas: įveskite pradinį odometrą</Text> : null}
                 </>
               ) : null}
@@ -112,27 +131,6 @@ export default function HomeScreen() {
                 router.push({ pathname: destination.pathname, params: destination.params } as Href);
               }}>
                 <Text style={styles.primaryButtonText}>{activeRouteAction(active)}</Text>
-              </Pressable>
-              <Pressable style={styles.cancelButton} onPress={() => {
-                Alert.alert('Išvalyti maršrutą?', 'Ar tikrai norite išvalyti šį maršrutą ir pradėti naujo kūrimą?', [
-                  { text: 'Ne', style: 'cancel' },
-                  { text: 'Taip, išvalyti', style: 'destructive', onPress: () => {
-                    void (async () => {
-                      try {
-                        if (active?.id) {
-                          await new CancelDraftRoute(db).execute(active.id);
-                        }
-                        setActive(null);
-                        setProgress(null);
-                        setNextStop(null);
-                      } catch (err) {
-                        Alert.alert('Klaida', err instanceof Error ? err.message : 'Nepavyko išvalyti maršruto.');
-                      }
-                    })();
-                  }},
-                ]);
-              }}>
-                <Text style={styles.cancelButtonText}>Išvalyti ir pradėti iš naujo</Text>
               </Pressable>
               {__DEV__ || process.env.EXPO_PUBLIC_PILOT_MODE === '1' ? (
                 <Pressable
@@ -157,11 +155,7 @@ export default function HomeScreen() {
           ) : null}
           <View style={styles.navigationCard}>
             <Link href="/history" asChild><Pressable style={styles.navigationButton}><Text style={styles.historyLink}>Istorija</Text></Pressable></Link>
-            <Link href={'/statistics' as Href} asChild><Pressable style={styles.navigationButton}><Text style={styles.historyLink}>Statistika</Text></Pressable></Link>
             <Link href={'/settings' as Href} asChild><Pressable style={styles.navigationButton}><Text style={styles.historyLink}>Nustatymai</Text></Pressable></Link>
-          </View>
-          <View style={styles.later}>
-            <Text style={styles.laterText}>Kelionės lapas, transportas ir degalai šiame etape nėra aktyvūs.</Text>
           </View>
         </ScrollView>
       </ScreenContainer>
@@ -181,38 +175,46 @@ function activeRouteTitle(route?: Route | null): string {
 function activeRouteAction(route?: Route | null): string {
   if (!route || !route.status) return 'Naujas maršrutas';
   if (route.status === 'draft') return 'Tęsti paruošimą';
-  if (route.status === 'planned' || route.status === 'loading') return 'Tęsti krovimą';
+  if (route.status === 'planned') return 'Tęsti suplanuotą maršrutą';
+  if (route.status === 'loading') return 'Tęsti krovimą';
   if (route.status === 'loaded') return 'Pradėti maršrutą';
   return route.completionStartedAt ? 'Tęsti užbaigimą' : 'Tęsti maršrutą';
 }
 
+function formatMetric(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '—';
+  return new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(value);
+}
+
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: colors.background },
-  content: { flexGrow: 1, padding: spacing.lg, paddingBottom: 80, gap: spacing.lg },
-  eyebrow: { color: colors.textMuted, fontSize: 12, fontWeight: '700', letterSpacing: 1 },
-  title: { color: colors.text, fontSize: 32, fontWeight: '800', marginTop: spacing.xs },
-  activeCard: { gap: spacing.sm, padding: spacing.lg, borderRadius: 20, backgroundColor: colors.primarySoft, borderWidth: 1, borderColor: colors.primary },
-  emptyCard: { gap: spacing.sm, padding: spacing.lg, borderRadius: 20, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
-  activeTitle: { color: colors.text, fontSize: 20, fontWeight: '800' },
-  activeText: { color: colors.textMuted, lineHeight: 20 },
-  nextStop: { gap: spacing.xs, paddingVertical: spacing.sm },
-  nextLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '800', letterSpacing: 0.8 },
-  nextAddress: { color: colors.text, fontSize: 18, fontWeight: '800' },
-  nextWeight: { color: colors.text, fontSize: 16, fontWeight: '700' },
-  nextEta: { color: colors.primary, fontSize: 17, fontWeight: '800' },
-  nextSchedule: { color: colors.text, fontWeight: '700' },
-  warningText: { color: colors.warning, fontWeight: '800' },
-  primaryButton: { minHeight: 56, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary },
+  safeArea: { flex: 1, backgroundColor: '#FFFFFF' },
+  content: { flexGrow: 1, paddingHorizontal: 20, paddingTop: 22, paddingBottom: 96, gap: 18, backgroundColor: '#FFFFFF' },
+  eyebrow: { color: '#65716A', fontSize: 11, fontWeight: '800', letterSpacing: 1 },
+  activeCard: { gap: 14, padding: 20, borderRadius: 20, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#DDE4DF', shadowColor: '#183525', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.08, shadowRadius: 14, elevation: 3 },
+  emptyCard: { gap: 12, padding: 20, borderRadius: 20, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#DDE4DF', shadowColor: '#183525', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.08, shadowRadius: 14, elevation: 3 },
+  activeHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
+  activeHeaderText: { flex: 1, minWidth: 0, gap: 4 },
+  activeTitle: { color: '#17251D', fontSize: 21, lineHeight: 26, fontWeight: '900' },
+  activeText: { color: '#65716A', fontSize: 15, lineHeight: 21 },
+  progressBadge: { color: '#0A5A31', fontSize: 30, lineHeight: 34, fontWeight: '900' },
+  routeSummary: { borderRadius: 16, backgroundColor: '#EDF5EE', paddingHorizontal: 16, paddingVertical: 6 },
+  summaryRow: { minHeight: 62, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16 },
+  summaryNumbers: { alignItems: 'flex-end', gap: 2 },
+  summaryDivider: { height: 1, backgroundColor: '#D7E3D9' },
+  summaryLabel: { color: '#526158', fontSize: 12, fontWeight: '900', letterSpacing: 0.8 },
+  summaryValue: { color: '#17251D', fontSize: 22, lineHeight: 25, fontWeight: '900', textAlign: 'right' },
+  summaryRemaining: { color: '#0A5A31', fontSize: 14, fontWeight: '800', textAlign: 'right' },
+  summaryNote: { color: '#65716A', fontSize: 13, lineHeight: 18 },
+  progressTrack: { height: 9, borderRadius: 5, overflow: 'hidden', backgroundColor: '#DDE4DF' },
+  progressFill: { height: '100%', borderRadius: 5, backgroundColor: '#6A973D' },
+  warningText: { color: '#9B6A16', fontWeight: '800' },
+  primaryButton: { minHeight: 60, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: '#073B22' },
   primaryButtonText: { color: '#fff', fontSize: 17, fontWeight: '800' },
-  secondaryButton: { minHeight: 52, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
-  secondaryButtonText: { color: colors.text, fontSize: 16, fontWeight: '700' },
+  secondaryButton: { minHeight: 56, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#C9D4CD' },
+  secondaryButtonText: { color: '#17251D', fontSize: 16, fontWeight: '700' },
   pilotExportButton: { minHeight: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.primary },
   pilotExportText: { color: colors.primary, fontWeight: '800' },
-  navigationCard: { flexDirection: 'row', gap: spacing.sm },
-  navigationButton: { flex: 1, minHeight: 50, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
-  later: { gap: spacing.sm, padding: spacing.md, borderRadius: 14, backgroundColor: colors.surface },
-  historyLink: { color: colors.primary, fontWeight: '800', fontSize: 16 },
-  laterText: { color: colors.textMuted, fontSize: 13, lineHeight: 18 },
-  cancelButton: { minHeight: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.danger ?? '#ef4444', marginTop: spacing.xs },
-  cancelButtonText: { color: colors.danger ?? '#ef4444', fontWeight: '800', fontSize: 15 },
+  navigationCard: { flexDirection: 'row', gap: 12 },
+  navigationButton: { flex: 1, minHeight: 58, borderRadius: 10, borderWidth: 1, borderColor: '#C9D4CD', backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
+  historyLink: { color: '#0A5A31', fontWeight: '900', fontSize: 16 },
 });

@@ -29,6 +29,7 @@ describe('stage 2.2 deterministic navigation', () => {
     expect(detail).toContain('resolveRoute(persisted.route)');
     expect(detail).toContain('gestureEnabled: false');
     expect(detail).not.toContain('router.back(');
+    expect(detail).toContain('<RouteBottomTabs');
   });
 
   it('provides a deterministic history-list exit and a clear empty state', () => {
@@ -38,6 +39,8 @@ describe('stage 2.2 deterministic navigation', () => {
     expect(history).toContain('Istorija tuščia');
     expect(history).toContain('gestureEnabled: false');
     expect(history).not.toContain('router.back(');
+    expect(history).toContain('<RouteBottomTabs');
+    expect(history).toContain("view: 'stops'");
   });
 
   it('keeps technical audit data collapsed by default', () => {

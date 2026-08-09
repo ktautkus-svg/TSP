@@ -3,6 +3,8 @@ import { createReadStream, existsSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { createServer, request as httpRequest, type IncomingMessage, type ServerResponse } from 'node:http';
 import { extname, join, normalize, resolve } from 'node:path';
+import { authenticateApiRequest, handleEmployeeApi } from './employee-api.js';
+import { EmployeeApiError } from './employee-auth-store.js';
 
 const publicPort = numberFromEnv('PORT', 8080);
 const internalGatewayPort = numberFromEnv('INTERNAL_GATEWAY_PORT', 8788);
@@ -32,7 +34,9 @@ async function start(): Promise<void> {
         version: process.env.APP_VERSION ?? 'development',
       });
     }
+    if (await handleEmployeeApi(request, response, url.pathname, requestId)) return;
     if (url.pathname.startsWith('/api/')) {
+      if (url.pathname !== '/api/device/check') await authenticateApiRequest(request);
       return proxyApi(request, response, url.pathname, requestId);
     }
     if (request.method !== 'GET' && request.method !== 'HEAD') {
@@ -42,6 +46,9 @@ async function start(): Promise<void> {
   } catch (error) {
     log({ event: 'request_failed', requestId, error: safeError(error) });
     if (!response.headersSent) {
+      if (error instanceof EmployeeApiError) {
+        return json(response, error.status, { error: { code: error.code, message: error.message } });
+      }
       return json(response, 500, {
         error: {
           code: 'INTERNAL_ERROR',
@@ -134,6 +141,7 @@ function forwardedHeaders(request: IncomingMessage, requestId: string): Record<s
     'x-routing-nonce',
     'x-routing-signature',
     'x-routing-cache-mode',
+    'authorization',
   ];
   const result: Record<string, string> = { 'x-request-id': requestId };
   for (const name of allowed) {

@@ -17,6 +17,7 @@ ENV NODE_ENV=production \
 COPY --from=build /app/build-server ./build-server
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/package.json ./package.json
+COPY --from=build /app/node_modules ./node_modules
 USER node
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

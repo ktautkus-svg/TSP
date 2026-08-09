@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Mano pristatymai",
+    "name": "TSP – Tikslus siuntų pristatymas",
     "slug": "logistikos-pristatymai",
     "version": "1.0.0",
     "orientation": "default",
@@ -31,9 +31,9 @@
     "web": {
       "output": "single",
       "favicon": "./assets/images/favicon.png",
-      "name": "Logistikos pristatymai",
-      "shortName": "Pristatymai",
-      "description": "Asmeninė pristatymų maršruto planavimo ir vykdymo aplikacija.",
+      "name": "TSP – Tikslus siuntų pristatymas",
+      "shortName": "TSP",
+      "description": "Tikslus siuntų maršruto planavimas ir pristatymo vykdymas.",
       "lang": "lt",
       "scope": "/",
       "startUrl": "/",

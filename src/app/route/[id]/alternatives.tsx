@@ -5,12 +5,13 @@ import { useSQLiteContext } from 'expo-sqlite';
 
 import { buildOptimizationRequestFromRoute } from '@/application/routes/route-request-builder';
 import { resolveRoute, type ResolvedRouteDestination } from '@/application/routes/route-navigation';
-import { ActivateRoute, SaveSelectedRouteCandidate } from '@/application/routes/route-commands';
+import { CancelDraftRoute, SaveSelectedRouteCandidate } from '@/application/routes/route-commands';
 import { extractOrderedLocationsFromCandidate } from '@/application/routing/route-polyline-service';
 import { RoutingEngine } from '@/application/routing/routing-engine';
 import { evaluateCandidate } from '@/domain/routing/evaluation/candidate-evaluator';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { RouteMapView } from '@/components/route-map';
+import { ManualRouteOrderList } from '@/components/manual-route-order-list';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import type { OptimizationStop, RouteCandidate, RouteOptimizationRequest, RouteOptimizationResult, RoutePolylineResult } from '@/domain/routing/models';
 import { SQLiteRoutingAuditRepository } from '@/infrastructure/routing/persistence/sqlite-routing-audit-repository';
@@ -18,10 +19,10 @@ import { GatewayPolylineProvider } from '@/infrastructure/routing/providers/gate
 import { FallbackTravelCostProvider } from '@/infrastructure/routing/providers/fallback-travel-cost-provider';
 import { GoogleTravelCostProvider, HereTravelCostProvider } from '@/infrastructure/routing/providers/gateway-travel-cost-provider';
 import { SyntheticTravelCostProvider } from '@/infrastructure/routing/providers/synthetic-travel-cost-provider';
-import { presentRoutingDataSource } from '@/ui/routing-data-source';
 import { spacing } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
+import { Alert } from '@/ui/alert';
 
 export default function RouteAlternativesScreen() {
   const router = useRouter();
@@ -36,14 +37,17 @@ export default function RouteAlternativesScreen() {
   const [polylineError, setPolylineError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [expandedCandidateId, setExpandedCandidateId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [recoveryDestination, setRecoveryDestination] = useState<ResolvedRouteDestination | null>(null);
   const [manualMode, setManualMode] = useState(false);
   const [manualOrder, setManualOrder] = useState<string[]>([]);
-  const [manualExpandedId, setManualExpandedId] = useState<string | null>(null);
+  const [manualPriorityIds, setManualPriorityIds] = useState<string[]>([]);
   const [manualCandidate, setManualCandidate] = useState<RouteCandidate | null>(null);
   const [manualError, setManualError] = useState<string | null>(null);
   const [manualSaving, setManualSaving] = useState(false);
+  const [priorityCalculating, setPriorityCalculating] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const savingRef = useRef(false);
   const startedForRoute = useRef<string | null>(null);
 
@@ -64,11 +68,7 @@ export default function RouteAlternativesScreen() {
       }
       const nextRequest = buildOptimizationRequestFromRoute(persisted.route, persisted.stops);
       setRequest(nextRequest);
-      const provider = new FallbackTravelCostProvider([
-        new GoogleTravelCostProvider(),
-        new HereTravelCostProvider(),
-        new SyntheticTravelCostProvider('linear'),
-      ]);
+      const provider = createTravelProvider();
       const next = await new RoutingEngine(provider).optimize(nextRequest);
       await new SQLiteRoutingAuditRepository(db).saveOptimizationRun(routeId, nextRequest, next);
       setResult(next);
@@ -128,7 +128,7 @@ export default function RouteAlternativesScreen() {
     return () => { active = false; };
   }, [request, selectedCandidate]);
 
-  const saveAndLoad = async () => {
+  const saveSelectedRoute = async () => {
     if (!result || !selectedId || savingRef.current) return;
     savingRef.current = true;
     setSaving(true);
@@ -146,7 +146,6 @@ export default function RouteAlternativesScreen() {
         return;
       }
       await new SaveSelectedRouteCandidate(db).execute(routeId, result.requestId, selectedId);
-      await new ActivateRoute(db).execute(routeId);
       router.replace({ pathname: '/route/[id]/loading', params: { id: routeId } });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Maršruto išsaugoti nepavyko.');
@@ -167,19 +166,53 @@ export default function RouteAlternativesScreen() {
     });
   };
 
-  const moveManualStop = (stopId: string, direction: -1 | 1) => {
+  const moveManualStop = (stopId: string, targetIndex: number) => {
     setManualOrder((current) => {
       const index = current.indexOf(stopId);
-      const targetIndex = index + direction;
       if (index < 0 || targetIndex < 0 || targetIndex >= current.length) return current;
       const next = [...current];
-      [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+      next.splice(index, 1);
+      next.splice(targetIndex, 0, stopId);
       return next;
     });
     // Stale after reorder — force a fresh "Perskaičiuoti su šia seka" press
     // before the user can act on numbers that no longer match the sequence.
     setManualCandidate(null);
     setManualError(null);
+  };
+
+  const toggleManualPriority = (stopId: string) => {
+    setManualPriorityIds((current) => current.includes(stopId)
+      ? current.filter((id) => id !== stopId)
+      : [...current, stopId]);
+    setManualCandidate(null);
+  };
+
+  const recalculateWithPriorities = async () => {
+    if (!request || manualPriorityIds.length === 0 || priorityCalculating) return;
+    setPriorityCalculating(true);
+    setManualError(null);
+    try {
+      const priorities = new Set(manualPriorityIds);
+      const prioritizedRequest: RouteOptimizationRequest = {
+        ...request,
+        stops: request.stops.map((stop) => priorities.has(stop.id)
+          ? { ...stop, priority: 10, preferEarly: true }
+          : { ...stop, priority: 1, preferEarly: false }),
+      };
+      const next = await new RoutingEngine(createTravelProvider()).optimize(prioritizedRequest);
+      await new SQLiteRoutingAuditRepository(db).saveOptimizationRun(routeId, prioritizedRequest, next);
+      setRequest(prioritizedRequest);
+      setResult(next);
+      const candidate = next.recommended ?? next.diagnosticCandidate ?? next.candidates[0] ?? null;
+      setSelectedId(candidate?.id ?? null);
+      setManualOrder(candidate?.stopSequence ?? manualOrder);
+      setManualCandidate(null);
+    } catch (reason) {
+      setManualError(reason instanceof Error ? reason.message : 'Pagal prioritetus perskaičiuoti nepavyko.');
+    } finally {
+      setPriorityCalculating(false);
+    }
   };
 
   const recalculateManualSequence = () => {
@@ -233,13 +266,34 @@ export default function RouteAlternativesScreen() {
       };
       await new SQLiteRoutingAuditRepository(db).saveOptimizationRun(routeId, request, manualResult);
       await new SaveSelectedRouteCandidate(db).execute(routeId, manualResult.requestId, manualCandidate.id);
-      await new ActivateRoute(db).execute(routeId);
       router.replace({ pathname: '/route/[id]/loading', params: { id: routeId } });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Rankinės sekos išsaugoti nepavyko.');
     } finally {
       setManualSaving(false);
     }
+  };
+
+  const cancelAndChooseAnotherFile = () => {
+    if (cancelling) return;
+    Alert.alert(
+      'Pradėti iš naujo?',
+      'Šis neužbaigtas maršrutas bus atšauktas. Ankstesnė istorija ir užbaigti maršrutai liks išsaugoti.',
+      [
+        { text: 'Ne', style: 'cancel' },
+        {
+          text: 'Taip, pasirinkti kitą failą',
+          style: 'destructive',
+          onPress: () => {
+            setCancelling(true);
+            void new CancelDraftRoute(db).execute(routeId)
+              .then(() => router.replace('/import' as Href))
+              .catch((reason) => setError(reason instanceof Error ? reason.message : 'Maršruto atšaukti nepavyko.'))
+              .finally(() => setCancelling(false));
+          },
+        },
+      ],
+    );
   };
 
   const orderedLocations = selectedCandidate && request
@@ -250,14 +304,6 @@ export default function RouteAlternativesScreen() {
     return request.stops.find((stop) => stop.id === stopId)?.location.label ?? stopId;
   };
   const softWarnings = selectedCandidate?.violations.filter((violation) => violation.type === 'soft') ?? [];
-  const source = result && request
-    ? presentRoutingDataSource({
-        provider: result.provider,
-        executionMode: result.executionMode,
-        trafficMode: request.trafficMode,
-      })
-    : null;
-
   return (
     <FoundationScreen
       showFoundationNotice={false}
@@ -290,10 +336,22 @@ export default function RouteAlternativesScreen() {
           </Pressable>
         </View>
       ) : null}
-      {source ? (
-        <View style={styles.notice}>
-          <Text style={styles.noticeText}>{source.title}</Text>
-          <Text style={styles.noticeSubtext}>{source.trafficLabel}</Text>
+      {candidates.length > 0 ? (
+        <View style={styles.topActions}>
+          <Pressable
+            disabled={!selectedId || saving || cancelling}
+            style={[styles.primaryButton, (!selectedId || saving || cancelling) && styles.disabled]}
+            onPress={saveSelectedRoute}
+            testID="save-selected-route-top">
+            {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>Patvirtinti pasirinktą maršrutą</Text>}
+          </Pressable>
+          <Pressable
+            disabled={saving || cancelling}
+            style={[styles.restartButton, (saving || cancelling) && styles.disabled]}
+            onPress={cancelAndChooseAnotherFile}
+            testID="cancel-route-and-new-file">
+            {cancelling ? <ActivityIndicator color={colors.danger} /> : <Text style={styles.restartText}>Atšaukti ir pasirinkti kitą failą</Text>}
+          </Pressable>
         </View>
       ) : null}
       {orderedLocations ? (
@@ -317,6 +375,16 @@ export default function RouteAlternativesScreen() {
               recommended={index === 0}
               selected={candidate.id === selectedId}
               onSelect={() => setSelectedId(candidate.id)}
+              expanded={candidate.id === expandedCandidateId}
+              onToggleDetails={() => setExpandedCandidateId((current) => current === candidate.id ? null : candidate.id)}
+              onManualEdit={() => {
+                setSelectedId(candidate.id);
+                setManualOrder(candidate.stopSequence);
+                setManualPriorityIds([]);
+                setManualCandidate(null);
+                setManualError(null);
+                setManualMode(true);
+              }}
             />
           ))}
         </View>
@@ -328,48 +396,25 @@ export default function RouteAlternativesScreen() {
       ) : null}
       {manualMode && request ? (
         <View style={styles.manualCard} testID="manual-sequencing-panel">
-          <Text style={styles.title}>Rankinė seka</Text>
+          <Text style={styles.title}>Rankinis planavimas</Text>
           <Text style={styles.description}>
-            Sutvarkykite taškus rodyklėmis, tada paspauskite „Perskaičiuoti su šia seka“ — bus paskaičiuotas atstumas ir laikas TIK šiai tvarkai, be automatinio optimizavimo.
+            Žvaigždute pažymėkite vieną ar kelis prioritetinius taškus. Eiliškumą keiskite tempdami ☰ rankenėlę.
           </Text>
-          {manualOrder.map((stopId, index) => {
-            const stop = request.stops.find((item) => item.id === stopId);
-            if (!stop) return null;
-            const expanded = manualExpandedId === stopId;
-            return (
-              <View key={stopId} style={styles.manualRow}>
-                <View style={styles.manualRowHeader}>
-                  <Pressable
-                    style={styles.manualRowLabelTouch}
-                    onPress={() => setManualExpandedId(expanded ? null : stopId)}>
-                    <Text style={styles.manualRowLabel}>{index + 1}. {stop.location.label}</Text>
-                  </Pressable>
-                  <View style={styles.manualRowButtons}>
-                    <Pressable
-                      disabled={index === 0}
-                      style={[styles.miniButton, index === 0 && styles.disabled]}
-                      onPress={() => moveManualStop(stopId, -1)}>
-                      <Text style={styles.secondaryText}>↑</Text>
-                    </Pressable>
-                    <Pressable
-                      disabled={index === manualOrder.length - 1}
-                      style={[styles.miniButton, index === manualOrder.length - 1 && styles.disabled]}
-                      onPress={() => moveManualStop(stopId, 1)}>
-                      <Text style={styles.secondaryText}>↓</Text>
-                    </Pressable>
-                  </View>
-                </View>
-                {expanded ? (
-                  <View style={styles.manualRowDetail}>
-                    <Text style={styles.description}>{stop.location.address}</Text>
-                    <Text style={styles.description}>{stop.weightKg !== null ? `${stop.weightKg} kg` : 'Svoris nežinomas'}</Text>
-                  </View>
-                ) : null}
-              </View>
-            );
-          })}
+          <ManualRouteOrderList
+            items={manualOrder.map((stopId) => request.stops.find((item) => item.id === stopId)).filter((stop): stop is OptimizationStop => Boolean(stop)).map((stop) => ({ id: stop.id, label: stop.location.label, weightKg: typeof stop.weightKg === 'number' ? stop.weightKg : null }))}
+            priorityIds={new Set(manualPriorityIds)}
+            onTogglePriority={toggleManualPriority}
+            onMove={moveManualStop}
+          />
+          <Pressable
+            disabled={manualPriorityIds.length === 0 || priorityCalculating}
+            style={[styles.secondaryButton, (manualPriorityIds.length === 0 || priorityCalculating) && styles.disabled]}
+            onPress={() => { void recalculateWithPriorities(); }}
+            testID="recalculate-priority-stops">
+            {priorityCalculating ? <ActivityIndicator color={colors.primary} /> : <Text style={styles.secondaryText}>Perskaičiuoti pagal prioritetus</Text>}
+          </Pressable>
           <Pressable style={styles.primaryButton} onPress={recalculateManualSequence} testID="recalculate-manual-sequence">
-            <Text style={styles.primaryText}>Perskaičiuoti su šia seka</Text>
+            <Text style={styles.primaryText}>Perskaičiuoti pasirinktą eiliškumą</Text>
           </Pressable>
           {manualError ? <Text style={styles.error}>{manualError}</Text> : null}
           {manualCandidate ? (
@@ -413,14 +458,6 @@ export default function RouteAlternativesScreen() {
           ))}
         </View>
       ) : null}
-      {candidates.length > 0 ? (
-        <Pressable
-          disabled={!selectedId || saving}
-          style={[styles.primaryButton, (!selectedId || saving) && styles.disabled]}
-          onPress={saveAndLoad}>
-          {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>Išsaugoti ir krautis</Text>}
-        </Pressable>
-      ) : null}
     </FoundationScreen>
   );
 }
@@ -431,7 +468,10 @@ function CandidateCard(props: {
   request: RouteOptimizationRequest;
   recommended: boolean;
   selected: boolean;
+  expanded: boolean;
   onSelect: () => void;
+  onToggleDetails: () => void;
+  onManualEdit: () => void;
 }) {
   const { styles } = props;
   const stopMap = useMemo(
@@ -444,42 +484,58 @@ function CandidateCard(props: {
   const totalWeightKg = orderedStops.reduce((sum, stop) => sum + (stop.weightKg ?? 0), 0);
 
   return (
-    <Pressable onPress={props.onSelect} style={[styles.card, props.recommended && styles.recommended, props.selected && styles.selected]}>
-      <Text style={styles.title}>{props.recommended ? 'Rekomenduojamas' : 'Alternatyva'}</Text>
-      <Text style={styles.metrics}>
-        {Math.round(props.candidate.totalWorkMinutes)} min · {props.candidate.totalDistanceKm.toFixed(1)} km · {totalWeightKg.toFixed(1)} kg
-      </Text>
-      <View style={styles.sequenceList}>
-        {orderedStops.map((stop, index) => (
-          <Text key={stop.id} style={styles.sequenceRow}>
-            {index + 1}. {stop.location.label}{stop.weightKg !== null ? `  ·  ${stop.weightKg} kg` : '  ·  svoris nežinomas'}
-          </Text>
-        ))}
-      </View>
-      <View style={styles.selectButton}><Text style={styles.primaryText}>{props.selected ? 'Pasirinkta' : 'Pasirinkti variantą'}</Text></View>
-    </Pressable>
+    <View style={[styles.card, props.recommended && styles.recommended, props.selected && styles.selected]}>
+      <Pressable onPress={props.onSelect} style={styles.candidateSummary}>
+        <View style={styles.candidateTitleRow}>
+          <Text style={styles.title}>{props.recommended ? 'Rekomenduojamas' : 'Alternatyva'}</Text>
+          <Text style={styles.selectionLabel}>{props.selected ? '✓ Pasirinkta' : 'Pasirinkti'}</Text>
+        </View>
+        <Text style={styles.metrics}>
+          {Math.round(props.candidate.totalWorkMinutes)} min · {props.candidate.totalDistanceKm.toFixed(1)} km · {Math.round(totalWeightKg)} kg
+        </Text>
+      </Pressable>
+      <Pressable onPress={props.onToggleDetails} style={styles.detailsButton}>
+        <Text style={styles.secondaryText}>{props.expanded ? 'Slėpti eiliškumą' : 'Rodyti eiliškumą'}</Text>
+      </Pressable>
+      <Pressable onPress={props.onManualEdit} style={styles.detailsButton} testID={`manual-edit-${props.candidate.id}`}>
+        <Text style={styles.secondaryText}>Redaguoti rankiniu būdu</Text>
+      </Pressable>
+      {props.expanded ? (
+        <View style={styles.sequenceList} testID={`candidate-sequence-${props.candidate.id}`}>
+          {orderedStops.map((stop, index) => (
+            <Text key={stop.id} style={styles.sequenceRow}>
+              {index + 1}. {stop.location.label}{stop.weightKg !== null ? ` · ${Math.round(stop.weightKg)} kg` : ''}
+            </Text>
+          ))}
+        </View>
+      ) : null}
+    </View>
   );
 }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
+  topActions: { gap: spacing.sm },
   list: { gap: spacing.md },
   loading: { alignItems: 'center', gap: spacing.sm, padding: spacing.lg },
-  notice: { padding: spacing.md, borderRadius: 12, backgroundColor: colors.primarySoft },
-  noticeText: { color: colors.primary, fontWeight: '700' },
-  noticeSubtext: { color: colors.textMuted, marginTop: spacing.xs },
-  card: { padding: spacing.lg, borderRadius: 18, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+  card: { padding: spacing.md, borderRadius: 18, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
   recommended: { borderWidth: 2, borderColor: colors.primary },
   selected: { backgroundColor: colors.primarySoft },
   title: { color: colors.text, fontSize: 17, fontWeight: '800' },
   description: { color: colors.textMuted, fontSize: 14, lineHeight: 20, marginTop: spacing.xs },
-  metrics: { color: colors.primary, fontSize: 14, fontWeight: '800', marginTop: spacing.sm },
+  candidateSummary: { gap: spacing.xs },
+  candidateTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
+  selectionLabel: { color: colors.primary, fontWeight: '800', fontSize: 13 },
+  metrics: { color: colors.primary, fontSize: 18, fontWeight: '900' },
   sequenceList: { marginTop: spacing.sm, gap: 2 },
   sequenceRow: { color: colors.textMuted, fontSize: 13, lineHeight: 19 },
+  detailsButton: { minHeight: 42, borderRadius: 12, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   selectButton: { minHeight: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary, marginTop: spacing.md },
   primaryButton: { minHeight: 56, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary },
   primaryText: { color: '#fff', fontWeight: '800' },
   secondaryButton: { minHeight: 48, borderRadius: 14, borderWidth: 1, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
   secondaryText: { color: colors.primary, fontWeight: '800' },
+  restartButton: { minHeight: 48, borderRadius: 14, borderWidth: 1, borderColor: colors.danger, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
+  restartText: { color: colors.danger, fontWeight: '800' },
   error: { color: colors.danger, fontWeight: '700' },
   errorCard: { padding: spacing.lg, borderRadius: 18, borderWidth: 1, borderColor: colors.danger },
   warningCard: { padding: spacing.lg, borderRadius: 18, borderWidth: 1, borderColor: colors.warning ?? '#f59e0b', backgroundColor: colors.surface },
@@ -495,3 +551,11 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   manualRowDetail: { gap: 2, paddingBottom: spacing.xs },
   manualResultCard: { gap: spacing.sm, marginTop: spacing.sm },
 });
+
+function createTravelProvider() {
+  return new FallbackTravelCostProvider([
+    new GoogleTravelCostProvider(),
+    new HereTravelCostProvider(),
+    new SyntheticTravelCostProvider('linear'),
+  ]);
+}

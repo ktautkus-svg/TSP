@@ -356,6 +356,12 @@ export default function RouteReviewScreen() {
     route.endLocation.latitude !== null &&
     route.endLocation.longitude !== null,
   );
+  const knownWeightKg = stops.reduce((total, stop) => total + (stop.weightKg ?? 0), 0);
+  const confirmedStops = stops.filter((stop) => stop.addressValidationState === 'auto_confirmed').length;
+  const canCalculate = startReady && endReady && allReady;
+  const visibleStops = allReady
+    ? stops
+    : stops.filter((stop) => stop.addressValidationState !== 'auto_confirmed');
 
   if (!route) {
     return <FoundationScreen showFoundationNotice={false} title="Maršrutas nerastas" description="Grįžkite į pradžios ekraną." />;
@@ -366,6 +372,10 @@ export default function RouteReviewScreen() {
       Alert.alert('Nėra taškų', 'Maršrutas neturi nei vieno pristatymo taško. Prašome pridėti ar importuoti bent vieną tašką prieš skaičiuojant.');
       return;
     }
+    if (!canCalculate) {
+      Alert.alert('Dar liko nepatvirtintų adresų', 'Pirmiausia patikrinkite tik pažymėtus probleminius adresus.');
+      return;
+    }
     router.push({ pathname: '/route/[id]/alternatives', params: { id: routeId } });
   };
 
@@ -374,8 +384,25 @@ export default function RouteReviewScreen() {
       showFoundationNotice={false}
       title="Patikrinkite adresus"
       description="Aiškūs adresai patvirtinami automatiškai. Viršuje rodomi tik neaiškūs arba nepatvirtinti taškai.">
+      <View style={styles.planSummary} testID="route-plan-summary">
+        <View style={styles.planMetric}>
+          <Text style={styles.planMetricValue}>{stops.length}</Text>
+          <Text style={styles.planMetricLabel}>TAŠKAI</Text>
+        </View>
+        <View style={styles.planMetricDivider} />
+        <View style={styles.planMetric}>
+          <Text style={styles.planMetricValue}>{new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 0 }).format(Math.round(knownWeightKg))} kg</Text>
+          <Text style={styles.planMetricLabel}>ŽINOMAS SVORIS</Text>
+        </View>
+        <View style={styles.planMetricDivider} />
+        <View style={styles.planMetric}>
+          <Text style={styles.planMetricValue}>{confirmedStops}/{stops.length}</Text>
+          <Text style={styles.planMetricLabel}>PATVIRTINTA</Text>
+        </View>
+      </View>
       <Pressable
-        style={[styles.primaryButton, stops.length === 0 && { opacity: 0.6 }]}
+        disabled={!canCalculate}
+        style={[styles.primaryButton, !canCalculate && { opacity: 0.45 }]}
         onPress={goToAlternatives}>
         <Text style={styles.primaryText}>Skaičiuoti maršrutą</Text>
       </Pressable>
@@ -394,16 +421,18 @@ export default function RouteReviewScreen() {
         ))}
       </View>
 
-      <Pressable style={styles.primaryButton} onPress={geocodeAll}>
+      {!allReady ? <Pressable style={styles.primaryButton} onPress={geocodeAll}>
         {running ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>Patikrinti probleminius adresus</Text>}
-      </Pressable>
+      </Pressable> : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
-      {stops.map((stop) => (
+      {allReady ? <Text style={styles.sectionIntro}>Pasirinktinai pažymėkite vieną ar kelis prioritetinius taškus. Jei prioritetų nėra, iškart skaičiuokite maršrutą.</Text> : null}
+      {visibleStops.map((stop) => (
         <StopEditor
           styles={styles}
           key={stop.id}
           stop={stop}
+          compact={allReady}
           candidates={candidates[stop.id] ?? []}
           onCandidate={(candidate) => { void selectCandidate(stop, candidate); }}
           onEdit={(patch) => editStop(stop, patch)}
@@ -419,11 +448,6 @@ export default function RouteReviewScreen() {
         <Pressable style={styles.secondaryButton} onPress={() => void addStop()}><Text style={styles.secondaryText}>Pridėti</Text></Pressable>
       </View>
 
-      <Pressable
-        style={[styles.primaryButton, stops.length === 0 && { opacity: 0.6 }]}
-        onPress={goToAlternatives}>
-        <Text style={styles.primaryText}>Skaičiuoti maršrutą</Text>
-      </Pressable>
     </FoundationScreen>
   );
 }
@@ -449,6 +473,7 @@ function parseTimeWindowInput(val: string): { deliveryTimeFrom: string | null; d
 function StopEditor(props: {
   styles: ReturnType<typeof createStyles>;
   stop: DeliveryStop;
+  compact: boolean;
   candidates: GeocodeCandidate[];
   onCandidate: (candidate: GeocodeCandidate) => void;
   onEdit: (patch: Parameters<UpdateDraftStop['execute']>[2]) => Promise<void>;
@@ -462,6 +487,7 @@ function StopEditor(props: {
   const [recipient, setRecipient] = useState(stop.recipient);
   const [time, setTime] = useState(formatTimeWindowInput(stop.deliveryTimeFrom, stop.deliveryTimeTo));
   const [notes, setNotes] = useState(stop.notes ?? '');
+  const [expanded, setExpanded] = useState(!props.compact);
   useEffect(() => {
     setAddress(stop.originalAddress);
     setWeight(stop.weightKg === null ? '' : String(stop.weightKg));
@@ -469,12 +495,41 @@ function StopEditor(props: {
     setTime(formatTimeWindowInput(stop.deliveryTimeFrom, stop.deliveryTimeTo));
     setNotes(stop.notes ?? '');
   }, [stop]);
+  useEffect(() => {
+    if (!props.compact || stop.addressValidationState !== 'auto_confirmed') setExpanded(true);
+  }, [props.compact, stop.addressValidationState]);
   return (
-    <View style={[styles.card, stop.addressValidationState !== 'auto_confirmed' && styles.problemCard]}>
-      <View style={styles.rowBetween}>
-        <Text style={styles.heading}>Taškas {stop.originalOrder}{stop.priorityFirst ? ' ⭐' : ''}</Text>
-        <StateLabel styles={styles} ready={stop.addressValidationState === 'auto_confirmed'} state={stop.addressValidationState} />
-      </View>
+    <View style={[styles.card, props.compact && styles.compactCard, stop.addressValidationState !== 'auto_confirmed' && styles.problemCard]}>
+      {props.compact ? (
+        <View style={styles.compactRow}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`${stop.originalAddress}${stop.recipient ? `, ${stop.recipient}` : ''}. Rodyti detales`}
+            onPress={() => setExpanded((value) => !value)}
+            style={styles.compactMain}>
+            <Text numberOfLines={1} ellipsizeMode="tail" style={styles.compactTitle}>
+              {stop.originalAddress}{stop.recipient ? ` · ${stop.recipient}` : ''}
+            </Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: stop.priorityFirst }}
+            accessibilityLabel="Prioritetinis taškas"
+            style={[styles.priorityStar, stop.priorityFirst && styles.priorityStarActive]}
+            onPress={() => props.onSetPriority(!stop.priorityFirst)}>
+            <Text style={[styles.priorityStarText, stop.priorityFirst && styles.priorityStarTextActive]}>{stop.priorityFirst ? '★' : '☆'}</Text>
+          </Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Rodyti detales" onPress={() => setExpanded((value) => !value)} style={styles.expandButton}>
+            <Text style={styles.expandText}>{expanded ? '−' : '›'}</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <View style={styles.rowBetween}>
+          <Text style={styles.heading}>Taškas {stop.originalOrder}{stop.priorityFirst ? ' ⭐' : ''}</Text>
+          <StateLabel styles={styles} ready={stop.addressValidationState === 'auto_confirmed'} state={stop.addressValidationState} />
+        </View>
+      )}
+      {expanded ? <>
       <TextInput
         value={address}
         onChangeText={setAddress}
@@ -512,10 +567,9 @@ function StopEditor(props: {
         </Text>
       </Pressable>
       <View style={styles.actions}>
-        <Pressable style={styles.smallButton} onPress={() => { props.onMove(stop.id, -1); }}><Text>↑</Text></Pressable>
-        <Pressable style={styles.smallButton} onPress={() => { props.onMove(stop.id, 1); }}><Text>↓</Text></Pressable>
         <Pressable style={styles.deleteButton} onPress={props.onDelete}><Text style={styles.deleteText}>Pašalinti</Text></Pressable>
       </View>
+      </> : null}
     </View>
   );
 }
@@ -545,7 +599,23 @@ function nullableNumber(value: string): number | null {
 }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
+  sectionIntro: { color: colors.text, fontSize: 15, lineHeight: 21, fontWeight: '700' },
+  planSummary: { flexDirection: 'row', alignItems: 'stretch', padding: spacing.md, borderRadius: 20, backgroundColor: colors.brandNavy, shadowColor: '#183525', shadowOffset: { width: 0, height: 7 }, shadowOpacity: 0.18, shadowRadius: 16, elevation: 5 },
+  planMetric: { flex: 1, minWidth: 0, alignItems: 'center', justifyContent: 'center', gap: 3, paddingHorizontal: spacing.xs },
+  planMetricValue: { color: '#fff', fontSize: 20, fontWeight: '800', textAlign: 'center' },
+  planMetricLabel: { color: '#CFE0D4', fontSize: 9, fontWeight: '800', letterSpacing: 0.6, textAlign: 'center' },
+  planMetricDivider: { width: 1, backgroundColor: 'rgba(255,255,255,0.22)', marginVertical: 3 },
   card: { padding: spacing.md, borderRadius: 18, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
+  compactCard: { paddingVertical: spacing.sm, paddingHorizontal: spacing.md, gap: spacing.xs },
+  compactRow: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  compactMain: { flex: 1, minWidth: 0, minHeight: 44, justifyContent: 'center' },
+  compactTitle: { color: colors.text, fontSize: 15, fontWeight: '800' },
+  priorityStar: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background },
+  priorityStarActive: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
+  priorityStarText: { color: colors.textMuted, fontSize: 24, lineHeight: 26 },
+  priorityStarTextActive: { color: colors.primary },
+  expandButton: { width: 34, height: 42, alignItems: 'center', justifyContent: 'center' },
+  expandText: { color: colors.textMuted, fontSize: 27, lineHeight: 30 },
   problemCard: { borderColor: colors.warning, borderWidth: 2 },
   heading: { color: colors.text, fontSize: 17, fontWeight: '800' },
   query: { color: colors.textMuted },

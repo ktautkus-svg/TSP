@@ -4,17 +4,18 @@
   "version": "1.0.0",
   "dependencies": {
     "@expo-google-fonts/archivo": "^0.4.2",
-    "expo": "~57.0.9",
+    "@google-cloud/firestore": "^8.7.1",
+    "expo": "~57.0.11",
     "expo-constants": "~57.0.7",
     "expo-crypto": "~57.0.1",
     "expo-document-picker": "~57.0.1",
     "expo-file-system": "~57.0.1",
     "expo-font": "~57.0.1",
-    "expo-image-manipulator": "~57.0.7",
-    "expo-image-picker": "~57.0.7",
-    "expo-linking": "~57.0.4",
-    "expo-location": "~57.0.7",
-    "expo-router": "~57.0.9",
+    "expo-image-manipulator": "~57.0.8",
+    "expo-image-picker": "~57.0.8",
+    "expo-linking": "~57.0.5",
+    "expo-location": "~57.0.8",
+    "expo-router": "~57.0.11",
     "expo-splash-screen": "~57.0.5",
     "expo-sqlite": "~57.0.1",
     "expo-status-bar": "~57.0.1",
@@ -64,7 +65,8 @@
     "pwa:serve": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/pwa-serve.ps1",
     "pwa:test": "vitest run tests/pwa tests/unit/pwa-backup.test.ts && node ./scripts/scan-production-bundle.mjs",
     "cloud-run:deploy": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/cloud-run-deploy.ps1",
-    "cloud-run:status": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/cloud-run-status.ps1"
+    "cloud-run:status": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/cloud-run-status.ps1",
+    "employee:production:test": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/test-employee-production.ps1"
   },
   "private": true
 }

@@ -5,6 +5,7 @@ import { Stack, useFocusEffect, useLocalSearchParams, useRouter, type Href } fro
 import { useSQLiteContext } from 'expo-sqlite';
 
 import { FoundationScreen } from '@/components/foundation-screen';
+import { RouteBottomTabs } from '@/components/route-bottom-tabs';
 import { ShipmentLinesSummary } from '@/components/shipment-lines-summary';
 import { ExportPilotRouteDiagnostic } from '@/application/routes/pilot-route-export';
 import { resolveRoute } from '@/application/routes/route-navigation';
@@ -29,6 +30,7 @@ export default function RouteHistoryDetailScreen() {
   const repository = useMemo(() => new RouteRepository(db), [db]);
   const shipmentRepository = useMemo(() => new ShipmentLineRepository(db), [db]);
   const [route, setRoute] = useState<Route | null>(null);
+  const [activeRoute, setActiveRoute] = useState<Route | null>(null);
   const [stops, setStops] = useState<DeliveryStop[]>([]);
   const [shipmentLines, setShipmentLines] = useState<Map<string, ShipmentLine[]>>(new Map());
   const [audit, setAudit] = useState<Audit[]>([]);
@@ -38,7 +40,7 @@ export default function RouteHistoryDetailScreen() {
 
   useFocusEffect(useCallback(() => {
     let mounted = true;
-    void Promise.all([repository.getWithStops(routeId), repository.listAudit(routeId), shipmentRepository.getGroupedByStop(routeId)]).then(([persisted, entries, lines]) => {
+    void Promise.all([repository.getWithStops(routeId), repository.listAudit(routeId), shipmentRepository.getGroupedByStop(routeId), repository.getActive()]).then(([persisted, entries, lines, active]) => {
       if (!mounted) return;
       if (persisted && persisted.route.status !== 'completed') {
         const destination = resolveRoute(persisted.route);
@@ -46,6 +48,7 @@ export default function RouteHistoryDetailScreen() {
         return;
       }
       setRoute(persisted?.route ?? null);
+      setActiveRoute(active);
       setStops(persisted?.stops ?? []);
       setShipmentLines(lines);
       setAudit(entries);
@@ -59,6 +62,19 @@ export default function RouteHistoryDetailScreen() {
 
   const goHistory = () => router.replace('/history' as Href);
   const goHome = () => router.replace('/' as Href);
+  const goActiveDashboard = () => {
+    if (!activeRoute) return goHome();
+    const destination = resolveRoute(activeRoute);
+    router.replace({ pathname: destination.pathname, params: destination.params } as Href);
+  };
+  const goActiveStops = () => {
+    if (!activeRoute) return goHome();
+    if (activeRoute.status === 'in_progress') {
+      router.replace({ pathname: '/route/[id]/delivery', params: { id: activeRoute.id, view: 'stops' } } as unknown as Href);
+      return;
+    }
+    goActiveDashboard();
+  };
 
   const exportPilotDiagnostic = async () => {
     if (exporting || !route) return;
@@ -83,6 +99,7 @@ export default function RouteHistoryDetailScreen() {
       headerBackVisible: false,
       headerLeft: () => <Pressable onPress={goHistory} style={styles.headerAction}><Text style={styles.headerText}>← Istorija</Text></Pressable>,
     }} />
+    <View style={styles.screen}>
     <FoundationScreen showFoundationNotice={false} title={route ? `Maršrutas ${route.date}` : 'Maršruto istorija'} description="Užbaigto maršruto istorija yra tik skaitoma.">
       {error ? <Text style={styles.failure}>{error}</Text> : null}
       {!route ? <View style={styles.card}><Text style={styles.title}>Maršrutas nerastas</Text><Text style={styles.meta}>Galite grįžti į istoriją arba pradžią.</Text></View> : null}
@@ -110,7 +127,7 @@ export default function RouteHistoryDetailScreen() {
       <View style={styles.card} testID="technical-information">
         <Pressable onPress={() => setShowTechnical((current) => !current)} style={styles.technicalToggle}>
           <Text style={styles.title}>Techninė informacija</Text>
-          <Text style={styles.headerText}>{showTechnical ? 'Slėpti' : 'Rodyti'}</Text>
+          <Text style={styles.technicalText}>{showTechnical ? 'Slėpti' : 'Rodyti'}</Text>
         </Pressable>
         {showTechnical ? audit.map((entry) => {
           const failure = entry.actionType === 'stop_failed' && entry.after && typeof entry.after === 'object'
@@ -136,11 +153,14 @@ export default function RouteHistoryDetailScreen() {
       <Pressable style={styles.historyButton} onPress={goHistory}><Text style={styles.historyText}>← Istorija</Text></Pressable>
       <Pressable style={styles.homeButton} onPress={goHome}><Text style={styles.homeText}>Į pradžią</Text></Pressable>
     </FoundationScreen>
+    <RouteBottomTabs active="history" onDashboard={goActiveDashboard} onStops={goActiveStops} onHistory={goHistory} />
+    </View>
     </>
   );
 }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
+  screen: { flex: 1, alignSelf: 'center', width: '100%', maxWidth: 430, backgroundColor: '#FFFFFF' },
   summary: { padding: spacing.md, borderRadius: 16, backgroundColor: colors.primarySoft, gap: spacing.xs },
   card: { padding: spacing.md, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.xs },
   title: { color: colors.text, fontSize: 17, fontWeight: '800' },
@@ -151,10 +171,11 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   exportButtonText: { color: colors.surface, fontWeight: '800' },
   pressed: { opacity: 0.75 },
   technicalToggle: { minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  technicalText: { color: colors.primary, fontWeight: '800' },
   historyButton: { minHeight: 52, borderRadius: 16, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
   historyText: { color: '#fff', fontWeight: '800' },
   homeButton: { minHeight: 52, borderRadius: 16, borderWidth: 1, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
   homeText: { color: colors.primary, fontWeight: '800' },
   headerAction: { minWidth: 84, minHeight: 44, justifyContent: 'center' },
-  headerText: { color: colors.primary, fontWeight: '800' },
+  headerText: { color: '#FFFFFF', fontWeight: '800' },
 });

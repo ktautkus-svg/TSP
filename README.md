@@ -1,4 +1,8 @@
-# Mano pristatymai
+# TSP – Tikslus siuntų pristatymas
+
+Vidinis projekto pavadinimo kodas remiasi anglišku „Traveling Salesman
+Problem“ terminu. Naudotojui rodomas tik lietuviškas pavadinimas „Tikslus
+siuntų pristatymas“.
 
 Asmeninė, vienam vairuotojui skirta logistikos aplikacija. Dabartinė pilotinė
 versija leidžia importuoti ir suplanuoti maršrutą, krautis, vykdyti pristatymus,
@@ -59,6 +63,7 @@ vardinti `EXPO_PUBLIC_*` ar įtraukti į Expo konfigūraciją. Išsamiau:
 
 ## Svarbiausi dokumentai
 
+- [Darbuotojų paskyros v1](docs/EMPLOYEE_ACCOUNTS_V1.md)
 - [LOGISTICS_EXCEL_V1 importas](docs/EXCEL_IMPORT_V1.md)
 - [Techninis projektas](docs/TECHNICAL_DESIGN.md)
 - [Routing Engine v0.1](docs/ROUTING_ENGINE_V0_1.md)

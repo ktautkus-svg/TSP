@@ -1,6 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { SCHEMA_VERSION } from '@/database/migrations';
+import { LOCAL_ACCESS_PREFERENCE_PREFIX } from '@/application/auth/local-access';
 
 export const BACKUP_FORMAT = 'logistikos-pristatymai-backup';
 export const BACKUP_FORMAT_VERSION = 1;
@@ -67,6 +68,11 @@ export async function createPwaBackup(
   const data = {} as Record<BackupTable, BackupRow[]>;
   for (const table of tables) {
     data[table] = await db.getAllAsync<BackupRow>(`SELECT * FROM ${table}`);
+    if (table === 'app_preferences') {
+      data[table] = data[table].filter((row) =>
+        typeof row.key !== 'string' || !row.key.startsWith(LOCAL_ACCESS_PREFERENCE_PREFIX),
+      );
+    }
   }
   return {
     format: BACKUP_FORMAT,
@@ -121,6 +127,10 @@ export function summarizePwaBackup(backup: PwaBackup): BackupSummary {
 
 export async function restorePwaBackup(db: SQLiteDatabase, backup: PwaBackup): Promise<void> {
   const parsed = parsePwaBackup(JSON.stringify(backup));
+  const localAccessRows = await db.getAllAsync<BackupRow>(
+    'SELECT * FROM app_preferences WHERE key LIKE ?',
+    `${LOCAL_ACCESS_PREFERENCE_PREFIX}%`,
+  );
   await db.withTransactionAsync(async () => {
     await db.execAsync('PRAGMA defer_foreign_keys = ON;');
     for (const table of [...tables].reverse()) {
@@ -130,7 +140,10 @@ export async function restorePwaBackup(db: SQLiteDatabase, backup: PwaBackup): P
       const allowedColumns = new Set(
         (await db.getAllAsync<{ name: string }>(`PRAGMA table_info(${table})`)).map((column) => column.name),
       );
-      for (const row of parsed.tables[table]) {
+      const rows = table === 'app_preferences'
+        ? parsed.tables[table].filter((row) => typeof row.key !== 'string' || !row.key.startsWith(LOCAL_ACCESS_PREFERENCE_PREFIX))
+        : parsed.tables[table];
+      for (const row of rows) {
         const columns = Object.keys(row);
         if (!columns.length || columns.some((column) => !allowedColumns.has(column))) {
           throw new Error(`Lentelės „${table}“ laukai nesuderinami su dabartine schema.`);
@@ -141,6 +154,14 @@ export async function restorePwaBackup(db: SQLiteDatabase, backup: PwaBackup): P
           ...columns.map((column) => row[column]),
         );
       }
+    }
+    for (const row of localAccessRows) {
+      const columns = Object.keys(row);
+      const placeholders = columns.map(() => '?').join(', ');
+      await db.runAsync(
+        `INSERT INTO app_preferences (${columns.map(quoteIdentifier).join(', ')}) VALUES (${placeholders})`,
+        ...columns.map((column) => row[column]),
+      );
     }
     await db.runAsync(
       `INSERT INTO app_preferences (key, value, updated_at) VALUES (?, ?, ?)

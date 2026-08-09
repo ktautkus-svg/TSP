@@ -19,6 +19,8 @@ type FoundationScreenProps = {
   description: string;
   children?: ReactNode;
   showFoundationNotice?: boolean;
+  showHeading?: boolean;
+  edgeToEdge?: boolean;
 };
 
 export function FoundationScreen({
@@ -26,11 +28,13 @@ export function FoundationScreen({
   description,
   children,
   showFoundationNotice = true,
+  showHeading = true,
+  edgeToEdge = false,
 }: FoundationScreenProps) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={[styles.safeArea, edgeToEdge && styles.edgeSafeArea]}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.flex}
@@ -38,13 +42,19 @@ export function FoundationScreen({
         <ScreenContainer>
           <ScrollView
             automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
-            contentContainerStyle={styles.content}
+            contentContainerStyle={[styles.content, edgeToEdge && styles.edgeContent]}
+            directionalLockEnabled
+            horizontal={false}
             keyboardShouldPersistTaps="handled"
+            showsHorizontalScrollIndicator={false}
+            style={[styles.scroll, edgeToEdge && styles.edgeScroll]}
           >
-            <View>
-              <Text style={styles.title}>{title}</Text>
-              <Text style={styles.description}>{description}</Text>
-            </View>
+            {showHeading ? (
+              <View style={styles.headingBlock}>
+                <Text style={styles.title}>{title}</Text>
+                <Text style={styles.description}>{description}</Text>
+              </View>
+            ) : null}
             {children}
             {showFoundationNotice ? (
               <View style={styles.notice}>
@@ -63,23 +73,37 @@ export function FoundationScreen({
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background },
+  edgeSafeArea: { backgroundColor: '#FFFFFF' },
   flex: { flex: 1 },
+  scroll: { flex: 1, minWidth: 0, width: '100%' },
   content: {
     flexGrow: 1,
+    minWidth: 0,
+    width: '100%',
     padding: spacing.lg,
-    paddingBottom: 64,
+    paddingBottom: 92,
     gap: spacing.lg,
   },
+  edgeContent: {
+    paddingHorizontal: 0,
+    paddingTop: 0,
+    paddingBottom: 0,
+    gap: 0,
+    backgroundColor: '#FFFFFF',
+  },
+  edgeScroll: { backgroundColor: '#FFFFFF' },
+  headingBlock: { gap: spacing.xs },
   title: {
     color: colors.text,
-    fontSize: 28,
-    fontWeight: '800',
+    fontSize: 27,
+    fontFamily: 'Archivo_800ExtraBold',
+    letterSpacing: -0.4,
   },
   description: {
     color: colors.textMuted,
     fontSize: 16,
     lineHeight: 23,
-    marginTop: spacing.sm,
+    marginTop: 0,
   },
   notice: {
     padding: spacing.lg,

@@ -31,7 +31,7 @@ const migrationSource = readFileSync(
 
 function createDb(): { adapter: ExpoLikeDatabase; db: SQLiteDatabase } {
   const adapter = new ExpoLikeDatabase();
-  for (let version = 1; version <= 12; version += 1) {
+  for (let version = 1; version <= 13; version += 1) {
     const match = migrationSource.match(new RegExp('const migrationV' + version + ' = `([\\s\\S]*?)`;'));
     if (!match) throw new Error(`Missing migration ${version}`);
     adapter.raw.exec(match[1]);
@@ -59,12 +59,14 @@ describe('PWA full backup', () => {
   it('exports required route data without gateway secrets', async () => {
     const { db } = createDb();
     await insertCompletedRoute(db, 'route-a');
+    await db.runAsync("INSERT INTO app_preferences (key, value, updated_at) VALUES ('local_access_pin_hash', 'private-pin-hash', '2026-08-03T16:00:00Z')");
     const backup = await createPwaBackup(db, '1.0.0', new Date('2026-08-03T16:00:00Z'));
     const serialized = JSON.stringify(backup);
     expect(summarizePwaBackup(backup)).toMatchObject({ routeCount: 1, stopCount: 1 });
     expect(serialized).toContain('route-a');
     expect(serialized).not.toContain('GOOGLE_ROUTES_API_KEY');
     expect(serialized).not.toContain('gateway_device_secret');
+    expect(serialized).not.toContain('private-pin-hash');
   });
 
   it('restores all data atomically into another same-schema database', async () => {
@@ -73,9 +75,11 @@ describe('PWA full backup', () => {
     const backup = await createPwaBackup(source.db, '1.0.0');
     const target = createDb();
     await insertCompletedRoute(target.db, 'route-old');
+    await target.db.runAsync("INSERT INTO app_preferences (key, value, updated_at) VALUES ('local_access_pin_hash', 'keep-this-hash', '2026-08-03T16:00:00Z')");
     await restorePwaBackup(target.db, backup);
     expect(await target.db.getFirstAsync<{ id: string }>('SELECT id FROM routes')).toEqual({ id: 'route-source' });
     expect(await target.db.getFirstAsync<{ route_id: string }>('SELECT route_id FROM delivery_stops')).toEqual({ route_id: 'route-source' });
+    expect(await target.db.getFirstAsync<{ value: string }>("SELECT value FROM app_preferences WHERE key = 'local_access_pin_hash'")).toEqual({ value: 'keep-this-hash' });
   });
 
   it('rejects invalid format/schema and rolls back incompatible rows', async () => {

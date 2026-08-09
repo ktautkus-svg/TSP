@@ -13,25 +13,19 @@ function extractMigration(name) {
 }
 
 const db = new DatabaseSync(':memory:');
-db.exec(extractMigration('migrationV1'));
-db.exec(extractMigration('migrationV2'));
-db.exec(extractMigration('migrationV3'));
-db.exec(extractMigration('migrationV4'));
-db.exec(extractMigration('migrationV5'));
-db.exec(extractMigration('migrationV6'));
-db.exec(extractMigration('migrationV7'));
-db.exec(extractMigration('migrationV8'));
-db.exec(extractMigration('migrationV9'));
-db.exec(extractMigration('migrationV10'));
-db.exec(extractMigration('migrationV11'));
+const expectedVersion = Number(source.match(/SCHEMA_VERSION\s*=\s*(\d+)/)?.[1]);
+if (!Number.isInteger(expectedVersion)) throw new Error('SCHEMA_VERSION not found.');
+for (let version = 1; version <= expectedVersion; version += 1) {
+  db.exec(extractMigration(`migrationV${version}`));
+}
 
 const { user_version: userVersion } = db.prepare('PRAGMA user_version').get();
 const { count: tableCount } = db
   .prepare(`SELECT count(*) AS count FROM sqlite_master WHERE type = 'table'`)
   .get();
 
-if (userVersion !== 11) {
-  throw new Error(`Expected schema version 11, received ${userVersion}.`);
+if (userVersion !== expectedVersion) {
+  throw new Error(`Expected schema version ${expectedVersion}, received ${userVersion}.`);
 }
 
 const foreignKeyViolations = db.prepare('PRAGMA foreign_key_check').all();

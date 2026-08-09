@@ -14,6 +14,7 @@ delete productionEnv.GATEWAY_DEVICE_SECRET;
 delete productionEnv.GATEWAY_APP_SECRET;
 run(command('npx'), ['expo', 'export', '--clear', '--platform', 'web', '--output-dir', 'dist'], productionEnv);
 run(command('npx'), ['tsc', '-p', 'tsconfig.server.json']);
+await patchProductionHtml('dist/index.html');
 
 const files = await listFiles('dist');
 const cacheFiles = files
@@ -41,6 +42,32 @@ function run(executable, args, environment = process.env) {
   });
   if (result.error) throw result.error;
   if (result.status !== 0) process.exit(result.status ?? 1);
+}
+
+async function patchProductionHtml(path) {
+  let html = await readFile(path, 'utf8');
+  html = html.replace(
+    /<meta name="viewport"[^>]*>/i,
+    '<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />',
+  );
+  const mobileHead = `
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="TSP" />
+<link rel="manifest" href="/manifest.webmanifest" />
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+<style id="tsp-mobile-layout">
+  html, body, #root { width: 100vw; min-width: 0; max-width: 100vw; overflow-x: clip; }
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  body { margin: 0; touch-action: pan-y; overscroll-behavior-x: none; }
+  #root > div { min-width: 0 !important; max-width: 100vw !important; overflow-x: clip !important; }
+  input, textarea, select { font-size: 16px !important; }
+  * { box-sizing: border-box; }
+</style>
+`;
+  html = html.replace('</head>', `${mobileHead}</head>`);
+  await writeFile(path, html, 'utf8');
 }
 
 async function listFiles(directory) {

@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   planningScreenAllowsStatus,
+  resolveRoute,
   resolveRouteDestination,
 } from '../../src/application/routes/route-navigation';
 
@@ -55,6 +56,10 @@ describe('central route navigation recovery', () => {
       expect(planningScreenAllowsStatus('review', status)).toBe(false);
       expect(planningScreenAllowsStatus('alternatives', status)).toBe(false);
     }
+  });
+
+  it('returns to Dashboard when a stale screen no longer has a route', () => {
+    expect(resolveRoute(null)).toMatchObject({ screen: 'dashboard', pathname: '/' });
   });
 });
 

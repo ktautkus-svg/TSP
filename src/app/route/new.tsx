@@ -11,12 +11,14 @@ import {
 } from '@/application/routes/route-commands';
 import { manualAddressesToDraftStops } from '@/application/routes/route-draft-mappers';
 import { resolveRoute } from '@/application/routes/route-navigation';
+import { GetDefaultLocations, RouteEndPreference } from '@/application/routes/saved-locations';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import { spacing } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { Alert } from '@/ui/alert';
+import type { RouteEndpoint } from '@/domain/route';
 
 export default function NewRouteScreen() {
   const router = useRouter();
@@ -27,6 +29,8 @@ export default function NewRouteScreen() {
   const [sourceText, setSourceText] = useState('');
   const [startAddress, setStartAddress] = useState('');
   const [endAddress, setEndAddress] = useState('');
+  const [savedStartEndpoint, setSavedStartEndpoint] = useState<RouteEndpoint | null>(null);
+  const [savedEndEndpoint, setSavedEndEndpoint] = useState<RouteEndpoint | null>(null);
   const [creating, setCreating] = useState(false);
   const creatingRef = useRef(false);
   const commandIdRef = useRef(`manual-route-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`);
@@ -49,21 +53,48 @@ export default function NewRouteScreen() {
     return () => { active = false; };
   }, [repository, router]);
 
+  useEffect(() => {
+    let active = true;
+    void Promise.all([
+      new GetDefaultLocations(db).execute(),
+      new RouteEndPreference(db).get(),
+    ]).then(([locations, preferredEnd]) => {
+      if (!active) return;
+      const start = locations.warehouse?.endpoint ?? null;
+      const end = preferredEnd === 'home' ? locations.home?.endpoint ?? start : start;
+      if (start) {
+        setStartAddress(start.originalAddress);
+        setSavedStartEndpoint(start);
+      }
+      if (end) {
+        setEndAddress(end.originalAddress);
+        setSavedEndEndpoint(end);
+      }
+    }).catch((reason) => {
+      if (__DEV__) console.warn('MANUAL_ROUTE_DEFAULT_LOCATIONS_FAILED', reason);
+    });
+    return () => { active = false; };
+  }, [db]);
+
   const createRoute = async () => {
     if (startAddress.trim().length < 3 || parsedResult.points.length === 0) return;
-    const startLocation = {
+    const startLocation: RouteEndpoint = savedStartEndpoint?.originalAddress === startAddress.trim()
+      ? savedStartEndpoint
+      : {
       originalAddress: startAddress.trim(),
       geocodingQuery: startAddress.trim(),
       normalizedAddress: null,
       latitude: null,
       longitude: null,
-    };
+      };
     const created = await new CreateDraftRouteWithStops(db).execute({
       commandId: commandIdRef.current,
       plannedDepartureAt: new Date().toISOString(),
       startLocation,
       endLocation: endAddress.trim()
-        ? { ...startLocation, originalAddress: endAddress.trim(), geocodingQuery: endAddress.trim() }
+        ? savedEndEndpoint?.originalAddress === endAddress.trim()
+          ? savedEndEndpoint
+          : { ...startLocation, originalAddress: endAddress.trim(), geocodingQuery: endAddress.trim(), normalizedAddress: null, latitude: null, longitude: null }
         : startLocation,
       importSource: { type: 'manual', originalText: sourceText, imageReference: null },
       stops: manualAddressesToDraftStops(parsedResult.points.map((point) => point.fullAddress)),
@@ -130,7 +161,7 @@ export default function NewRouteScreen() {
         <Text style={styles.label}>Maršruto pradžia</Text>
         <TextInput
           value={startAddress}
-          onChangeText={setStartAddress}
+          onChangeText={(value) => { setStartAddress(value); setSavedStartEndpoint(null); }}
           placeholder="Sandėlio adresas"
           placeholderTextColor={colors.textMuted}
           style={styles.input}
@@ -138,7 +169,7 @@ export default function NewRouteScreen() {
         <Text style={styles.label}>Maršruto pabaiga</Text>
         <TextInput
           value={endAddress}
-          onChangeText={setEndAddress}
+          onChangeText={(value) => { setEndAddress(value); setSavedEndEndpoint(null); }}
           placeholder="Sandėlis, namai arba kita vieta; tuščia = pradžios vieta"
           placeholderTextColor={colors.textMuted}
           style={styles.input}
@@ -155,8 +186,15 @@ export default function NewRouteScreen() {
           style={styles.textArea}
         />
         <Text style={styles.helper}>
-          Vienas adresas eilutėje. Šiame etape adresai dar neturi koordinačių ir negali būti maršrutizuojami.
+          Vienas adresas eilutėje. Išsaugoto sandėlio ir namų koordinačių dar kartą tvirtinti nereikės.
         </Text>
+        <Pressable
+          disabled={creating || !startAddress.trim() || parsedResult.points.length === 0}
+          style={[styles.primaryButton, (creating || !startAddress.trim() || parsedResult.points.length === 0) && styles.disabled]}
+          onPress={handleReview}
+          testID="manual-route-review-top">
+          {creating ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryButtonText}>Tikrinti adresus ir koordinates</Text>}
+        </Pressable>
         {parsedResult.points.map((point, index) => (
           <View key={`${point.fullAddress}-${index}`} style={styles.pointCard}>
             <Text style={styles.pointIndex}>{index + 1}</Text>
@@ -166,11 +204,6 @@ export default function NewRouteScreen() {
         {parsedResult.unparsedLines.length ? (
           <Text style={styles.error}>Kai kurių eilučių nepavyko atpažinti kaip adresų.</Text>
         ) : null}
-        <Pressable
-          style={styles.primaryButton}
-          onPress={handleReview}>
-          {creating ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryButtonText}>Tikrinti adresus ir koordinates</Text>}
-        </Pressable>
       </View>
     </FoundationScreen>
   );

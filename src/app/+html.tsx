@@ -9,17 +9,17 @@ export default function RootHtml({ children }: PropsWithChildren) {
         <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
         <meta
           name="viewport"
-          content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1"
+          content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
         />
         <meta name="theme-color" content="#0E766E" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-        <meta name="apple-mobile-web-app-title" content="Pristatymai" />
-        <meta name="application-name" content="Logistikos pristatymai" />
+        <meta name="apple-mobile-web-app-title" content="TSP" />
+        <meta name="application-name" content="TSP – Tikslus siuntų pristatymas" />
         <meta
           name="description"
-          content="Asmeninė pristatymų maršruto planavimo ir vykdymo aplikacija."
+          content="Tikslus siuntų maršruto planavimas ir pristatymo vykdymas."
         />
         <link rel="manifest" href="/manifest.webmanifest" />
         <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
@@ -31,10 +31,19 @@ export default function RootHtml({ children }: PropsWithChildren) {
         />
         <ScrollViewStyleReset />
         <style dangerouslySetInnerHTML={{ __html: `
-          html, body, #root { min-height: 100%; background: #F6F7F9; }
-          html, body { overflow-x: hidden; max-width: 100vw; }
-          body { margin: 0; }
+          html, body, #root { width: 100vw; min-width: 0; min-height: 100%; max-width: 100vw; background: #F6F7F9; overflow-x: hidden; }
+          html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+          html, body { overscroll-behavior-x: none; }
+          body { margin: 0; touch-action: pan-y; }
+          #root > div { min-width: 0 !important; max-width: 100vw !important; overflow-x: hidden !important; }
+          input, textarea, select { font-size: 16px !important; }
           * { box-sizing: border-box; }
+          .leaflet-container { position: relative; width: 100%; height: 100%; overflow: hidden; }
+          .leaflet-pane, .leaflet-tile, .leaflet-marker-icon, .leaflet-marker-shadow,
+          .leaflet-tile-container, .leaflet-pane > svg, .leaflet-pane > canvas {
+            position: absolute; left: 0; top: 0;
+          }
+          .leaflet-container img.leaflet-tile { max-width: none !important; max-height: none !important; }
         ` }} />
       </head>
       <body>{children}</body>

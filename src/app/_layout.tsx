@@ -13,6 +13,7 @@ import {
 } from '@expo-google-fonts/archivo';
 
 import { PwaRuntime } from '@/components/pwa-runtime';
+import { LocalAccessGate } from '@/components/local-access-gate';
 import { migrateDatabase } from '@/database/migrations';
 import { ThemeProvider } from '@/ui/theme';
 import { AlertHost } from '@/ui/alert';
@@ -92,18 +93,21 @@ export default function RootLayout() {
         setDbError(error instanceof Error ? error : new Error('Vietinės bazės klaida: ' + String(error)));
       }}>
       <ThemeProvider>
-        <AlertHost />
-        <PwaRuntime />
-        <StatusBar style="dark" />
-        <Stack
+        <LocalAccessGate>
+          <AlertHost />
+          <PwaRuntime />
+          <StatusBar style="light" />
+          <Stack
           screenOptions={{
             headerShadowVisible: false,
-            headerTitleStyle: { fontWeight: '700' },
-            contentStyle: { backgroundColor: '#F6F7F9' },
+            headerStyle: { backgroundColor: '#072D1B' },
+            headerTintColor: '#FFFFFF',
+            headerTitleStyle: { fontWeight: '800', color: '#FFFFFF' },
+            contentStyle: { backgroundColor: '#F4F4EF' },
             headerRight: () => (
               <Link href="/" replace asChild>
                 <Pressable accessibilityRole="button" style={{ minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 }}>
-                  <Text style={{ color: '#0E766E', fontWeight: '800' }}>Pradžia</Text>
+                  <Text style={{ color: '#FFFFFF', fontWeight: '800' }}>Pradžia</Text>
                 </Pressable>
               </Link>
             ),
@@ -124,7 +128,9 @@ export default function RootLayout() {
           <Stack.Screen name="trip-sheet" options={{ title: 'Kelionės lapas' }} />
           <Stack.Screen name="fuel" options={{ title: 'Degalai' }} />
           <Stack.Screen name="vehicle" options={{ title: 'Transporto priemonė' }} />
-        </Stack>
+          <Stack.Screen name="admin" options={{ title: 'Administratoriaus panelė' }} />
+          </Stack>
+        </LocalAccessGate>
       </ThemeProvider>
     </SQLiteProvider>
   );

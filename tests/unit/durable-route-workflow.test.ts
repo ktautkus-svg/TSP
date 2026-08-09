@@ -174,6 +174,11 @@ describe('durable route workflow', () => {
     await new SQLiteRoutingAuditRepository(db).saveOptimizationRun('route-1', request, result);
     const selected = result.recommended!;
     await new SaveSelectedRouteCandidate(db).execute('route-1', result.requestId, selected.id);
+    expect(await new RouteRepository(db).getById('route-1')).toMatchObject({
+      status: 'planned',
+      selectedRunId: result.requestId,
+      selectedCandidateId: selected.id,
+    });
     await new ActivateRoute(db).execute('route-1');
     expect(await new ActivateRoute(db).execute('route-1')).toEqual({ idempotent: true });
     expect(await new SaveSelectedRouteCandidate(db).execute('route-1', result.requestId, selected.id)).toEqual({ idempotent: true });

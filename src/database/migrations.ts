@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-export const SCHEMA_VERSION = 12;
+export const SCHEMA_VERSION = 13;
 
 const migrationV1 = `
 PRAGMA journal_mode = WAL;
@@ -904,6 +904,29 @@ PRAGMA user_version = 12;
 COMMIT;
 `;
 
+// v13 links a server-side employee assignment to its offline SQLite route.
+// Business route tables remain unchanged; this metadata is safe to rebuild.
+const migrationV13 = `
+BEGIN IMMEDIATE;
+
+CREATE TABLE IF NOT EXISTS route_sync_state (
+  assignment_id TEXT PRIMARY KEY NOT NULL,
+  route_id TEXT NOT NULL UNIQUE REFERENCES routes(id) ON DELETE CASCADE,
+  employee_id TEXT NOT NULL,
+  server_revision TEXT NOT NULL,
+  sync_status TEXT NOT NULL CHECK (sync_status IN ('synced','pending','conflict')),
+  last_synced_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS route_sync_by_employee
+ON route_sync_state(employee_id, updated_at);
+
+PRAGMA user_version = 13;
+COMMIT;
+`;
+
 export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
   await db.execAsync('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
 
@@ -973,5 +996,10 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
 
   if (currentVersion < 12) {
     await db.execAsync(migrationV12);
+    currentVersion = 12;
+  }
+
+  if (currentVersion < 13) {
+    await db.execAsync(migrationV13);
   }
 }

@@ -28,6 +28,14 @@ describe('production PWA contract', () => {
     expect(runtime).toContain('Yra nauja aplikacijos versija');
   });
 
+  it('patches the exported HTML with a locked iPhone viewport', async () => {
+    const builder = await readFile('scripts/pwa-build.mjs', 'utf8');
+    expect(builder).toContain('width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1');
+    expect(builder).toContain('-webkit-text-size-adjust: 100%');
+    expect(builder).toContain('max-width: 100vw');
+    expect(builder).toContain('font-size: 16px !important');
+  });
+
   it('keeps API requests network-only in the service worker', async () => {
     const worker = await readFile('public/service-worker.js', 'utf8');
     expect(worker).toContain("url.pathname.startsWith('/api/')");

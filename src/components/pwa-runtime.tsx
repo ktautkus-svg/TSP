@@ -89,11 +89,11 @@ export function PwaRuntime() {
 }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
-  host: { position: 'absolute', left: spacing.md, right: spacing.md, bottom: `max(${spacing.md}px, env(safe-area-inset-bottom))` as unknown as number, zIndex: 1000, gap: spacing.sm },
+  host: { position: 'absolute', left: spacing.md, right: spacing.md, top: `max(${spacing.sm}px, env(safe-area-inset-top))` as unknown as number, zIndex: 1000, gap: spacing.sm, alignItems: 'center' },
   offline: { minHeight: 44, paddingHorizontal: spacing.md, borderRadius: 14, backgroundColor: '#FFF3CD', justifyContent: 'center' },
   offlineText: { color: '#6B4F00', fontWeight: '800', textAlign: 'center' },
-  update: { padding: spacing.md, borderRadius: 16, backgroundColor: colors.text, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
+  update: { width: '100%', maxWidth: 340, padding: spacing.sm, borderRadius: 16, backgroundColor: colors.text, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 10, shadowOffset: { width: 0, height: 6 } },
   updateText: { color: '#fff', fontWeight: '800', flex: 1 },
-  button: { minHeight: 44, paddingHorizontal: spacing.md, borderRadius: 12, backgroundColor: colors.primary, justifyContent: 'center' },
+  button: { minHeight: 38, paddingHorizontal: spacing.md, borderRadius: 12, backgroundColor: colors.primary, justifyContent: 'center' },
   buttonText: { color: '#fff', fontWeight: '800' },
 });

@@ -20,6 +20,7 @@ import {
   MarkStopFailed,
   AddStopDuringDelivery,
   MarkStopLoaded,
+  MarkStopNotLoaded,
   MarkStopUnloaded,
   parseOdometer,
   ReverseStopOrder,
@@ -179,6 +180,47 @@ describe('driver workday persistence', () => {
     const afterRestart = await new RouteRepository(db).getWithStops('route-1');
     expect(afterRestart?.route.status).toBe('loaded');
     expect(afterRestart?.stops.every((item) => item.loadingStatus === 'loaded')).toBe(true);
+  });
+
+  it('resolves loading with an explicit not-loaded reason and starts with only carried stops', async () => {
+    const { db } = createDb();
+    await loadingRoute(db);
+    await new MarkStopLoaded(db).execute('route-1', 'stop-1');
+    const result = await new MarkStopNotLoaded(db).execute('route-1', 'stop-2', 'Nėra prekių');
+    expect(result).toMatchObject({ idempotent: false, allResolved: true });
+    expect(await new MarkStopNotLoaded(db).execute('route-1', 'stop-2', 'Nėra prekių')).toMatchObject({ idempotent: true });
+
+    const restored = await new RouteRepository(db).getWithStops('route-1');
+    expect(restored?.route.status).toBe('loaded');
+    expect(restored?.stops.find((item) => item.id === 'stop-2')).toMatchObject({
+      loadingStatus: 'pending',
+      deliveryStatus: 'failed',
+      failureReason: 'Nėra prekių',
+    });
+    expect(await new GetRouteProgress(db).execute('route-1')).toMatchObject({
+      loadedStops: 1,
+      notLoadedStops: 1,
+      loadingResolvedStops: 2,
+      loadingPercent: 100,
+      remainingStops: 1,
+    });
+    await expect(new StartRoute(db).execute('route-1')).resolves.toMatchObject({ idempotent: false });
+  });
+
+  it('can restore a not-loaded stop to loaded without losing the route', async () => {
+    const { db } = createDb();
+    await loadingRoute(db);
+    await new MarkStopLoaded(db).execute('route-1', 'stop-1');
+    await new MarkStopNotLoaded(db).execute('route-1', 'stop-2', 'Netilpo');
+    await new MarkStopLoaded(db).execute('route-1', 'stop-2');
+    const restored = await new RouteRepository(db).getWithStops('route-1');
+    expect(restored?.route.status).toBe('loaded');
+    expect(restored?.stops.find((item) => item.id === 'stop-2')).toMatchObject({
+      loadingStatus: 'loaded',
+      deliveryStatus: 'pending',
+      failureReason: null,
+      failedAt: null,
+    });
   });
 
   it('marks only pending stops in one bulk action and preserves route data across restart', async () => {

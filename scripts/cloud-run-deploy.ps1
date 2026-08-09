@@ -22,7 +22,7 @@ Write-Host "Regionas: $region"
 & $gcloudExe beta billing projects describe $project --format='value(billingEnabled)' | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'Nepavyko patikrinti projekto billing. Patikrinkite teises ir billing būseną.' }
 
-& $gcloudExe services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com --project $project
+& $gcloudExe services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com firestore.googleapis.com --project $project
 if ($LASTEXITCODE -ne 0) { throw 'Nepavyko įjungti Cloud Run reikiamų API.' }
 
 # API raktai iš aplinkos bei .env nuskaitomi ir užregistruojami žemiau
@@ -93,38 +93,16 @@ foreach ($secretName in $allSecrets) {
   if ($LASTEXITCODE -ne 0) { throw "Nepavyko suteikti Cloud Run prieigos prie $secretName." }
 }
 
-$dockerEnvPath = Join-Path $repo '.env.docker'
-$envLines = [System.Collections.Generic.List[string]]::new()
-if (Test-Path (Join-Path $repo '.env')) {
-  Get-Content (Join-Path $repo '.env') | ForEach-Object {
-    if ($_ -notmatch '^EXPO_PUBLIC_GATEWAY_URL=' -and $_ -notmatch '^EXPO_PUBLIC_API_URL=') {
-      $envLines.Add($_)
-    }
-  }
-}
-if (-not ($envLines | Where-Object { $_ -match '^GATEWAY_DEVICE_SECRET=' })) {
-  $envLines.Add("GATEWAY_DEVICE_SECRET=$deviceSecret")
-}
-if ($env:EXPO_PUBLIC_GATEWAY_DEVICE_SECRET -and -not ($envLines | Where-Object { $_ -match '^EXPO_PUBLIC_GATEWAY_DEVICE_SECRET=' })) {
-  $envLines.Add("EXPO_PUBLIC_GATEWAY_DEVICE_SECRET=$($env:EXPO_PUBLIC_GATEWAY_DEVICE_SECRET.Trim().Trim('"', "'").Trim())")
-} elseif (-not ($envLines | Where-Object { $_ -match '^EXPO_PUBLIC_GATEWAY_DEVICE_SECRET=' })) {
-  $envLines.Add("EXPO_PUBLIC_GATEWAY_DEVICE_SECRET=$deviceSecret")
-}
-if ($env:VITE_GATEWAY_DEVICE_SECRET -and -not ($envLines | Where-Object { $_ -match '^VITE_GATEWAY_DEVICE_SECRET=' })) {
-  $envLines.Add("VITE_GATEWAY_DEVICE_SECRET=$($env:VITE_GATEWAY_DEVICE_SECRET.Trim().Trim('"', "'").Trim())")
-} elseif (-not ($envLines | Where-Object { $_ -match '^VITE_GATEWAY_DEVICE_SECRET=' })) {
-  $envLines.Add("VITE_GATEWAY_DEVICE_SECRET=$deviceSecret")
-}
-$envContent = ($envLines -join "`n") + "`n"
-[IO.File]::WriteAllText($dockerEnvPath, ($envContent -replace "`r", ""))
+& $gcloudExe projects add-iam-policy-binding $project --member="serviceAccount:$runtimeServiceAccount" --role='roles/datastore.user' --condition=None --quiet | Out-Null
+if ($LASTEXITCODE -ne 0) { throw 'Nepavyko suteikti Cloud Run prieigos prie darbuotojų duomenų bazės.' }
 
-try {
-  $secretsArg = ($allSecrets | ForEach-Object { "$($_)=$($_):latest" }) -join ','
-  & $gcloudExe run deploy $service --source . --project $project --region $region --allow-unauthenticated --max-instances=1 --set-secrets=$secretsArg --set-env-vars='GATEWAY_AUTH_MODE=none,GATEWAY_ENV=production,APP_VERSION=1.0.0' --quiet
-  if ($LASTEXITCODE -ne 0) { throw 'Cloud Run deploy nepavyko. Aukščiau pateikta Google Cloud klaida nurodo blokuojantį veiksmą.' }
-} finally {
-  Remove-Item -LiteralPath $dockerEnvPath -Force -ErrorAction SilentlyContinue
-}
+# Build kontekste sąmoningai nekuriamas joks .env failas. Frontend naudoja
+# santykinius /api URL, o visos paslaptys Cloud Run procesui prijungiamos tik
+# paleidimo metu per Secret Manager. Taip device secret ir Google raktai
+# nepatenka nei į JavaScript bundle, nei į Docker build sluoksnius.
+$secretsArg = ($allSecrets | ForEach-Object { "$($_)=$($_):latest" }) -join ','
+& $gcloudExe run deploy $service --source . --project $project --region $region --allow-unauthenticated --max-instances=1 --set-secrets=$secretsArg --set-env-vars='GATEWAY_AUTH_MODE=none,GATEWAY_ENV=production,APP_VERSION=1.0.0' --quiet
+if ($LASTEXITCODE -ne 0) { throw 'Cloud Run deploy nepavyko. Aukščiau pateikta Google Cloud klaida nurodo blokuojantį veiksmą.' }
 
 $url = (& $gcloudExe run services describe $service --project $project --region $region --format='value(status.url)').Trim()
 $health = Invoke-RestMethod -Uri "$url/health" -TimeoutSec 30

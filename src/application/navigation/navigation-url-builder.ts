@@ -4,6 +4,8 @@ export type NavigationPlatform = 'ios' | 'android' | 'web';
 
 export type NavigationUrls = {
   waze: string;
+  appleMaps: string;
+  googleMaps: string;
   fallback: string;
   fallbackProvider: 'apple_maps' | 'google_maps';
 };
@@ -35,16 +37,22 @@ export function buildNavigationUrls(
     : hasCoordinates
       ? `waze://?ll=${target.latitude},${target.longitude}&navigate=yes`
       : `waze://?q=${encoded}&navigate=yes`;
+  const appleMaps = `https://maps.apple.com/?daddr=${encoded}&dirflg=d`;
+  const googleMaps = `https://www.google.com/maps/dir/?api=1&destination=${encoded}&travelmode=driving`;
   if (platform === 'ios') {
     return {
       waze,
-      fallback: `http://maps.apple.com/?daddr=${encoded}&dirflg=d`,
+      appleMaps,
+      googleMaps,
+      fallback: appleMaps,
       fallbackProvider: 'apple_maps',
     };
   }
   return {
     waze,
-    fallback: `https://www.google.com/maps/dir/?api=1&destination=${encoded}&travelmode=driving`,
+    appleMaps,
+    googleMaps,
+    fallback: googleMaps,
     fallbackProvider: 'google_maps',
   };
 }

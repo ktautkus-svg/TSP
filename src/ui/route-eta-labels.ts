@@ -89,3 +89,67 @@ export function windowUrgencyColor(
   if (minutesRemaining <= 60) return 'warning';
   return 'success';
 }
+
+export type ArrivalWindowState = 'on_time' | 'at_risk' | 'early' | 'late' | 'unavailable';
+
+function clockMinutes(value: string): number | null {
+  const [hours, minutes] = value.split(':').map(Number);
+  if (!Number.isInteger(hours) || !Number.isInteger(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+  return hours * 60 + minutes;
+}
+
+function localEtaMinutes(value: string): number | null {
+  const eta = new Date(value);
+  if (!Number.isFinite(eta.getTime())) return null;
+  return eta.getHours() * 60 + eta.getMinutes();
+}
+
+export function arrivalWindowStatus(
+  stop: DeliveryStop | null | undefined,
+  _routeDate: string | null | undefined,
+): { state: ArrivalWindowState; label: string; color: 'success' | 'warning' | 'danger' | 'textMuted' } {
+  if (!stop?.deliveryTimeFrom && !stop?.deliveryTimeTo) {
+    return { state: 'unavailable', label: 'Laiko langas nenurodytas', color: 'textMuted' };
+  }
+
+  const etaValue = stop.latestEstimatedArrivalAt ?? stop.plannedArrivalAt;
+  if (!etaValue) {
+    return { state: 'unavailable', label: 'Atvykimo prognozė dar neparuošta', color: 'textMuted' };
+  }
+
+  const eta = localEtaMinutes(etaValue);
+  const from = stop.deliveryTimeFrom ? clockMinutes(stop.deliveryTimeFrom) : null;
+  const to = stop.deliveryTimeTo ? clockMinutes(stop.deliveryTimeTo) : null;
+
+  if (eta === null || (stop.deliveryTimeFrom && from === null) || (stop.deliveryTimeTo && to === null)) {
+    return { state: 'unavailable', label: 'Atvykimo prognozė dar neparuošta', color: 'textMuted' };
+  }
+
+  const overnight = from !== null && to !== null && from > to;
+  const outsideOvernightWindow = overnight && eta > to! && eta < from!;
+  const arrivesEarly = overnight
+    ? outsideOvernightWindow && from! - eta <= eta - to!
+    : from !== null && eta < from;
+  const arrivesLate = overnight
+    ? outsideOvernightWindow && !arrivesEarly
+    : to !== null && eta > to;
+
+  if (arrivesEarly) {
+    return { state: 'early', label: 'Atvyksime per anksti', color: 'warning' };
+  }
+  if (arrivesLate) {
+    return { state: 'late', label: 'Į laiko langą nespėsime', color: 'danger' };
+  }
+  if (to !== null && ((to - eta + 1440) % 1440) <= 15) {
+    return { state: 'at_risk', label: 'Galimas vėlavimas', color: 'warning' };
+  }
+  return { state: 'on_time', label: 'Spėsime į laiko langą', color: 'success' };
+}
+
+export function deliveryWindowValue(stop?: DeliveryStop | null): string {
+  if (!stop?.deliveryTimeFrom && !stop?.deliveryTimeTo) return 'Nenurodytas';
+  if (stop.deliveryTimeFrom && stop.deliveryTimeTo && stop.deliveryTimeFrom !== stop.deliveryTimeTo) {
+    return `${stop.deliveryTimeFrom}–${stop.deliveryTimeTo}`;
+  }
+  return stop.deliveryTimeFrom ?? stop.deliveryTimeTo ?? 'Nenurodytas';
+}

@@ -51,6 +51,9 @@ export default function StatisticsScreen() {
       showFoundationNotice={false}
       title="Statistika"
       description="Paskutinių 12 mėnesių užbaigti ir atšaukti maršrutai.">
+      <Pressable style={styles.tripSheetButton} onPress={() => router.push('/trip-sheet' as Href)} testID="open-trip-sheets">
+        <Text style={styles.tripSheetText}>Kelionės lapai</Text>
+      </Pressable>
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {empty ? (
         <View style={styles.empty}>
@@ -187,6 +190,8 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   outcomeLegendRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.xs },
   outcomeLegend: { fontSize: 12, fontWeight: '700' },
   homeButton: { minHeight: 52, borderRadius: 16, borderWidth: 1, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+  tripSheetButton: { minHeight: 52, borderRadius: 16, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+  tripSheetText: { color: '#fff', fontWeight: '900', fontSize: 16 },
   homeText: { color: colors.primary, fontWeight: '800' },
   headerAction: { minWidth: 84, minHeight: 44, justifyContent: 'center' },
   headerText: { color: colors.primary, fontWeight: '800' },

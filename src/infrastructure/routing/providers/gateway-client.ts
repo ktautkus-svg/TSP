@@ -36,6 +36,7 @@ export const platformFetch: typeof fetch = async (input, init) => {
   const authorization = await createGatewayAuthorizationHeaders(rawBody);
   return globalThis.fetch(input, {
     ...init,
+    credentials: 'same-origin',
     headers: { ...(init?.headers as Record<string, string> | undefined), ...authorization },
   });
 };
