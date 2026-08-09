@@ -460,8 +460,10 @@ export default function DeliveryScreen() {
                   <InstrumentGauge
                     colors={colors}
                     maximum={progress.totalKnownWeightKg}
+                    remaining={progress.remainingKnownWeightKg}
                     size={gaugeSize}
                     title="Svoris"
+                    unit="kg"
                     value={progress.totalKnownWeightKg - progress.remainingKnownWeightKg}
                   />
                   <View style={styles.gaugeCenterStats}>
@@ -475,8 +477,10 @@ export default function DeliveryScreen() {
                   <InstrumentGauge
                     colors={colors}
                     maximum={progress.totalStops}
+                    remaining={progress.remainingStops}
                     size={gaugeSize}
                     title="Taškai"
+                    unit="vnt."
                     value={progress.totalStops - progress.remainingStops}
                   />
                 </View>

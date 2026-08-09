@@ -9,25 +9,28 @@ const source = (path: string) => readFileSync(resolve(here, '../../', path), 'ut
 describe('premium route dashboard', () => {
   it('renders realistic code-native instrument gauges driven by live values', () => {
     const gauge = source('src/components/instrument-gauge.tsx');
-    expect(gauge).toContain('Array.from({ length: 25 }');
+    // Clock-face scale: zero at 8 o'clock, full scale at 4 o'clock, and the
+    // 120° wedge between them cut out of the dial to carry the readout.
+    expect(gauge).toContain('const DIAL_MIN_ANGLE = 240');
+    expect(gauge).toContain('const DIAL_SWEEP = 240');
+    expect(gauge).toContain('const WEDGE_PATH');
+    expect(gauge).toContain('d={WEDGE_PATH} fill="#000000"');
+    expect(gauge).toContain('d={FACE_PATH}');
+    // Needle climbs with what has been handed over; the digits count down.
+    expect(gauge).toContain('const fraction = delivered / safeMaximum');
+    expect(gauge).toContain('remaining ?? safeMaximum - delivered');
     expect(gauge).toContain('needleAngle');
-    expect(gauge).toContain('const completionFraction = fraction');
-    expect(gauge).toContain('value / safeMaximum');
-    expect(gauge).toContain('stroke="#78A83D"');
+    expect(gauge).toContain('LIKO');
     expect(gauge).toContain('stroke="url(#bezel)"');
-    expect(gauge).toContain('fontSize={isWeightGauge ? 8 : 10}');
-    expect(gauge).toContain('index !== 12');
-    expect(gauge).toContain('DIAL_MIN_ANGLE');
-    expect(gauge).toContain('DIAL_SWEEP');
+    expect(gauge).toContain('stroke="url(#progress)"');
     expect(gauge).toContain('useGrouping: false');
     expect(gauge).toContain('fontFamily={fonts.headingExtraBold}');
-    expect(gauge).toContain('const readoutFontSize = formattedValue.length >= 6 ? 20 :');
     expect(gauge).toContain('fontSize={readoutFontSize}');
-    // The readout sits on its own plate away from the dial face and ticks.
-    expect(gauge).toContain('READOUT_TOP');
-    expect(gauge).not.toContain('y={207}');
-    expect(gauge).not.toContain('styles.weightValue');
     expect(gauge).toContain('<SvgText');
+    expect(gauge).not.toContain('READOUT_TOP');
+    expect(gauge).not.toContain('isWeightGauge');
+    expect(gauge).not.toContain('index !== 12');
+    expect(gauge).not.toContain('styles.weightValue');
     expect(gauge).not.toContain('<Image');
     expect(gauge).not.toContain('formattedMaximum');
   });
@@ -55,10 +58,13 @@ describe('premium route dashboard', () => {
     expect(delivery).toContain('<RoadProgressBar');
     expect(delivery.indexOf('<RoadProgressBar')).toBeLessThan(delivery.indexOf('<InstrumentGauge'));
     expect(delivery).toContain('<InstrumentGauge');
-    // Gauges climb with completed work, so they are fed delivered totals.
+    // Needles climb with delivered totals while the wedge digits show the load
+    // still on board, so both gauges are fed the pair of values.
     expect(delivery).toContain('value={progress.totalKnownWeightKg - progress.remainingKnownWeightKg}');
-    expect(delivery).not.toContain('unit="kg"');
+    expect(delivery).toContain('remaining={progress.remainingKnownWeightKg}');
+    expect(delivery).toContain('unit="kg"');
     expect(delivery).toContain('value={progress.totalStops - progress.remainingStops}');
+    expect(delivery).toContain('remaining={progress.remainingStops}');
     expect(delivery).toContain('styles.gaugeCenterStats');
     expect(delivery).toContain('IKI ARTIMIAUSIOS');
     expect(delivery).toContain('NAVIGUOTI');
