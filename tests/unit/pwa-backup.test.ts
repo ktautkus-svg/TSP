@@ -29,9 +29,12 @@ const migrationSource = readFileSync(
   'utf8',
 );
 
+// Read from the source so a new migration cannot silently leave this behind.
+const latestSchemaVersion = Number(migrationSource.match(/SCHEMA_VERSION = (\d+)/)![1]);
+
 function createDb(): { adapter: ExpoLikeDatabase; db: SQLiteDatabase } {
   const adapter = new ExpoLikeDatabase();
-  for (let version = 1; version <= 13; version += 1) {
+  for (let version = 1; version <= latestSchemaVersion; version += 1) {
     const match = migrationSource.match(new RegExp('const migrationV' + version + ' = `([\\s\\S]*?)`;'));
     if (!match) throw new Error(`Missing migration ${version}`);
     adapter.raw.exec(match[1]);

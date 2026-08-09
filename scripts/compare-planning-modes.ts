@@ -9,8 +9,11 @@
  */
 import { RoutingEngine } from '../src/application/routing/routing-engine';
 import { buildOptimizationRequestFromRoute } from '../src/application/routes/route-request-builder';
+import { evaluateCandidate } from '../src/domain/routing/evaluation/candidate-evaluator';
+import { cappedObjective } from '../src/domain/routing/scoring/scoring';
 import type { RouteCandidate, RouteOptimizationRequest } from '../src/domain/routing/models';
 import type { DeliveryStop, Route } from '../src/domain/route';
+import { serviceMinutesForWeight } from '../src/domain/service-time';
 import { SyntheticTravelCostProvider } from '../src/infrastructure/routing/providers/synthetic-travel-cost-provider';
 
 /** A town-sized job: a depot plus stops spread over three districts. */
@@ -87,7 +90,7 @@ function buildStops(): DeliveryStop[] {
     deliveryTimeFrom: seed.from,
     deliveryTimeTo: seed.to,
     requiredTimeWindow: Boolean(seed.from && seed.to),
-    serviceDurationMinutes: 5,
+    serviceDurationMinutes: serviceMinutesForWeight(seed.weightKg),
     plannedArrivalAt: null,
     plannedDepartureAt: null,
     latestEstimatedArrivalAt: null,
@@ -220,17 +223,38 @@ async function main() {
 
   // Score the geographically sane order under time-window rules to see whether
   // the engine rejected it or simply never generated it.
-  const crossCheck = timed.result.candidates.find(
+  const generated = timed.result.candidates.some(
     (candidate) => candidate.stopSequence.join('|') === withoutWindows.stopSequence.join('|'),
   );
+  const matrix = await new SyntheticTravelCostProvider('city_traffic').getMatrix({
+    locations: [
+      timed.request.startLocation,
+      ...timed.request.stops.map((stop) => stop.location),
+      timed.request.endLocation,
+    ],
+    vehicle: timed.request.vehicle,
+    departureAt: timed.request.plannedDepartureAt,
+    trafficMode: timed.request.trafficMode,
+    timeoutMs: 5_000,
+  });
+  const forced = evaluateCandidate({
+    stopSequence: withoutWindows.stopSequence,
+    generatedBy: ['cross_check'],
+    request: timed.request,
+    matrix,
+  });
+  const winnerObjective = cappedObjective(withWindows.rawScoreComponents, timed.request.scoring);
+  const forcedObjective = cappedObjective(forced.rawScoreComponents, timed.request.scoring);
   console.log('');
-  if (crossCheck) {
-    console.log('  Be langų sudarytas maršrutas TAIP PAT buvo vertintas su langais:');
-    console.log(`    jo balas ${crossCheck.totalScore?.toFixed(4)} vs laimėtojo ${withWindows.totalScore?.toFixed(4)}`);
-    console.log(`    vėlavimas ${Math.round(crossCheck.totalLateMinutes)} min, laukimas ${Math.round(crossCheck.waitingMinutes)} min`);
-  } else {
-    console.log('  DĖMESIO: su langais toks maršrutas net nebuvo sugeneruotas kaip kandidatas.');
-  }
+  console.log(`  Geografiškai tvarkingas maršrutas ${generated ? 'buvo' : 'NEBUVO'} tarp kandidatų.`);
+  console.log('  Jį įvertinus pagal laiko langų taisykles:');
+  console.log(`    tikslo funkcija ${forcedObjective.toFixed(4)} vs laimėtojo ${winnerObjective.toFixed(4)}`);
+  console.log(`    atstumas ${forced.totalDistanceKm.toFixed(1)} km, laukimas ${Math.round(forced.waitingMinutes)} min, vėlavimas ${Math.round(forced.totalLateMinutes)} min`);
+  console.log(
+    forcedObjective < winnerObjective
+      ? '    IŠVADA: geresnis maršrutas egzistuoja, bet paieška jo nerado (generavimo spraga).'
+      : '    IŠVADA: laimėtojas tikrai geresnis pagal dabartinius svorius (vertinimo klausimas).',
+  );
 
   console.log('\n  Balo dedamosios (žalias = kur laimėtojas prastesnis):');
   const keys = Object.keys(withWindows.rawScoreComponents) as (keyof typeof withWindows.rawScoreComponents)[];

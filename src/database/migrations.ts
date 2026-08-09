@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-export const SCHEMA_VERSION = 13;
+export const SCHEMA_VERSION = 14;
 
 const migrationV1 = `
 PRAGMA journal_mode = WAL;
@@ -927,6 +927,26 @@ PRAGMA user_version = 13;
 COMMIT;
 `;
 
+// v14 replaces the flat ten-minute unloading estimate with a weight-derived one,
+// so a heavy drop is planned as the longer stop it actually is. Only pending
+// stops are touched; delivered history keeps the time it was planned with.
+// The numbers are written out rather than read from the service-time model on
+// purpose: a migration must produce the same result forever, even after the
+// model is retuned.
+const migrationV14 = `
+BEGIN IMMEDIATE;
+
+UPDATE delivery_stops
+SET service_duration_minutes = CASE
+  WHEN weight_kg IS NULL THEN 10
+  ELSE MAX(5, MIN(45, CAST(ROUND(MAX(weight_kg, 0) / 5.0) AS INTEGER)))
+END
+WHERE delivery_status = 'pending';
+
+PRAGMA user_version = 14;
+COMMIT;
+`;
+
 export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
   await db.execAsync('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
 
@@ -1001,5 +1021,10 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
 
   if (currentVersion < 13) {
     await db.execAsync(migrationV13);
+    currentVersion = 13;
+  }
+
+  if (currentVersion < 14) {
+    await db.execAsync(migrationV14);
   }
 }

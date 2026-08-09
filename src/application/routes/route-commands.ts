@@ -9,6 +9,7 @@ import type {
   Route,
   RouteEndpoint,
 } from '@/domain/route';
+import { serviceMinutesForWeight } from '@/domain/service-time';
 import { assertRouteTransition } from '@/domain/transitions';
 import type { DraftShipmentLineInput } from '@/domain/shipment-line';
 import type { CandidateLeg, CandidateStopSchedule } from '@/domain/routing/models';
@@ -691,7 +692,7 @@ async function insertStop(
       phone, notes, loading_status, delivery_status, service_duration_minutes,
       created_at, updated_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-      'pending', 'pending', 10, ?, ?)`,
+      'pending', 'pending', ?, ?, ?)`,
     stopId,
     sourceStopIdentity(stop),
     routeId,
@@ -713,6 +714,7 @@ async function insertStop(
     stop.weightKg,
     stop.phone,
     stop.notes,
+    serviceMinutesForWeight(stop.weightKg),
     now,
     now,
   );

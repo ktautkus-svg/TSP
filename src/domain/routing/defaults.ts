@@ -4,15 +4,16 @@ export const DEFAULT_ROUTING_SCORING: RoutingScoringConfig = {
   weights: {
     drivingTime: 0.18,
     totalWorkTime: 0.19,
-    distance: 0.14,
+    distance: 0.16,
     tonneKilometers: 0.1,
-    // Standing still must stay cheaper per minute than driving, otherwise the
-    // optimizer buys its way out of a wait by adding kilometres.
-    waitingTime: 0.05,
+    // Waiting is already inside totalWorkTime, so this stays token-sized. Price
+    // it twice and the optimizer buys its way out of a wait by adding kilometres,
+    // which is exactly the zigzag drivers complained about.
+    waitingTime: 0.02,
     informationalTimeMismatch: 0.05,
     // Raised so backtracking and criss-crossing outweigh small clock wins; a
     // route that zigzags across the region is never the better answer.
-    directionality: 0.15,
+    directionality: 0.16,
     endLocationConvenience: 0.05,
     maneuvers: 0.03,
     userPreferences: 0.06,
