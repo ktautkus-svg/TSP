@@ -2,6 +2,7 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
+import { useLocalAccess } from '@/application/auth/local-access-context';
 
 import { ActivateRoute, CancelDraftRoute, ReopenRouteForPlanning } from '@/application/routes/route-commands';
 import { resolveRoute } from '@/application/routes/route-navigation';
@@ -27,7 +28,7 @@ import { RouteRepository } from '@/database/repositories/route-repository';
 import type { DeliveryStop, Route } from '@/domain/route';
 import { LOADING_FAILURE_REASONS, type LoadingFailureReason } from '@/domain/loading-failure';
 import { Alert } from '@/ui/alert';
-import { etaLabel, legLabel, windowLabel } from '@/ui/route-eta-labels';
+import { etaLabel, legLabel, windowLabel, clockLabel } from '@/ui/route-eta-labels';
 import { userVisibleStopNote } from '@/ui/route-labels';
 import { fonts, spacing } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
@@ -35,6 +36,7 @@ import type { ColorPalette } from '@/ui/theme-palette';
 import { formatWeightKg } from '@/ui/format-weight';
 
 export default function LoadingScreen() {
+  const { profile } = useLocalAccess();
   const db = useSQLiteContext();
   const router = useRouter();
   const { id: routeId = '' } = useLocalSearchParams<{ id: string }>();
@@ -298,16 +300,24 @@ export default function LoadingScreen() {
           <Text style={styles.summaryText}>Pristatymo taškai: {route.totalStops}</Text>
           <Text style={styles.summaryText}>Bendras svoris: {formatWeightKg(route.totalWeightKg)} kg</Text>
           <Text style={styles.summaryText}>Planuotas atstumas: {route.estimatedDistanceKm === null ? '—' : `${route.estimatedDistanceKm.toFixed(1)} km`}</Text>
+          {clockLabel(route.plannedDepartureAt) ? (
+            <Text style={styles.departureBadge} testID="planned-departure-label">
+              Planuojamas išvykimas {clockLabel(route.plannedDepartureAt)}
+            </Text>
+          ) : null}
+          <Text style={styles.scheduleHint}>
+            Atvykimo laikai skaičiuojami nuo šio starto. Paspaudus „Pradėti maršrutą“ jie bus perskaičiuoti nuo realaus starto.
+          </Text>
         </View>
         <Pressable disabled={bulkBusy} style={[styles.primaryButton, bulkBusy && styles.disabled]} onPress={() => { void beginLoading(); }} testID="begin-loading">
           {bulkBusy ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>Pradėti krovimą</Text>}
         </Pressable>
-        <Pressable disabled={bulkBusy} style={[styles.secondaryButton, bulkBusy && styles.disabled]} onPress={() => { void editPlannedRoute(); }} testID="edit-planned-route">
+        {profile.role !== 'driver' || profile.permissions?.canReorderAssignedRoute ? <Pressable disabled={bulkBusy} style={[styles.secondaryButton, bulkBusy && styles.disabled]} onPress={() => { void editPlannedRoute(); }} testID="edit-planned-route">
           <Text style={styles.secondaryText}>Redaguoti maršrutą</Text>
-        </Pressable>
-        <Pressable disabled={bulkBusy} style={[styles.cancelRouteButton, bulkBusy && styles.disabled]} onPress={cancelPlannedRoute} testID="cancel-planned-route">
+        </Pressable> : null}
+        {profile.role !== 'driver' || profile.permissions?.canCancelRoute ? <Pressable disabled={bulkBusy} style={[styles.cancelRouteButton, bulkBusy && styles.disabled]} onPress={cancelPlannedRoute} testID="cancel-planned-route">
           <Text style={styles.cancelRouteText}>Atšaukti esamą maršrutą</Text>
-        </Pressable>
+        </Pressable> : null}
       </FoundationScreen>
     );
   }
@@ -321,8 +331,18 @@ export default function LoadingScreen() {
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {progress ? (
         <View style={styles.summary} testID="loading-progress">
-          <Text style={styles.summaryTitle}>Pakrauta {progress.loadedStops} / {progress.totalStops} ({progress.loadingPercent}%)</Text>
+          <View style={styles.summaryHeaderRow}>
+            <Text style={styles.summaryTitle}>Pakrauta {progress.loadedStops} / {progress.totalStops}</Text>
+            <View style={styles.percentPill}>
+              <Text style={styles.percentPillText}>{progress.loadingPercent}%</Text>
+            </View>
+          </View>
           <Text style={styles.summaryText}>Žinomas pakrautas svoris: {formatWeightKg(progress.loadedKnownWeightKg)} / {formatWeightKg(progress.totalKnownWeightKg)} kg</Text>
+          {clockLabel(route?.plannedDepartureAt) ? (
+            <Text style={styles.departureBadge} testID="loading-departure-label">
+              Planuojamas išvykimas {clockLabel(route?.plannedDepartureAt)} · ETA pagal planą
+            </Text>
+          ) : null}
           {progress.notLoadedStops > 0 ? <Text style={styles.notLoadedSummary}>Nepakrauta: {progress.notLoadedStops}</Text> : null}
           {progress.totalUnknownWeightStops > 0 ? <Text style={styles.summaryText}>{progress.loadedUnknownWeightStops} / {progress.totalUnknownWeightStops} pakrautų taškų svoris nežinomas</Text> : null}
         </View>
@@ -348,34 +368,71 @@ export default function LoadingScreen() {
           <Text style={styles.primaryText}>{route.startOdometer === null && !route.startOdometerSkippedAt ? 'Įvesti odometrą ir pradėti' : 'Pradėti maršrutą'}</Text>
         </Pressable>
       ) : null}
-      {stops.length > 1 ? (
+      {stops.length > 1 && (profile.role !== 'driver' || profile.permissions?.canReorderAssignedRoute) ? (
         <Pressable style={styles.reverseButton} onPress={reverseDirection}>
           <Text style={styles.reverseText}>⇄ Apsukti pristatymo kryptį</Text>
         </Pressable>
       ) : null}
-      {route?.status === 'loading' ? (
+      {route?.status === 'loading' && (profile.role !== 'driver' || profile.permissions?.canReorderAssignedRoute) ? (
         <Pressable style={styles.reverseButton} onPress={pickDifferentAlternative}>
           <Text style={styles.reverseText}>← Pasirinkti kitą maršruto variantą</Text>
         </Pressable>
       ) : null}
       {undo ? <Pressable style={styles.undoButton} onPress={undoLast}><Text style={styles.undoText}>Atšaukti paskutinį pakrovimą</Text></Pressable> : null}
-      {stops.map((stop) => {
+      {stops.map((stop, index) => {
         const expanded = expandedStopId === stop.id;
         const markedNotLoaded = stop.loadingStatus === 'pending' && stop.deliveryStatus === 'failed';
+        const statusTone = stop.loadingStatus === 'loaded'
+          ? 'loaded'
+          : markedNotLoaded
+            ? 'notLoaded'
+            : 'pending';
         return (
           <SwipeActionCard
             key={stop.id}
             onSwipeRight={stop.loadingStatus === 'loaded' ? undefined : () => markLoaded(stop.id)}
             onSwipeLeft={stop.loadingStatus === 'loaded' ? () => markUnloaded(stop.id) : markedNotLoaded ? undefined : () => beginNotLoaded(stop.id)}
-            style={[styles.card, stop.loadingStatus === 'loaded' && styles.loadedCard, markedNotLoaded && styles.notLoadedCard]}>
+            style={[
+              styles.card,
+              statusTone === 'loaded' && styles.loadedCard,
+              statusTone === 'notLoaded' && styles.notLoadedCard,
+              statusTone === 'pending' && styles.pendingCard,
+            ]}>
+            <View
+              style={[
+                styles.statusRail,
+                statusTone === 'loaded' && styles.statusRailLoaded,
+                statusTone === 'notLoaded' && styles.statusRailNotLoaded,
+                statusTone === 'pending' && styles.statusRailPending,
+              ]}
+            />
             <Pressable
               accessibilityRole="button"
               onPress={() => setExpandedStopId(expanded ? null : stop.id)}
               style={styles.cardHeader}>
+              <View style={[
+                styles.orderBadge,
+                statusTone === 'loaded' && styles.orderBadgeLoaded,
+                statusTone === 'notLoaded' && styles.orderBadgeNotLoaded,
+              ]}>
+                <Text style={[
+                  styles.orderBadgeText,
+                  statusTone === 'loaded' && styles.orderBadgeTextLoaded,
+                  statusTone === 'notLoaded' && styles.orderBadgeTextNotLoaded,
+                ]}>
+                  {statusTone === 'loaded' ? '✓' : index + 1}
+                </Text>
+              </View>
               <View style={styles.cardHeaderText}>
                 <Text style={styles.address}>{stop.normalizedAddress ?? stop.originalAddress}{stop.priorityFirst ? ' ⭐' : ''}</Text>
+                <Text style={styles.statusCaption}>
+                  {statusTone === 'loaded' ? 'Pakrauta' : statusTone === 'notLoaded' ? 'Nepakrauta' : 'Laukia pakrovimo'}
+                </Text>
               </View>
-              <Text style={styles.weight}>{stop.weightKg === null ? 'Svoris nežinomas' : `${formatWeightKg(stop.weightKg)} kg`}</Text>
+              <View style={styles.weightChip}>
+                <Text style={styles.weight}>{stop.weightKg === null ? '?' : formatWeightKg(stop.weightKg)}</Text>
+                <Text style={styles.weightUnit}>{stop.weightKg === null ? 'kg' : 'kg'}</Text>
+              </View>
               <Text style={styles.chevron}>{expanded ? '▾' : '▸'}</Text>
             </Pressable>
             {expanded ? (
@@ -444,42 +501,186 @@ export default function LoadingScreen() {
 }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
-  plannedSummary: { padding: spacing.lg, borderRadius: 20, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.accent, gap: spacing.sm },
-  summary: { padding: spacing.lg, borderRadius: 20, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, gap: spacing.xs, shadowColor: '#183525', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.09, shadowRadius: 14, elevation: 3 },
-  summaryTitle: { color: colors.text, fontSize: 18, fontFamily: fonts.heading },
+  plannedSummary: {
+    padding: spacing.lg,
+    borderRadius: 20,
+    backgroundColor: colors.surface,
+    borderWidth: 2,
+    borderColor: colors.brandNavy,
+    gap: spacing.sm,
+  },
+  summary: {
+    padding: spacing.lg,
+    borderRadius: 20,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.brandNavy,
+    gap: spacing.xs,
+    shadowColor: '#183525',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.09,
+    shadowRadius: 14,
+    elevation: 3,
+  },
+  summaryHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    marginBottom: spacing.xs,
+  },
+  summaryTitle: { color: colors.text, fontSize: 18, fontFamily: fonts.heading, flexShrink: 1 },
+  percentPill: {
+    minWidth: 52,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: colors.brandNavy,
+    alignItems: 'center',
+  },
+  percentPillText: { color: '#FFFFFF', fontSize: 13, fontFamily: fonts.heading },
   summaryText: { color: colors.textMuted, lineHeight: 20 },
+  departureBadge: {
+    marginTop: spacing.xs,
+    color: colors.brandNavy,
+    fontSize: 14,
+    fontFamily: fonts.heading,
+  },
+  scheduleHint: { color: colors.textMuted, fontSize: 12, lineHeight: 17 },
   notLoadedSummary: { color: colors.danger, fontFamily: fonts.headingSemiBold },
-  markAllButton: { minHeight: 52, borderRadius: 14, backgroundColor: colors.brandNavy, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
+  markAllButton: {
+    minHeight: 52,
+    borderRadius: 14,
+    backgroundColor: colors.info,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.md,
+  },
   markAllText: { color: '#fff', fontSize: 16, fontFamily: fonts.heading, textAlign: 'center' },
-  allLoadedState: { minHeight: 52, borderRadius: 14, borderWidth: 2, borderColor: colors.accent, backgroundColor: colors.accentSoft, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
-  allLoadedText: { color: colors.accent, fontSize: 16, fontFamily: fonts.heading, textAlign: 'center' },
-  card: { padding: spacing.md, borderRadius: 18, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.xs, shadowColor: '#183525', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.06, shadowRadius: 10, elevation: 2 },
-  loadedCard: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
+  allLoadedState: {
+    minHeight: 52,
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: colors.success,
+    backgroundColor: colors.accentSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.md,
+  },
+  allLoadedText: { color: colors.success, fontSize: 16, fontFamily: fonts.heading, textAlign: 'center' },
+  card: {
+    padding: spacing.md,
+    paddingLeft: spacing.md + 6,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    gap: spacing.xs,
+    overflow: 'hidden',
+    shadowColor: '#183525',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  pendingCard: { borderColor: '#C5CED6', backgroundColor: colors.surface },
+  loadedCard: { borderColor: colors.success, backgroundColor: colors.accentSoft },
   notLoadedCard: { borderColor: colors.danger, backgroundColor: '#FFF5F3' },
-  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 44 },
-  cardHeaderText: { flex: 1, minWidth: 0 },
+  statusRail: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 6,
+  },
+  statusRailPending: { backgroundColor: colors.info },
+  statusRailLoaded: { backgroundColor: colors.success },
+  statusRailNotLoaded: { backgroundColor: colors.danger },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 48 },
+  cardHeaderText: { flex: 1, minWidth: 0, gap: 2 },
+  orderBadge: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    backgroundColor: '#E8EEF6',
+    borderWidth: 1,
+    borderColor: '#B7C6DA',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  orderBadgeLoaded: { backgroundColor: colors.success, borderColor: colors.success },
+  orderBadgeNotLoaded: { backgroundColor: colors.danger, borderColor: colors.danger },
+  orderBadgeText: { color: colors.info, fontSize: 13, fontFamily: fonts.heading },
+  orderBadgeTextLoaded: { color: '#FFFFFF' },
+  orderBadgeTextNotLoaded: { color: '#FFFFFF' },
   chevron: { color: colors.textMuted, fontSize: 16, fontFamily: fonts.heading },
-  address: { color: colors.text, fontSize: 16, fontFamily: fonts.heading },
-  weight: { color: colors.text, fontSize: 16, fontFamily: fonts.headingSemiBold },
-  eta: { color: colors.accent, fontSize: 16, fontFamily: fonts.heading },
+  address: { color: colors.text, fontSize: 15, fontFamily: fonts.heading },
+  statusCaption: { color: colors.textMuted, fontSize: 12, fontFamily: fonts.headingSemiBold },
+  weightChip: {
+    minWidth: 54,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+  },
+  weight: { color: colors.text, fontSize: 14, fontFamily: fonts.heading },
+  weightUnit: { color: colors.textMuted, fontSize: 10, fontFamily: fonts.headingSemiBold },
+  eta: { color: colors.info, fontSize: 15, fontFamily: fonts.heading },
   meta: { color: colors.textMuted, lineHeight: 19 },
   informational: { color: colors.textMuted, opacity: 0.7, lineHeight: 19 },
   notes: { color: colors.text, lineHeight: 19 },
   loadingActions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
-  loadButton: { flex: 1, minHeight: 48, borderRadius: 12, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.sm },
+  loadButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 12,
+    backgroundColor: colors.success,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.sm,
+  },
   loadedButton: { opacity: 0.65 },
   loadButtonText: { color: '#fff', fontFamily: fonts.heading },
-  notLoadedButton: { flex: 1, minHeight: 48, borderRadius: 12, borderWidth: 2, borderColor: colors.danger, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.sm },
+  notLoadedButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: colors.danger,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.sm,
+  },
   notLoadedButtonText: { color: colors.danger, fontFamily: fonts.heading, textAlign: 'center' },
   notLoadedReason: { color: colors.danger, fontFamily: fonts.headingSemiBold },
-  reverseButton: { minHeight: 46, borderRadius: 12, borderWidth: 1, borderColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
-  reverseText: { color: colors.accent, fontFamily: fonts.heading },
-  undoButton: { minHeight: 46, borderWidth: 2, borderColor: colors.warning, alignItems: 'center', justifyContent: 'center' },
+  reverseButton: {
+    minHeight: 46,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.brandNavy,
+    backgroundColor: colors.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reverseText: { color: colors.brandNavy, fontFamily: fonts.heading },
+  undoButton: {
+    minHeight: 46,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: colors.warning,
+    backgroundColor: '#FFF8EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   undoText: { color: colors.warning, fontFamily: fonts.heading },
   odometerCard: { gap: spacing.sm, padding: spacing.lg, borderRadius: 20, borderWidth: 1, borderColor: colors.accent, backgroundColor: colors.surface },
   input: { minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.md, color: colors.text, backgroundColor: colors.background, fontFamily: fonts.body },
-  secondaryButton: { minHeight: 56, borderRadius: 14, borderWidth: 2, borderColor: colors.accent, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
-  secondaryText: { color: colors.accent, fontFamily: fonts.heading, fontSize: 16 },
+  secondaryButton: { minHeight: 56, borderRadius: 14, borderWidth: 2, borderColor: colors.brandNavy, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
+  secondaryText: { color: colors.brandNavy, fontFamily: fonts.heading, fontSize: 16 },
   linkButton: { minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   linkText: { color: colors.textMuted, fontFamily: fonts.headingSemiBold },
   primaryButton: { minHeight: 56, borderRadius: 14, backgroundColor: colors.brandNavy, alignItems: 'center', justifyContent: 'center' },

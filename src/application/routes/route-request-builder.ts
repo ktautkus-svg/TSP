@@ -1,7 +1,6 @@
 import { createBaseRequest } from '@/domain/routing/scenarios';
 import type { OptimizationStop, RouteOptimizationRequest } from '@/domain/routing/models';
 import type { DeliveryStop, Route } from '@/domain/route';
-import { normalizeProviderDepartureAt } from '@/application/parsing/text-parser';
 
 /**
  * Shared DeliveryStop -> OptimizationStop mapping, used both for the initial
@@ -62,9 +61,10 @@ export function buildOptimizationRequestFromRoute(
     }
   }
   const base = createBaseRequest(stops.length);
-  const plannedDepartureAt = normalizeProviderDepartureAt(
-    route.plannedDepartureAt ?? new Date().toISOString(),
-  );
+  // Keep the driver's chosen start (e.g. 04:00) even when planning the night
+  // before. Live "from now" ETAs begin only after StartRoute. Providers that
+  // refuse a past departureTime bump it themselves in the gateway adapters.
+  const plannedDepartureAt = resolvePlannedDeparture(route.plannedDepartureAt);
   const startLocation = {
     id: 'route-start',
     label: 'Startas',
@@ -107,6 +107,13 @@ function requireEndpoint(endpoint: Route['startLocation'], label: string) {
     throw new Error(`Maršruto ${label} vieta nepatvirtinta.`);
   }
   return endpoint;
+}
+
+function resolvePlannedDeparture(value: string | null): string {
+  if (!value) return new Date().toISOString();
+  const ms = Date.parse(value);
+  if (!Number.isFinite(ms)) throw new Error('Neteisingas planuojamo išvykimo laikas.');
+  return value;
 }
 
 function absoluteWindow(from: string, to: string, departureAt: string) {

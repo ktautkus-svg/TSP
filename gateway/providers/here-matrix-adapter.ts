@@ -8,6 +8,7 @@ import type {
 import {
   fetchProviderJson,
   invalidProviderPayload,
+  normalizeGoogleDepartureAt,
 } from './adapter-utils';
 
 type HereMatrixPayload = {
@@ -47,7 +48,9 @@ export class HereMatrixAdapter implements MatrixProviderAdapter {
       routingMode: 'fast',
       transportMode: request.vehicle.type === 'truck' ? 'truck' : 'car',
       departureTime:
-        request.trafficMode === 'none' ? 'any' : request.departureAt,
+        request.trafficMode === 'none'
+          ? 'any'
+          : normalizeGoogleDepartureAt(request.departureAt),
       ...(request.vehicle.type === 'truck' &&
       request.vehicle.useRoadRestrictions
         ? { vehicle: toHereVehicle(request) }

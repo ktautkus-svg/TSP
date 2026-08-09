@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Image, StyleSheet, Text, View } from 'react-native';
-import Svg, { Defs, Ellipse, LinearGradient, Path, RadialGradient, Rect, Stop } from 'react-native-svg';
+import Svg, { Circle, Defs, Ellipse, LinearGradient, Path, RadialGradient, Rect, Stop } from 'react-native-svg';
 import type { RouteWeatherScene } from '@/application/weather/route-weather';
 
 const roadScene = require('../../assets/images/route-windshield-day-v1.png');
@@ -94,29 +94,29 @@ function WeatherOverlay({ condition }: { condition: RouteWeatherScene['condition
   );
 }
 
-// A flat tint just reads as "a dark photo". Real dusk keeps a warm band on the
-// horizon under a cold sky, and night adds headlight spill on the tarmac, so
-// each phase is painted as a vertical gradient plus an optional light cone.
+// Through a windscreen the world never goes pitch black: the sky keeps a soft
+// indigo, the road stays readable under headlights, and at night a moon gives
+// the eye something to land on instead of a flat dark wash.
 const SKY_GRADIENTS: Record<Exclude<RouteWeatherScene['timeOfDay'], 'day'>, { offset: number; color: string; opacity: number }[]> = {
   dawn: [
-    { offset: 0, color: '#16265C', opacity: 0.62 },
-    { offset: 0.4, color: '#6E5A93', opacity: 0.42 },
-    { offset: 0.54, color: '#FFA85C', opacity: 0.46 },
-    { offset: 0.68, color: '#8A5A48', opacity: 0.44 },
-    { offset: 1, color: '#1B1622', opacity: 0.58 },
+    { offset: 0, color: '#16265C', opacity: 0.55 },
+    { offset: 0.4, color: '#6E5A93', opacity: 0.38 },
+    { offset: 0.54, color: '#FFA85C', opacity: 0.42 },
+    { offset: 0.68, color: '#8A5A48', opacity: 0.36 },
+    { offset: 1, color: '#1B1622', opacity: 0.4 },
   ],
   dusk: [
-    { offset: 0, color: '#0E1038', opacity: 0.82 },
-    { offset: 0.36, color: '#3A2660', opacity: 0.66 },
-    { offset: 0.52, color: '#D96B26', opacity: 0.5 },
-    { offset: 0.66, color: '#5A2C33', opacity: 0.62 },
-    { offset: 1, color: '#080A16', opacity: 0.8 },
+    { offset: 0, color: '#0E1038', opacity: 0.58 },
+    { offset: 0.36, color: '#3A2660', opacity: 0.42 },
+    { offset: 0.52, color: '#D96B26', opacity: 0.38 },
+    { offset: 0.66, color: '#5A2C33', opacity: 0.4 },
+    { offset: 1, color: '#080A16', opacity: 0.48 },
   ],
   night: [
-    { offset: 0, color: '#02050F', opacity: 0.93 },
-    { offset: 0.44, color: '#050B1E', opacity: 0.88 },
-    { offset: 0.56, color: '#1D2743', opacity: 0.74 },
-    { offset: 1, color: '#01030A', opacity: 0.92 },
+    { offset: 0, color: '#0A1430', opacity: 0.52 },
+    { offset: 0.38, color: '#121C3A', opacity: 0.4 },
+    { offset: 0.58, color: '#1A2748', opacity: 0.28 },
+    { offset: 1, color: '#0B1020', opacity: 0.45 },
   ],
 };
 
@@ -133,12 +133,30 @@ function TimeOfDayOverlay({ timeOfDay }: { timeOfDay: RouteWeatherScene['timeOfD
           ))}
         </LinearGradient>
         <RadialGradient id="headlight" cx="50%" cy="50%" r="50%">
-          <Stop offset="0" stopColor="#FFF2CC" stopOpacity={timeOfDay === 'night' ? 0.42 : 0.22} />
+          <Stop offset="0" stopColor="#FFF2CC" stopOpacity={timeOfDay === 'night' ? 0.5 : 0.28} />
+          <Stop offset="0.55" stopColor="#FFE8A8" stopOpacity={timeOfDay === 'night' ? 0.18 : 0.1} />
           <Stop offset="1" stopColor="#FFF2CC" stopOpacity={0} />
+        </RadialGradient>
+        <RadialGradient id="moonGlow" cx="50%" cy="50%" r="50%">
+          <Stop offset="0" stopColor="#F4F7FF" stopOpacity={0.55} />
+          <Stop offset="0.45" stopColor="#D7E4FF" stopOpacity={0.22} />
+          <Stop offset="1" stopColor="#9BB6FF" stopOpacity={0} />
         </RadialGradient>
       </Defs>
       <Rect x="0" y="0" width="100" height="100" fill="url(#sky)" />
-      {headlights ? <Ellipse cx="50" cy="86" rx="42" ry="20" fill="url(#headlight)" /> : null}
+      {timeOfDay === 'night' ? (
+        <>
+          <Circle cx="78" cy="22" r="14" fill="url(#moonGlow)" />
+          <Circle cx="78" cy="22" r="6.2" fill="#F7FAFF" opacity={0.92} />
+          <Circle cx="80.6" cy="20.2" r="5.4" fill="#0A1430" opacity={0.55} />
+          <Circle cx="18" cy="16" r="0.7" fill="#FFFFFF" opacity={0.7} />
+          <Circle cx="28" cy="28" r="0.55" fill="#FFFFFF" opacity={0.55} />
+          <Circle cx="42" cy="14" r="0.6" fill="#FFFFFF" opacity={0.65} />
+          <Circle cx="55" cy="24" r="0.45" fill="#FFFFFF" opacity={0.5} />
+          <Circle cx="88" cy="38" r="0.5" fill="#FFFFFF" opacity={0.55} />
+        </>
+      ) : null}
+      {headlights ? <Ellipse cx="50" cy="86" rx="44" ry="22" fill="url(#headlight)" /> : null}
     </Svg>
   );
 }

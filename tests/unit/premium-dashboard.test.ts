@@ -49,6 +49,12 @@ describe('premium route dashboard', () => {
     expect(road).toContain('stroke="#83D13D"');
     expect(road).toContain('GERO POILSIO!');
     expect(road).toContain('<WeatherOverlay');
+    expect(road).toContain('<TimeOfDayOverlay');
+    // Night must stay readable through glass: soft indigo, moon, not a blackout.
+    expect(road).toContain("timeOfDay === 'night'");
+    expect(road).toContain('moonGlow');
+    expect(road).toContain('opacity: 0.52');
+    expect(road).not.toContain('opacity: 0.93');
   });
 
   it('matches the compact continuous dashboard while preserving route actions', () => {

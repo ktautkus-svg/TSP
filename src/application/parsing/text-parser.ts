@@ -374,7 +374,12 @@ export function buildOptimizationRequestFromPoints(
   options: BuildOptimizationRequestOptions,
 ): RouteOptimizationRequest {
   const baseRequest = createBaseRequest(Math.max(points.length, 1));
-  const plannedDepartureAt = normalizeProviderDepartureAt(options.departureAt);
+  // Schedule from the planned wall-clock time. Traffic providers bump a past
+  // departure themselves; doing it here rewrote the whole day from "now".
+  const plannedDepartureAt = options.departureAt;
+  if (!Number.isFinite(Date.parse(plannedDepartureAt))) {
+    throw new Error('Neteisingas planuojamo išvykimo laikas.');
+  }
 
   const stops: OptimizationStop[] = points.map((point, index) => {
     const id = `stop-${index + 1}`;
