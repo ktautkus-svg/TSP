@@ -59,6 +59,7 @@
     "benchmark:routing:cache": "tsx ./scripts/benchmark-routing-providers.ts --mode=cache-only",
     "benchmark:routing:refresh": "tsx ./scripts/benchmark-routing-providers.ts --mode=refresh",
     "benchmark:import": "tsx ./scripts/benchmark-import.ts",
+    "diagnose:planning-modes": "tsx ./scripts/compare-planning-modes.ts",
     "pilot:ios": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/pilot-ios.ps1",
     "pilot:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/pilot-stop.ps1",
     "pwa:build": "node ./scripts/pwa-build.mjs",

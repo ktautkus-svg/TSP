@@ -19,6 +19,7 @@ import { GatewayPolylineProvider } from '@/infrastructure/routing/providers/gate
 import { FallbackTravelCostProvider } from '@/infrastructure/routing/providers/fallback-travel-cost-provider';
 import { GoogleTravelCostProvider, HereTravelCostProvider } from '@/infrastructure/routing/providers/gateway-travel-cost-provider';
 import { SyntheticTravelCostProvider } from '@/infrastructure/routing/providers/synthetic-travel-cost-provider';
+import { clockLabel, durationLabel } from '@/ui/route-eta-labels';
 import { spacing } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
@@ -482,6 +483,13 @@ function CandidateCard(props: {
     .map((id) => stopMap.get(id))
     .filter((stop): stop is OptimizationStop => Boolean(stop));
   const totalWeightKg = orderedStops.reduce((sum, stop) => sum + (stop.weightKg ?? 0), 0);
+  // Handover times, not raw arrivals: waiting for a door that opens at 08:00 is
+  // already baked into the schedule, so the first delivery reads honestly.
+  const scheduleById = new Map(props.candidate.schedules.map((item) => [item.stopId, item]));
+  const departure = clockLabel(props.request.plannedDepartureAt);
+  const firstDelivery = clockLabel(props.candidate.schedules[0]?.serviceStartAt);
+  const lastDelivery = clockLabel(props.candidate.schedules.at(-1)?.departureAt);
+  const waitingMinutes = Math.round(props.candidate.waitingMinutes);
 
   return (
     <View style={[styles.card, props.recommended && styles.recommended, props.selected && styles.selected]}>
@@ -493,6 +501,17 @@ function CandidateCard(props: {
         <Text style={styles.metrics}>
           {Math.round(props.candidate.totalWorkMinutes)} min · {props.candidate.totalDistanceKm.toFixed(1)} km · {Math.round(totalWeightKg)} kg
         </Text>
+        {firstDelivery ? (
+          <Text style={styles.scheduleLine} testID={`candidate-schedule-${props.candidate.id}`}>
+            {departure ? `Išvykimas ${departure} · ` : ''}1-as pristatymas {firstDelivery}
+            {lastDelivery ? ` · paskutinis ${lastDelivery}` : ''}
+          </Text>
+        ) : null}
+        {waitingMinutes > 0 ? (
+          <Text style={styles.scheduleHint}>
+            Laukiama {durationLabel(waitingMinutes)}, kol atsidarys pristatymo langai.
+          </Text>
+        ) : null}
       </Pressable>
       <Pressable onPress={props.onToggleDetails} style={styles.detailsButton}>
         <Text style={styles.secondaryText}>{props.expanded ? 'Slėpti eiliškumą' : 'Rodyti eiliškumą'}</Text>
@@ -502,11 +521,15 @@ function CandidateCard(props: {
       </Pressable>
       {props.expanded ? (
         <View style={styles.sequenceList} testID={`candidate-sequence-${props.candidate.id}`}>
-          {orderedStops.map((stop, index) => (
-            <Text key={stop.id} style={styles.sequenceRow}>
-              {index + 1}. {stop.location.label}{stop.weightKg !== null ? ` · ${Math.round(stop.weightKg)} kg` : ''}
-            </Text>
-          ))}
+          {orderedStops.map((stop, index) => {
+            const at = clockLabel(scheduleById.get(stop.id)?.serviceStartAt);
+            return (
+              <Text key={stop.id} style={styles.sequenceRow}>
+                {index + 1}. {at ? `${at} · ` : ''}{stop.location.label}
+                {stop.weightKg !== null ? ` · ${Math.round(stop.weightKg)} kg` : ''}
+              </Text>
+            );
+          })}
         </View>
       ) : null}
     </View>
@@ -526,6 +549,8 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   candidateTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   selectionLabel: { color: colors.primary, fontWeight: '800', fontSize: 13 },
   metrics: { color: colors.primary, fontSize: 18, fontWeight: '900' },
+  scheduleLine: { color: colors.text, fontSize: 13, fontWeight: '700' },
+  scheduleHint: { color: colors.textMuted, fontSize: 12, lineHeight: 16 },
   sequenceList: { marginTop: spacing.sm, gap: 2 },
   sequenceRow: { color: colors.textMuted, fontSize: 13, lineHeight: 19 },
   detailsButton: { minHeight: 42, borderRadius: 12, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },

@@ -96,10 +96,14 @@ describe('premium route dashboard', () => {
     expect(source('src/app/index.tsx')).toContain('<BrandHeader />');
     expect(source('src/app/_layout.tsx')).toContain("backgroundColor: '#072D1B'");
     const header = source('src/components/brand-header.tsx');
-    expect(header).toContain('<Text style={styles.brandName}>TSP</Text>');
-    expect(header).toContain('logoContainer');
-    expect(header).toContain('maxHeight: 34');
-    // A raster lockup turns to mush at header size and duplicates the wordmark.
-    expect(header).not.toContain('<Image');
+    // The wordmark lives inside the logo artwork, so the header must not repeat
+    // it as text, and the logo must be the padding-free crop.
+    expect(header).toContain('tsp-logo-mark.png');
+    expect(header).toContain('resizeMode="contain"');
+    expect(header).toContain('accessibilityLabel="TSP – Tikslus siuntų pristatymas"');
+    expect(header).toContain('LOGO_ASPECT_RATIO');
+    expect(header).not.toContain('brandName');
+    expect(header).not.toContain('TIKSLUS SIUNTŲ PRISTATYMAS<');
+    expect(header).not.toContain('>TSP<');
   });
 });

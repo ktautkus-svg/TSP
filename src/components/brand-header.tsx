@@ -1,23 +1,26 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, View } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 
 import { spacing } from '@/ui/tokens';
+
+// Pre-cropped to its artwork, so it fills the header band instead of floating
+// inside a transparent canvas. The wordmark is part of the logo, which is why
+// the header carries no separate brand text.
+const brandLogo = require('../../assets/images/tsp-logo-mark.png');
+const LOGO_ASPECT_RATIO = 915 / 456;
+// Fills the header band exactly: 12px padding + 48px logo + 12px padding = 72.
+const LOGO_HEIGHT = 48;
 
 export function BrandHeader({ onMenuPress }: { onMenuPress?: () => void } = {}) {
   return (
     <View style={styles.header} testID="brand-header">
       <View style={styles.brandRow}>
-        <View style={styles.logoContainer}>
-          <Svg accessibilityLabel="TSP – Tikslus siuntų pristatymas" width={40} height={30} viewBox="0 0 40 30">
-            <Path d="M2 3h36l-6 6H8Z" fill="#FFFFFF" />
-            <Path d="M8.5 11.5h23l-6 6h-11Z" fill="#FFFFFF" />
-            <Path d="M15 20h10l-5 7Z" fill="#86C440" />
-          </Svg>
-        </View>
-        <View style={styles.brandText}>
-          <Text style={styles.brandName}>TSP</Text>
-          <Text numberOfLines={1} style={styles.brandSubtitle}>TIKSLUS SIUNTŲ PRISTATYMAS</Text>
-        </View>
+        <Image
+          accessibilityLabel="TSP – Tikslus siuntų pristatymas"
+          resizeMode="contain"
+          source={brandLogo}
+          style={styles.logo}
+        />
       </View>
       <View style={styles.headerActions}>
         <View style={styles.notification}>
@@ -51,20 +54,14 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: spacing.md,
   },
-  brandRow: { flex: 1, flexDirection: 'row', alignItems: 'center', minWidth: 0, overflow: 'hidden', gap: 8 },
-  logoContainer: {
-    width: 44,
-    height: 34,
-    maxWidth: 44,
-    maxHeight: 34,
-    flexShrink: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
+  brandRow: { flex: 1, flexDirection: 'row', alignItems: 'center', minWidth: 0, overflow: 'hidden' },
+  logo: {
+    height: LOGO_HEIGHT,
+    width: LOGO_HEIGHT * LOGO_ASPECT_RATIO,
+    maxHeight: LOGO_HEIGHT,
+    maxWidth: '100%',
+    flexShrink: 1,
   },
-  brandText: { minWidth: 0, justifyContent: 'center' },
-  brandName: { color: '#FFFFFF', fontSize: 25, lineHeight: 27, fontWeight: '900', letterSpacing: 0.4 },
-  brandSubtitle: { color: '#EAF2EC', fontSize: 7, lineHeight: 9, fontWeight: '800', letterSpacing: 0.55 },
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',

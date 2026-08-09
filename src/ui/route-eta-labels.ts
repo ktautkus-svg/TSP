@@ -12,6 +12,18 @@ export function etaLabel(stop?: DeliveryStop | null): string {
   }).format(new Date(value))}`;
 }
 
+/** Wall-clock "HH:MM" for a planned timestamp, or null when there is nothing to show. */
+export function clockLabel(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+  return new Intl.DateTimeFormat('lt-LT', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date);
+}
+
 /** Formats a minute count as "X val. Y min." once it reaches an hour, instead of e.g. "170 min." */
 export function durationLabel(totalMinutes: number): string {
   const abs = Math.round(Math.abs(totalMinutes));

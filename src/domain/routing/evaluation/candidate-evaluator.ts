@@ -53,13 +53,21 @@ export function evaluateCandidate(input: {
       request.planningMode === 'with_time_windows'
         ? stop.requiredTimeWindow
         : undefined;
-    const serviceStart = required
-      ? Math.max(cursor, Date.parse(required.from))
-      : cursor;
+    // A driver who arrives before the door opens waits at the kerb; he does not
+    // drive laps to burn the clock. Modelling the wait for every known window
+    // stops early arrival from looking more expensive than extra kilometres.
+    const honouredWindow =
+      request.planningMode === 'with_time_windows'
+        ? required ?? stop.informationalTimeWindow
+        : undefined;
+    const opensAt = honouredWindow ? Date.parse(honouredWindow.from) : Number.NaN;
+    const serviceStart = Number.isFinite(opensAt) ? Math.max(cursor, opensAt) : cursor;
     const waiting = Math.max(0, (serviceStart - cursor) / 60_000);
     const late = required ? Math.max(0, (cursor - Date.parse(required.to)) / 60_000) : 0;
+    // Measured at the moment of handover, so waiting for the window to open is
+    // not counted a second time as a mismatch.
     const informationalMismatch = request.planningMode === 'with_time_windows'
-      ? timeWindowMismatch(cursor, stop.informationalTimeWindow)
+      ? timeWindowMismatch(serviceStart, stop.informationalTimeWindow)
       : 0;
     cursor = serviceStart + stop.serviceDurationMinutes * 60_000;
     const loadAfter = Math.max(0, remainingLoadKg - numericWeightKg(stop.weightKg));

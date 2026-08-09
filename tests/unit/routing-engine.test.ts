@@ -275,6 +275,35 @@ describe('time-window planning stays geographically sane', () => {
     expect(result.recommended!.stopSequence[0]).toBe(early.id);
   });
 
+  it('waits for a late-opening door instead of buying kilometres to burn the clock', async () => {
+    // Leaving well before the windows open used to make waiting look more
+    // expensive per minute than driving, so the engine drove laps around town.
+    const request = twoClusterRequest();
+    request.plannedDepartureAt = '2026-06-15T03:00:00.000Z';
+    for (const stop of request.stops) {
+      stop.requiredTimeWindow = { from: '2026-06-15T07:00:00.000Z', to: '2026-06-15T15:00:00.000Z' };
+    }
+    const engine = new RoutingEngine(new SyntheticTravelCostProvider('linear'));
+    const timed = await engine.optimize(request);
+    const untimed = await engine.optimize({ ...request, planningMode: 'ignore_time_windows' });
+    const timedKm = timed.recommended!.totalDistanceKm;
+    const untimedKm = untimed.recommended!.totalDistanceKm;
+    expect(timedKm).toBeLessThanOrEqual(untimedKm * 1.05);
+    expect(timed.recommended!.waitingMinutes).toBeGreaterThan(0);
+  });
+
+  it('does not charge an early arrival twice as waiting and as a window mismatch', async () => {
+    const request = twoClusterRequest(4);
+    request.plannedDepartureAt = '2026-06-15T03:00:00.000Z';
+    for (const stop of request.stops) {
+      stop.requiredTimeWindow = { from: '2026-06-15T07:00:00.000Z', to: '2026-06-15T15:00:00.000Z' };
+      stop.informationalTimeWindow = stop.requiredTimeWindow;
+    }
+    const result = await new RoutingEngine(new SyntheticTravelCostProvider('linear')).optimize(request);
+    expect(result.recommended!.waitingMinutes).toBeGreaterThan(0);
+    expect(result.recommended!.rawScoreComponents.informationalTimeMismatch).toBe(0);
+  });
+
   it('never blocks a route just because a window cannot be met', async () => {
     const request = twoClusterRequest(6);
     request.stops[2]!.requiredTimeWindow = {
