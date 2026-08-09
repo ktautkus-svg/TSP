@@ -3,6 +3,7 @@ import { BackHandler, KeyboardAvoidingView, Linking, Modal, Platform, Pressable,
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useLocalAccess } from '@/application/auth/local-access-context';
 
 import { Alert } from '@/ui/alert';
 import { buildNavigationUrls, navigationTargetFromStop } from '@/application/navigation/navigation-url-builder';
@@ -69,6 +70,7 @@ function recalcTimestamp(stop: DeliveryStop): string | null {
 }
 
 export default function DeliveryScreen() {
+  const { profile } = useLocalAccess();
   const db = useSQLiteContext();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -480,7 +482,7 @@ export default function DeliveryScreen() {
                     remaining={progress.remainingStops}
                     size={gaugeSize}
                     title="Taškai"
-                    unit="vnt."
+                    unit="tšk."
                     value={progress.totalStops - progress.remainingStops}
                   />
                 </View>
@@ -706,8 +708,8 @@ export default function DeliveryScreen() {
           </Pressable>
           {route?.status === 'in_progress' && activeMenuExpanded ? (
             <View style={styles.menuSubmenu} testID="active-route-menu-actions">
-              <Pressable testID="toggle-add-stop" style={styles.menuSubitem} onPress={() => { setMenuOpen(false); setActiveMenuExpanded(false); setShowAddStop(true); }}><Text style={styles.menuSubitemText}>Įtraukti sustojimą</Text></Pressable>
-              <Pressable
+              {profile.role !== 'driver' || profile.permissions?.canAddStops ? <Pressable testID="toggle-add-stop" style={styles.menuSubitem} onPress={() => { setMenuOpen(false); setActiveMenuExpanded(false); setShowAddStop(true); }}><Text style={styles.menuSubitemText}>Įtraukti sustojimą</Text></Pressable> : null}
+              {profile.role !== 'driver' || profile.permissions?.canRecalculateRoute ? <Pressable
                 disabled={busy}
                 style={[styles.menuSubitem, busy && styles.disabled]}
                 onPress={() => {
@@ -717,9 +719,9 @@ export default function DeliveryScreen() {
                   else Alert.alert('Perskaičiuoti dar negalima', 'Pirmiausia pažymėkite bent vieną pristatymą. Esama maršruto seka nekeičiama.');
                 }}>
                 <Text style={styles.menuSubitemText}>Perskaičiuoti maršrutą</Text>
-              </Pressable>
+              </Pressable> : null}
               <Pressable accessibilityLabel={route?.completionStartedAt ? 'Tęsti užbaigimą' : 'Baigti maršrutą'} disabled={busy} style={[styles.menuSubitem, busy && styles.disabled]} onPress={() => { setMenuOpen(false); setActiveMenuExpanded(false); void beginFinish(); }}><Text style={styles.menuSubitemText}>Baigti maršrutą</Text></Pressable>
-              <Pressable disabled={busy} testID="stop-route-button" style={[styles.menuSubitem, busy && styles.disabled]} onPress={() => { setMenuOpen(false); setActiveMenuExpanded(false); stopRoute(); }}><Text style={styles.menuDangerText}>Nutraukti maršrutą</Text></Pressable>
+              {profile.role !== 'driver' || profile.permissions?.canCancelRoute ? <Pressable disabled={busy} testID="stop-route-button" style={[styles.menuSubitem, busy && styles.disabled]} onPress={() => { setMenuOpen(false); setActiveMenuExpanded(false); stopRoute(); }}><Text style={styles.menuDangerText}>Nutraukti maršrutą</Text></Pressable> : null}
             </View>
           ) : null}
           <Pressable style={styles.menuItem} onPress={() => { setMenuOpen(false); router.push('/statistics' as Href); }}><Text style={styles.menuItemText}>Statistika</Text></Pressable>

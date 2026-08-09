@@ -20,7 +20,11 @@ describe('premium route dashboard', () => {
     expect(gauge).toContain('const fraction = delivered / safeMaximum');
     expect(gauge).toContain('remaining ?? safeMaximum - delivered');
     expect(gauge).toContain('needleAngle');
-    expect(gauge).toContain('LIKO');
+    expect(gauge).toContain('const NEEDLE_TIP = 78');
+    expect(gauge).toContain('stopColor="#FFB24A"');
+    expect(gauge).toContain('stopColor="#D4FF6E"');
+    expect(gauge).not.toContain('LIKO');
+    expect(gauge).toContain('{unit}');
     expect(gauge).toContain('stroke="url(#bezel)"');
     expect(gauge).toContain('stroke="url(#progress)"');
     expect(gauge).toContain('useGrouping: false');

@@ -42,7 +42,9 @@ const TICK_OUTER = 86;
 const TICK_MAJOR_INNER = 74;
 const TICK_MINOR_INNER = 80;
 const LABEL_RADIUS = 63;
-const NEEDLE_TIP = 56;
+// Reaches almost to the progress arc so the tip reads against the dial edge,
+// matching the length the driver sketched over the short stub.
+const NEEDLE_TIP = 78;
 const READOUT_CENTER_Y = 172;
 
 function polar(angle: number, radius: number) {
@@ -138,14 +140,14 @@ export function InstrumentGauge({
               <Stop offset="1" stopColor="#F6F7F5" />
             </LinearGradient>
             <LinearGradient id="progress" x1="0" y1="1" x2="1" y2="0">
-              <Stop offset="0" stopColor="#3F8F2E" />
-              <Stop offset="0.5" stopColor="#78C43C" />
-              <Stop offset="1" stopColor="#B6F06A" />
+              <Stop offset="0" stopColor="#1F5A18" />
+              <Stop offset="0.45" stopColor="#4FA82A" />
+              <Stop offset="1" stopColor="#D4FF6E" />
             </LinearGradient>
             <LinearGradient id="needle" x1="0" y1="0" x2="1" y2="0">
-              <Stop offset="0" stopColor="#8C948E" />
-              <Stop offset="0.45" stopColor="#FFFFFF" />
-              <Stop offset="1" stopColor="#8C948E" />
+              <Stop offset="0" stopColor="#C45A12" />
+              <Stop offset="0.4" stopColor="#FFB24A" />
+              <Stop offset="1" stopColor="#FFF0C8" />
             </LinearGradient>
             <RadialGradient id="hub" cx="38%" cy="32%" r="70%">
               <Stop offset="0" stopColor="#4B534D" />
@@ -166,14 +168,14 @@ export function InstrumentGauge({
           <Path d={FACE_PATH} fill="url(#dial)" stroke="#C2CBC4" strokeOpacity={0.5} strokeWidth={1.6} />
           <Path d={GLASS_PATH} fill="none" stroke="#FFFFFF" strokeOpacity={0.07} strokeWidth={9} />
 
-          <Path d={TRACK_PATH} fill="none" stroke="#20291F" strokeWidth={ARC_WIDTH} strokeLinecap="round" />
+          <Path d={TRACK_PATH} fill="none" stroke="#141A12" strokeWidth={ARC_WIDTH + 1} strokeLinecap="round" />
           {fraction > 0 ? (
             <>
               <Path
                 d={TRACK_PATH}
                 fill="none"
-                stroke="#78C43C"
-                strokeOpacity={0.18}
+                stroke="#D4FF6E"
+                strokeOpacity={0.22}
                 strokeWidth={ARC_WIDTH + 5}
                 strokeLinecap="round"
                 strokeDasharray={`${(ARC_LENGTH * fraction).toFixed(2)} ${ARC_LENGTH.toFixed(2)}`}
@@ -225,10 +227,10 @@ export function InstrumentGauge({
             return (
               <SvgText
                 key={`label-${tick}`}
-                fill="#DCE2DE"
-                fontFamily={fonts.headingSemiBold}
-                fontSize={labelFontSize}
-                fontWeight="700"
+                fill="#FFFFFF"
+                fontFamily={fonts.headingExtraBold}
+                fontSize={labelFontSize + 1.5}
+                fontWeight="900"
                 textAnchor="middle"
                 x={point.x}
                 y={point.y + 3 - (isEndpoint ? 11 : 0)}>
@@ -246,29 +248,33 @@ export function InstrumentGauge({
               y1={CENTER}
               x2={edge.x}
               y2={edge.y}
-              stroke="#9CE05A"
-              strokeOpacity={0.55}
-              strokeWidth={1.2}
+              stroke="#5A8F48"
+              strokeOpacity={0.7}
+              strokeWidth={1.4}
             />
           ))}
 
           <G rotation={needleAngle} origin={`${CENTER}, ${CENTER}`}>
             <Path
-              d={`M 116.5 126 L ${CENTER} ${CENTER - NEEDLE_TIP} L 123.5 126 Z`}
+              d={`M 115.8 128 L ${CENTER} ${CENTER - NEEDLE_TIP} L 124.2 128 Z`}
               fill="#000000"
-              opacity={0.5}
-              transform="translate(3 3)"
+              opacity={0.45}
+              transform="translate(2.5 2.5)"
             />
-            <Path d={`M 115.5 ${CENTER} L ${CENTER} 143 L 124.5 ${CENTER} Z`} fill="#767D78" />
+            {/* Counterweight stays cool grey so it never reads as the green wedge edge. */}
+            <Path d={`M 114.5 ${CENTER} L ${CENTER} 148 L 125.5 ${CENTER} Z`} fill="#5A6260" />
             <Path
-              d={`M 116.5 126 L ${CENTER} ${CENTER - NEEDLE_TIP} L 123.5 126 Z`}
+              d={`M 115.8 128 L ${CENTER} ${CENTER - NEEDLE_TIP} L 124.2 128 Z`}
               fill="url(#needle)"
-              stroke="#EDF1EE"
-              strokeWidth={0.7}
+              stroke="#FFD27A"
+              strokeWidth={0.9}
             />
-            <Path d={`M ${CENTER - 2.4} ${CENTER - NEEDLE_TIP + 12} L ${CENTER} ${CENTER - NEEDLE_TIP} L ${CENTER + 2.4} ${CENTER - NEEDLE_TIP + 12} Z`} fill="#B6F06A" />
+            <Path
+              d={`M ${CENTER - 2.8} ${CENTER - NEEDLE_TIP + 14} L ${CENTER} ${CENTER - NEEDLE_TIP} L ${CENTER + 2.8} ${CENTER - NEEDLE_TIP + 14} Z`}
+              fill="#FFF6D6"
+            />
           </G>
-          <Circle cx={CENTER} cy={CENTER} r={12} fill="url(#hub)" stroke="#B4BBB6" strokeWidth={2} />
+          <Circle cx={CENTER} cy={CENTER} r={12} fill="url(#hub)" stroke="#D0A45A" strokeWidth={2} />
           <Circle cx={CENTER - 3} cy={CENTER - 4} r={3.2} fill="#69726B" opacity={0.75} />
 
           <SvgText
@@ -281,17 +287,19 @@ export function InstrumentGauge({
             y={READOUT_CENTER_Y + readoutFontSize * 0.35}>
             {readout}
           </SvgText>
-          <SvgText
-            fill="#9FB894"
-            fontFamily={fonts.headingSemiBold}
-            fontSize={10}
-            fontWeight="700"
-            letterSpacing={1.6}
-            textAnchor="middle"
-            x={CENTER}
-            y={202}>
-            {unit ? `LIKO, ${unit}` : 'LIKO'}
-          </SvgText>
+          {unit ? (
+            <SvgText
+              fill="#C8D4C4"
+              fontFamily={fonts.heading}
+              fontSize={13}
+              fontWeight="800"
+              letterSpacing={1.2}
+              textAnchor="middle"
+              x={CENTER}
+              y={202}>
+              {unit}
+            </SvgText>
+          ) : null}
         </Svg>
       </View>
     </View>
