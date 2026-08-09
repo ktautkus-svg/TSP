@@ -398,7 +398,7 @@ export default function RouteAlternativesScreen() {
         <View style={styles.manualCard} testID="manual-sequencing-panel">
           <Text style={styles.title}>Rankinis planavimas</Text>
           <Text style={styles.description}>
-            Žvaigždute pažymėkite vieną ar kelis prioritetinius taškus. Eiliškumą keiskite tempdami ☰ rankenėlę.
+            Žvaigždute pažymėkite vieną ar kelis prioritetinius taškus. Eiliškumą keiskite ▲▼ mygtukais arba tempdami ☰ rankenėlę.
           </Text>
           <ManualRouteOrderList
             items={manualOrder.map((stopId) => request.stops.find((item) => item.id === stopId)).filter((stop): stop is OptimizationStop => Boolean(stop)).map((stop) => ({ id: stop.id, label: stop.location.label, weightKg: typeof stop.weightKg === 'number' ? stop.weightKg : null }))}

@@ -39,13 +39,11 @@ export function generateHeuristicSeeds(
     },
     {
       generatedBy: 'earliest_required_window_first',
-      sequence: [...stops]
-        .sort((left, right) => {
-          const leftAt = Date.parse(left.requiredTimeWindow?.to ?? '9999-12-31');
-          const rightAt = Date.parse(right.requiredTimeWindow?.to ?? '9999-12-31');
-          return leftAt - rightAt || left.id.localeCompare(right.id);
-        })
-        .map((stop) => stop.id),
+      sequence: windowBucketedGeographicOrder(request, distance),
+    },
+    {
+      generatedBy: 'window_aware_nearest_neighbor',
+      sequence: windowAwareGreedy(request, matrix, distance),
     },
     {
       generatedBy: 'heaviest_first',
@@ -150,6 +148,107 @@ function greedy(
   return result;
 }
 
+// Sorting purely by clock time scatters the route across the map, because two
+// stops that open at the same hour can sit in opposite corners of the country.
+// Stops are therefore grouped into opening-time bands and each band is chained
+// geographically, so the run still starts with the earliest windows but drives
+// them in a sensible order.
+const WINDOW_BUCKET_MINUTES = 60;
+
+function windowBucketedGeographicOrder(
+  request: RouteOptimizationRequest,
+  distance: (fromId: string, toId: string) => number,
+): string[] {
+  const buckets = new Map<number, OptimizationStop[]>();
+  for (const stop of request.stops) {
+    const opensAt = Date.parse(stop.requiredTimeWindow?.from ?? '');
+    // Stops without a window are flexible, so they ride along with whichever
+    // band they are closest to in time rather than being pushed to the end.
+    const bucket = Number.isFinite(opensAt)
+      ? Math.floor(opensAt / (WINDOW_BUCKET_MINUTES * 60_000))
+      : Number.NEGATIVE_INFINITY;
+    buckets.set(bucket, [...(buckets.get(bucket) ?? []), stop]);
+  }
+
+  const flexible = buckets.get(Number.NEGATIVE_INFINITY) ?? [];
+  buckets.delete(Number.NEGATIVE_INFINITY);
+  const ordered = [...buckets.entries()].sort(([left], [right]) => left - right);
+  if (ordered.length === 0) {
+    return greedy(request.startLocation.id, flexible, (from, stop) => distance(from, stop.id));
+  }
+
+  const result: string[] = [];
+  let cursor = request.startLocation.id;
+  for (const [, bucket] of ordered) {
+    const chained = greedy(cursor, bucket, (from, stop) => distance(from, stop.id));
+    result.push(...chained);
+    cursor = chained[chained.length - 1] ?? cursor;
+  }
+  // Flexible stops are appended by proximity to wherever the timed work ends.
+  result.push(...greedy(cursor, flexible, (from, stop) => distance(from, stop.id)));
+  return result;
+}
+
+// Distance-equivalent bias applied to time pressure. Windows steer the greedy
+// choice but can never outrank geography outright, which keeps the sequence
+// drivable even when the windows themselves are impossible to satisfy.
+const URGENCY_BIAS_KM = 45;
+const URGENCY_HORIZON_MINUTES = 150;
+const WAITING_PENALTY_KM_PER_MINUTE = 0.25;
+
+function windowAwareGreedy(
+  request: RouteOptimizationRequest,
+  matrix: TravelMatrix,
+  distance: (fromId: string, toId: string) => number,
+): string[] {
+  const duration = matrixDuration(matrix);
+  const remaining = [...request.stops];
+  const result: string[] = [];
+  let current = request.startLocation.id;
+  let clock = Date.parse(request.plannedDepartureAt);
+  if (!Number.isFinite(clock)) clock = Date.now();
+
+  while (remaining.length > 0) {
+    let bestIndex = 0;
+    let bestCost = Number.POSITIVE_INFINITY;
+    for (const [index, stop] of remaining.entries()) {
+      const travelMinutes = duration(current, stop.id);
+      const arrival = clock + travelMinutes * 60_000;
+      const opensAt = Date.parse(stop.requiredTimeWindow?.from ?? '');
+      const closesAt = Date.parse(stop.requiredTimeWindow?.to ?? '');
+
+      const waitingMinutes = Number.isFinite(opensAt)
+        ? Math.max(0, (opensAt - arrival) / 60_000)
+        : 0;
+      const slackMinutes = Number.isFinite(closesAt)
+        ? (closesAt - arrival) / 60_000
+        : Number.POSITIVE_INFINITY;
+      const urgency = Number.isFinite(slackMinutes)
+        ? Math.max(0, Math.min(1, 1 - slackMinutes / URGENCY_HORIZON_MINUTES))
+        : 0;
+
+      const cost = distance(current, stop.id)
+        + waitingMinutes * WAITING_PENALTY_KM_PER_MINUTE
+        - urgency * URGENCY_BIAS_KM;
+      if (cost < bestCost) {
+        bestCost = cost;
+        bestIndex = index;
+      }
+    }
+
+    const [next] = remaining.splice(bestIndex, 1);
+    if (!next) break;
+    const travelMinutes = duration(current, next.id);
+    const opensAt = Date.parse(next.requiredTimeWindow?.from ?? '');
+    const arrival = clock + travelMinutes * 60_000;
+    const serviceStart = Number.isFinite(opensAt) ? Math.max(arrival, opensAt) : arrival;
+    clock = serviceStart + next.serviceDurationMinutes * 60_000;
+    result.push(next.id);
+    current = next.id;
+  }
+  return result;
+}
+
 function clusterThenRoute(
   request: RouteOptimizationRequest,
   distance: (fromId: string, toId: string) => number,
@@ -173,6 +272,20 @@ function matrixDistance(matrix: TravelMatrix): (fromId: string, toId: string) =>
     const to = index.get(toId);
     if (from === undefined || to === undefined) return Number.MAX_SAFE_INTEGER;
     return matrix.cells[from]?.[to]?.distanceKm ?? Number.MAX_SAFE_INTEGER;
+  };
+}
+
+function matrixDuration(matrix: TravelMatrix): (fromId: string, toId: string) => number {
+  const index = new Map(matrix.nodeIds.map((id, position) => [id, position]));
+  return (fromId, toId) => {
+    const from = index.get(fromId);
+    const to = index.get(toId);
+    if (from === undefined || to === undefined) return 0;
+    const cell = matrix.cells[from]?.[to];
+    if (cell?.durationMinutes !== null && cell?.durationMinutes !== undefined) return cell.durationMinutes;
+    // Fall back to a coarse road-speed estimate so the clock still advances.
+    const distanceKm = cell?.distanceKm ?? 0;
+    return (distanceKm / 60) * 60;
   };
 }
 

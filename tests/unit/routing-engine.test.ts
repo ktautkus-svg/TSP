@@ -200,3 +200,89 @@ describe('Routing Engine v0.1', () => {
     expect(zigzag.penalty).toBeGreaterThan(directional.penalty);
   });
 });
+
+// Reproduces the real complaint: a town's worth of stops that all share one
+// broad delivery window used to be sequenced by clock alone, so the driver was
+// sent bouncing between opposite ends of the city.
+describe('time-window planning stays geographically sane', () => {
+  const WINDOW = { from: '2026-06-15T05:00:00.000Z', to: '2026-06-15T13:00:00.000Z' };
+  const NORTH = { latitude: 55.98, longitude: 23.34 };
+  const SOUTH_WEST = { latitude: 55.88, longitude: 23.22 };
+
+  function twoClusterRequest(stopCount = 10) {
+    const request = createBaseRequest(stopCount);
+    request.planningMode = 'with_time_windows';
+    request.startLocation = { id: 'start', label: 'Bazė', latitude: 55.9333, longitude: 23.3167 };
+    request.endLocation = { id: 'end', label: 'Namai', latitude: 55.9333, longitude: 23.3167 };
+    request.vehicle.startLocation = request.startLocation;
+    request.vehicle.defaultEndLocation = request.endLocation;
+    // Clusters are interleaved by index so the untouched order is a worst-case
+    // zigzag: any sane result has to actively regroup them.
+    request.stops.forEach((stop, index) => {
+      const anchor = index % 2 === 0 ? NORTH : SOUTH_WEST;
+      stop.location = {
+        ...stop.location,
+        latitude: anchor.latitude + index * 0.002,
+        longitude: anchor.longitude + index * 0.002,
+      };
+      stop.requiredTimeWindow = { ...WINDOW };
+    });
+    return request;
+  }
+
+  const clusterOf = (id: string, request: ReturnType<typeof twoClusterRequest>) => {
+    const stop = request.stops.find((item) => item.id === id)!;
+    return stop.location.longitude > 23.28 ? 'north' : 'south_west';
+  };
+
+  const clusterSwitches = (sequence: string[], request: ReturnType<typeof twoClusterRequest>) =>
+    sequence.reduce((count, id, index) => (
+      index > 0 && clusterOf(id, request) !== clusterOf(sequence[index - 1], request) ? count + 1 : count
+    ), 0);
+
+  it('groups equally-timed stops by area instead of sorting them by the clock', async () => {
+    const request = twoClusterRequest();
+    const matrix = await new SyntheticTravelCostProvider('linear').getMatrix({
+      locations: [request.startLocation, ...request.stops.map((stop) => stop.location), request.endLocation],
+      vehicle: request.vehicle,
+      departureAt: request.plannedDepartureAt,
+      trafficMode: request.trafficMode,
+      timeoutMs: 1_000,
+    });
+    const seeds = generateHeuristicSeeds(request, matrix);
+    const windowSeed = seeds.find((seed) => seed.generatedBy === 'earliest_required_window_first')!;
+    expect(clusterSwitches(windowSeed.sequence, request)).toBeLessThanOrEqual(1);
+    expect(seeds.map((seed) => seed.generatedBy)).toContain('window_aware_nearest_neighbor');
+  });
+
+  it('recommends a route that finishes one area before driving to the other', async () => {
+    const request = twoClusterRequest();
+    const result = await new RoutingEngine(new SyntheticTravelCostProvider('linear')).optimize(request);
+    expect(result.recommended).not.toBeNull();
+    expect(clusterSwitches(result.recommended!.stopSequence, request)).toBeLessThanOrEqual(2);
+  });
+
+  it('still starts with the stop whose window opens first', async () => {
+    const request = twoClusterRequest(6);
+    const early = request.stops[3]!;
+    early.requiredTimeWindow = { from: '2026-06-15T05:00:00.000Z', to: '2026-06-15T06:30:00.000Z' };
+    for (const stop of request.stops) {
+      if (stop.id !== early.id) {
+        stop.requiredTimeWindow = { from: '2026-06-15T09:00:00.000Z', to: '2026-06-15T15:00:00.000Z' };
+      }
+    }
+    const result = await new RoutingEngine(new SyntheticTravelCostProvider('linear')).optimize(request);
+    expect(result.recommended!.stopSequence[0]).toBe(early.id);
+  });
+
+  it('never blocks a route just because a window cannot be met', async () => {
+    const request = twoClusterRequest(6);
+    request.stops[2]!.requiredTimeWindow = {
+      from: '2026-06-15T05:00:00.000Z',
+      to: '2026-06-15T05:01:00.000Z',
+    };
+    const result = await new RoutingEngine(new SyntheticTravelCostProvider('linear')).optimize(request);
+    expect(result.feasibleRouteFound).toBe(true);
+    expect(result.recommended!.stopSequence).toHaveLength(6);
+  });
+});

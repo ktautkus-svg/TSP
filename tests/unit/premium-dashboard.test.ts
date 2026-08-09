@@ -11,7 +11,7 @@ describe('premium route dashboard', () => {
     const gauge = source('src/components/instrument-gauge.tsx');
     expect(gauge).toContain('Array.from({ length: 25 }');
     expect(gauge).toContain('needleAngle');
-    expect(gauge).toContain('const completionFraction = 1 - fraction');
+    expect(gauge).toContain('const completionFraction = fraction');
     expect(gauge).toContain('value / safeMaximum');
     expect(gauge).toContain('stroke="#78A83D"');
     expect(gauge).toContain('stroke="url(#bezel)"');
@@ -21,8 +21,11 @@ describe('premium route dashboard', () => {
     expect(gauge).toContain('DIAL_SWEEP');
     expect(gauge).toContain('useGrouping: false');
     expect(gauge).toContain('fontFamily={fonts.headingExtraBold}');
-    expect(gauge).toContain('const readoutFontSize = formattedValue.length >= 5 ? 24 : 28');
+    expect(gauge).toContain('const readoutFontSize = formattedValue.length >= 6 ? 20 :');
     expect(gauge).toContain('fontSize={readoutFontSize}');
+    // The readout sits on its own plate away from the dial face and ticks.
+    expect(gauge).toContain('READOUT_TOP');
+    expect(gauge).not.toContain('y={207}');
     expect(gauge).not.toContain('styles.weightValue');
     expect(gauge).toContain('<SvgText');
     expect(gauge).not.toContain('<Image');
@@ -52,9 +55,10 @@ describe('premium route dashboard', () => {
     expect(delivery).toContain('<RoadProgressBar');
     expect(delivery.indexOf('<RoadProgressBar')).toBeLessThan(delivery.indexOf('<InstrumentGauge'));
     expect(delivery).toContain('<InstrumentGauge');
-    expect(delivery).toContain('value={progress.remainingKnownWeightKg}');
+    // Gauges climb with completed work, so they are fed delivered totals.
+    expect(delivery).toContain('value={progress.totalKnownWeightKg - progress.remainingKnownWeightKg}');
     expect(delivery).not.toContain('unit="kg"');
-    expect(delivery).toContain('value={progress.remainingStops}');
+    expect(delivery).toContain('value={progress.totalStops - progress.remainingStops}');
     expect(delivery).toContain('styles.gaugeCenterStats');
     expect(delivery).toContain('IKI ARTIMIAUSIOS');
     expect(delivery).toContain('NAVIGUOTI');
@@ -88,7 +92,8 @@ describe('premium route dashboard', () => {
     const header = source('src/components/brand-header.tsx');
     expect(header).toContain('<Text style={styles.brandName}>TSP</Text>');
     expect(header).toContain('logoContainer');
-    expect(header).toContain('resizeMode="contain"');
     expect(header).toContain('maxHeight: 34');
+    // A raster lockup turns to mush at header size and duplicates the wordmark.
+    expect(header).not.toContain('<Image');
   });
 });

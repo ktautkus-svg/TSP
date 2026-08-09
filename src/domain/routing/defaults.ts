@@ -3,15 +3,17 @@ import type { RoutingScoringConfig } from './models';
 export const DEFAULT_ROUTING_SCORING: RoutingScoringConfig = {
   weights: {
     drivingTime: 0.18,
-    totalWorkTime: 0.2,
-    distance: 0.11,
-    tonneKilometers: 0.13,
+    totalWorkTime: 0.19,
+    distance: 0.13,
+    tonneKilometers: 0.1,
     waitingTime: 0.07,
-    informationalTimeMismatch: 0.06,
-    directionality: 0.09,
+    informationalTimeMismatch: 0.05,
+    // Raised so backtracking and criss-crossing outweigh small clock wins; a
+    // route that zigzags across the region is never the better answer.
+    directionality: 0.14,
     endLocationConvenience: 0.05,
-    maneuvers: 0.04,
-    userPreferences: 0.07,
+    maneuvers: 0.03,
+    userPreferences: 0.06,
   },
   normalizationCaps: {
     drivingTime: 600,
@@ -28,6 +30,8 @@ export const DEFAULT_ROUTING_SCORING: RoutingScoringConfig = {
   tolerances: {
     durationMinutes: 2,
     distanceKm: 1,
-    requiredWindowMinutes: 0,
+    // A few minutes past a window is normal delivery practice and must not
+    // disqualify an otherwise sensible route.
+    requiredWindowMinutes: 10,
   },
 };

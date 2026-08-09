@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Image, StyleSheet, Text, View } from 'react-native';
-import Svg, { Path } from 'react-native-svg';
+import Svg, { Defs, Ellipse, LinearGradient, Path, RadialGradient, Rect, Stop } from 'react-native-svg';
 import type { RouteWeatherScene } from '@/application/weather/route-weather';
 
 const roadScene = require('../../assets/images/route-windshield-day-v1.png');
@@ -40,7 +40,7 @@ export function RoadProgressBar({
       testID="route-road-progress">
       <View style={styles.scene}>
         <Image resizeMode="cover" source={roadScene} style={styles.roadImage} />
-        <View pointerEvents="none" style={[styles.timeOverlay, timeOverlayStyle(weatherScene?.timeOfDay)]} />
+        <TimeOfDayOverlay timeOfDay={weatherScene?.timeOfDay ?? 'day'} />
         <WeatherOverlay condition={weatherScene?.condition ?? 'clear'} />
         {completed ? (
           <View pointerEvents="none" style={styles.completedMessage} testID="route-completed-windshield-message">
@@ -94,11 +94,53 @@ function WeatherOverlay({ condition }: { condition: RouteWeatherScene['condition
   );
 }
 
-function timeOverlayStyle(timeOfDay: RouteWeatherScene['timeOfDay'] | undefined) {
-  if (timeOfDay === 'night') return styles.nightOverlay;
-  if (timeOfDay === 'dusk') return styles.duskOverlay;
-  if (timeOfDay === 'dawn') return styles.dawnOverlay;
-  return styles.dayOverlay;
+// A flat tint just reads as "a dark photo". Real dusk keeps a warm band on the
+// horizon under a cold sky, and night adds headlight spill on the tarmac, so
+// each phase is painted as a vertical gradient plus an optional light cone.
+const SKY_GRADIENTS: Record<Exclude<RouteWeatherScene['timeOfDay'], 'day'>, { offset: number; color: string; opacity: number }[]> = {
+  dawn: [
+    { offset: 0, color: '#16265C', opacity: 0.62 },
+    { offset: 0.4, color: '#6E5A93', opacity: 0.42 },
+    { offset: 0.54, color: '#FFA85C', opacity: 0.46 },
+    { offset: 0.68, color: '#8A5A48', opacity: 0.44 },
+    { offset: 1, color: '#1B1622', opacity: 0.58 },
+  ],
+  dusk: [
+    { offset: 0, color: '#0E1038', opacity: 0.82 },
+    { offset: 0.36, color: '#3A2660', opacity: 0.66 },
+    { offset: 0.52, color: '#D96B26', opacity: 0.5 },
+    { offset: 0.66, color: '#5A2C33', opacity: 0.62 },
+    { offset: 1, color: '#080A16', opacity: 0.8 },
+  ],
+  night: [
+    { offset: 0, color: '#02050F', opacity: 0.93 },
+    { offset: 0.44, color: '#050B1E', opacity: 0.88 },
+    { offset: 0.56, color: '#1D2743', opacity: 0.74 },
+    { offset: 1, color: '#01030A', opacity: 0.92 },
+  ],
+};
+
+function TimeOfDayOverlay({ timeOfDay }: { timeOfDay: RouteWeatherScene['timeOfDay'] }) {
+  if (timeOfDay === 'day') return null;
+  const stops = SKY_GRADIENTS[timeOfDay];
+  const headlights = timeOfDay === 'night' || timeOfDay === 'dusk';
+  return (
+    <Svg pointerEvents="none" style={styles.timeOverlay} viewBox="0 0 100 100" preserveAspectRatio="none">
+      <Defs>
+        <LinearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+          {stops.map((stop) => (
+            <Stop key={stop.offset} offset={stop.offset} stopColor={stop.color} stopOpacity={stop.opacity} />
+          ))}
+        </LinearGradient>
+        <RadialGradient id="headlight" cx="50%" cy="50%" r="50%">
+          <Stop offset="0" stopColor="#FFF2CC" stopOpacity={timeOfDay === 'night' ? 0.42 : 0.22} />
+          <Stop offset="1" stopColor="#FFF2CC" stopOpacity={0} />
+        </RadialGradient>
+      </Defs>
+      <Rect x="0" y="0" width="100" height="100" fill="url(#sky)" />
+      {headlights ? <Ellipse cx="50" cy="86" rx="42" ry="20" fill="url(#headlight)" /> : null}
+    </Svg>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -114,11 +156,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   roadImage: { position: 'absolute', inset: 0, width: '100%', height: '100%' },
-  timeOverlay: { position: 'absolute', inset: 0 },
-  dayOverlay: { backgroundColor: 'transparent' },
-  dawnOverlay: { backgroundColor: 'rgba(255, 157, 61, 0.24)' },
-  duskOverlay: { backgroundColor: 'rgba(53, 29, 96, 0.48)' },
-  nightOverlay: { backgroundColor: 'rgba(1, 10, 24, 0.74)' },
+  timeOverlay: { position: 'absolute', inset: 0, width: '100%', height: '100%' },
   cloudOverlay: { position: 'absolute', inset: 0, backgroundColor: 'rgba(75, 87, 94, 0.24)' },
   fogOverlay: { position: 'absolute', inset: 0, backgroundColor: 'rgba(230, 235, 232, 0.44)' },
   weatherParticles: { position: 'absolute', inset: 0, overflow: 'hidden' },

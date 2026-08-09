@@ -42,8 +42,7 @@ import { RouteRepository } from '@/database/repositories/route-repository';
 import { GatewayGeocodingProvider } from '@/infrastructure/routing/providers/gateway-geocoding-provider';
 import { DELIVERY_FAILURE_REASONS, deliveryMatchesFilter, type DeliveryFailureReason } from '@/domain/delivery-failure';
 import type { DeliveryFilter, DeliveryStop, Route } from '@/domain/route';
-import { fonts, spacing } from '@/ui/tokens';
-import { useTheme } from '@/ui/theme';
+import { colors as instrumentColors, fonts, spacing } from '@/ui/tokens';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { formatWeightKg } from '@/ui/format-weight';
 import { failedDeliveryLabel, userVisibleStopNote } from '@/ui/route-labels';
@@ -75,7 +74,10 @@ export default function DeliveryScreen() {
   const insets = useSafeAreaInsets();
   const { width: viewportWidth } = useWindowDimensions();
   const { id: routeId = '', redirectReason, view } = useLocalSearchParams<{ id: string; redirectReason?: string; view?: string }>();
-  const { colors } = useTheme();
+  // The route cockpit is a fixed light instrument design: every surface is a
+  // hardcoded light colour, so following the system dark palette would paint
+  // near-white text onto white cards and make the stop list unreadable.
+  const colors: ColorPalette = instrumentColors;
   const styles = useMemo(() => createStyles(colors), [colors]);
   const repository = useMemo(() => new RouteRepository(db), [db]);
   const [route, setRoute] = useState<Route | null>(null);
@@ -412,7 +414,7 @@ export default function DeliveryScreen() {
   const canRecalculateRemaining = Boolean(recalculationAnchor && stops.some((stop) => stop.deliveryStatus === 'pending'));
   const nextStop = stops.find((stop) => stop.deliveryStatus === 'pending') ?? null;
   const nextStopWindow = arrivalWindowStatus(nextStop, route?.date);
-  const gaugeSize = Math.min(152, Math.max(104, (Math.min(viewportWidth, 430) - 108) / 2));
+  const gaugeSize = Math.min(152, Math.max(104, (Math.min(viewportWidth, 430) - 124) / 2));
 
   const stopRoute = () => {
     if (busy) return;
@@ -460,21 +462,22 @@ export default function DeliveryScreen() {
                     maximum={progress.totalKnownWeightKg}
                     size={gaugeSize}
                     title="Svoris"
-                    value={progress.remainingKnownWeightKg}
+                    value={progress.totalKnownWeightKg - progress.remainingKnownWeightKg}
                   />
                   <View style={styles.gaugeCenterStats}>
                     <Text style={styles.gaugeCenterLabel}>LAIKAS</Text>
-                    <Text style={styles.gaugeCenterValue}>{elapsedLabel(route?.startedAt ?? null)}</Text>
+                    <Text numberOfLines={1} style={styles.gaugeCenterValue}>{elapsedLabel(route?.startedAt ?? null)}</Text>
                     <View style={styles.gaugeCenterDivider} />
                     <Text style={styles.gaugeCenterLabel}>LIKĘ KM</Text>
-                    <Text style={styles.gaugeCenterValue}>{progress.preliminaryRemainingDistanceKm?.toFixed(0) ?? '—'} km</Text>
+                    <Text numberOfLines={1} style={styles.gaugeCenterValue}>{progress.preliminaryRemainingDistanceKm?.toFixed(0) ?? '—'}</Text>
+                    <Text style={styles.gaugeCenterUnit}>km</Text>
                   </View>
                   <InstrumentGauge
                     colors={colors}
                     maximum={progress.totalStops}
                     size={gaugeSize}
                     title="Taškai"
-                    value={progress.remainingStops}
+                    value={progress.totalStops - progress.remainingStops}
                   />
                 </View>
               </View>
@@ -483,14 +486,14 @@ export default function DeliveryScreen() {
                   <View style={styles.metricIconCircle}><Text style={styles.metricIcon}>●</Text></View>
                   <View style={styles.routeMetricText}>
                     <Text style={styles.routeMetricLabel}>IKI ARTIMIAUSIOS</Text>
-                    <Text adjustsFontSizeToFit minimumFontScale={0.82} numberOfLines={1} style={styles.routeMetricValue}>{nextStop?.legDistanceKm === null || nextStop?.legDistanceKm === undefined ? '—' : `${new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(nextStop.legDistanceKm)} km`}</Text>
+                    <Text numberOfLines={1} style={styles.routeMetricValue}>{nextStop?.legDistanceKm === null || nextStop?.legDistanceKm === undefined ? '—' : `${new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(nextStop.legDistanceKm)} km`}</Text>
                   </View>
                 </View>
                 <View style={styles.routeMetricCard}>
                   <View style={styles.metricIconCircle}><Text style={styles.metricIcon}>◷</Text></View>
                   <View style={styles.routeMetricText}>
                     <Text style={styles.routeMetricLabel}>LAIKAS</Text>
-                    <Text adjustsFontSizeToFit minimumFontScale={0.82} numberOfLines={1} style={styles.routeMetricValue}>{nextStop?.legDurationMinutes === null || nextStop?.legDurationMinutes === undefined ? '—' : compactDurationLabel(nextStop.legDurationMinutes)}</Text>
+                    <Text numberOfLines={1} style={styles.routeMetricValue}>{nextStop?.legDurationMinutes === null || nextStop?.legDurationMinutes === undefined ? '—' : compactDurationLabel(nextStop.legDurationMinutes)}</Text>
                   </View>
                 </View>
               </View>
@@ -517,25 +520,25 @@ export default function DeliveryScreen() {
                     </View>
                   </View>
                   <View style={styles.dashboardStopActions} testID="dashboard-stop-actions">
-                    <Pressable style={styles.dashboardNavigateButton} onPress={() => { void navigate(nextStop); }}>
+                    <Pressable style={[styles.dashboardActionButton, styles.dashboardNavigateButton]} onPress={() => { void navigate(nextStop); }}>
                       <Text style={styles.dashboardActionIcon}>⚑</Text>
-                      <Text style={styles.dashboardNavigateText}>NAVIGUOTI</Text>
+                      <Text numberOfLines={1} style={styles.dashboardActionText}>NAVIGUOTI</Text>
                     </Pressable>
                     <Pressable
                       disabled={busy}
                       onPress={() => { void delivered(nextStop.id); }}
-                      style={[styles.dashboardDeliveredButton, busy && styles.disabled]}
+                      style={[styles.dashboardActionButton, styles.dashboardDeliveredButton, busy && styles.disabled]}
                       testID="dashboard-delivered-button">
                       <Text style={styles.dashboardActionIcon}>✓</Text>
-                      <Text style={styles.dashboardDeliveredText}>ATLIKTA</Text>
+                      <Text numberOfLines={1} style={styles.dashboardActionText}>ATLIKTA</Text>
                     </Pressable>
                     <Pressable
                       disabled={busy}
                       onPress={() => beginFailed(nextStop.id)}
-                      style={[styles.dashboardFailedButton, busy && styles.disabled]}
+                      style={[styles.dashboardActionButton, styles.dashboardFailedButton, busy && styles.disabled]}
                       testID="dashboard-failed-button">
-                      <Text style={styles.dashboardFailedIcon}>⊘</Text>
-                      <Text style={styles.dashboardFailedText}>NEATLIKTA</Text>
+                      <Text style={styles.dashboardActionIcon}>⊘</Text>
+                      <Text numberOfLines={1} style={styles.dashboardActionText}>NEATLIKTA</Text>
                     </Pressable>
                   </View>
                 </View>
@@ -875,24 +878,24 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     gap: 14,
   },
   gaugeCenterStats: {
-    width: 52,
+    width: 68,
     flexShrink: 0,
-    minHeight: 100,
-    alignSelf: 'flex-end',
-    marginBottom: 1,
-    paddingVertical: 7,
-    paddingHorizontal: 2,
-    borderRadius: 9,
+    minHeight: 108,
+    alignSelf: 'center',
+    paddingVertical: 9,
+    paddingHorizontal: 5,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: '#465049',
     backgroundColor: '#101512',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 3,
+    gap: 2,
   },
-  gaugeCenterLabel: { color: '#AEB8B1', fontFamily: fonts.headingSemiBold, fontSize: 7, textAlign: 'center', letterSpacing: 0.25 },
-  gaugeCenterValue: { color: '#FFFFFF', fontFamily: fonts.mono, fontWeight: '800', fontSize: 14, lineHeight: 18, textAlign: 'center' },
-  gaugeCenterDivider: { width: '100%', height: 1, marginVertical: 3, backgroundColor: '#68716B' },
+  gaugeCenterLabel: { color: '#AEB8B1', fontFamily: fonts.headingSemiBold, fontSize: 8, textAlign: 'center', letterSpacing: 0.3 },
+  gaugeCenterValue: { color: '#FFFFFF', fontFamily: fonts.headingExtraBold, fontSize: 17, lineHeight: 21, textAlign: 'center' },
+  gaugeCenterUnit: { color: '#AEB8B1', fontFamily: fonts.headingSemiBold, fontSize: 9, lineHeight: 11, textAlign: 'center' },
+  gaugeCenterDivider: { width: '100%', height: 1, marginVertical: 5, backgroundColor: '#68716B' },
   routeMetrics: { flexDirection: 'row', paddingHorizontal: 14, borderTopWidth: 1, borderBottomWidth: 1, borderColor: '#E7E9E6', backgroundColor: '#FFFFFF' },
   routeMetricCard: {
     flex: 1,
@@ -910,11 +913,14 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   routeMetricLabel: { color: '#6F7772', fontFamily: fonts.headingSemiBold, fontSize: 9, letterSpacing: 0.45 },
   routeMetricValue: { color: '#183525', fontFamily: fonts.headingExtraBold, fontSize: 20, flexShrink: 1 },
   nextStopCard: {
-    paddingHorizontal: 22,
-    paddingTop: 7,
-    paddingBottom: 4,
+    flex: 1,
+    minHeight: 0,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 14,
     backgroundColor: '#FFFFFF',
-    gap: 3,
+    gap: 12,
+    justifyContent: 'space-between',
   },
   dashboardCardLabel: { color: '#5D6962', fontSize: 12, fontFamily: fonts.headingSemiBold, letterSpacing: 0.7 },
   nextStopHeading: { flexDirection: 'row', alignItems: 'center', gap: 14 },
@@ -922,23 +928,30 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   stopNumber: { color: '#fff', fontFamily: fonts.headingExtraBold, fontSize: 18 },
   nextStopAddress: { flex: 1, minWidth: 0, color: '#1C2821', fontSize: 18, lineHeight: 24, fontFamily: fonts.headingSemiBold },
   nextStopChevron: { color: '#69736D', fontSize: 20, lineHeight: 24 },
-  arrivalWindowPanel: { borderTopWidth: 1, borderTopColor: '#ECEEEB', paddingTop: 4, paddingBottom: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  arrivalWindowPanel: { borderTopWidth: 1, borderTopColor: '#ECEEEB', paddingTop: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   arrivalWindowLabel: { color: '#6F7772', fontFamily: fonts.headingSemiBold, fontSize: 10, letterSpacing: 0.6 },
-  arrivalWindowValue: { color: '#183525', fontFamily: fonts.headingExtraBold, fontSize: 19, marginTop: 2 },
-  arrivalWindowResult: { flex: 1, minWidth: 0, alignItems: 'flex-end', gap: 3 },
+  arrivalWindowValue: { color: '#183525', fontFamily: fonts.headingExtraBold, fontSize: 19, marginTop: 4 },
+  arrivalWindowResult: { flex: 1, minWidth: 0, alignItems: 'flex-end', gap: 4 },
   arrivalEtaRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   arrivalStatusDot: { width: 12, height: 12, borderRadius: 6, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.75, shadowRadius: 7, elevation: 4 },
   arrivalEta: { color: '#183525', fontFamily: fonts.headingExtraBold, fontSize: 17 },
   arrivalStatusText: { fontFamily: fonts.headingSemiBold, fontSize: 12, textAlign: 'right' },
-  dashboardNavigateButton: { flex: 1, minWidth: 0, minHeight: 48, borderRadius: 8, paddingHorizontal: 5, backgroundColor: '#2F80C9', alignItems: 'center', justifyContent: 'center', gap: 2 },
-  dashboardNavigateText: { color: '#FFFFFF', fontFamily: fonts.headingSemiBold, fontSize: 11 },
-  dashboardStopActions: { flexDirection: 'row', gap: 7 },
-  dashboardActionIcon: { color: '#FFFFFF', fontFamily: fonts.headingExtraBold, fontSize: 19, lineHeight: 21 },
-  dashboardDeliveredButton: { flex: 1, minWidth: 0, minHeight: 48, borderRadius: 8, backgroundColor: '#0A6A38', alignItems: 'center', justifyContent: 'center', gap: 2 },
-  dashboardDeliveredText: { color: '#FFFFFF', fontFamily: fonts.heading, fontSize: 11 },
-  dashboardFailedButton: { flex: 1, minWidth: 0, minHeight: 48, borderRadius: 8, borderWidth: 2, borderColor: colors.danger, backgroundColor: colors.danger, alignItems: 'center', justifyContent: 'center', gap: 2 },
-  dashboardFailedIcon: { color: '#FFFFFF', fontFamily: fonts.headingExtraBold, fontSize: 20, lineHeight: 21 },
-  dashboardFailedText: { color: '#FFFFFF', fontFamily: fonts.heading, fontSize: 10 },
+  dashboardStopActions: { flexDirection: 'row', gap: 8 },
+  dashboardActionButton: {
+    flex: 1,
+    minWidth: 0,
+    height: 62,
+    borderRadius: 12,
+    paddingHorizontal: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 3,
+  },
+  dashboardNavigateButton: { backgroundColor: '#2F80C9' },
+  dashboardDeliveredButton: { backgroundColor: '#0A6A38' },
+  dashboardFailedButton: { backgroundColor: colors.danger },
+  dashboardActionIcon: { color: '#FFFFFF', fontFamily: fonts.headingExtraBold, fontSize: 19, lineHeight: 22 },
+  dashboardActionText: { color: '#FFFFFF', fontFamily: fonts.headingSemiBold, fontSize: 11, letterSpacing: 0.3 },
   completeRouteButton: { minHeight: 58, borderRadius: 8, backgroundColor: '#0A6A38', alignItems: 'center', justifyContent: 'center', marginTop: 4 },
   nextStopMeta: { color: colors.textMuted, lineHeight: 20 },
   nextStopEta: { color: colors.accent, fontSize: 16, fontFamily: fonts.heading },

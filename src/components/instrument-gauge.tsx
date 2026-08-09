@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
-import Svg, { Circle, Defs, G, Line, LinearGradient, Path, RadialGradient, Stop, Text as SvgText } from 'react-native-svg';
+import Svg, { Circle, Defs, G, Line, LinearGradient, Path, RadialGradient, Rect, Stop, Text as SvgText } from 'react-native-svg';
 
 import { fonts } from '@/ui/tokens';
 import type { ColorPalette } from '@/ui/theme-palette';
@@ -18,6 +18,11 @@ const VIEW = 240;
 const CENTER = 120;
 const DIAL_MIN_ANGLE = 220;
 const DIAL_SWEEP = 280;
+// The readout sits in the clear band between the hub and the lower tick
+// labels, so the digits never overlap the dial face or the progress arc.
+const READOUT_WIDTH = 104;
+const READOUT_HEIGHT = 38;
+const READOUT_TOP = 152;
 
 export function InstrumentGauge({ value, maximum, unit = '', title, colors, size: requestedSize }: InstrumentGaugeProps) {
   const { width } = useWindowDimensions();
@@ -26,8 +31,10 @@ export function InstrumentGauge({ value, maximum, unit = '', title, colors, size
     : Math.min(250, Math.max(180, (Math.min(width, 760) - 96) / 2));
   const size = requestedSize ?? responsiveSize;
   const safeMaximum = maximum > 0 ? maximum : 1;
+  // `value` is the completed amount, so the needle and the arc both climb from
+  // zero towards the maximum as the driver works through the route.
   const fraction = Math.max(0, Math.min(1, value / safeMaximum));
-  const completionFraction = 1 - fraction;
+  const completionFraction = fraction;
   const needleAngle = DIAL_MIN_ANGLE + DIAL_SWEEP * fraction;
   const formattedValue = useMemo(() => new Intl.NumberFormat('lt-LT', {
     maximumFractionDigits: value >= 100 ? 0 : 1,
@@ -41,7 +48,7 @@ export function InstrumentGauge({ value, maximum, unit = '', title, colors, size
     index,
   }));
   const isWeightGauge = title.toLowerCase() === 'svoris';
-  const readoutFontSize = formattedValue.length >= 5 ? 24 : 28;
+  const readoutFontSize = formattedValue.length >= 6 ? 20 : formattedValue.length >= 5 ? 24 : 28;
   const labelTicks = ticks.filter(({ major, index }) => major && index !== 12);
 
   return (
@@ -132,6 +139,16 @@ export function InstrumentGauge({ value, maximum, unit = '', title, colors, size
           </G>
           <Circle cx={CENTER} cy={CENTER} r={10} fill="#080B09" stroke="#AEB5B0" strokeWidth={2} />
           <Circle cx={CENTER - 2} cy={CENTER - 3} r={3.4} fill="#39413B" opacity={0.8} />
+          <Rect
+            x={CENTER - READOUT_WIDTH / 2}
+            y={READOUT_TOP}
+            width={READOUT_WIDTH}
+            height={READOUT_HEIGHT}
+            rx={7}
+            fill="#050706"
+            stroke="#3A423C"
+            strokeWidth={1.5}
+          />
           <SvgText
             fill="#FFFFFF"
             fontFamily={fonts.headingExtraBold}
@@ -139,11 +156,11 @@ export function InstrumentGauge({ value, maximum, unit = '', title, colors, size
             fontWeight="900"
             textAnchor="middle"
             x={CENTER}
-            y={207}>
+            y={READOUT_TOP + READOUT_HEIGHT / 2 + readoutFontSize * 0.36}>
             {formattedValue}
           </SvgText>
           {unit ? (
-            <SvgText fill="#FFFFFF" fontFamily={fonts.headingExtraBold} fontSize={14} fontWeight="900" textAnchor="middle" x={CENTER} y={204}>
+            <SvgText fill="#C7D0C9" fontFamily={fonts.headingSemiBold} fontSize={11} fontWeight="700" textAnchor="middle" x={CENTER} y={READOUT_TOP + READOUT_HEIGHT + 14}>
               {unit}
             </SvgText>
           ) : null}

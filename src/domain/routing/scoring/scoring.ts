@@ -102,12 +102,21 @@ export function compareCandidates(
   return left.stopSequence.join('|').localeCompare(right.stopSequence.join('|'));
 }
 
+// Time windows are a preference, not a hard rule: comparing raw lateness minute
+// by minute let a geographically absurd sequence win purely because it shaved a
+// couple of minutes off one window. Lateness is therefore compared in coarse
+// bands, so only materially worse schedules outrank a sane, drivable route.
+const LATENESS_BAND_MINUTES = 30;
+
+function latenessBand(minutes: number): number {
+  return Math.ceil(Math.max(0, minutes) / LATENESS_BAND_MINUTES);
+}
+
 function criticalTuple(rank: CriticalRank): number[] {
   return [
     rank.unservedRequiredStops,
-    rank.requiredWindowViolations,
-    rank.totalLateMinutes,
-    rank.maximumSingleStopLateMinutes,
+    latenessBand(rank.totalLateMinutes),
+    latenessBand(rank.maximumSingleStopLateMinutes),
     rank.workdayOverrunMinutes,
     rank.criticalRoadOrVehicleViolations,
   ];
