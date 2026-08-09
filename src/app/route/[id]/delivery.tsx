@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, BackHandler, Easing, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { BackHandler, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Circle, Line, Path, Rect } from 'react-native-svg';
 
 import { Alert } from '@/ui/alert';
 import { buildNavigationUrls, navigationTargetFromStop } from '@/application/navigation/navigation-url-builder';
+import { navigationUrlForProvider, openWebNavigationInSameContext } from '@/application/navigation/navigation-launcher';
+import { NavigationPreference } from '@/application/settings/navigation-preference';
 import {
   ProposeRemainingRouteRecalculation,
   ResolveRouteRecalculation,
@@ -30,8 +31,12 @@ import {
 } from '@/application/routes/route-workday';
 import { resolveRoute } from '@/application/routes/route-navigation';
 import { RefreshRouteEtas } from '@/application/routes/route-eta';
+import { loadRouteWeatherScene, type RouteWeatherScene } from '@/application/weather/route-weather';
 import { FoundationScreen } from '@/components/foundation-screen';
+import { BrandHeader } from '@/components/brand-header';
+import { InstrumentGauge } from '@/components/instrument-gauge';
 import { RoadProgressBar } from '@/components/road-progress-bar';
+import { RouteBottomTabs } from '@/components/route-bottom-tabs';
 import { SwipeActionCard } from '@/components/swipe-action-card';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import { GatewayGeocodingProvider } from '@/infrastructure/routing/providers/gateway-geocoding-provider';
@@ -40,10 +45,9 @@ import type { DeliveryFilter, DeliveryStop, Route } from '@/domain/route';
 import { fonts, spacing } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
+import { formatWeightKg } from '@/ui/format-weight';
 import { failedDeliveryLabel, userVisibleStopNote } from '@/ui/route-labels';
-import { durationLabel, etaLabel, legLabel, offlineEtaLabel, scheduleLabel, windowLabel, windowUrgencyColor } from '@/ui/route-eta-labels';
-
-const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+import { arrivalWindowStatus, deliveryWindowValue, durationLabel, etaLabel, legLabel, offlineEtaLabel, scheduleLabel, windowLabel, windowUrgencyColor } from '@/ui/route-eta-labels';
 
 function ScheduleDot({ stop, colors, routeDate }: { stop?: DeliveryStop | null; colors: ColorPalette; routeDate?: string | null }) {
   const color = windowUrgencyColor(stop, routeDate);
@@ -51,13 +55,14 @@ function ScheduleDot({ stop, colors, routeDate }: { stop?: DeliveryStop | null; 
   return <View testID="schedule-dot" style={{ width: 9, height: 9, backgroundColor: colors[color] }} />;
 }
 
-// Mirrors the design mockup's gauge geometry 1:1: a full-circle ring
-// (viewBox 0 0 200 200, r=86, stroke-width 12) with 12 identical tick
-// marks at 30° increments starting from the top, no needle.
-const GAUGE_VIEW_SIZE = 200;
-const GAUGE_RADIUS = 86;
-const GAUGE_STROKE_WIDTH = 12;
-const GAUGE_TICK_COUNT = 12;
+type DeliveryView = 'dashboard' | 'stops';
+
+function compactDurationLabel(totalMinutes: number): string {
+  const safeMinutes = Math.max(0, Math.round(totalMinutes));
+  const hours = Math.floor(safeMinutes / 60);
+  const minutes = safeMinutes % 60;
+  return `${hours}:${String(minutes).padStart(2, '0')}`;
+}
 
 // Whichever of deliveredAt/failedAt is set is when the stop was resolved.
 function recalcTimestamp(stop: DeliveryStop): string | null {
@@ -68,7 +73,8 @@ export default function DeliveryScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { id: routeId = '', redirectReason } = useLocalSearchParams<{ id: string; redirectReason?: string }>();
+  const { width: viewportWidth } = useWindowDimensions();
+  const { id: routeId = '', redirectReason, view } = useLocalSearchParams<{ id: string; redirectReason?: string; view?: string }>();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const repository = useMemo(() => new RouteRepository(db), [db]);
@@ -91,6 +97,10 @@ export default function DeliveryScreen() {
   const [newStopAddress, setNewStopAddress] = useState('');
   const [newStopWeight, setNewStopWeight] = useState('');
   const [addingStop, setAddingStop] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [activeMenuExpanded, setActiveMenuExpanded] = useState(false);
+  const [activeView, setActiveView] = useState<DeliveryView>(view === 'stops' ? 'stops' : 'dashboard');
+  const [weatherScene, setWeatherScene] = useState<RouteWeatherScene | null>(null);
   const completionDismissed = useRef(false);
   const draftSaveQueue = useRef<Promise<void>>(Promise.resolve());
   const geocoder = useMemo(() => new GatewayGeocodingProvider(), []);
@@ -113,6 +123,16 @@ export default function DeliveryScreen() {
       setUndo(await new GetLatestUndoableAction(db).execute(routeId));
       setStartOdometer(refreshed.route.startOdometer === null ? '' : String(refreshed.route.startOdometer));
       setEndOdometer(refreshed.route.completionEndOdometerDraft ?? '');
+      const weatherStop = refreshed.stops.find((stop) => stop.deliveryStatus === 'pending');
+      const weatherLatitude = weatherStop?.latitude ?? refreshed.route.startLocation?.latitude ?? null;
+      const weatherLongitude = weatherStop?.longitude ?? refreshed.route.startLocation?.longitude ?? null;
+      if (weatherLatitude !== null && weatherLongitude !== null) {
+        void loadRouteWeatherScene(db, weatherLatitude, weatherLongitude)
+          .then(setWeatherScene)
+          .catch((weatherError) => {
+            if (__DEV__) console.warn('ROUTE_WEATHER_SCENE_FAILED', weatherError);
+          });
+      }
       if (refreshed.route.completionStartedAt && !completionDismissed.current) setShowFinish(true);
       setError(null);
     } catch (reason) {
@@ -126,13 +146,25 @@ export default function DeliveryScreen() {
     return () => clearInterval(timer);
   }, [load]);
 
+  useEffect(() => {
+    setActiveView(view === 'stops' ? 'stops' : 'dashboard');
+  }, [view]);
+
   useFocusEffect(useCallback(() => { void load(); }, [load]));
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+    document.documentElement.scrollLeft = 0;
+    document.body.scrollLeft = 0;
+    window.scrollTo({ left: 0, top: window.scrollY, behavior: 'auto' });
+  }, [activeView, routeId]);
 
   const delivered = async (stopId: string) => {
     if (busy) return;
     setBusy(true);
     try {
       await new MarkStopDelivered(db).execute(routeId, stopId);
+      setExpandedStopId(null);
       await load();
     } catch (reason) {
       Alert.alert('Nepavyko pažymėti', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
@@ -154,6 +186,7 @@ export default function DeliveryScreen() {
     try {
       await new MarkStopFailed(db).execute(routeId, failedStopId, { reason: failureReason, comment: failureComment });
       setFailedStopId(null);
+      setExpandedStopId(null);
       await load();
       Alert.alert('Pristatymas pažymėtas kaip nepavykęs', 'Taškas pašalintas iš likusių pristatymų. Esama seka nepakeista.');
     } catch (reason) {
@@ -247,16 +280,16 @@ export default function DeliveryScreen() {
       const target = navigationTargetFromStop(stop);
       const platform = Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'web';
       const urls = buildNavigationUrls(target, platform);
+      const provider = await new NavigationPreference(db).get();
+      const selectedUrl = navigationUrlForProvider(urls, provider);
       if (platform === 'web') {
-        // https://waze.com/ul is a universal link: it opens the installed Waze
-        // app directly on iOS/Android, or falls back to Waze's own website —
-        // no canOpenURL probe needed (unlike the waze:// custom scheme, which
-        // browsers can't reliably check, hence it was always skipped on web).
-        await Linking.openURL(urls.waze);
+        // Keep the launch in the current PWA browsing context. Opening a new
+        // context leaves an empty Safari sheet behind on iOS after the
+        // universal link hands control to the navigation app.
+        openWebNavigationInSameContext(selectedUrl);
         return;
       }
-      const canWaze = await Linking.canOpenURL(urls.waze);
-      await Linking.openURL(canWaze ? urls.waze : urls.fallback);
+      await Linking.openURL(selectedUrl);
     } catch (reason) {
       Alert.alert('Navigacija neatidaryta', reason instanceof Error ? reason.message : 'Adresas netinkamas navigacijai.');
     }
@@ -378,19 +411,21 @@ export default function DeliveryScreen() {
     .sort((left, right) => (recalcTimestamp(right) ?? '').localeCompare(recalcTimestamp(left) ?? ''))[0] ?? null;
   const canRecalculateRemaining = Boolean(recalculationAnchor && stops.some((stop) => stop.deliveryStatus === 'pending'));
   const nextStop = stops.find((stop) => stop.deliveryStatus === 'pending') ?? null;
+  const nextStopWindow = arrivalWindowStatus(nextStop, route?.date);
+  const gaugeSize = Math.min(152, Math.max(104, (Math.min(viewportWidth, 430) - 108) / 2));
 
   const stopRoute = () => {
     if (busy) return;
-    Alert.alert('Stabdyti maršrutą?', 'Maršrutas bus atšauktas ir pristatymai nebebus vykdomi. Šio veiksmo negalėsite atšaukti.', [
+    Alert.alert('Nutraukti maršrutą?', 'Maršrutas bus atšauktas ir pristatymai nebebus vykdomi. Šio veiksmo negalėsite atšaukti.', [
       { text: 'Ne', style: 'cancel' },
       {
-        text: 'Taip, stabdyti', style: 'destructive', onPress: () => { void (async () => {
+        text: 'Taip, nutraukti', style: 'destructive', onPress: () => { void (async () => {
           setBusy(true);
           try {
             await new CancelDraftRoute(db).execute(routeId);
             router.replace('/' as Href);
           } catch (reason) {
-            Alert.alert('Nepavyko stabdyti', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
+            Alert.alert('Nepavyko nutraukti', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
           } finally {
             setBusy(false);
           }
@@ -401,132 +436,171 @@ export default function DeliveryScreen() {
 
   return (
     <>
-    <Stack.Screen options={{
-      gestureEnabled: false,
-      headerBackVisible: false,
-      headerLeft: () => <Pressable onPress={handleBack} style={styles.headerBack}><Text style={styles.secondaryText}>← Atgal</Text></Pressable>,
-    }} />
-    <FoundationScreen showFoundationNotice={false} title="Pristatymo taškai" description="Būsenos iškart išsaugomos. Nepavykęs taškas lieka nepristatytas.">
-      {redirectReason ? <Text style={styles.notice}>Maršrutas jau pradėtas. Grąžinome į vykdomą maršrutą.</Text> : null}
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-      {progress ? (
-        <View style={styles.dashboard} testID="route-dashboard">
-          <View style={styles.gaugeRow}>
-            <DashboardGauge
-              colors={colors}
-              fraction={progress.totalKnownWeightKg > 0
-                ? (progress.totalKnownWeightKg - progress.remainingKnownWeightKg) / progress.totalKnownWeightKg
-                : 0}
-              color={colors.success}
-              label={`${progress.remainingKnownWeightKg.toFixed(1)} kg`}
-              sublabel="Likęs svoris"
-            />
-            <DashboardGauge
-              colors={colors}
-              fraction={progress.totalStops > 0 ? progress.deliveredStops / progress.totalStops : 0}
-              color={colors.info}
-              label={String(progress.totalStops - progress.deliveredStops)}
-              sublabel="Likę taškai"
-            />
-          </View>
-          <RoadProgressBar
-            colors={colors}
-            fraction={progress.totalKnownWeightKg > 0
-              ? (progress.totalKnownWeightKg - progress.remainingKnownWeightKg) / progress.totalKnownWeightKg
-              : 0}
-          />
-          {nextStop ? (
-            <View style={styles.nextStopCard} testID="dashboard-next-stop">
-              <Text style={styles.dashboardCardLabel}>SEKANTIS TAŠKAS</Text>
-              <Text style={styles.nextStopAddress}>{nextStop.normalizedAddress ?? nextStop.originalAddress}</Text>
-              <View style={styles.etaRow}>
-                <ScheduleDot stop={nextStop} colors={colors} routeDate={route?.date} />
-                <Text style={styles.nextStopEta}>{etaLabel(nextStop)}</Text>
-              </View>
-              <View style={styles.tileRow}>
-                <View style={styles.tile}>
-                  <Text style={styles.tileValue}>{nextStop.legDistanceKm === null || nextStop.legDistanceKm === undefined ? '—' : new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(nextStop.legDistanceKm)}</Text>
-                  <Text style={styles.tileCaption}>KM IKI TAŠKO</Text>
-                </View>
-                <View style={styles.tile}>
-                  <Text style={styles.tileValue}>{nextStop.legDurationMinutes === null || nextStop.legDurationMinutes === undefined ? '—' : durationLabel(nextStop.legDurationMinutes)}</Text>
-                  <Text style={styles.tileCaption}>LAIKAS IKI TAŠKO</Text>
+    <Stack.Screen options={{ gestureEnabled: false, headerBackVisible: false, headerShown: false }} />
+    <View style={styles.routeApp}>
+      <BrandHeader onMenuPress={() => setMenuOpen(true)} />
+      <View style={styles.routeMain}>
+      <FoundationScreen edgeToEdge showFoundationNotice={false} showHeading={false} title="Pristatymai" description="">
+        <View style={styles.routeContent}>
+          {redirectReason ? <Text style={styles.notice}>Maršrutas jau pradėtas. Grąžinome į vykdomą maršrutą.</Text> : null}
+          {error ? <Text style={styles.error}>{error}</Text> : null}
+          {activeView === 'dashboard' && progress ? (
+            <View style={styles.dashboard} testID="route-dashboard">
+              <RoadProgressBar
+                fraction={progress.totalStops > 0
+                  ? (progress.totalStops - progress.remainingStops) / progress.totalStops
+                  : 0}
+                completed={progress.totalStops > 0 && progress.remainingStops === 0}
+                weatherScene={weatherScene}
+              />
+              <View style={styles.gaugePanel}>
+                <View style={styles.gaugeRow}>
+                  <InstrumentGauge
+                    colors={colors}
+                    maximum={progress.totalKnownWeightKg}
+                    size={gaugeSize}
+                    title="Svoris"
+                    value={progress.remainingKnownWeightKg}
+                  />
+                  <View style={styles.gaugeCenterStats}>
+                    <Text style={styles.gaugeCenterLabel}>LAIKAS</Text>
+                    <Text style={styles.gaugeCenterValue}>{elapsedLabel(route?.startedAt ?? null)}</Text>
+                    <View style={styles.gaugeCenterDivider} />
+                    <Text style={styles.gaugeCenterLabel}>LIKĘ KM</Text>
+                    <Text style={styles.gaugeCenterValue}>{progress.preliminaryRemainingDistanceKm?.toFixed(0) ?? '—'} km</Text>
+                  </View>
+                  <InstrumentGauge
+                    colors={colors}
+                    maximum={progress.totalStops}
+                    size={gaugeSize}
+                    title="Taškai"
+                    value={progress.remainingStops}
+                  />
                 </View>
               </View>
+              <View style={styles.routeMetrics}>
+                <View style={styles.routeMetricCard}>
+                  <View style={styles.metricIconCircle}><Text style={styles.metricIcon}>●</Text></View>
+                  <View style={styles.routeMetricText}>
+                    <Text style={styles.routeMetricLabel}>IKI ARTIMIAUSIOS</Text>
+                    <Text adjustsFontSizeToFit minimumFontScale={0.82} numberOfLines={1} style={styles.routeMetricValue}>{nextStop?.legDistanceKm === null || nextStop?.legDistanceKm === undefined ? '—' : `${new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(nextStop.legDistanceKm)} km`}</Text>
+                  </View>
+                </View>
+                <View style={styles.routeMetricCard}>
+                  <View style={styles.metricIconCircle}><Text style={styles.metricIcon}>◷</Text></View>
+                  <View style={styles.routeMetricText}>
+                    <Text style={styles.routeMetricLabel}>LAIKAS</Text>
+                    <Text adjustsFontSizeToFit minimumFontScale={0.82} numberOfLines={1} style={styles.routeMetricValue}>{nextStop?.legDurationMinutes === null || nextStop?.legDurationMinutes === undefined ? '—' : compactDurationLabel(nextStop.legDurationMinutes)}</Text>
+                  </View>
+                </View>
+              </View>
+              {nextStop ? (
+                <View style={styles.nextStopCard} testID="dashboard-next-stop">
+                  <Text style={styles.dashboardCardLabel}>KITA STOTELĖ</Text>
+                  <View style={styles.nextStopHeading} testID="dashboard-stop-heading">
+                    <View style={styles.stopNumberBadge}>
+                      <Text style={styles.stopNumber}>{nextStop.activeOrder ?? nextStop.optimizedOrder ?? nextStop.originalOrder}</Text>
+                    </View>
+                    <Text style={styles.nextStopAddress}>{nextStop.normalizedAddress ?? nextStop.originalAddress}</Text>
+                  </View>
+                  <View style={styles.arrivalWindowPanel} testID="dashboard-arrival-window">
+                    <View>
+                      <Text style={styles.arrivalWindowLabel}>PRISTATYMO LAIKAS</Text>
+                      <Text style={styles.arrivalWindowValue}>{deliveryWindowValue(nextStop)}</Text>
+                    </View>
+                    <View style={styles.arrivalWindowResult}>
+                      <View style={styles.arrivalEtaRow}>
+                        <View style={[styles.arrivalStatusDot, { backgroundColor: colors[nextStopWindow.color], shadowColor: colors[nextStopWindow.color] }]} />
+                        <Text style={styles.arrivalEta}>{etaLabel(nextStop)}</Text>
+                      </View>
+                      <Text style={[styles.arrivalStatusText, { color: colors[nextStopWindow.color] }]}>{nextStopWindow.label}</Text>
+                    </View>
+                  </View>
+                  <View style={styles.dashboardStopActions} testID="dashboard-stop-actions">
+                    <Pressable style={styles.dashboardNavigateButton} onPress={() => { void navigate(nextStop); }}>
+                      <Text style={styles.dashboardActionIcon}>⚑</Text>
+                      <Text style={styles.dashboardNavigateText}>NAVIGUOTI</Text>
+                    </Pressable>
+                    <Pressable
+                      disabled={busy}
+                      onPress={() => { void delivered(nextStop.id); }}
+                      style={[styles.dashboardDeliveredButton, busy && styles.disabled]}
+                      testID="dashboard-delivered-button">
+                      <Text style={styles.dashboardActionIcon}>✓</Text>
+                      <Text style={styles.dashboardDeliveredText}>ATLIKTA</Text>
+                    </Pressable>
+                    <Pressable
+                      disabled={busy}
+                      onPress={() => beginFailed(nextStop.id)}
+                      style={[styles.dashboardFailedButton, busy && styles.disabled]}
+                      testID="dashboard-failed-button">
+                      <Text style={styles.dashboardFailedIcon}>⊘</Text>
+                      <Text style={styles.dashboardFailedText}>NEATLIKTA</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : (
+                <View style={styles.nextStopCard} testID="dashboard-next-stop">
+                  <Text style={styles.dashboardCardLabel}>MARŠRUTAS ĮVYKDYTAS</Text>
+                  <Text style={styles.nextStopAddress}>Visi taškai apdoroti</Text>
+                  <Pressable
+                    disabled={busy}
+                    onPress={() => { void beginFinish(); }}
+                    style={[styles.completeRouteButton, busy && styles.disabled]}
+                    testID="dashboard-complete-route-button">
+                    <Text style={styles.buttonText}>UŽBAIGTI MARŠRUTĄ</Text>
+                  </Pressable>
+                </View>
+              )}
+              {route?.startOdometer === null ? (
+                <View style={styles.reminder}>
+                  <Text style={styles.heading}>Trūksta pradinio odometro</Text>
+                  <TextInput value={startOdometer} onChangeText={setStartOdometer} keyboardType="decimal-pad" placeholder="Pvz. 125430,5" style={styles.input} />
+                  <Pressable style={styles.secondaryButton} onPress={saveLateStartOdometer}><Text style={styles.secondaryText}>Įvesti dabar</Text></Pressable>
+                </View>
+              ) : null}
             </View>
-          ) : (
-            <View style={styles.nextStopCard} testID="dashboard-next-stop">
-              <Text style={styles.dashboardCardLabel}>SEKANTIS TAŠKAS</Text>
-              <Text style={styles.nextStopAddress}>Visi taškai apdoroti</Text>
-            </View>
-          )}
-          <View style={styles.statsRow}>
-            <View style={styles.statItem}>
-              <ClockIcon color={colors.textMuted} />
-              <Text style={styles.statValue}>{elapsedLabel(route?.startedAt ?? null)}</Text>
-              <Text style={styles.statCaption}>Laikas kelyje</Text>
-            </View>
-            <View style={styles.statItem}>
-              <BoxIcon color={colors.textMuted} />
-              <Text style={styles.statValue}>{progress.deliveredStops}/{progress.totalStops}</Text>
-              <Text style={styles.statCaption}>Pristatyta / viso</Text>
-            </View>
-            <View style={styles.statItem}>
-              <RoadIcon color={colors.textMuted} />
-              <Text style={styles.statValue}>{progress.preliminaryRemainingDistanceKm?.toFixed(0) ?? '—'} km</Text>
-              <Text style={styles.statCaption}>Liko nuvažiuoti</Text>
-            </View>
-          </View>
-          <Pressable
-            disabled={busy}
-            testID="stop-route-button"
-            style={[styles.stopRouteButton, busy && styles.disabled]}
-            onPress={stopRoute}>
-            <StopIcon color="#fff" />
-            <Text style={styles.stopRouteText}>Stabdyti maršrutą</Text>
-          </Pressable>
-        </View>
-      ) : null}
-      {route?.startOdometer === null ? (
-        <View style={styles.reminder}>
-          <Text style={styles.heading}>Trūksta pradinio odometro</Text>
-          <TextInput value={startOdometer} onChangeText={setStartOdometer} keyboardType="decimal-pad" placeholder="Pvz. 125430,5" style={styles.input} />
-          <Pressable style={styles.secondaryButton} onPress={saveLateStartOdometer}><Text style={styles.secondaryText}>Įvesti dabar</Text></Pressable>
-        </View>
-      ) : null}
-      {undo ? <Pressable style={styles.undoButton} onPress={undoLast}><Text style={styles.undoText}>Atšaukti paskutinį veiksmą</Text></Pressable> : null}
-      <Pressable
-        testID="toggle-add-stop"
-        style={styles.secondaryButton}
-        onPress={() => setShowAddStop(true)}>
-        <Text style={styles.secondaryText}>+ ĮTRAUKTI SUSTOJIMĄ</Text>
-      </Pressable>
-      <View style={styles.filters}>
-        {(['undelivered', 'all', 'delivered', 'failed'] as DeliveryFilter[]).map((value) => (
-          <Pressable key={value} onPress={() => setFilter(value)}><Text style={filter === value ? styles.active : styles.filter}>{filterLabel(value)}</Text></Pressable>
-        ))}
-      </View>
-      {canRecalculateRemaining ? (
-        <Pressable
-          disabled={busy}
-          testID="recalculate-remaining-route"
-          style={[styles.recalculateButton, busy && styles.disabled]}
-          onPress={() => { if (recalculationAnchor) void proposeRecalculation(recalculationAnchor.id); }}>
-          <Text style={styles.secondaryText}>Perskaičiuoti likusį maršrutą</Text>
-        </Pressable>
-      ) : null}
-      {recalculation ? (
-        <View style={styles.recalculationCard} testID="recalculation-proposal">
-          <Text style={styles.heading}>Naujas likusios sekos variantas</Text>
-          <Text style={styles.meta}>Kilometrų skirtumas: {signed(recalculation.distanceDeltaKm, 'km')}</Text>
-          <Text style={styles.meta}>Laiko skirtumas: {signed(recalculation.timeDeltaMinutes, 'min')}</Text>
-          <Text style={styles.meta}>Esama: {recalculation.orderBefore.map(stopLabel).join(' → ')}</Text>
-          <Text style={styles.meta}>Nauja: {recalculation.orderAfter.map(stopLabel).join(' → ')}</Text>
-          <Pressable style={styles.finishButton} onPress={() => { void resolveRecalculation(true); }}><Text style={styles.buttonText}>Patvirtinti naują seką</Text></Pressable>
-          <Pressable style={styles.cancelButton} onPress={() => { void resolveRecalculation(false); }}><Text style={styles.secondaryText}>Palikti esamą seką</Text></Pressable>
-        </View>
-      ) : null}
-      {visibleStops.map((stop) => {
+          ) : null}
+          {activeView === 'stops' ? (
+            <View style={styles.stopsView}>
+              <View style={styles.stopsProgress} testID="stops-route-progress">
+                <View style={styles.stopsProgressHeading}>
+                  <Text style={styles.stopsProgressLabel}>MARŠRUTO EIGA</Text>
+                  <Text style={styles.stopsProgressValue}>{progress?.deliveryPercent ?? 0}%</Text>
+                </View>
+                <View style={styles.stopsProgressTrack}>
+                  <View style={[styles.stopsProgressFill, { width: `${Math.min(100, Math.max(0, progress?.deliveryPercent ?? 0))}%` }]} />
+                </View>
+              </View>
+              {undo ? <Pressable style={styles.undoButton} onPress={undoLast}><Text style={styles.undoText}>Atšaukti paskutinį veiksmą</Text></Pressable> : null}
+              <View style={styles.filters}>
+                {(['undelivered', 'all', 'delivered', 'failed'] as DeliveryFilter[]).map((value) => (
+                  <Pressable key={value} onPress={() => setFilter(value)} style={[styles.filterChip, filter === value && styles.filterChipActive]}>
+                    <Text style={[styles.filterText, filter === value && styles.filterTextActive]}>{filterLabel(value)}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              {canRecalculateRemaining ? (
+                <Pressable
+                  disabled={busy}
+                  testID="recalculate-remaining-route"
+                  style={[styles.recalculateButton, busy && styles.disabled]}
+                  onPress={() => { if (recalculationAnchor) void proposeRecalculation(recalculationAnchor.id); }}>
+                  <Text style={styles.secondaryText}>Perskaičiuoti likusį maršrutą</Text>
+                </Pressable>
+              ) : null}
+              {recalculation ? (
+                <View style={styles.recalculationCard} testID="recalculation-proposal">
+                  <Text style={styles.heading}>Naujas likusios sekos variantas</Text>
+                  <Text style={styles.meta}>Kilometrų skirtumas: {signed(recalculation.distanceDeltaKm, 'km')}</Text>
+                  <Text style={styles.meta}>Laiko skirtumas: {signed(recalculation.timeDeltaMinutes, 'min')}</Text>
+                  <Text style={styles.meta}>Esama: {recalculation.orderBefore.map(stopLabel).join(' → ')}</Text>
+                  <Text style={styles.meta}>Nauja: {recalculation.orderAfter.map(stopLabel).join(' → ')}</Text>
+                  <Pressable style={styles.finishButton} onPress={() => { void resolveRecalculation(true); }}><Text style={styles.buttonText}>Patvirtinti naują seką</Text></Pressable>
+                  <Pressable style={styles.cancelButton} onPress={() => { void resolveRecalculation(false); }}><Text style={styles.secondaryText}>Palikti esamą seką</Text></Pressable>
+                </View>
+              ) : null}
+              {visibleStops.map((stop) => {
         const expanded = expandedStopId === stop.id;
         return (
           <SwipeActionCard key={stop.id} onSwipeRight={() => { void delivered(stop.id); }} onSwipeLeft={() => beginFailed(stop.id)} style={[styles.card, stop.deliveryStatus === 'delivered' && styles.deliveredCard, stop.deliveryStatus === 'failed' && styles.failedCard]}>
@@ -539,7 +613,7 @@ export default function DeliveryScreen() {
                 <Text style={styles.order}>{statusLabel(stop)}{stop.priorityFirst ? ' ⭐' : ''}</Text>
                 <Text style={styles.address}>{stop.normalizedAddress ?? stop.originalAddress}</Text>
               </View>
-              <Text style={styles.weight}>{stop.weightKg === null ? 'Svoris nežinomas' : `${stop.weightKg} kg`}</Text>
+              <Text style={styles.weight}>{stop.weightKg === null ? 'Svoris nežinomas' : `${formatWeightKg(stop.weightKg)} kg`}</Text>
               <Text style={styles.chevron}>{expanded ? '▾' : '▸'}</Text>
             </Pressable>
             {expanded ? (
@@ -557,30 +631,96 @@ export default function DeliveryScreen() {
                   <Text style={styles.failure}>{failedDeliveryLabel(stop.failureReason, stop.failureComment)}</Text>
                 ) : null}
                 <View style={styles.actions}>
-                  <Pressable style={styles.navigateButton} onPress={() => { void navigate(stop); }}><Text style={styles.secondaryText}>Navigacija</Text></Pressable>
+                  <Pressable style={styles.navigateButton} onPress={() => { void navigate(stop); }}><Text style={styles.buttonText}>Navigacija</Text></Pressable>
                   <Pressable style={styles.deliverButton} onPress={() => { void delivered(stop.id); }}><Text style={styles.buttonText}>Pristatyta</Text></Pressable>
-                  <Pressable style={styles.failButton} onPress={() => beginFailed(stop.id)}><Text style={styles.failText}>Nepavyko</Text></Pressable>
+                  <Pressable style={styles.failButton} onPress={() => beginFailed(stop.id)}><Text style={styles.buttonText}>Nepavyko</Text></Pressable>
                 </View>
               </>
             ) : null}
           </SwipeActionCard>
         );
-      })}
-      <Pressable disabled={busy} style={[styles.finishButton, busy && styles.disabled]} onPress={() => void beginFinish()}><Text style={styles.buttonText}>{route?.completionStartedAt ? 'Tęsti užbaigimą' : 'Užbaigti maršrutą'}</Text></Pressable>
-      {showFinish ? (
-        <View style={styles.finishCard} testID="route-finish-summary">
-          <Text style={styles.heading}>Maršruto santrauka</Text>
-          <Text style={styles.meta}>Taškai: {progress?.totalStops ?? 0} · sėkmingi {progress?.deliveredStops ?? 0} · nepavykę {progress?.failedStops ?? 0} · liko {progress?.remainingStops ?? 0}</Text>
-          <Text style={styles.meta}>Pristatytas žinomas svoris: {((progress?.totalKnownWeightKg ?? 0) - (progress?.remainingKnownWeightKg ?? 0)).toFixed(1)} kg</Text>
-          <Text style={styles.meta}>Nepristatytas žinomas svoris: {progress?.remainingKnownWeightKg.toFixed(1) ?? '0.0'} kg</Text>
-          <Text style={styles.meta}>Pradinis odometras: {route?.startOdometer ?? 'neįvestas'}</Text>
-          <Text style={styles.meta}>Planuoti kilometrai: {route?.estimatedDistanceKm?.toFixed(1) ?? '—'}</Text>
-          <TextInput value={endOdometer} onChangeText={(value) => { setEndOdometer(value); persistCompletionDraft(value); }} keyboardType="decimal-pad" placeholder="Galutinis odometras" style={styles.input} />
-          <Pressable disabled={busy} style={[styles.finishButton, busy && styles.disabled]} onPress={() => void finish(false, false)}><Text style={styles.buttonText}>Patvirtinti užbaigimą</Text></Pressable>
-          <Pressable disabled={busy} style={styles.cancelButton} onPress={leaveFinish}><Text style={styles.secondaryText}>Grįžti</Text></Pressable>
+              })}
+            </View>
+          ) : null}
         </View>
-      ) : null}
-    </FoundationScreen>
+      </FoundationScreen>
+      </View>
+      <RouteBottomTabs
+        active={activeView}
+        onDashboard={() => setActiveView('dashboard')}
+        onHistory={() => router.push('/history' as Href)}
+        onStops={() => setActiveView('stops')}
+      />
+    </View>
+    <Modal
+      animationType="slide"
+      onRequestClose={leaveFinish}
+      statusBarTranslucent
+      transparent
+      visible={showFinish}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalKeyboard}>
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.finishSheet, { paddingBottom: Math.max(insets.bottom, spacing.md) }]} testID="route-finish-summary">
+            <View style={styles.sheetHandle} />
+            <Text style={styles.heading}>Maršruto santrauka</Text>
+            <Text style={styles.meta}>Taškai: {progress?.totalStops ?? 0} · sėkmingi {progress?.deliveredStops ?? 0} · nepavykę {progress?.failedStops ?? 0} · liko {progress?.remainingStops ?? 0}</Text>
+            <Text style={styles.meta}>Pristatytas žinomas svoris: {formatWeightKg((progress?.totalKnownWeightKg ?? 0) - (progress?.remainingKnownWeightKg ?? 0))} kg</Text>
+            <Text style={styles.meta}>Nepristatytas žinomas svoris: {formatWeightKg(progress?.remainingKnownWeightKg ?? 0)} kg</Text>
+            <Text style={styles.meta}>Pradinis odometras: {route?.startOdometer ?? 'neįvestas'}</Text>
+            <Text style={styles.meta}>Planuoti kilometrai: {route?.estimatedDistanceKm?.toFixed(1) ?? '—'}</Text>
+            <TextInput value={endOdometer} onChangeText={(value) => { setEndOdometer(value); persistCompletionDraft(value); }} keyboardType="decimal-pad" placeholder="Galutinis odometras" style={styles.input} />
+            <Pressable disabled={busy} style={[styles.finishButton, busy && styles.disabled]} onPress={() => void finish(false, false)}><Text style={styles.buttonText}>Patvirtinti užbaigimą</Text></Pressable>
+            <Pressable disabled={busy} style={styles.cancelButton} onPress={leaveFinish}><Text style={styles.secondaryText}>Grįžti</Text></Pressable>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+    <Modal
+      animationType="fade"
+      onRequestClose={() => setMenuOpen(false)}
+      statusBarTranslucent
+      transparent
+      visible={menuOpen}>
+      <Pressable style={styles.menuBackdrop} onPress={() => setMenuOpen(false)}>
+        <View style={[styles.menuSheet, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
+          <View style={styles.sheetHandle} />
+          <Text style={styles.menuTitle}>Meniu</Text>
+          <Pressable style={styles.menuItem} onPress={() => { setMenuOpen(false); router.replace('/' as Href); }}><Text style={styles.menuItemText}>Pradžios meniu</Text></Pressable>
+          <Pressable
+            accessibilityState={{ expanded: activeMenuExpanded, disabled: route?.status !== 'in_progress' }}
+            disabled={route?.status !== 'in_progress'}
+            onPress={() => setActiveMenuExpanded((expanded) => !expanded)}
+            style={[styles.menuItem, route?.status !== 'in_progress' && styles.disabled]}
+            testID="active-route-menu-toggle">
+            <View style={styles.menuItemRow}>
+              <Text style={styles.menuItemText}>Aktyvus maršrutas</Text>
+              <Text style={styles.menuChevron}>{activeMenuExpanded ? '▴' : '▾'}</Text>
+            </View>
+          </Pressable>
+          {route?.status === 'in_progress' && activeMenuExpanded ? (
+            <View style={styles.menuSubmenu} testID="active-route-menu-actions">
+              <Pressable testID="toggle-add-stop" style={styles.menuSubitem} onPress={() => { setMenuOpen(false); setActiveMenuExpanded(false); setShowAddStop(true); }}><Text style={styles.menuSubitemText}>Įtraukti sustojimą</Text></Pressable>
+              <Pressable
+                disabled={busy}
+                style={[styles.menuSubitem, busy && styles.disabled]}
+                onPress={() => {
+                  setMenuOpen(false);
+                  setActiveMenuExpanded(false);
+                  if (recalculationAnchor) void proposeRecalculation(recalculationAnchor.id);
+                  else Alert.alert('Perskaičiuoti dar negalima', 'Pirmiausia pažymėkite bent vieną pristatymą. Esama maršruto seka nekeičiama.');
+                }}>
+                <Text style={styles.menuSubitemText}>Perskaičiuoti maršrutą</Text>
+              </Pressable>
+              <Pressable accessibilityLabel={route?.completionStartedAt ? 'Tęsti užbaigimą' : 'Baigti maršrutą'} disabled={busy} style={[styles.menuSubitem, busy && styles.disabled]} onPress={() => { setMenuOpen(false); setActiveMenuExpanded(false); void beginFinish(); }}><Text style={styles.menuSubitemText}>Baigti maršrutą</Text></Pressable>
+              <Pressable disabled={busy} testID="stop-route-button" style={[styles.menuSubitem, busy && styles.disabled]} onPress={() => { setMenuOpen(false); setActiveMenuExpanded(false); stopRoute(); }}><Text style={styles.menuDangerText}>Nutraukti maršrutą</Text></Pressable>
+            </View>
+          ) : null}
+          <Pressable style={styles.menuItem} onPress={() => { setMenuOpen(false); router.push('/statistics' as Href); }}><Text style={styles.menuItemText}>Statistika</Text></Pressable>
+          <Pressable style={styles.menuItem} onPress={() => { setMenuOpen(false); router.push('/settings' as Href); }}><Text style={styles.menuItemText}>Nustatymai</Text></Pressable>
+          <Pressable style={styles.menuClose} onPress={() => setMenuOpen(false)}><Text style={styles.secondaryText}>Uždaryti</Text></Pressable>
+        </View>
+      </Pressable>
+    </Modal>
     <Modal
       animationType="fade"
       onRequestClose={() => { if (!addingStop) setShowAddStop(false); }}
@@ -668,120 +808,6 @@ export default function DeliveryScreen() {
   );
 }
 
-function DashboardGauge(props: { fraction: number; color: string; label: string; sublabel: string; colors: ColorPalette }) {
-  const { colors } = props;
-  const size = 132;
-  const cx = GAUGE_VIEW_SIZE / 2;
-  const cy = GAUGE_VIEW_SIZE / 2;
-  const circumference = 2 * Math.PI * GAUGE_RADIUS;
-  const clamped = Math.max(0, Math.min(1, Number.isFinite(props.fraction) ? props.fraction : 0));
-  const animatedFraction = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    animatedFraction.setValue(0);
-    Animated.timing(animatedFraction, {
-      toValue: clamped,
-      duration: 900,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: false,
-    }).start();
-  }, [animatedFraction, clamped]);
-
-  const strokeDashoffset = animatedFraction.interpolate({
-    inputRange: [0, 1],
-    outputRange: [circumference, 0],
-  });
-
-  // 12 identical tick marks at 30° increments, starting from the top —
-  // no major/minor distinction, matching the mockup exactly.
-  const ticks = Array.from({ length: GAUGE_TICK_COUNT }, (_, index) => index * 30);
-
-  return (
-    <View style={{ alignItems: 'center' }}>
-      <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
-        <Svg width={size} height={size} viewBox={`0 0 ${GAUGE_VIEW_SIZE} ${GAUGE_VIEW_SIZE}`}>
-          {ticks.map((angle) => (
-            <Line
-              key={angle}
-              x1={cx}
-              y1={8}
-              x2={cx}
-              y2={18}
-              stroke={colors.textMuted}
-              strokeWidth={2}
-              rotation={angle}
-              origin={`${cx}, ${cy}`}
-            />
-          ))}
-          <Circle cx={cx} cy={cy} r={GAUGE_RADIUS} stroke={colors.border} strokeWidth={GAUGE_STROKE_WIDTH} fill="none" />
-          <AnimatedCircle
-            cx={cx}
-            cy={cy}
-            r={GAUGE_RADIUS}
-            stroke={props.color}
-            strokeWidth={GAUGE_STROKE_WIDTH}
-            fill="none"
-            strokeDasharray={`${circumference}, ${circumference}`}
-            strokeDashoffset={strokeDashoffset}
-            rotation={-90}
-            origin={`${cx}, ${cy}`}
-          />
-        </Svg>
-        <View style={{ position: 'absolute', alignItems: 'center', justifyContent: 'center' }} pointerEvents="none">
-          <Text style={{ color: colors.text, fontSize: 22, fontFamily: fonts.headingExtraBold }}>{props.label}</Text>
-        </View>
-      </View>
-      <Text style={{ color: colors.textMuted, fontSize: 10, fontFamily: fonts.headingSemiBold, marginTop: spacing.xs, textAlign: 'center', letterSpacing: 0.6 }}>{props.sublabel.toUpperCase()}</Text>
-    </View>
-  );
-}
-
-function ClockIcon({ color }: { color: string }) {
-  return (
-    <Svg width={16} height={16} viewBox="0 0 24 24">
-      <Circle cx={12} cy={12} r={9} stroke={color} strokeWidth={2} fill="none" />
-      <Path d="M12 7v5l3.5 2" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" fill="none" />
-    </Svg>
-  );
-}
-
-function BoxIcon({ color }: { color: string }) {
-  return (
-    <Svg width={16} height={16} viewBox="0 0 24 24">
-      <Path
-        d="M4 8l8-4 8 4-8 4-8-4zm0 0v8l8 4m0-12v12m8-12v8l-8 4"
-        stroke={color}
-        strokeWidth={1.8}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        fill="none"
-      />
-    </Svg>
-  );
-}
-
-function RoadIcon({ color }: { color: string }) {
-  return (
-    <Svg width={16} height={16} viewBox="0 0 24 24">
-      <Path
-        d="M4 20c0-6 6-4 6-10S4 4 4 4M20 20c0-6-6-4-6-10s6-6 6-6"
-        stroke={color}
-        strokeWidth={2}
-        strokeLinecap="round"
-        fill="none"
-      />
-    </Svg>
-  );
-}
-
-function StopIcon({ color }: { color: string }) {
-  return (
-    <Svg width={16} height={16} viewBox="0 0 24 24">
-      <Rect x={5} y={5} width={14} height={14} rx={2} fill={color} />
-    </Svg>
-  );
-}
-
 function elapsedLabel(startedAt: string | null): string {
   if (!startedAt) return '—';
   const ms = Date.now() - new Date(startedAt).getTime();
@@ -808,31 +834,141 @@ function signed(value: number | null, unit: string): string {
 }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
-  dashboard: { gap: spacing.md, backgroundColor: colors.background },
-  gaugeRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: spacing.lg },
-  nextStopCard: { padding: spacing.md, borderWidth: 2, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.xs },
-  dashboardCardLabel: { color: colors.textMuted, fontSize: 12, fontFamily: fonts.headingSemiBold, letterSpacing: 0.8 },
-  nextStopAddress: { color: colors.text, fontSize: 18, fontFamily: fonts.heading },
+  routeApp: {
+    flex: 1,
+    minWidth: 0,
+    alignSelf: 'center',
+    width: '100%',
+    maxWidth: 430,
+    overflow: 'hidden',
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#111814',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.12,
+    shadowRadius: 18,
+  },
+  routeMain: { flex: 1, minHeight: 0, minWidth: 0, width: '100%' },
+  routeContent: { flexGrow: 1, alignSelf: 'center', minWidth: 0, width: '100%', maxWidth: 430, overflow: 'hidden', gap: 0 },
+  stopsView: { width: '100%', padding: spacing.md, gap: spacing.md, backgroundColor: '#F5F7F4' },
+  dashboard: {
+    flexGrow: 1,
+    minWidth: 0,
+    alignSelf: 'center',
+    width: '100%',
+    maxWidth: 430,
+    overflow: 'hidden',
+    gap: 0,
+    backgroundColor: '#FFFFFF',
+  },
+  gaugePanel: {
+    width: '100%',
+    paddingTop: 1,
+    paddingHorizontal: 14,
+    paddingBottom: 4,
+    backgroundColor: '#090D0B',
+  },
+  gaugeRow: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 14,
+  },
+  gaugeCenterStats: {
+    width: 52,
+    flexShrink: 0,
+    minHeight: 100,
+    alignSelf: 'flex-end',
+    marginBottom: 1,
+    paddingVertical: 7,
+    paddingHorizontal: 2,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: '#465049',
+    backgroundColor: '#101512',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 3,
+  },
+  gaugeCenterLabel: { color: '#AEB8B1', fontFamily: fonts.headingSemiBold, fontSize: 7, textAlign: 'center', letterSpacing: 0.25 },
+  gaugeCenterValue: { color: '#FFFFFF', fontFamily: fonts.mono, fontWeight: '800', fontSize: 14, lineHeight: 18, textAlign: 'center' },
+  gaugeCenterDivider: { width: '100%', height: 1, marginVertical: 3, backgroundColor: '#68716B' },
+  routeMetrics: { flexDirection: 'row', paddingHorizontal: 14, borderTopWidth: 1, borderBottomWidth: 1, borderColor: '#E7E9E6', backgroundColor: '#FFFFFF' },
+  routeMetricCard: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 60,
+    paddingHorizontal: 6,
+    backgroundColor: '#FFFFFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+  },
+  routeMetricText: { flex: 1, minWidth: 0 },
+  metricIconCircle: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: '#E8F1E8' },
+  metricIcon: { color: '#0A5A31', fontSize: 19 },
+  routeMetricLabel: { color: '#6F7772', fontFamily: fonts.headingSemiBold, fontSize: 9, letterSpacing: 0.45 },
+  routeMetricValue: { color: '#183525', fontFamily: fonts.headingExtraBold, fontSize: 20, flexShrink: 1 },
+  nextStopCard: {
+    paddingHorizontal: 22,
+    paddingTop: 7,
+    paddingBottom: 4,
+    backgroundColor: '#FFFFFF',
+    gap: 3,
+  },
+  dashboardCardLabel: { color: '#5D6962', fontSize: 12, fontFamily: fonts.headingSemiBold, letterSpacing: 0.7 },
+  nextStopHeading: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  stopNumberBadge: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0A5A31' },
+  stopNumber: { color: '#fff', fontFamily: fonts.headingExtraBold, fontSize: 18 },
+  nextStopAddress: { flex: 1, minWidth: 0, color: '#1C2821', fontSize: 18, lineHeight: 24, fontFamily: fonts.headingSemiBold },
+  nextStopChevron: { color: '#69736D', fontSize: 20, lineHeight: 24 },
+  arrivalWindowPanel: { borderTopWidth: 1, borderTopColor: '#ECEEEB', paddingTop: 4, paddingBottom: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  arrivalWindowLabel: { color: '#6F7772', fontFamily: fonts.headingSemiBold, fontSize: 10, letterSpacing: 0.6 },
+  arrivalWindowValue: { color: '#183525', fontFamily: fonts.headingExtraBold, fontSize: 19, marginTop: 2 },
+  arrivalWindowResult: { flex: 1, minWidth: 0, alignItems: 'flex-end', gap: 3 },
+  arrivalEtaRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  arrivalStatusDot: { width: 12, height: 12, borderRadius: 6, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.75, shadowRadius: 7, elevation: 4 },
+  arrivalEta: { color: '#183525', fontFamily: fonts.headingExtraBold, fontSize: 17 },
+  arrivalStatusText: { fontFamily: fonts.headingSemiBold, fontSize: 12, textAlign: 'right' },
+  dashboardNavigateButton: { flex: 1, minWidth: 0, minHeight: 48, borderRadius: 8, paddingHorizontal: 5, backgroundColor: '#2F80C9', alignItems: 'center', justifyContent: 'center', gap: 2 },
+  dashboardNavigateText: { color: '#FFFFFF', fontFamily: fonts.headingSemiBold, fontSize: 11 },
+  dashboardStopActions: { flexDirection: 'row', gap: 7 },
+  dashboardActionIcon: { color: '#FFFFFF', fontFamily: fonts.headingExtraBold, fontSize: 19, lineHeight: 21 },
+  dashboardDeliveredButton: { flex: 1, minWidth: 0, minHeight: 48, borderRadius: 8, backgroundColor: '#0A6A38', alignItems: 'center', justifyContent: 'center', gap: 2 },
+  dashboardDeliveredText: { color: '#FFFFFF', fontFamily: fonts.heading, fontSize: 11 },
+  dashboardFailedButton: { flex: 1, minWidth: 0, minHeight: 48, borderRadius: 8, borderWidth: 2, borderColor: colors.danger, backgroundColor: colors.danger, alignItems: 'center', justifyContent: 'center', gap: 2 },
+  dashboardFailedIcon: { color: '#FFFFFF', fontFamily: fonts.headingExtraBold, fontSize: 20, lineHeight: 21 },
+  dashboardFailedText: { color: '#FFFFFF', fontFamily: fonts.heading, fontSize: 10 },
+  completeRouteButton: { minHeight: 58, borderRadius: 8, backgroundColor: '#0A6A38', alignItems: 'center', justifyContent: 'center', marginTop: 4 },
   nextStopMeta: { color: colors.textMuted, lineHeight: 20 },
   nextStopEta: { color: colors.accent, fontSize: 16, fontFamily: fonts.heading },
   etaRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  tileRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs },
-  tile: { flex: 1, padding: spacing.sm, borderWidth: 2, borderColor: colors.border, backgroundColor: colors.background, alignItems: 'center', gap: 2 },
-  tileValue: { color: colors.text, fontSize: 20, fontFamily: fonts.headingExtraBold },
+  tileRow: { flexDirection: 'row', gap: spacing.xs, marginTop: 2 },
+  tile: { flex: 1, paddingVertical: 7, paddingHorizontal: spacing.xs, borderWidth: 1, borderRadius: 12, borderColor: colors.border, backgroundColor: colors.background, alignItems: 'center', gap: 1 },
+  tileValue: { color: colors.text, fontSize: 18, fontFamily: fonts.headingExtraBold },
   tileCaption: { color: colors.textMuted, fontSize: 10, fontFamily: fonts.headingSemiBold, letterSpacing: 0.6, textAlign: 'center' },
-  statsRow: { flexDirection: 'row', gap: spacing.sm },
-  statItem: { flex: 1, padding: spacing.sm, borderWidth: 2, borderColor: colors.border, backgroundColor: colors.surface, alignItems: 'center', gap: 4 },
-  statValue: { color: colors.text, fontSize: 18, fontFamily: fonts.headingExtraBold },
-  statCaption: { color: colors.textMuted, fontSize: 11, fontFamily: fonts.headingSemiBold, textAlign: 'center' },
-  stopRouteButton: { minHeight: 56, backgroundColor: colors.danger, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm },
-  stopRouteText: { color: '#fff', fontFamily: fonts.heading, fontSize: 16 },
+  heroActions: { flexDirection: 'row', gap: 5, marginTop: spacing.xs },
+  heroActionButton: { flex: 1, minWidth: 0, minHeight: 46, paddingHorizontal: 3, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
+  heroNavigateButton: { backgroundColor: colors.brandNavy },
+  heroDeliverButton: { backgroundColor: '#2F80C9' },
+  heroFailButton: { borderWidth: 2, borderColor: colors.danger, backgroundColor: colors.surface },
+  heroActionLightText: { color: '#fff', fontFamily: fonts.heading, fontSize: 11 },
+  heroActionDangerText: { color: colors.danger, fontFamily: fonts.heading, fontSize: 10 },
   reminder: { padding: spacing.md, borderWidth: 2, borderColor: colors.warning, backgroundColor: colors.surface, gap: spacing.sm },
-  filters: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  filter: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm, color: colors.text, backgroundColor: colors.surface, borderWidth: 2, borderColor: colors.border, overflow: 'hidden', fontFamily: fonts.headingSemiBold },
-  active: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm, color: '#fff', fontFamily: fonts.heading, backgroundColor: colors.accent, borderWidth: 2, borderColor: colors.accent, overflow: 'hidden' },
-  card: { padding: spacing.md, borderWidth: 2, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.xs },
+  stopsProgress: { borderRadius: 16, padding: spacing.md, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E0E5E0', gap: 9 },
+  stopsProgressHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  stopsProgressLabel: { color: '#4F5C54', fontFamily: fonts.headingSemiBold, fontSize: 12, letterSpacing: 0.7 },
+  stopsProgressValue: { color: '#0A5A31', fontFamily: fonts.headingExtraBold, fontSize: 22 },
+  stopsProgressTrack: { height: 9, borderRadius: 5, overflow: 'hidden', backgroundColor: '#DCE5DC' },
+  stopsProgressFill: { height: '100%', borderRadius: 5, backgroundColor: '#77C83E' },
+  filters: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+  filterChip: { minHeight: 42, paddingHorizontal: 13, borderRadius: 21, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#D8DED8', alignItems: 'center', justifyContent: 'center' },
+  filterChipActive: { backgroundColor: '#0A5A31', borderColor: '#0A5A31' },
+  filterText: { color: '#354139', fontFamily: fonts.headingSemiBold, fontSize: 13 },
+  filterTextActive: { color: '#FFFFFF' },
+  card: { padding: spacing.md, borderRadius: 17, borderWidth: 1, borderColor: '#DCE2DC', backgroundColor: '#FFFFFF', gap: spacing.xs, shadowColor: '#0B2316', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.06, shadowRadius: 9, elevation: 2 },
   deliveredCard: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
-  failedCard: { borderColor: colors.danger },
+  failedCard: { borderColor: colors.danger, backgroundColor: '#FFF8F7' },
   cardHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 44 },
   cardHeaderText: { flex: 1, minWidth: 0 },
   chevron: { color: colors.textMuted, fontSize: 16, fontFamily: fonts.heading },
@@ -847,9 +983,9 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   meta: { color: colors.textMuted, lineHeight: 20 },
   failure: { color: colors.danger, fontFamily: fonts.headingSemiBold },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.sm },
-  navigateButton: { flex: 1, minWidth: 100, minHeight: 46, borderWidth: 2, borderColor: colors.brandNavy, alignItems: 'center', justifyContent: 'center' },
-  deliverButton: { flex: 1, minWidth: 100, minHeight: 46, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
-  failButton: { flex: 1, minWidth: 100, minHeight: 46, borderWidth: 2, borderColor: colors.danger, alignItems: 'center', justifyContent: 'center' },
+  navigateButton: { flex: 1, minWidth: 100, minHeight: 46, borderWidth: 2, borderColor: '#2F80C9', backgroundColor: '#2F80C9', alignItems: 'center', justifyContent: 'center' },
+  deliverButton: { flex: 1, minWidth: 100, minHeight: 46, backgroundColor: '#0A6A38', alignItems: 'center', justifyContent: 'center' },
+  failButton: { flex: 1, minWidth: 100, minHeight: 46, borderWidth: 2, borderColor: colors.danger, backgroundColor: colors.danger, alignItems: 'center', justifyContent: 'center' },
   buttonText: { color: '#fff', fontFamily: fonts.heading },
   failText: { color: colors.danger, fontFamily: fonts.heading },
   recalculateButton: { minHeight: 46, borderWidth: 2, borderColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
@@ -858,6 +994,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   centeredBackdrop: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg, backgroundColor: 'rgba(0, 10, 2, 0.5)' },
   addStopDialog: { width: '100%', maxWidth: 420, padding: spacing.lg, borderWidth: 2, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
   failureSheet: { maxHeight: '92%', paddingTop: spacing.sm, paddingHorizontal: spacing.lg, backgroundColor: colors.surface, gap: spacing.md },
+  finishSheet: { maxHeight: '92%', paddingTop: spacing.sm, paddingHorizontal: spacing.lg, backgroundColor: colors.surface, gap: spacing.sm },
   sheetHandle: { alignSelf: 'center', width: 44, height: 5, backgroundColor: colors.border },
   reasonGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   reason: { padding: spacing.sm, borderWidth: 2, borderColor: colors.border, color: colors.text, overflow: 'hidden' },
@@ -867,7 +1004,6 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   modalActions: { gap: spacing.xs },
   cancelButton: { minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   finishButton: { minHeight: 56, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
-  finishCard: { padding: spacing.md, borderWidth: 2, borderColor: colors.accent, backgroundColor: colors.surface, gap: spacing.sm },
   recalculationCard: { padding: spacing.md, borderWidth: 2, borderColor: colors.accent, backgroundColor: colors.accentSoft, gap: spacing.sm },
   input: { minHeight: 48, borderWidth: 2, borderColor: colors.border, paddingHorizontal: spacing.md, color: colors.text, fontFamily: fonts.body },
   secondaryButton: { minHeight: 46, borderWidth: 2, borderColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
@@ -877,5 +1013,19 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   error: { color: colors.danger, fontFamily: fonts.headingSemiBold },
   notice: { color: colors.accent, fontFamily: fonts.heading },
   headerBack: { minWidth: 72, minHeight: 44, justifyContent: 'center' },
+  headerMenu: { minWidth: 72, minHeight: 44, alignItems: 'flex-end', justifyContent: 'center' },
+  headerBackText: { color: '#fff', fontFamily: fonts.heading },
+  menuBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0, 10, 2, 0.52)' },
+  menuSheet: { paddingTop: spacing.sm, paddingHorizontal: spacing.lg, backgroundColor: colors.surface, gap: spacing.sm },
+  menuTitle: { color: colors.text, fontFamily: fonts.headingExtraBold, fontSize: 22, marginBottom: spacing.xs },
+  menuItem: { minHeight: 52, borderBottomWidth: 1, borderBottomColor: colors.border, justifyContent: 'center' },
+  menuItemRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  menuItemText: { color: colors.text, fontFamily: fonts.heading, fontSize: 17 },
+  menuChevron: { color: colors.textMuted, fontFamily: fonts.heading, fontSize: 18 },
+  menuSubmenu: { marginLeft: spacing.md, borderLeftWidth: 2, borderLeftColor: colors.border, paddingLeft: spacing.md },
+  menuSubitem: { minHeight: 48, borderBottomWidth: 1, borderBottomColor: colors.border, justifyContent: 'center' },
+  menuSubitemText: { color: colors.text, fontFamily: fonts.headingSemiBold, fontSize: 15 },
+  menuDangerText: { color: colors.danger, fontFamily: fonts.heading, fontSize: 17 },
+  menuClose: { minHeight: 48, alignItems: 'center', justifyContent: 'center', marginTop: spacing.xs },
   disabled: { opacity: 0.5 },
 });
