@@ -3,12 +3,22 @@ import { createGatewayAuthorizationHeaders } from '@/infrastructure/gateway/devi
 export const EMPLOYEE_ROLES = ['admin', 'dispatcher', 'driver'] as const;
 export type EmployeeRole = (typeof EMPLOYEE_ROLES)[number];
 
+/** Optional capability flags. Drivers without them keep a restricted UI. */
+export type EmployeePermissions = {
+  canCreateRoutes?: boolean;
+  canReorderAssignedRoute?: boolean;
+  canCancelRoute?: boolean;
+  canAddStops?: boolean;
+  canRecalculateRoute?: boolean;
+};
+
 export type EmployeeProfile = {
   id: string;
   username: string;
   displayName: string;
   role: EmployeeRole;
   disabled: boolean;
+  permissions?: EmployeePermissions;
 };
 
 export type EmployeeSession = {
