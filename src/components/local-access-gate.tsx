@@ -12,6 +12,7 @@ import {
   getEmployeeSession,
   loginEmployee,
   logoutEmployee,
+  refreshEmployeeSession,
   type EmployeeProfile,
 } from '@/infrastructure/auth/employee-session';
 import { pullAssignedRoutes } from '@/application/auth/route-assignment-sync';
@@ -38,11 +39,15 @@ export function LocalAccessGate({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    const [configuration, initialized, cachedSession] = await Promise.all([
+    const [configuration, initialized, storedSession] = await Promise.all([
       service.getConfiguration(),
       employeeServerInitialized(),
       getEmployeeSession(),
     ]);
+    let cachedSession = storedSession;
+    if (storedSession && initialized !== null) {
+      try { cachedSession = await refreshEmployeeSession(); } catch { /* Offline or expired server session: keep the explicit local session. */ }
+    }
     setConfigured(configuration.configured);
     setUsername(cachedSession?.profile.username ?? configuration.username ?? '');
     setDisplayName(cachedSession?.profile.displayName ?? '');

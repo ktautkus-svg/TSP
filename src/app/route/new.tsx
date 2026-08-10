@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
+import { useLocalAccess } from '@/application/auth/local-access-context';
 
 import { parseDeliveryText } from '@/application/parsing/text-parser';
 import {
@@ -21,6 +22,7 @@ import { Alert } from '@/ui/alert';
 import type { RouteEndpoint } from '@/domain/route';
 
 export default function NewRouteScreen() {
+  const { profile } = useLocalAccess();
   const router = useRouter();
   const db = useSQLiteContext();
   const { colors } = useTheme();
@@ -37,6 +39,10 @@ export default function NewRouteScreen() {
   const parsedResult = useMemo(() => parseDeliveryText(sourceText), [sourceText]);
 
   useEffect(() => {
+    if (profile.role === 'driver' && !profile.permissions?.canCreateRoutes) {
+      router.replace('/' as Href);
+      return;
+    }
     let active = true;
     void repository.getActive()
       .then((route) => {
@@ -51,7 +57,7 @@ export default function NewRouteScreen() {
         if (__DEV__) console.warn('NEW_ROUTE_GUARD_FAILED', reason);
       });
     return () => { active = false; };
-  }, [repository, router]);
+  }, [profile, repository, router]);
 
   useEffect(() => {
     let active = true;

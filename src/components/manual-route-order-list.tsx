@@ -132,10 +132,10 @@ function DraggableRow(props: {
       </View>
       <View
         accessibilityLabel="Tempti ir keisti vietą"
-        style={[styles.dragHandle, dragHandleTouchTarget]}
+        style={[styles.dragHandle, { borderLeftColor: colors.border, backgroundColor: dragging ? colors.primarySoft : colors.background }, dragHandleTouchTarget]}
         testID={`manual-drag-handle-${props.item.id}`}
         {...panResponder.panHandlers}>
-        <Text style={[styles.dragText, { color: colors.textMuted }]}>☰</Text>
+        <Text style={[styles.dragText, { color: colors.primary }]}>☰</Text>
       </View>
     </Animated.View>
   );
@@ -168,10 +168,13 @@ const styles = StyleSheet.create({
   stepperDisabled: { opacity: 0.3 },
   stepperText: { fontSize: 12, fontWeight: '900' },
   dragHandle: {
-    width: 48,
+    width: 56,
     alignSelf: 'stretch',
     alignItems: 'center',
     justifyContent: 'center',
+    borderLeftWidth: 1,
+    borderTopRightRadius: 11,
+    borderBottomRightRadius: 11,
   },
-  dragText: { fontSize: 24, fontWeight: '900' },
+  dragText: { fontSize: 28, fontWeight: '900' },
 });

@@ -56,6 +56,10 @@ export default function RouteAlternativesScreen() {
   const [cancelling, setCancelling] = useState(false);
   const savingRef = useRef(false);
   const startedForRoute = useRef<string | null>(null);
+  // Cancelling flips the route to 'cancelled', which resolveRoute maps to
+  // /history. Without this flag the screen's own status guard races the
+  // intended navigation and sometimes dumps the driver into history instead.
+  const selfCancelled = useRef(false);
 
   const calculate = useCallback(async () => {
     if (!routeId || startedForRoute.current === routeId) return;
@@ -92,7 +96,7 @@ export default function RouteAlternativesScreen() {
   useFocusEffect(useCallback(() => {
     let active = true;
     void repository.getById(routeId).then((current) => {
-      if (!active || !current || current.status === 'draft') return;
+      if (!active || !current || current.status === 'draft' || selfCancelled.current) return;
       const destination = resolveRoute(current);
       setRecoveryDestination(destination);
       router.replace({
@@ -166,6 +170,12 @@ export default function RouteAlternativesScreen() {
       if (next && request) {
         setManualOrder((existing) =>
           existing.length > 0 ? existing : (selectedCandidate?.stopSequence ?? request.stops.map((stop) => stop.id)),
+        );
+        // Priority stops marked earlier in review.tsx (preferEarly, set by
+        // buildOptimizationStop for priorityFirst stops) start pre-selected
+        // here too, so the two priority mechanisms don't silently diverge.
+        setManualPriorityIds((existing) =>
+          existing.length > 0 ? existing : request.stops.filter((stop) => stop.preferEarly).map((stop) => stop.id),
         );
       }
       return next;
@@ -296,9 +306,13 @@ export default function RouteAlternativesScreen() {
           style: 'destructive',
           onPress: () => {
             setCancelling(true);
+            selfCancelled.current = true;
             void new CancelDraftRoute(db).execute(routeId)
               .then(() => router.replace('/import' as Href))
-              .catch((reason) => setError(reason instanceof Error ? reason.message : 'Maršruto atšaukti nepavyko.'))
+              .catch((reason) => {
+                selfCancelled.current = false;
+                setError(reason instanceof Error ? reason.message : 'Maršruto atšaukti nepavyko.');
+              })
               .finally(() => setCancelling(false));
           },
         },
@@ -376,28 +390,35 @@ export default function RouteAlternativesScreen() {
       ) : null}
       {request ? (
         <View style={styles.list}>
-          {labeledAlternatives.map((item) => (
-            <CandidateCard
-              styles={styles}
-              key={item.candidate.id}
-              candidate={item.candidate}
-              request={request}
-              title={item.title}
-              comment={item.comment}
-              recommended={item.candidate.id === result?.recommended?.id}
-              selected={item.candidate.id === selectedId}
-              onSelect={() => setSelectedId(item.candidate.id)}
-              expanded={item.candidate.id === expandedCandidateId}
-              onToggleDetails={() => setExpandedCandidateId((current) => current === item.candidate.id ? null : item.candidate.id)}
-              onManualEdit={() => {
-                setSelectedId(item.candidate.id);
-                setManualOrder(item.candidate.stopSequence);
-                setManualPriorityIds([]);
-                setManualCandidate(null);
-                setManualError(null);
-                setManualMode(true);
-              }}
-            />
+          {[...new Set(labeledAlternatives.map((item) => item.group))].map((group) => (
+            <View key={group} style={styles.groupBlock}>
+              <Text style={styles.groupTitle}>{group.toUpperCase()}</Text>
+              <View style={styles.groupRow}>
+                {labeledAlternatives.filter((item) => item.group === group).map((item) => (
+                  <CandidateCard
+                    styles={styles}
+                    key={item.candidate.id}
+                    candidate={item.candidate}
+                    request={request}
+                    title={item.title}
+                    comment={item.comment}
+                    recommended={item.candidate.id === result?.recommended?.id}
+                    selected={item.candidate.id === selectedId}
+                    onSelect={() => setSelectedId(item.candidate.id)}
+                    expanded={item.candidate.id === expandedCandidateId}
+                    onToggleDetails={() => setExpandedCandidateId((current) => current === item.candidate.id ? null : item.candidate.id)}
+                    onManualEdit={() => {
+                      setSelectedId(item.candidate.id);
+                      setManualOrder(item.candidate.stopSequence);
+                      setManualPriorityIds(request?.stops.filter((stop) => stop.preferEarly).map((stop) => stop.id) ?? []);
+                      setManualCandidate(null);
+                      setManualError(null);
+                      setManualMode(true);
+                    }}
+                  />
+                ))}
+              </View>
+            </View>
           ))}
         </View>
       ) : null}
@@ -551,11 +572,14 @@ function CandidateCard(props: {
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   topActions: { gap: spacing.sm },
-  list: { gap: spacing.md },
+  list: { gap: spacing.lg },
+  groupBlock: { gap: spacing.xs },
+  groupTitle: { color: colors.textMuted, fontSize: 11, fontWeight: '800', letterSpacing: 0.7 },
+  groupRow: { flexDirection: 'row', gap: spacing.sm },
   loading: { alignItems: 'center', gap: spacing.sm, padding: spacing.lg },
-  card: { padding: spacing.sm, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: 6 },
-  recommended: { borderWidth: 2, borderColor: colors.primary },
-  selected: { backgroundColor: colors.primarySoft },
+  card: { flex: 1, minWidth: 0, padding: spacing.sm, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: 6 },
+  recommended: { borderWidth: 2, borderColor: colors.brandNavy },
+  selected: { borderWidth: 2, borderColor: colors.brandNavy, backgroundColor: colors.primarySoft },
   title: { color: colors.text, fontSize: 15, fontWeight: '800' },
   description: { color: colors.textMuted, fontSize: 14, lineHeight: 20, marginTop: spacing.xs },
   candidateSummary: { gap: 4 },

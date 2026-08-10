@@ -5,6 +5,7 @@ import {
   EMPLOYEE_ROLES,
   EmployeeApiError,
   EmployeeAuthStore,
+  DRIVER_PERMISSION_KEYS,
   type EmployeeProfile,
   type EmployeeRole,
   type RouteSnapshot,
@@ -64,7 +65,7 @@ export async function handleEmployeeApi(
     }
 
     if (pathname === '/api/admin/users' && request.method === 'GET') {
-      requireRole(profile, ['admin']);
+      requireRole(profile, ['admin', 'dispatcher']);
       return send(response, 200, { users: await store.listUsers() }, requestId);
     }
     if (pathname === '/api/admin/users' && request.method === 'POST') {
@@ -90,6 +91,7 @@ export async function handleEmployeeApi(
         role,
         disabled: typeof body.disabled === 'boolean' ? body.disabled : undefined,
         pin: optionalString(body, 'pin'),
+        permissions: permissionPatch(body.permissions),
       });
       return send(response, 200, { user }, requestId);
     }
@@ -153,6 +155,15 @@ function isEmployeePath(pathname: string): boolean {
 
 function requireRole(profile: EmployeeProfile, roles: EmployeeRole[]): void {
   if (!roles.includes(profile.role)) throw new EmployeeApiError('FORBIDDEN', 'Šiam veiksmui neturite teisės.', 403);
+}
+
+function permissionPatch(value: unknown): Record<(typeof DRIVER_PERMISSION_KEYS)[number], boolean> | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new EmployeeApiError('INVALID_PERMISSIONS', 'Neteisingi vairuotojo leidimai.', 400);
+  }
+  const source = value as Record<string, unknown>;
+  return Object.fromEntries(DRIVER_PERMISSION_KEYS.map((key) => [key, source[key] === true])) as Record<(typeof DRIVER_PERMISSION_KEYS)[number], boolean>;
 }
 
 function sessionToken(request: IncomingMessage): string {

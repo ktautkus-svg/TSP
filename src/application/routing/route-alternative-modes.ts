@@ -7,40 +7,52 @@ import type {
   RouteOptimizer,
 } from '@/domain/routing/models';
 
+// A real 2x2: each objective (fastest / shortest) is offered both with the
+// delivery windows honoured and with them ignored, so the driver compares like
+// with like instead of four picks that can collapse onto the same sequence.
 export const ROUTE_ALTERNATIVE_MODES = [
-  'fastest',
-  'shortest',
-  'with_time_windows',
-  'ignore_time_windows',
+  'free_fastest',
+  'free_shortest',
+  'timed_fastest',
+  'timed_shortest',
 ] as const;
 
 export type RouteAlternativeMode = (typeof ROUTE_ALTERNATIVE_MODES)[number];
 
 export const ROUTE_ALTERNATIVE_LABELS: Record<
   RouteAlternativeMode,
-  { title: string; comment: string }
+  { title: string; group: string; objective: string; comment: string }
 > = {
-  fastest: {
+  free_fastest: {
     title: 'Greičiausias',
-    comment: 'Mažiausias vairavimo laikas — kuo greičiau baigti važiavimą.',
+    group: 'Nepaisant laiko langų',
+    objective: 'fastest',
+    comment: 'Mažiausias vairavimo laikas, langai ignoruojami.',
   },
-  shortest: {
+  free_shortest: {
     title: 'Trumpiausias',
-    comment: 'Mažiausias kilometražas — taupo kelią, net jei užtrunka ilgiau.',
+    group: 'Nepaisant laiko langų',
+    objective: 'shortest',
+    comment: 'Mažiausias kilometražas, langai ignoruojami.',
   },
-  with_time_windows: {
-    title: 'Pagal laiką',
-    comment: 'Atsižvelgia į pristatymo langus — stengiasi spėti į sutartus laikus.',
+  timed_fastest: {
+    title: 'Greičiausias',
+    group: 'Pagal laiko langus',
+    objective: 'fastest',
+    comment: 'Greičiausias variantas, kuris dar taikosi į langus.',
   },
-  ignore_time_windows: {
-    title: 'Ne pagal laiką',
-    comment: 'Langų nepaiso — geografiškai tvarkingas eiliškumas be laukimo dėl langų.',
+  timed_shortest: {
+    title: 'Trumpiausias',
+    group: 'Pagal laiko langus',
+    objective: 'shortest',
+    comment: 'Trumpiausias variantas, kuris dar taikosi į langus.',
   },
 };
 
 export type LabeledRouteAlternative = {
   mode: RouteAlternativeMode;
   title: string;
+  group: string;
   comment: string;
   candidate: RouteCandidate;
 };
@@ -70,61 +82,43 @@ export function requestForPlanningMode(
   };
 }
 
+const byFastest = (left: RouteCandidate, right: RouteCandidate) =>
+  left.drivingMinutes - right.drivingMinutes
+  || left.totalWorkMinutes - right.totalWorkMinutes
+  || left.totalDistanceKm - right.totalDistanceKm;
+
+const byShortest = (left: RouteCandidate, right: RouteCandidate) =>
+  left.totalDistanceKm - right.totalDistanceKm
+  || left.drivingMinutes - right.drivingMinutes
+  || left.totalWorkMinutes - right.totalWorkMinutes;
+
 export function selectFourObjectiveAlternatives(
   timed: RouteOptimizationResult,
   geo: RouteOptimizationResult,
 ): LabeledRouteAlternative[] {
-  const timedPick =
+  const timedFallback =
     timed.recommended ?? timed.diagnosticCandidate ?? firstFeasible(timed.candidates) ?? timed.candidates[0];
-  const geoPick =
+  const geoFallback =
     geo.recommended ?? geo.diagnosticCandidate ?? firstFeasible(geo.candidates) ?? geo.candidates[0];
-  if (!timedPick || !geoPick) {
+  if (!timedFallback || !geoFallback) {
     throw new Error('Nepavyko sudaryti keturių maršruto variantų.');
   }
 
+  const timedPool = poolForObjective(timed);
   const geoPool = poolForObjective(geo);
 
-  const withTime = stampMode(timedPick, 'with_time_windows');
-  const ignoreTime = stampMode(geoPick, 'ignore_time_windows');
-
-  const fastestRaw = pickBest(
-    geoPool,
-    (left, right) =>
-      left.drivingMinutes - right.drivingMinutes
-      || left.totalWorkMinutes - right.totalWorkMinutes
-      || left.totalDistanceKm - right.totalDistanceKm,
-  ) ?? geoPick;
-
-  const shortestRaw = pickBest(
-    geoPool,
-    (left, right) =>
-      left.totalDistanceKm - right.totalDistanceKm
-      || left.drivingMinutes - right.drivingMinutes
-      || left.totalWorkMinutes - right.totalWorkMinutes,
-  ) ?? geoPick;
-
-  return [
-    {
-      mode: 'fastest',
-      ...ROUTE_ALTERNATIVE_LABELS.fastest,
-      candidate: stampMode(fastestRaw, 'fastest'),
-    },
-    {
-      mode: 'shortest',
-      ...ROUTE_ALTERNATIVE_LABELS.shortest,
-      candidate: stampMode(shortestRaw, 'shortest'),
-    },
-    {
-      mode: 'with_time_windows',
-      ...ROUTE_ALTERNATIVE_LABELS.with_time_windows,
-      candidate: withTime,
-    },
-    {
-      mode: 'ignore_time_windows',
-      ...ROUTE_ALTERNATIVE_LABELS.ignore_time_windows,
-      candidate: ignoreTime,
-    },
+  const picks: Array<{ mode: RouteAlternativeMode; candidate: RouteCandidate }> = [
+    { mode: 'free_fastest', candidate: pickBest(geoPool, byFastest) ?? geoFallback },
+    { mode: 'free_shortest', candidate: pickBest(geoPool, byShortest) ?? geoFallback },
+    { mode: 'timed_fastest', candidate: pickBest(timedPool, byFastest) ?? timedFallback },
+    { mode: 'timed_shortest', candidate: pickBest(timedPool, byShortest) ?? timedFallback },
   ];
+
+  return picks.map(({ mode, candidate }) => ({
+    mode,
+    ...ROUTE_ALTERNATIVE_LABELS[mode],
+    candidate: stampMode(candidate, mode),
+  }));
 }
 
 /**
@@ -144,10 +138,7 @@ export async function buildFourObjectiveAlternatives(
   const labeled = selectFourObjectiveAlternatives(timed, geo);
   const candidates = labeled.map((item) => item.candidate);
   const defaultMode: RouteAlternativeMode =
-    request.planningMode === 'with_time_windows'
-    || request.stops.some((stop) => Boolean(stop.requiredTimeWindow || stop.informationalTimeWindow))
-      ? 'with_time_windows'
-      : 'fastest';
+    request.planningMode === 'with_time_windows' ? 'timed_fastest' : 'free_fastest';
   const recommended =
     labeled.find((item) => item.mode === defaultMode)?.candidate
     ?? candidates[0]
@@ -196,24 +187,14 @@ function pickBest(
 
 function stampMode(candidate: RouteCandidate, mode: RouteAlternativeMode): RouteCandidate {
   const label = ROUTE_ALTERNATIVE_LABELS[mode];
+  const honoursWindows = mode.startsWith('timed_');
+  const isShortest = label.objective === 'shortest';
   const explanation: ExplanationEvidence = {
-    code: mode === 'with_time_windows'
-      ? 'REQUIRED_WINDOW'
-      : mode === 'shortest'
-        ? 'LOWER_TONNE_KM'
-        : mode === 'fastest'
-          ? 'LONGER_BUT_FASTER'
-          : 'LESS_BACKTRACKING',
+    code: honoursWindows ? 'REQUIRED_WINDOW' : isShortest ? 'LOWER_TONNE_KM' : 'LONGER_BUT_FASTER',
     text: label.comment,
-    criterion: mode === 'with_time_windows'
-      ? 'feasibility'
-      : mode === 'shortest'
-        ? 'distance'
-        : mode === 'fastest'
-          ? 'drivingTime'
-          : 'directionality',
+    criterion: isShortest ? 'distance' : 'drivingTime',
     baselineValue: null,
-    selectedValue: label.title,
+    selectedValue: `${label.group} · ${label.title}`,
     difference: null,
     dataSource: `objective:${mode}`,
     relatedStopIds: [],

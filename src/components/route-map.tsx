@@ -132,11 +132,13 @@ export function RouteMapView({
         <Text style={styles.synthetic}>Sintetinė schema jungia taškus tiesiomis linijomis.</Text>
       ) : null}
 
+      {/* Full per-stop address list lives in the candidate card's own "Rodyti
+          eiliškumą" toggle — repeating it here just made the map noisy. */}
       <View style={styles.legend}>
         <Legend styles={styles} color="#10B981" text={`Startas: ${startLocation.label}`} />
-        {orderedStops.map((stop, index) => (
-          <Legend styles={styles} key={stop.id} color="#2563EB" text={`${index + 1}. ${stop.label}`} />
-        ))}
+        {orderedStops.length > 0 ? (
+          <Legend styles={styles} color="#2563EB" text={`${orderedStops.length} ${orderedStops.length === 1 ? 'sustojimas' : 'sustojimai'} (numeriai žemėlapyje)`} />
+        ) : null}
         <Legend styles={styles} color="#EF4444" text={`Grįžimas: ${endLocation.label}`} />
       </View>
     </View>

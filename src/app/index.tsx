@@ -50,6 +50,10 @@ export default function HomeScreen() {
   };
 
   useFocusEffect(useCallback(() => {
+    if (profile.role === 'dispatcher') {
+      router.replace('/dispatcher' as Href);
+      return () => undefined;
+    }
     let mounted = true;
     void (async () => {
       try {
@@ -145,15 +149,16 @@ export default function HomeScreen() {
               ) : null}
             </View>
           ) : (
-            <View style={styles.emptyCard}><Text style={styles.activeTitle}>Aktyvaus maršruto nėra</Text><Text style={styles.activeText}>Importuokite dokumentą arba įveskite adresų sąrašą.</Text></View>
+            <View style={styles.emptyCard}><Text style={styles.activeTitle}>{profile.role === 'driver' ? 'Maršrutas dar nepriskirtas' : 'Aktyvaus maršruto nėra'}</Text><Text style={styles.activeText}>{profile.role === 'driver' ? 'Kai dispečeris priskirs maršrutą, jis automatiškai atsiras šiame įrenginyje.' : 'Importuokite dokumentą arba įveskite adresų sąrašą.'}</Text></View>
           )}
-          {!active ? (
+          {!active && (profile.role !== 'driver' || profile.permissions?.canCreateRoutes) ? (
             <>
               <Link href={'/import' as Href} asChild><Pressable style={styles.primaryButton}><Text style={styles.primaryButtonText}>Naujas maršrutas</Text></Pressable></Link>
               <Link href="/route/new" asChild><Pressable style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>Įvesti adresus rankiniu būdu</Text></Pressable></Link>
             </>
           ) : null}
           <View style={styles.navigationCard}>
+            {profile.role === 'admin' ? <Link href={'/dispatcher' as Href} asChild><Pressable style={styles.navigationButton}><Text style={styles.historyLink}>Dispečeris</Text></Pressable></Link> : null}
             <Link href="/history" asChild><Pressable style={styles.navigationButton}><Text style={styles.historyLink}>Istorija</Text></Pressable></Link>
             <Link href={'/settings' as Href} asChild><Pressable style={styles.navigationButton}><Text style={styles.historyLink}>Nustatymai</Text></Pressable></Link>
           </View>

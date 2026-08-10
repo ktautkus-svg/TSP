@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -40,7 +40,7 @@ import {
 } from '@/application/routes/route-draft-mappers';
 import { resolveRoute } from '@/application/routes/route-navigation';
 import { defaultPlanningDate, defaultPlanningTime, planningDepartureIso } from '@/application/routes/planning-schedule';
-import { GetDefaultLocations, PlanningModePreference, RouteEndPreference, SaveDefaultLocation } from '@/application/routes/saved-locations';
+import { DEFAULT_HOME_ADDRESS, DEFAULT_WAREHOUSE_ADDRESS, GetDefaultLocations, PlanningModePreference, RouteEndPreference, SaveDefaultLocation } from '@/application/routes/saved-locations';
 import { confidenceLevel } from '@/domain/import/confidence';
 import {
   LOGISTICS_EXCEL_V1,
@@ -51,6 +51,7 @@ import {
 import type { ImportDocument, ImportField, ImportResult, ParsedDelivery } from '@/domain/import/models';
 import type { PlanningMode, RouteEndpoint } from '@/domain/route';
 import { FoundationScreen } from '@/components/foundation-screen';
+import { CameraIcon, ExcelIcon, GalleryIcon, PdfIcon, PencilIcon, RegionIcon, TrashIcon, WindowIcon } from '@/components/app-icons';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import { ExcelImportRepository } from '@/database/repositories/excel-import-repository';
 import { readPickedExcelAsset } from '@/infrastructure/import/excel-file-adapter';
@@ -88,6 +89,7 @@ export default function ImportScreen() {
   const [excelProblemIndex, setExcelProblemIndex] = useState(0);
   const [showExcelOptions, setShowExcelOptions] = useState(false);
   const [showPasteField, setShowPasteField] = useState(false);
+  const [editingSchedule, setEditingSchedule] = useState(false);
   const [rememberedExcel, setRememberedExcel] = useState<{
     preview: ExcelImportPreview;
     result: ImportResult | null;
@@ -101,7 +103,7 @@ export default function ImportScreen() {
   useEffect(() => {
     if (profile.role === 'driver' && !profile.permissions?.canCreateRoutes) router.replace('/' as Href);
   }, [profile, router]);
-  const [planningMode, setPlanningMode] = useState<PlanningMode>('with_time_windows');
+  const [planningMode, setPlanningMode] = useState<PlanningMode>('ignore_time_windows');
   const [planningDate, setPlanningDate] = useState(() => defaultPlanningDate());
   const [planningTime, setPlanningTime] = useState(() => defaultPlanningTime());
   const planningTimeTouched = useRef(false);
@@ -115,6 +117,7 @@ export default function ImportScreen() {
   const creationCommandId = useRef<string | null>(null);
   const excelBytes = useRef<Uint8Array | null>(null);
   const excelAsset = useRef<{ name: string; hash: string } | null>(null);
+  const autoRestoredExcel = useRef(false);
 
   useEffect(() => {
     creationCommandId.current = null;
@@ -330,6 +333,16 @@ export default function ImportScreen() {
       setBusy(false);
     }
   };
+
+  // If a session is already "in memory" from last time, show it directly
+  // instead of making the driver pick a source again — the explicit
+  // duplicate-file choice (excelDuplicate, two buttons) still applies when
+  // they deliberately re-pick the same file later.
+  useEffect(() => {
+    if (!rememberedExcel || excelDuplicate || autoRestoredExcel.current) return;
+    autoRestoredExcel.current = true;
+    void restoreRememberedExcel();
+  }, [rememberedExcel, excelDuplicate]);
 
   const openExcelPreview = async (preview: ExcelImportPreview, restoredResult?: ImportResult | null) => {
     await excelRepository.savePreview(preview);
@@ -749,11 +762,18 @@ export default function ImportScreen() {
       description="Pasirinkite Excel, PDF, nuotrauką arba įklijuokite tekstą.">
       <View style={styles.content}>
         {!result ? <>
+        <Pressable style={styles.excelPrimaryButton} onPress={pickExcel} testID="pick-excel">
+          <View style={styles.excelIconBadge}><ExcelIcon size={30} color="#FFFFFF" /></View>
+          <View style={styles.excelPrimaryText}>
+            <Text style={styles.excelPrimaryTitle}>Pasirinkti Excel failą</Text>
+            <Text style={styles.excelPrimaryHint}>Pagrindinis maršruto šaltinis (.xlsx)</Text>
+          </View>
+        </Pressable>
+        <Text style={styles.sourceDivider}>Papildomi šaltiniai</Text>
         <View style={styles.sourceGrid}>
-          <SourceButton styles={styles} title="Fotografuoti" onPress={capture} />
-          <SourceButton styles={styles} title="Galerija" onPress={pickImages} />
-          <SourceButton styles={styles} title="PDF" onPress={pickPdf} />
-          <SourceButton styles={styles} title="Excel (.xlsx)" onPress={pickExcel} />
+          <SourceButton styles={styles} title="Fotografuoti" icon={<CameraIcon size={20} />} onPress={capture} />
+          <SourceButton styles={styles} title="Galerija" icon={<GalleryIcon size={20} />} onPress={pickImages} />
+          <SourceButton styles={styles} title="PDF" icon={<PdfIcon size={20} />} onPress={pickPdf} />
         </View>
 
         {rememberedExcel && !excelDuplicate ? (
@@ -771,26 +791,24 @@ export default function ImportScreen() {
           </View>
         ) : null}
 
-        <View style={styles.card}>
-          <Pressable style={styles.optionsToggle} onPress={() => setShowPasteField((current) => !current)} testID="toggle-paste-field">
-            <Text style={styles.secondaryText}>{showPasteField ? 'Slėpti teksto įklijavimą' : 'Įklijuoti tekstą / OCR (antrinis)'}</Text>
-          </Pressable>
-          {showPasteField ? (
-            <>
-              <Text style={styles.cardTitle}>Įklijuoti tekstą</Text>
-              <TextInput
-                value={pastedText}
-                onChangeText={setPastedText}
-                multiline
-                textAlignVertical="top"
-                placeholder={'Vilnius\nGedimino pr. 9\n150 kg\n08:00\n\nKaunas\nSavanorių pr. 1'}
-                placeholderTextColor={colors.textMuted}
-                style={styles.textArea}
-              />
-              <Pressable style={styles.secondaryButton} onPress={useText}><Text style={styles.secondaryText}>Naudoti įklijuotą tekstą</Text></Pressable>
-            </>
-          ) : null}
-        </View>
+        <Pressable style={styles.pasteToggleLink} onPress={() => setShowPasteField((current) => !current)} testID="toggle-paste-field">
+          <Text style={styles.linkTextSmall}>{showPasteField ? 'Slėpti teksto įklijavimą' : 'Įklijuoti tekstą / OCR (antrinis)'}</Text>
+        </Pressable>
+        {showPasteField ? (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Įklijuoti tekstą</Text>
+            <TextInput
+              value={pastedText}
+              onChangeText={setPastedText}
+              multiline
+              textAlignVertical="top"
+              placeholder={'Vilnius\nGedimino pr. 9\n150 kg\n08:00\n\nKaunas\nSavanorių pr. 1'}
+              placeholderTextColor={colors.textMuted}
+              style={styles.textArea}
+            />
+            <Pressable style={styles.secondaryButton} onPress={useText}><Text style={styles.secondaryText}>Naudoti įklijuotą tekstą</Text></Pressable>
+          </View>
+        ) : null}
 
         {document ? <Text style={styles.fileText}>{document.fileName} · {document.pageCount} psl.</Text> : null}
         <Pressable disabled={!document || busy} style={[styles.primaryButton, (!document || busy) && styles.disabled]} onPress={analyze}>
@@ -811,88 +829,127 @@ export default function ImportScreen() {
 
         {result && (!excelPreview || excelProblemCount === 0) ? (
           <View style={styles.routeSetupTop} testID="route-setup-top">
-            <Text style={styles.cardTitle}>Paruošti maršrutą</Text>
-            <View style={styles.compactSummary}>
-              <Text style={styles.summaryText}>
-                {(excelPreview?.summary.physicalStopCount ?? result.deliveries.length)} taškų · {excelPreview ? formatWeight(excelPreview.summary.totalWeightGrams) : 'svoris pagal taškus'}
+            <View style={styles.setupHeaderRow}>
+              <Text style={styles.setupTitle}>Maršruto sąranka</Text>
+              <Text style={styles.setupCount}>
+                {(excelPreview?.summary.physicalStopCount ?? result.deliveries.length)} tšk. · {excelPreview ? formatWeight(excelPreview.summary.totalWeightGrams) : '—'}
               </Text>
-              {(excelPreview?.summary.routeCodes.length ?? 0) > 0 ? (
-                <Text style={styles.helper}>Regionai: {excelPreview!.summary.routeCodes.join(', ')}</Text>
-              ) : null}
             </View>
-            <Text style={styles.label}>Pradžia</Text>
-            <Text style={styles.endpointText}>{warehouseAddress || 'Savanorių 180, Vilnius'}</Text>
-            <Text style={styles.label}>Kada</Text>
-            <View style={styles.scheduleRow}>
-              <View style={styles.scheduleField}>
-                <Text style={styles.fieldCaption}>Data</Text>
-                <TextInput
-                  value={planningDate}
-                  onChangeText={setPlanningDate}
-                  style={styles.scheduleInput}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor={colors.textMuted}
-                  {...({ type: 'date' } as object)}
-                  testID="planning-date"
-                />
+
+            <Pressable style={styles.setupRow} onPress={() => setEditingSchedule((current) => !current)} testID="toggle-schedule-edit">
+              <View style={styles.setupRowText}>
+                <Text style={styles.setupRowLabel}>PRADŽIA</Text>
+                <Text numberOfLines={1} style={styles.setupRowValue}>{warehouseAddress || DEFAULT_WAREHOUSE_ADDRESS}</Text>
+                <Text style={styles.setupRowMeta}>{planningDate} · {planningTime}</Text>
               </View>
-              <View style={styles.scheduleField}>
-                <Text style={styles.fieldCaption}>Starto laikas</Text>
-                <TextInput
-                  value={planningTime}
-                  onChangeText={(value) => {
-                    planningTimeTouched.current = true;
-                    setPlanningTime(value);
-                  }}
-                  style={styles.scheduleInput}
-                  placeholder="04:00"
-                  placeholderTextColor={colors.textMuted}
-                  {...({ type: 'time' } as object)}
-                  testID="planning-time"
-                />
-              </View>
-            </View>
-            {excelPreview && allRouteCodes(excelPreview).length > 1 ? (
-              <>
-                <Text style={styles.label}>Kryptis</Text>
-                <View style={styles.choiceRow}>
-                  {allRouteCodes(excelPreview).map((code) => (
-                    <Choice
-                      styles={styles}
-                      key={code}
-                      label={code}
-                      selected={excelPreview.selectedRouteCodes.includes(code)}
-                      onPress={() => { void toggleRouteCode(code); }}
+              <View style={styles.setupEditBadge}><PencilIcon size={17} color={colors.brandNavy} /></View>
+            </Pressable>
+
+            {editingSchedule ? (
+              <View style={styles.setupEditPanel}>
+                <View style={styles.scheduleRow}>
+                  <View style={styles.scheduleField}>
+                    <Text style={styles.fieldCaption}>Data</Text>
+                    <TextInput
+                      value={planningDate}
+                      onChangeText={setPlanningDate}
+                      style={styles.scheduleInput}
+                      placeholder="YYYY-MM-DD"
+                      placeholderTextColor={colors.textMuted}
+                      {...({ type: 'date' } as object)}
+                      testID="planning-date"
                     />
-                  ))}
+                  </View>
+                  <View style={styles.scheduleField}>
+                    <Text style={styles.fieldCaption}>Starto laikas</Text>
+                    <TextInput
+                      value={planningTime}
+                      onChangeText={(value) => {
+                        planningTimeTouched.current = true;
+                        setPlanningTime(value);
+                      }}
+                      style={styles.scheduleInput}
+                      placeholder="04:00"
+                      placeholderTextColor={colors.textMuted}
+                      {...({ type: 'time' } as object)}
+                      testID="planning-time"
+                    />
+                  </View>
                 </View>
-              </>
+                <Pressable style={styles.inlineLinkRow} onPress={() => router.push('/settings/locations' as Href)}>
+                  <Text style={styles.inlineLinkText}>Keisti pradžios adresą nustatymuose</Text>
+                </Pressable>
+              </View>
             ) : null}
-            <Text style={styles.label}>Pristatymo laikai</Text>
-            <View style={styles.choiceRow}>
-              <Choice styles={styles} label="Atsižvelgti" selected={planningMode === 'with_time_windows'} onPress={() => setPlanningMode('with_time_windows')} />
-              <Choice styles={styles} label="Neatsižvelgti" selected={planningMode === 'ignore_time_windows'} onPress={() => setPlanningMode('ignore_time_windows')} />
+
+            {excelPreview && allRouteCodes(excelPreview).length > 0 ? (
+              <View style={styles.regionSection} testID="region-summary">
+                <View style={styles.regionHeaderRow}>
+                  <RegionIcon size={16} color={colors.textMuted} />
+                  <Text style={styles.setupRowLabel}>RAJONAI · palieskite, kad neįtrauktumėte</Text>
+                </View>
+                <View style={styles.regionChipRow}>
+                  {regionSummaries(excelPreview).map((region) => {
+                    const active = excelPreview.selectedRouteCodes.includes(region.code);
+                    return (
+                      <Pressable
+                        key={region.code}
+                        onPress={() => { void toggleRouteCode(region.code); }}
+                        style={[styles.regionChip, active ? styles.regionChipActive : styles.regionChipMuted]}
+                        testID={`region-chip-${region.code}`}>
+                        <Text style={[styles.regionChipCode, active && styles.regionChipCodeActive]}>{region.code}</Text>
+                        <Text style={[styles.regionChipMeta, active && styles.regionChipMetaActive]}>
+                          {region.stopCount} tšk · {formatWeight(region.weightGrams)}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : null}
+
+            <Pressable
+              style={styles.toggleRow}
+              onPress={() => setPlanningMode((current) => current === 'with_time_windows' ? 'ignore_time_windows' : 'with_time_windows')}
+              testID="toggle-planning-mode">
+              <WindowIcon size={18} color={planningMode === 'with_time_windows' ? colors.brandNavy : colors.textMuted} />
+              <View style={styles.setupRowText}>
+                <Text style={styles.setupRowValue}>Atsižvelgti į pristatymo langus</Text>
+                <Text style={styles.setupRowMeta}>{planningMode === 'with_time_windows' ? 'Įjungta · derinama pagal laikus' : 'Išjungta · trumpiausias kelias'}</Text>
+              </View>
+              <View style={[styles.switchTrack, planningMode === 'with_time_windows' && styles.switchTrackOn]}>
+                <View style={[styles.switchThumb, planningMode === 'with_time_windows' && styles.switchThumbOn]} />
+              </View>
+            </Pressable>
+
+            <View style={styles.setupRowStatic}>
+              <View style={styles.setupRowText}>
+                <Text style={styles.setupRowLabel}>PABAIGA</Text>
+                <Text numberOfLines={1} style={styles.setupRowValue}>
+                  {endMode === 'home' ? (homeAddress || DEFAULT_HOME_ADDRESS) : (warehouseAddress || DEFAULT_WAREHOUSE_ADDRESS)}
+                </Text>
+              </View>
+              <View style={styles.endSwitchRow}>
+                <Pressable
+                  disabled={!warehouseEndpoint?.latitude}
+                  onPress={() => setEndMode('warehouse')}
+                  style={[styles.endSwitchOption, endMode === 'warehouse' && styles.endSwitchOptionActive, !warehouseEndpoint?.latitude && styles.disabled]}>
+                  <Text style={[styles.endSwitchText, endMode === 'warehouse' && styles.endSwitchTextActive]}>Sandėlis</Text>
+                </Pressable>
+                <Pressable
+                  disabled={!homeEndpoint?.latitude}
+                  onPress={() => setEndMode('home')}
+                  style={[styles.endSwitchOption, endMode === 'home' && styles.endSwitchOptionActive, !homeEndpoint?.latitude && styles.disabled]}>
+                  <Text style={[styles.endSwitchText, endMode === 'home' && styles.endSwitchTextActive]}>Namai</Text>
+                </Pressable>
+              </View>
             </View>
-            <Text style={styles.label}>Pabaiga</Text>
-            <Choice
-              styles={styles}
-              label={warehouseAddress ? `Grįžti į ${warehouseAddress}` : 'Grįžti į sandėlį'}
-              selected={endMode === 'warehouse'}
-              disabled={!warehouseEndpoint?.latitude}
-              onPress={() => setEndMode('warehouse')}
-            />
-            <Choice
-              styles={styles}
-              label={homeAddress ? `Baigti ${homeAddress}` : 'Baigti namuose'}
-              selected={endMode === 'home'}
-              disabled={!homeEndpoint?.latitude}
-              onPress={() => setEndMode('home')}
-            />
+
             {!readyForRoute ? (
               <View style={styles.blockerList} testID="route-creation-blockers">
                 {excelPreview && excelProblemCount > 0 ? (
                   <Text style={styles.issueText}>Reikia sutvarkyti {excelProblemCount} pristatymo {excelProblemCount === 1 ? 'tašką' : 'taškus'}.</Text>
-                ) : routeCreationBlockers.slice(0, 3).map((blocker) => <Text key={blocker} style={styles.issueText}>• {blocker}</Text>)}
+                ) : routeCreationBlockers.slice(0, 2).map((blocker) => <Text key={blocker} style={styles.issueText}>• {blocker}</Text>)}
                 {(!hasRouteCoordinates(warehouseEndpoint) || (endMode === 'home' && !hasRouteCoordinates(homeEndpoint))) ? (
                   <Pressable style={styles.secondaryButton} onPress={() => router.push('/settings/locations' as Href)}>
                     <Text style={styles.secondaryText}>Atidaryti vietų nustatymus</Text>
@@ -900,13 +957,29 @@ export default function ImportScreen() {
                 ) : null}
               </View>
             ) : null}
-            <Pressable
-              disabled={!readyForRoute || busy}
-              style={[styles.primaryButton, (!readyForRoute || busy) && styles.disabled]}
-              onPress={sendToRouting}
-              testID="create-route-top">
-              <Text style={styles.primaryText}>Kurti maršrutą</Text>
-            </Pressable>
+
+            <View style={styles.setupActions}>
+              <Pressable
+                disabled={busy}
+                style={[styles.cancelSetupButton, busy && styles.disabled]}
+                onPress={() => {
+                  setResult(null);
+                  setExcelPreview(null);
+                  setExcelDuplicate(null);
+                  setExpandedExcelGroups([]);
+                  setMessage(null);
+                }}
+                testID="cancel-route-setup">
+                <Text style={styles.cancelSetupText}>Atšaukti</Text>
+              </Pressable>
+              <Pressable
+                disabled={!readyForRoute || busy}
+                style={[styles.createRouteButton, (!readyForRoute || busy) && styles.disabled]}
+                onPress={sendToRouting}
+                testID="create-route-top">
+                <Text style={styles.primaryText}>Kurti maršrutą</Text>
+              </Pressable>
+            </View>
           </View>
         ) : null}
 
@@ -926,17 +999,19 @@ export default function ImportScreen() {
               <Text style={excelProblemCount > 0 ? styles.issueText : styles.successText}>
                 {excelProblemCount > 0 ? `Patikrinkite ${excelProblemCount} ${excelProblemCount === 1 ? 'adresą' : 'adresus'}` : 'Paruošta planuoti'}
               </Text>
-              <Pressable style={styles.optionsToggle} onPress={() => setShowExcelOptions((current) => !current)}>
-                <Text style={styles.secondaryText}>{showExcelOptions ? 'Slėpti pasirinkimus' : 'Keisti lapą ar kryptį'}</Text>
-              </Pressable>
-              {showExcelOptions ? <View style={styles.optionsPanel}>
-                <Text style={styles.label}>Excel lapas</Text>
-                <View style={styles.choiceRow}>
-                  {excelPreview.sheets.map((sheet) => (
-                    <Choice styles={styles} key={sheet.name} label={sheet.name} selected={sheet.name === excelPreview.selectedSheetName} onPress={() => { void reparseExcel(sheet.name); }} />
-                  ))}
+              {excelPreview.sheets.length > 1 ? (
+                <View style={styles.optionsPanel} testID="excel-sheet-picker">
+                  <Text style={styles.label}>Excel lapas ({excelPreview.sheets.length} tinkami)</Text>
+                  <View style={styles.choiceRow}>
+                    {excelPreview.sheets.map((sheet) => (
+                      <Choice styles={styles} key={sheet.name} label={sheet.name} selected={sheet.name === excelPreview.selectedSheetName} onPress={() => { void reparseExcel(sheet.name); }} />
+                    ))}
+                  </View>
                 </View>
-              </View> : null}
+              ) : null}
+              <Pressable style={styles.optionsToggle} onPress={() => setShowExcelOptions((current) => !current)}>
+                <Text style={styles.secondaryText}>{showExcelOptions ? 'Slėpti išplėstines parinktis' : 'Išplėstinės eilučių parinktys'}</Text>
+              </Pressable>
             </View>
 
             {unresolvedExcelRows.length > 0 ? (
@@ -1203,8 +1278,13 @@ function DeliveryEditor(props: {
   );
 }
 
-function SourceButton({ styles, title, onPress }: { styles: ReturnType<typeof createStyles>; title: string; onPress: () => void }) {
-  return <Pressable style={styles.sourceButton} onPress={onPress}><Text style={styles.secondaryText}>{title}</Text></Pressable>;
+function SourceButton({ styles, title, icon, onPress }: { styles: ReturnType<typeof createStyles>; title: string; icon: ReactNode; onPress: () => void }) {
+  return (
+    <Pressable style={styles.sourceButton} onPress={onPress}>
+      {icon}
+      <Text style={styles.sourceButtonText}>{title}</Text>
+    </Pressable>
+  );
 }
 
 function UnresolvedRowFixer({
@@ -1424,6 +1504,24 @@ function allRouteCodes(preview: ExcelImportPreview): string[] {
   return [...new Set(preview.rows.map((row) => row.routeCode).filter((value): value is string => Boolean(value)))].sort();
 }
 
+type RegionSummary = { code: string; stopCount: number; weightGrams: number };
+
+// Groups are the physical stops (deduped by address); a group's route code is
+// taken from its first constituent Excel row, since every line at one delivery
+// point belongs to the same region in practice.
+function regionSummaries(preview: ExcelImportPreview): RegionSummary[] {
+  const rowsById = new Map(preview.rows.map((row) => [row.id, row]));
+  const byCode = new Map<string, RegionSummary>();
+  for (const group of preview.groups) {
+    const code = group.lineIds.map((id) => rowsById.get(id)?.routeCode).find((value): value is string => Boolean(value)) ?? 'Be regiono';
+    const existing = byCode.get(code) ?? { code, stopCount: 0, weightGrams: 0 };
+    existing.stopCount += 1;
+    existing.weightGrams += group.totalWeightGrams;
+    byCode.set(code, existing);
+  }
+  return [...byCode.values()].sort((left, right) => left.code.localeCompare(right.code));
+}
+
 function mappingLabel(key: keyof ExcelColumnMapping): string {
   const labels: Record<keyof ExcelColumnMapping, string> = {
     orderNumber: 'Užsakymo numeris',
@@ -1439,8 +1537,28 @@ function mappingLabel(key: keyof ExcelColumnMapping): string {
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   content: { gap: spacing.md, paddingBottom: spacing.md },
+  excelPrimaryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    minHeight: 76,
+    paddingHorizontal: spacing.md,
+    borderRadius: 18,
+    backgroundColor: colors.brandNavy,
+    shadowColor: '#183525',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.16,
+    shadowRadius: 14,
+    elevation: 4,
+  },
+  excelIconBadge: { width: 50, height: 50, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.14)' },
+  excelPrimaryText: { flex: 1, minWidth: 0 },
+  excelPrimaryTitle: { color: '#FFFFFF', fontSize: 17, fontWeight: '800' },
+  excelPrimaryHint: { color: 'rgba(255,255,255,0.72)', fontSize: 13, marginTop: 2 },
+  sourceDivider: { color: colors.textMuted, fontSize: 12, fontWeight: '700', letterSpacing: 0.6, marginTop: spacing.xs },
   sourceGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  sourceButton: { flexGrow: 1, minWidth: '30%', minHeight: 48, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.sm },
+  sourceButton: { flexGrow: 1, minWidth: '30%', minHeight: 46, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: spacing.sm },
+  sourceButtonText: { color: colors.textMuted, fontSize: 13, fontWeight: '700' },
   card: { padding: spacing.md, borderRadius: 18, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
   routeSetupTop: { padding: spacing.md, borderRadius: 18, borderWidth: 2, borderColor: colors.primary, backgroundColor: colors.surface, gap: spacing.sm, shadowColor: '#183525', shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.1, shadowRadius: 12, elevation: 3 },
   scheduleRow: { flexDirection: 'row', gap: spacing.sm },
@@ -1448,6 +1566,72 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   fieldCaption: { color: colors.textMuted, fontSize: 12, fontWeight: '700' },
   scheduleInput: { minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.sm, color: colors.text, backgroundColor: colors.background, fontSize: 16, fontWeight: '700' },
   compactSummary: { paddingHorizontal: spacing.xs, gap: 2 },
+  regionList: { marginTop: 2, gap: 1 },
+  setupHeaderRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: spacing.sm },
+  setupTitle: { color: colors.text, fontSize: 18, fontWeight: '800' },
+  setupCount: { color: colors.brandNavy, fontSize: 14, fontWeight: '800' },
+  setupRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    minHeight: 58,
+    paddingHorizontal: spacing.sm,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.background,
+  },
+  setupRowStatic: {
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.background,
+  },
+  setupRowText: { flex: 1, minWidth: 0 },
+  setupRowLabel: { color: colors.textMuted, fontSize: 10, fontWeight: '800', letterSpacing: 0.6 },
+  setupRowValue: { color: colors.text, fontSize: 15, fontWeight: '700', marginTop: 1 },
+  setupRowMeta: { color: colors.textMuted, fontSize: 12, marginTop: 1 },
+  setupEditBadge: { width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  setupEditPanel: { gap: spacing.sm, paddingHorizontal: spacing.xs },
+  inlineLinkRow: { minHeight: 34, justifyContent: 'center' },
+  inlineLinkText: { color: colors.brandNavy, fontSize: 13, fontWeight: '700', textDecorationLine: 'underline' },
+  regionSection: { gap: spacing.xs },
+  regionHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  regionChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
+  regionChip: { minHeight: 46, paddingHorizontal: spacing.sm, paddingVertical: 5, borderRadius: 12, borderWidth: 1.5, justifyContent: 'center' },
+  regionChipActive: { borderColor: colors.brandNavy, backgroundColor: colors.surface },
+  regionChipMuted: { borderColor: colors.border, backgroundColor: colors.background, opacity: 0.5 },
+  regionChipCode: { color: colors.textMuted, fontSize: 14, fontWeight: '800' },
+  regionChipCodeActive: { color: colors.brandNavy },
+  regionChipMeta: { color: colors.textMuted, fontSize: 11, marginTop: 1 },
+  regionChipMetaActive: { color: colors.text },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    minHeight: 58,
+    paddingHorizontal: spacing.sm,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.background,
+  },
+  switchTrack: { width: 48, height: 28, borderRadius: 999, backgroundColor: '#CBD3CD', justifyContent: 'center', paddingHorizontal: 3 },
+  switchTrackOn: { backgroundColor: colors.brandNavy },
+  switchThumb: { width: 22, height: 22, borderRadius: 11, backgroundColor: '#FFFFFF' },
+  switchThumbOn: { alignSelf: 'flex-end' },
+  endSwitchRow: { flexDirection: 'row', gap: spacing.xs },
+  endSwitchOption: { flex: 1, minHeight: 40, borderRadius: 10, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+  endSwitchOptionActive: { borderColor: colors.brandNavy, backgroundColor: colors.brandNavy },
+  endSwitchText: { color: colors.textMuted, fontSize: 13, fontWeight: '800' },
+  endSwitchTextActive: { color: '#FFFFFF' },
+  setupActions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs },
+  cancelSetupButton: { flex: 1, minHeight: 52, borderRadius: 14, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+  cancelSetupText: { color: colors.textMuted, fontWeight: '800', fontSize: 15 },
+  createRouteButton: { flex: 2, minHeight: 52, borderRadius: 14, backgroundColor: colors.brandNavy, alignItems: 'center', justifyContent: 'center' },
   excelCompactCard: { padding: spacing.sm, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.xs },
   excelProblemCard: { borderColor: '#D92D20', backgroundColor: colors.surface },
   compactMeta: { color: colors.textMuted, fontSize: 14, lineHeight: 19 },
@@ -1491,6 +1675,8 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   confidence: { fontWeight: '800' },
   input: { minHeight: 44, borderRadius: 12, borderWidth: 2, paddingHorizontal: spacing.md, color: colors.text, backgroundColor: colors.background },
   linkText: { color: colors.primary, fontWeight: '700', textDecorationLine: 'underline' },
+  pasteToggleLink: { minHeight: 32, alignItems: 'center', justifyContent: 'center', paddingVertical: spacing.xs },
+  linkTextSmall: { color: colors.textMuted, fontSize: 13, fontWeight: '600', textDecorationLine: 'underline' },
   high: { color: '#13795B' },
   warning: { color: '#A15C00' },
   danger: { color: '#B42318' },

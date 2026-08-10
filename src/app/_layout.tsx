@@ -129,6 +129,7 @@ export default function RootLayout() {
           <Stack.Screen name="fuel" options={{ title: 'Degalai' }} />
           <Stack.Screen name="vehicle" options={{ title: 'Transporto priemonė' }} />
           <Stack.Screen name="admin" options={{ title: 'Administratoriaus panelė' }} />
+          <Stack.Screen name="dispatcher" options={{ title: 'Dispečerio skydelis' }} />
           </Stack>
         </LocalAccessGate>
       </ThemeProvider>

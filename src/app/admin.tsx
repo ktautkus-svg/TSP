@@ -6,6 +6,12 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { assignRouteToDriver } from '@/application/auth/route-assignment-sync';
 import { LocalAccessService } from '@/application/auth/local-access';
 import { useLocalAccess } from '@/application/auth/local-access-context';
+import {
+  DRIVER_PERMISSION_KEYS,
+  DRIVER_PERMISSION_LABELS,
+  normalizeDriverPermissions,
+  type DriverPermissionKey,
+} from '@/application/auth/employee-permissions';
 import { FoundationScreen } from '@/components/foundation-screen';
 import {
   employeeApi,
@@ -98,6 +104,16 @@ export default function AdminScreen() {
     await load();
   });
 
+  const togglePermission = (employee: EmployeeProfile, key: DriverPermissionKey) => run(async () => {
+    const permissions = normalizeDriverPermissions(employee.permissions);
+    await employeeApi(`/api/admin/users/${encodeURIComponent(employee.id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ permissions: { ...permissions, [key]: !permissions[key] } }),
+    });
+    setMessage('Vairuotojo leidimai atnaujinti.');
+    await load();
+  });
+
   const assignRoute = () => run(async () => {
     if (!selectedDriverId || !selectedRouteId) throw new Error('Pasirinkite vairuotoją ir maršrutą.');
     await assignRouteToDriver(db, selectedRouteId, selectedDriverId);
@@ -162,9 +178,22 @@ export default function AdminScreen() {
 
           <View style={styles.card} testID="employee-list">
             <Text style={styles.title}>Darbuotojai</Text>
-            {users.map((employee) => <View key={employee.id} style={styles.listRow}>
-              <View style={styles.listContent}><Text style={styles.listTitle}>{employee.displayName}</Text><Text style={styles.meta}>@{employee.username} · {roleLabel(employee.role)}{employee.disabled ? ' · Išjungta' : ''}</Text></View>
-              {employee.id !== profile.id ? <Pressable onPress={() => void toggleEmployee(employee)} style={styles.smallButton}><Text style={styles.smallButtonText}>{employee.disabled ? 'Įjungti' : 'Išjungti'}</Text></Pressable> : null}
+            {users.map((employee) => <View key={employee.id} style={styles.employeeBlock}>
+              <View style={styles.listRow}>
+                <View style={styles.listContent}><Text style={styles.listTitle}>{employee.displayName}</Text><Text style={styles.meta}>@{employee.username} · {roleLabel(employee.role)}{employee.disabled ? ' · Išjungta' : ''}</Text></View>
+                {employee.id !== profile.id ? <Pressable onPress={() => void toggleEmployee(employee)} style={styles.smallButton}><Text style={styles.smallButtonText}>{employee.disabled ? 'Įjungti' : 'Išjungti'}</Text></Pressable> : null}
+              </View>
+              {employee.role === 'driver' ? <View style={styles.permissions}>
+                <Text style={styles.sectionLabel}>Vairuotojo leidimai</Text>
+                {DRIVER_PERMISSION_KEYS.map((key) => {
+                  const enabled = normalizeDriverPermissions(employee.permissions)[key];
+                  const copy = DRIVER_PERMISSION_LABELS[key];
+                  return <Pressable key={key} onPress={() => void togglePermission(employee, key)} style={styles.permissionRow} testID={`permission-${employee.id}-${key}`}>
+                    <View style={styles.permissionCopy}><Text style={styles.permissionTitle}>{copy.title}</Text><Text style={styles.permissionDescription}>{copy.description}</Text></View>
+                    <View style={[styles.switchTrack, enabled && styles.switchTrackOn]}><View style={[styles.switchThumb, enabled && styles.switchThumbOn]} /></View>
+                  </Pressable>;
+                })}
+              </View> : null}
             </View>)}
           </View>
 
@@ -196,6 +225,7 @@ export default function AdminScreen() {
         </View>
 
         {message ? <Text accessibilityRole="alert" style={styles.message}>{message}</Text> : null}
+        <Pressable style={styles.primaryButton} onPress={() => router.push('/dispatcher' as Href)}><Text style={styles.primaryText}>Atidaryti dispečerio skydelį</Text></Pressable>
         <Pressable style={styles.secondaryButton} onPress={() => router.push('/settings' as Href)}><Text style={styles.secondaryText}>Nustatymai ir atsarginė kopija</Text></Pressable>
         <Pressable style={styles.lockButton} onPress={() => { void logout(); }}><Text style={styles.lockText}>Atsijungti</Text></Pressable>
       </FoundationScreen>
@@ -238,6 +268,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   choiceText: { color: colors.text, fontWeight: '800' },
   choiceTextActive: { color: '#FFFFFF' },
   listRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border },
+  employeeBlock: { gap: spacing.sm, paddingBottom: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border },
   listContent: { flex: 1, minWidth: 0 },
   listTitle: { color: colors.text, fontWeight: '900', fontSize: 16 },
   smallButton: { minHeight: 42, paddingHorizontal: spacing.md, borderRadius: 10, borderWidth: 1, borderColor: colors.border, justifyContent: 'center' },
@@ -245,4 +276,13 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   selection: { padding: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: 12 },
   selectionActive: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
   sectionLabel: { color: colors.textMuted, fontWeight: '900', textTransform: 'uppercase', fontSize: 12, letterSpacing: 0.7, marginTop: spacing.xs },
+  permissions: { gap: spacing.xs, paddingLeft: spacing.sm },
+  permissionRow: { minHeight: 62, flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xs },
+  permissionCopy: { flex: 1, minWidth: 0 },
+  permissionTitle: { color: colors.text, fontWeight: '800' },
+  permissionDescription: { color: colors.textMuted, fontSize: 12, lineHeight: 17, marginTop: 2 },
+  switchTrack: { width: 46, height: 26, borderRadius: 13, padding: 3, backgroundColor: colors.border },
+  switchTrackOn: { backgroundColor: colors.primary },
+  switchThumb: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#FFFFFF' },
+  switchThumbOn: { alignSelf: 'flex-end' },
 });

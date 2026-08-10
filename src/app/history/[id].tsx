@@ -114,6 +114,7 @@ export default function RouteHistoryDetailScreen() {
         {route.completionSummary ? (
           <View style={styles.reportBlock} testID="completion-report">
             <Text style={styles.reportTitle}>Užbaigimo ataskaita</Text>
+            <Text style={styles.meta}>Pristatyta: {route.completionSummary.deliveredStops} · Nepavyko: {route.completionSummary.failedStops}</Text>
             <Text style={styles.meta}>Laiku: {route.completionSummary.onTimeStops} · Vėlavo: {route.completionSummary.lateStops}</Text>
             <Text style={styles.meta}>
               Trukmė: planuota {route.completionSummary.plannedDurationMinutes ?? '—'} min · faktinė {route.completionSummary.actualDurationMinutes ?? '—'} min

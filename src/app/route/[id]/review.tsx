@@ -27,6 +27,7 @@ import {
 } from '@/application/routes/route-draft-mappers';
 import { resolveRoute } from '@/application/routes/route-navigation';
 import { FoundationScreen } from '@/components/foundation-screen';
+import { ChevronDownIcon, ChevronRightIcon, TrashIcon } from '@/components/app-icons';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import { ShipmentLineRepository } from '@/database/repositories/shipment-line-repository';
 import type { DeliveryStop, Route } from '@/domain/route';
@@ -454,6 +455,14 @@ export default function RouteReviewScreen() {
         <Pressable style={styles.secondaryButton} onPress={() => void addStop()}><Text style={styles.secondaryText}>Pridėti</Text></Pressable>
       </View>
 
+      {/* Repeated at the bottom so a long stop list never forces a scroll back up. */}
+      <Pressable
+        disabled={!canCalculate}
+        style={[styles.primaryButton, !canCalculate && { opacity: 0.45 }]}
+        onPress={goToAlternatives}
+        testID="optimize-route-bottom">
+        <Text style={styles.primaryText}>Optimizuoti maršrutą</Text>
+      </Pressable>
     </FoundationScreen>
   );
 }
@@ -526,7 +535,11 @@ function StopEditor(props: {
               {stop.originalAddress}
             </Text>
             <Text numberOfLines={1} style={styles.compactMeta}>
-              {[cityHint, stop.weightKg === null ? null : `${Math.round(stop.weightKg)} kg`].filter(Boolean).join(' · ') || ' '}
+              {[
+                cityHint,
+                stop.weightKg === null ? null : `${Math.round(stop.weightKg)} kg`,
+                formatTimeWindowInput(stop.deliveryTimeFrom, stop.deliveryTimeTo) || null,
+              ].filter(Boolean).join(' · ') || ' '}
             </Text>
           </Pressable>
           <Pressable
@@ -539,8 +552,16 @@ function StopEditor(props: {
               {props.priorityRank > 0 ? String(props.priorityRank) : '☆'}
             </Text>
           </Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel="Rodyti detales" onPress={() => setExpanded((value) => !value)} style={styles.expandButton}>
-            <Text style={styles.expandText}>{expanded ? '−' : '›'}</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Pašalinti tašką"
+            onPress={props.onDelete}
+            style={styles.compactIconButton}
+            testID={`delete-stop-${stop.id}`}>
+            <TrashIcon size={18} />
+          </Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Rodyti detales" onPress={() => setExpanded((value) => !value)} style={styles.compactIconButton}>
+            {expanded ? <ChevronDownIcon size={18} /> : <ChevronRightIcon size={18} />}
           </Pressable>
         </View>
       ) : (
@@ -651,6 +672,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   priorityStarTextActive: { color: colors.primary, fontSize: 18, fontWeight: '900' },
   expandButton: { width: 34, height: 42, alignItems: 'center', justifyContent: 'center' },
   expandText: { color: colors.textMuted, fontSize: 27, lineHeight: 30 },
+  compactIconButton: { width: 36, height: 42, alignItems: 'center', justifyContent: 'center' },
   problemCard: { borderColor: colors.danger, borderWidth: 2 },
   heading: { color: colors.text, fontSize: 17, fontWeight: '800' },
   query: { color: colors.textMuted },

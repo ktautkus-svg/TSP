@@ -39,9 +39,26 @@ describe('compact daily Excel UI', () => {
     expect(importScreen).not.toContain('Excel eilutės →');
     expect(importScreen).toContain('excelGroupNeedsAction');
     expect(importScreen).not.toContain('formatLineCount(rows.length)');
-    expect(importScreen).toContain('Pristatymo laikai');
-    expect(importScreen).toContain('label="Atsižvelgti"');
-    expect(importScreen).toContain('label="Neatsižvelgti"');
+    // Time-window handling is a single compact switch now, not a pair of
+    // "Atsižvelgti"/"Neatsižvelgti" choice buttons.
+    expect(importScreen).toContain('testID="toggle-planning-mode"');
+    expect(importScreen).toContain('Atsižvelgti į pristatymo langus');
+    expect(importScreen).toContain('switchTrackOn');
+  });
+
+  it('leads with Excel and keeps the other import sources secondary', () => {
+    expect(importScreen).toContain('testID="pick-excel"');
+    expect(importScreen).toContain('Pasirinkti Excel failą');
+    expect(importScreen).toContain('Papildomi šaltiniai');
+    expect(importScreen).toContain('excelPrimaryButton');
+  });
+
+  it('lets the driver drop whole regions and edit the schedule inline', () => {
+    expect(importScreen).toContain('testID="region-summary"');
+    expect(importScreen).toContain('region-chip-');
+    expect(importScreen).toContain('toggleRouteCode');
+    expect(importScreen).toContain('testID="toggle-schedule-edit"');
+    expect(importScreen).toContain('testID="cancel-route-setup"');
   });
 
   it('keeps priorities compact and opens odometer entry in a modal', () => {
@@ -73,7 +90,9 @@ describe('compact daily Excel UI', () => {
     expect(deliveryScreen).not.toContain('stop.phone');
     expect(loadingScreen).toContain('etaLabel(stop)');
     expect(loadingScreen).toContain('Pažymėti visus kaip pakrautus');
-    expect(loadingScreen).toContain('Visi kroviniai pakrauti ✓');
+    // The tick is a real SVG icon now, not a ✓ glyph in the label.
+    expect(loadingScreen).toContain('Visi kroviniai pakrauti');
+    expect(loadingScreen).toContain('<CheckIcon');
     expect(loadingScreen).toContain('bulkInFlight.current');
     expect(loadingScreen).toContain('MarkStopUnloaded');
     expect(deliveryScreen).toContain('etaLabel(stop)');

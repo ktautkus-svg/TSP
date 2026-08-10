@@ -1,16 +1,8 @@
 import { createGatewayAuthorizationHeaders } from '@/infrastructure/gateway/device-auth';
+import type { DriverPermissions } from '@/application/auth/employee-permissions';
 
 export const EMPLOYEE_ROLES = ['admin', 'dispatcher', 'driver'] as const;
 export type EmployeeRole = (typeof EMPLOYEE_ROLES)[number];
-
-/** Optional capability flags. Drivers without them keep a restricted UI. */
-export type EmployeePermissions = {
-  canCreateRoutes?: boolean;
-  canReorderAssignedRoute?: boolean;
-  canCancelRoute?: boolean;
-  canAddStops?: boolean;
-  canRecalculateRoute?: boolean;
-};
 
 export type EmployeeProfile = {
   id: string;
@@ -18,7 +10,7 @@ export type EmployeeProfile = {
   displayName: string;
   role: EmployeeRole;
   disabled: boolean;
-  permissions?: EmployeePermissions;
+  permissions?: DriverPermissions;
 };
 
 export type EmployeeSession = {
@@ -120,6 +112,18 @@ export async function logoutEmployee(fetcher: typeof fetch = globalThis.fetch): 
     await fetcher('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }).catch(() => undefined);
   }
   await clearEmployeeSession();
+}
+
+export async function refreshEmployeeSession(fetcher: typeof fetch = globalThis.fetch): Promise<EmployeeSession | null> {
+  const session = await getEmployeeSession();
+  if (!session) return null;
+  const response = await fetcher('/api/auth/me', { credentials: 'same-origin', headers: { accept: 'application/json' } });
+  if (!response.ok) throw await readEmployeeError(response);
+  const payload = await response.json() as { profile?: EmployeeProfile };
+  if (!payload.profile?.id) throw new EmployeeClientError('INVALID_SESSION_RESPONSE', 'Serveris grąžino neteisingą darbuotojo profilį.', 502);
+  const refreshed = { ...session, profile: payload.profile };
+  await saveEmployeeSession(refreshed);
+  return refreshed;
 }
 
 export async function employeeApi<T>(path: string, init: RequestInit = {}, fetcher: typeof fetch = globalThis.fetch): Promise<T> {

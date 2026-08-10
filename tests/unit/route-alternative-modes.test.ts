@@ -14,17 +14,19 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 describe('four objective route alternatives', () => {
-  it('exposes Greičiausias / Trumpiausias / Pagal laiką / Ne pagal laiką labels', () => {
+  it('exposes a fastest/shortest x with/without-windows 2x2', () => {
     expect(ROUTE_ALTERNATIVE_MODES).toEqual([
-      'fastest',
-      'shortest',
-      'with_time_windows',
-      'ignore_time_windows',
+      'free_fastest',
+      'free_shortest',
+      'timed_fastest',
+      'timed_shortest',
     ]);
-    expect(ROUTE_ALTERNATIVE_LABELS.fastest.title).toBe('Greičiausias');
-    expect(ROUTE_ALTERNATIVE_LABELS.shortest.title).toBe('Trumpiausias');
-    expect(ROUTE_ALTERNATIVE_LABELS.with_time_windows.title).toBe('Pagal laiką');
-    expect(ROUTE_ALTERNATIVE_LABELS.ignore_time_windows.title).toBe('Ne pagal laiką');
+    expect(ROUTE_ALTERNATIVE_LABELS.free_fastest.title).toBe('Greičiausias');
+    expect(ROUTE_ALTERNATIVE_LABELS.free_shortest.title).toBe('Trumpiausias');
+    expect(ROUTE_ALTERNATIVE_LABELS.timed_fastest.title).toBe('Greičiausias');
+    expect(ROUTE_ALTERNATIVE_LABELS.timed_shortest.title).toBe('Trumpiausias');
+    expect(ROUTE_ALTERNATIVE_LABELS.free_fastest.group).toBe('Nepaisant laiko langų');
+    expect(ROUTE_ALTERNATIVE_LABELS.timed_fastest.group).toBe('Pagal laiko langus');
     for (const mode of ROUTE_ALTERNATIVE_MODES) {
       expect(ROUTE_ALTERNATIVE_LABELS[mode].comment.length).toBeGreaterThan(20);
     }
@@ -76,18 +78,23 @@ describe('four objective route alternatives', () => {
     expect(four.labeled.map((item) => item.title)).toEqual([
       'Greičiausias',
       'Trumpiausias',
-      'Pagal laiką',
-      'Ne pagal laiką',
+      'Greičiausias',
+      'Trumpiausias',
     ]);
-    expect(new Set(four.labeled.map((item) => item.candidate.id)).size).toBe(4);
+    expect(four.labeled.map((item) => item.group)).toEqual([
+      'Nepaisant laiko langų',
+      'Nepaisant laiko langų',
+      'Pagal laiko langus',
+      'Pagal laiko langus',
+    ]);
     for (const item of four.labeled) {
       expect(item.candidate.id.endsWith(`:${item.mode}`)).toBe(true);
       expect(item.candidate.generatedBy.some((tag) => tag === `objective:${item.mode}`)).toBe(true);
       expect(item.comment).toBe(ROUTE_ALTERNATIVE_LABELS[item.mode].comment);
     }
 
-    const fastest = four.labeled.find((item) => item.mode === 'fastest')!;
-    const shortest = four.labeled.find((item) => item.mode === 'shortest')!;
+    const fastest = four.labeled.find((item) => item.mode === 'free_fastest')!;
+    const shortest = four.labeled.find((item) => item.mode === 'free_shortest')!;
     const geo = await engine.optimize(requestForPlanningMode(request, 'ignore_time_windows'));
     const geoPool = geo.candidates.filter((candidate) => candidate.feasible);
     const pool = geoPool.length > 0 ? geoPool : geo.candidates;
@@ -98,7 +105,7 @@ describe('four objective route alternatives', () => {
       Math.min(...pool.map((candidate) => candidate.totalDistanceKm)),
     );
     expect(four.result.candidates).toHaveLength(4);
-    expect(four.result.recommended?.id).toContain(':with_time_windows');
+    expect(four.result.recommended?.id).toContain(':timed_fastest');
   });
 
   it('keeps fastest as min driving and shortest as min km from the geo pool', async () => {
@@ -107,8 +114,8 @@ describe('four objective route alternatives', () => {
     const timed = await engine.optimize(requestForPlanningMode(request, 'with_time_windows'));
     const geo = await engine.optimize(requestForPlanningMode(request, 'ignore_time_windows'));
     const labeled = selectFourObjectiveAlternatives(timed, geo);
-    const fastest = labeled.find((item) => item.mode === 'fastest')!;
-    const shortest = labeled.find((item) => item.mode === 'shortest')!;
+    const fastest = labeled.find((item) => item.mode === 'free_fastest')!;
+    const shortest = labeled.find((item) => item.mode === 'free_shortest')!;
     const geoFeasible = geo.candidates.filter((candidate) => candidate.feasible);
     const pool = geoFeasible.length > 0 ? geoFeasible : geo.candidates;
     expect(fastest.candidate.drivingMinutes).toBeLessThanOrEqual(

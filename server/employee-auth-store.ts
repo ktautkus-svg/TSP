@@ -10,6 +10,24 @@ export type EmployeeProfile = {
   displayName: string;
   role: EmployeeRole;
   disabled: boolean;
+  permissions: DriverPermissions;
+};
+
+export const DRIVER_PERMISSION_KEYS = [
+  'canReorderAssignedRoute',
+  'canCreateRoutes',
+  'canAddStops',
+  'canRecalculateRoute',
+  'canCancelRoute',
+] as const;
+export type DriverPermissionKey = (typeof DRIVER_PERMISSION_KEYS)[number];
+export type DriverPermissions = Record<DriverPermissionKey, boolean>;
+const DEFAULT_DRIVER_PERMISSIONS: DriverPermissions = {
+  canReorderAssignedRoute: false,
+  canCreateRoutes: false,
+  canAddStops: false,
+  canRecalculateRoute: false,
+  canCancelRoute: false,
 };
 
 export type RouteAssignment = {
@@ -134,7 +152,7 @@ export class EmployeeAuthStore {
     return publicProfile(stored);
   }
 
-  async updateUser(userId: string, input: { displayName?: string; role?: EmployeeRole; disabled?: boolean; pin?: string }): Promise<EmployeeProfile> {
+  async updateUser(userId: string, input: { displayName?: string; role?: EmployeeRole; disabled?: boolean; pin?: string; permissions?: Partial<DriverPermissions> }): Promise<EmployeeProfile> {
     const reference = this.users.doc(safeId(userId));
     const document = await reference.get();
     const current = document.data() as StoredUser | undefined;
@@ -146,6 +164,7 @@ export class EmployeeAuthStore {
       patch.role = input.role;
     }
     if (input.disabled !== undefined) patch.disabled = Boolean(input.disabled);
+    if (input.permissions !== undefined) patch.permissions = validatePermissions(input.permissions);
     if (input.pin !== undefined) {
       validatePin(input.pin);
       const credentials = pinCredentials(current.username, input.pin);
@@ -261,6 +280,7 @@ function createStoredUser(input: { username: string; displayName: string; role: 
     displayName: input.displayName,
     role: input.role,
     disabled: false,
+    permissions: { ...DEFAULT_DRIVER_PERMISSIONS },
     ...pinCredentials(input.username, input.pin),
     createdAt: now,
     updatedAt: now,
@@ -287,7 +307,21 @@ function verifyPin(user: StoredUser, pin: string): boolean {
 }
 
 function publicProfile(user: StoredUser): EmployeeProfile {
-  return { id: user.id, username: user.username, displayName: user.displayName, role: user.role, disabled: user.disabled };
+  return {
+    id: user.id,
+    username: user.username,
+    displayName: user.displayName,
+    role: user.role,
+    disabled: user.disabled,
+    permissions: validatePermissions(user.permissions),
+  };
+}
+
+function validatePermissions(value: Partial<DriverPermissions> | undefined): DriverPermissions {
+  const source = value && typeof value === 'object' ? value : {};
+  return Object.fromEntries(
+    DRIVER_PERMISSION_KEYS.map((key) => [key, source[key] === true]),
+  ) as DriverPermissions;
 }
 
 function normalizeUsername(value: string): string {

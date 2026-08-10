@@ -35,6 +35,7 @@ import { RefreshRouteEtas } from '@/application/routes/route-eta';
 import { loadRouteWeatherScene, type RouteWeatherScene } from '@/application/weather/route-weather';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { BrandHeader } from '@/components/brand-header';
+import { ClockIcon, DeliveredIcon, DistanceIcon, FailedIcon, NavigateIcon } from '@/components/dashboard-icons';
 import { InstrumentGauge } from '@/components/instrument-gauge';
 import { RoadProgressBar } from '@/components/road-progress-bar';
 import { RouteBottomTabs } from '@/components/route-bottom-tabs';
@@ -99,10 +100,14 @@ export default function DeliveryScreen() {
   const [activeView, setActiveView] = useState<DeliveryView>(view === 'stops' ? 'stops' : 'dashboard');
   const [weatherScene, setWeatherScene] = useState<RouteWeatherScene | null>(null);
   const completionDismissed = useRef(false);
+  // See alternatives.tsx: keeps the periodic reload from resolving a route we
+  // just cancelled ourselves into a /history redirect mid-navigation.
+  const selfCancelled = useRef(false);
   const draftSaveQueue = useRef<Promise<void>>(Promise.resolve());
   const geocoder = useMemo(() => new GatewayGeocodingProvider(), []);
 
   const load = useCallback(async () => {
+    if (selfCancelled.current) return;
     try {
       const persisted = await repository.getWithStops(routeId);
       if (!persisted) return setError('Maršrutas nerastas.');
@@ -418,10 +423,12 @@ export default function DeliveryScreen() {
       {
         text: 'Taip, nutraukti', style: 'destructive', onPress: () => { void (async () => {
           setBusy(true);
+          selfCancelled.current = true;
           try {
             await new CancelDraftRoute(db).execute(routeId);
             router.replace('/' as Href);
           } catch (reason) {
+            selfCancelled.current = false;
             Alert.alert('Nepavyko nutraukti', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
           } finally {
             setBusy(false);
@@ -482,14 +489,14 @@ export default function DeliveryScreen() {
               </View>
               <View style={styles.routeMetrics}>
                 <View style={styles.routeMetricCard}>
-                  <View style={styles.metricIconCircle}><Text style={styles.metricIcon}>↗</Text></View>
+                  <View style={styles.metricIconCircle}><DistanceIcon size={20} /></View>
                   <View style={styles.routeMetricText}>
                     <Text style={styles.routeMetricLabel}>IKI ARTIMIAUSIOS</Text>
                     <Text numberOfLines={1} style={styles.routeMetricValue}>{nextStop?.legDistanceKm === null || nextStop?.legDistanceKm === undefined ? '—' : `${new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(nextStop.legDistanceKm)} km`}</Text>
                   </View>
                 </View>
                 <View style={styles.routeMetricCard}>
-                  <View style={styles.metricIconCircle}><Text style={styles.metricIcon}>⏱</Text></View>
+                  <View style={styles.metricIconCircle}><ClockIcon size={20} /></View>
                   <View style={styles.routeMetricText}>
                     <Text style={styles.routeMetricLabel}>IKI ARTIMIAUSIOS</Text>
                     <Text numberOfLines={1} style={styles.routeMetricValue}>{nextStop?.legDurationMinutes === null || nextStop?.legDurationMinutes === undefined ? '—' : durationLabel(nextStop.legDurationMinutes)}</Text>
@@ -520,7 +527,7 @@ export default function DeliveryScreen() {
                   </View>
                   <View style={styles.dashboardStopActions} testID="dashboard-stop-actions">
                     <Pressable style={[styles.dashboardActionButton, styles.dashboardNavigateButton]} onPress={() => { void navigate(nextStop); }}>
-                      <Text style={styles.dashboardActionIcon}>⚑</Text>
+                      <NavigateIcon size={28} />
                       <Text numberOfLines={1} style={styles.dashboardActionText}>NAVIGUOTI</Text>
                     </Pressable>
                     <Pressable
@@ -528,7 +535,7 @@ export default function DeliveryScreen() {
                       onPress={() => { void delivered(nextStop.id); }}
                       style={[styles.dashboardActionButton, styles.dashboardDeliveredButton, busy && styles.disabled]}
                       testID="dashboard-delivered-button">
-                      <Text style={styles.dashboardActionIcon}>✓</Text>
+                      <DeliveredIcon size={28} />
                       <Text numberOfLines={1} style={styles.dashboardActionText}>ATLIKTA</Text>
                     </Pressable>
                     <Pressable
@@ -536,7 +543,7 @@ export default function DeliveryScreen() {
                       onPress={() => beginFailed(nextStop.id)}
                       style={[styles.dashboardActionButton, styles.dashboardFailedButton, busy && styles.disabled]}
                       testID="dashboard-failed-button">
-                      <Text style={styles.dashboardActionIcon}>⊘</Text>
+                      <FailedIcon size={28} />
                       <Text numberOfLines={1} style={styles.dashboardActionText}>NEATLIKTA</Text>
                     </Pressable>
                   </View>

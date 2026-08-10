@@ -55,11 +55,13 @@ export class RouteEndPreference {
 export class PlanningModePreference {
   constructor(private readonly db: SQLiteDatabase) {}
 
+  // Defaults to ignoring windows: most days the shortest drivable route matters
+  // more than hitting advisory delivery windows, so the driver opts in instead.
   async get(): Promise<PlanningMode> {
     const row = await this.db.getFirstAsync<{ value: string }>(
       "SELECT value FROM app_preferences WHERE key = 'last_planning_mode'",
     );
-    return row?.value === 'ignore_time_windows' ? 'ignore_time_windows' : 'with_time_windows';
+    return row?.value === 'with_time_windows' ? 'with_time_windows' : 'ignore_time_windows';
   }
 
   async save(value: PlanningMode, now = new Date().toISOString()): Promise<void> {

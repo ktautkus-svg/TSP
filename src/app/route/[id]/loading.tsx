@@ -22,6 +22,7 @@ import {
   type UndoableAction,
 } from '@/application/routes/route-workday';
 import { FoundationScreen } from '@/components/foundation-screen';
+import { CheckIcon, CrossIcon, PencilIcon, TruckIcon } from '@/components/app-icons';
 import { SwipeActionCard } from '@/components/swipe-action-card';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import type { DeliveryStop, Route } from '@/domain/route';
@@ -56,8 +57,12 @@ export default function LoadingScreen() {
   const [odometerModalVisible, setOdometerModalVisible] = useState(false);
   const bulkInFlight = useRef(false);
   const odometerPrompted = useRef(false);
+  // See alternatives.tsx: suppresses this screen's own status guard while a
+  // deliberate cancel is navigating away, so it cannot redirect to /history.
+  const selfCancelled = useRef(false);
 
   const load = useCallback(async () => {
+    if (selfCancelled.current) return;
     setBusy(true);
     try {
       const persisted = await repository.getWithStops(routeId);
@@ -168,13 +173,25 @@ export default function LoadingScreen() {
     }
   };
 
-  const saveOdometer = async () => {
+  const saveOdometer = async (): Promise<boolean> => {
     try {
       await new SaveStartOdometer(db).execute(routeId, parseOdometer(odometer));
       await load();
+      return true;
     } catch (reason) {
       Alert.alert('Neteisingas odometras', reason instanceof Error ? reason.message : 'Patikrinkite reikšmę.');
+      return false;
     }
+  };
+
+  // One button instead of a numbered two-step flow: save the odometer (if it
+  // hasn't been saved yet) and immediately continue into starting the route.
+  const beginRouteWithOdometer = async () => {
+    if (route?.startOdometer === null) {
+      const saved = await saveOdometer();
+      if (!saved) return;
+    }
+    await startRoute();
   };
 
   const pickDifferentAlternative = () => {
@@ -222,19 +239,31 @@ export default function LoadingScreen() {
     }
   };
 
-  const beginLoading = async () => {
+  const beginLoading = () => {
     if (bulkInFlight.current) return;
-    bulkInFlight.current = true;
-    setBulkBusy(true);
-    try {
-      await new ActivateRoute(db).execute(routeId);
-      await load();
-    } catch (reason) {
-      Alert.alert('Krovimas nepradėtas', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
-    } finally {
-      bulkInFlight.current = false;
-      setBulkBusy(false);
-    }
+    Alert.alert(
+      'Pradėti pasikrovimą?',
+      'Maršrutas pereis į krovimo būseną ir galėsite žymėti pakrautus taškus.',
+      [
+        { text: 'Ne', style: 'cancel' },
+        {
+          text: 'Taip, pradėti',
+          onPress: () => { void (async () => {
+            bulkInFlight.current = true;
+            setBulkBusy(true);
+            try {
+              await new ActivateRoute(db).execute(routeId);
+              await load();
+            } catch (reason) {
+              Alert.alert('Krovimas nepradėtas', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
+            } finally {
+              bulkInFlight.current = false;
+              setBulkBusy(false);
+            }
+          })(); },
+        },
+      ],
+    );
   };
 
   const editPlannedRoute = async () => {
@@ -264,10 +293,14 @@ export default function LoadingScreen() {
           style: 'destructive',
           onPress: () => {
             bulkInFlight.current = true;
+            selfCancelled.current = true;
             setBulkBusy(true);
             void new CancelDraftRoute(db).execute(routeId)
               .then(() => router.replace('/' as Href))
-              .catch((reason) => Alert.alert('Maršrutas neatšauktas', reason instanceof Error ? reason.message : 'Bandykite dar kartą.'))
+              .catch((reason) => {
+                selfCancelled.current = false;
+                Alert.alert('Maršrutas neatšauktas', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
+              })
               .finally(() => {
                 bulkInFlight.current = false;
                 setBulkBusy(false);
@@ -299,13 +332,18 @@ export default function LoadingScreen() {
             Atvykimo laikai skaičiuojami nuo šio starto. Paspaudus „Pradėti maršrutą“ jie bus perskaičiuoti nuo realaus starto.
           </Text>
         </View>
-        <Pressable disabled={bulkBusy} style={[styles.plannedPrimaryButton, bulkBusy && styles.disabled]} onPress={() => { void beginLoading(); }} testID="begin-loading">
-          {bulkBusy ? <ActivityIndicator color="#fff" /> : <Text style={styles.plannedPrimaryText}>Pradėti krovimą</Text>}
+        <Pressable disabled={bulkBusy} style={[styles.plannedPrimaryButton, bulkBusy && styles.disabled]} onPress={beginLoading} testID="begin-loading">
+          {bulkBusy ? <ActivityIndicator color="#fff" /> : <>
+            <TruckIcon size={22} color="#FFFFFF" />
+            <Text style={styles.plannedPrimaryText}>Pradėti krovimą</Text>
+          </>}
         </Pressable>
         {profile.role !== 'driver' || profile.permissions?.canReorderAssignedRoute ? <Pressable disabled={bulkBusy} style={[styles.plannedSecondaryButton, bulkBusy && styles.disabled]} onPress={() => { void editPlannedRoute(); }} testID="edit-planned-route">
+          <PencilIcon size={19} color={colors.brandNavy} />
           <Text style={styles.plannedSecondaryText}>Grįžti į redagavimą</Text>
         </Pressable> : null}
         {profile.role !== 'driver' || profile.permissions?.canCancelRoute ? <Pressable disabled={bulkBusy} style={[styles.plannedCancelButton, bulkBusy && styles.disabled]} onPress={cancelPlannedRoute} testID="cancel-planned-route">
+          <CrossIcon size={19} color={colors.danger} />
           <Text style={styles.plannedCancelText}>Atšaukti</Text>
         </Pressable> : null}
       </FoundationScreen>
@@ -340,7 +378,8 @@ export default function LoadingScreen() {
       {progress && progress.totalStops > 0 ? (
         route?.status === 'loaded' ? (
           <View style={styles.allLoadedState} testID="all-stops-loaded-state">
-            <Text style={styles.allLoadedText}>{progress.notLoadedStops > 0 ? `Pakrovimas paruoštas · nepakrauta ${progress.notLoadedStops}` : 'Visi kroviniai pakrauti ✓'}</Text>
+            <CheckIcon size={20} color={colors.success} />
+            <Text style={styles.allLoadedText}>{progress.notLoadedStops > 0 ? `Pakrovimas paruoštas · nepakrauta ${progress.notLoadedStops}` : 'Visi kroviniai pakrauti'}</Text>
           </View>
         ) : (
           <Pressable
@@ -462,18 +501,11 @@ export default function LoadingScreen() {
             </Text>
             <TextInput value={odometer} onChangeText={setOdometer} keyboardType="decimal-pad" placeholder="Pvz. 125430,5" style={styles.input} autoFocus />
             <Pressable
-              style={[styles.secondaryButton, !odometer.trim() && styles.disabled]}
-              disabled={!odometer.trim()}
-              onPress={() => { void saveOdometer(); }}
-              testID="save-start-odometer">
-              <Text style={styles.secondaryText}>1. Išsaugoti odometrą</Text>
-            </Pressable>
-            <Pressable
-              disabled={route?.startOdometer === null}
-              style={[styles.primaryButton, route?.startOdometer === null && styles.disabled]}
-              onPress={() => { void startRoute(); }}
+              disabled={!odometer.trim() && route?.startOdometer === null}
+              style={[styles.primaryButton, (!odometer.trim() && route?.startOdometer === null) && styles.disabled]}
+              onPress={() => { void beginRouteWithOdometer(); }}
               testID="confirm-start-route">
-              <Text style={styles.primaryText}>2. Pradėti maršrutą</Text>
+              <Text style={styles.primaryText}>Pradėti maršrutą</Text>
             </Pressable>
             <Pressable style={styles.modalCloseButton} onPress={() => setOdometerModalVisible(false)}><Text style={styles.modalCloseText}>Uždaryti</Text></Pressable>
           </View>
@@ -565,6 +597,8 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   },
   markAllText: { color: '#fff', fontSize: 16, fontFamily: fonts.heading, textAlign: 'center' },
   allLoadedState: {
+    flexDirection: 'row',
+    gap: spacing.sm,
     minHeight: 52,
     borderRadius: 14,
     borderWidth: 2,
@@ -692,12 +726,27 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   linkText: { color: colors.textMuted, fontFamily: fonts.headingSemiBold },
   primaryButton: { minHeight: 56, borderRadius: 14, backgroundColor: colors.brandNavy, alignItems: 'center', justifyContent: 'center' },
   primaryText: { color: '#fff', fontFamily: fonts.heading, fontSize: 16 },
-  plannedPrimaryButton: { minHeight: 56, borderRadius: 14, backgroundColor: colors.brandNavy, alignItems: 'center', justifyContent: 'center' },
-  plannedPrimaryText: { color: '#fff', fontFamily: fonts.heading, fontSize: 16 },
-  plannedSecondaryButton: { minHeight: 56, borderRadius: 14, borderWidth: 2, borderColor: colors.brandNavy, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
-  plannedSecondaryText: { color: colors.brandNavy, fontFamily: fonts.heading, fontSize: 16 },
-  plannedCancelButton: { minHeight: 56, borderRadius: 14, borderWidth: 2, borderColor: colors.danger, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
-  plannedCancelText: { color: colors.danger, fontFamily: fonts.heading, fontSize: 16 },
+  // Three clearly different weights: filled primary, outlined neutral, outlined
+  // danger — so none of them reads as a disabled button.
+  plannedPrimaryButton: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    minHeight: 58,
+    borderRadius: 14,
+    backgroundColor: colors.brandNavy,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#183525',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  plannedPrimaryText: { color: '#fff', fontFamily: fonts.heading, fontSize: 17 },
+  plannedSecondaryButton: { flexDirection: 'row', gap: spacing.sm, minHeight: 52, borderRadius: 14, borderWidth: 2, borderColor: colors.brandNavy, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
+  plannedSecondaryText: { color: colors.brandNavy, fontFamily: fonts.heading, fontSize: 15 },
+  plannedCancelButton: { flexDirection: 'row', gap: spacing.sm, minHeight: 52, borderRadius: 14, borderWidth: 2, borderColor: colors.danger, backgroundColor: '#FFF5F3', alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
+  plannedCancelText: { color: colors.danger, fontFamily: fonts.heading, fontSize: 15 },
   cancelRouteButton: { minHeight: 56, borderRadius: 14, borderWidth: 2, borderColor: colors.danger, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
   cancelRouteText: { color: colors.danger, fontFamily: fonts.heading, fontSize: 16 },
   disabled: { opacity: 0.45 },
