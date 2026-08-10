@@ -7,6 +7,10 @@ import { buildOptimizationRequestFromRoute } from '@/application/routes/route-re
 import { resolveRoute, type ResolvedRouteDestination } from '@/application/routes/route-navigation';
 import { CancelDraftRoute, SaveSelectedRouteCandidate } from '@/application/routes/route-commands';
 import { extractOrderedLocationsFromCandidate } from '@/application/routing/route-polyline-service';
+import {
+  buildFourObjectiveAlternatives,
+  type LabeledRouteAlternative,
+} from '@/application/routing/route-alternative-modes';
 import { RoutingEngine } from '@/application/routing/routing-engine';
 import { evaluateCandidate } from '@/domain/routing/evaluation/candidate-evaluator';
 import { FoundationScreen } from '@/components/foundation-screen';
@@ -34,6 +38,7 @@ export default function RouteAlternativesScreen() {
   const repository = useMemo(() => new RouteRepository(db), [db]);
   const [request, setRequest] = useState<RouteOptimizationRequest | null>(null);
   const [result, setResult] = useState<RouteOptimizationResult | null>(null);
+  const [labeledAlternatives, setLabeledAlternatives] = useState<LabeledRouteAlternative[]>([]);
   const [polylineResult, setPolylineResult] = useState<RoutePolylineResult | null>(null);
   const [polylineError, setPolylineError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -68,13 +73,13 @@ export default function RouteAlternativesScreen() {
         return;
       }
       const nextRequest = buildOptimizationRequestFromRoute(persisted.route, persisted.stops);
-      setRequest(nextRequest);
       const provider = createTravelProvider();
-      const next = await new RoutingEngine(provider).optimize(nextRequest);
-      await new SQLiteRoutingAuditRepository(db).saveOptimizationRun(routeId, nextRequest, next);
-      setResult(next);
-      const defaultCand = next.recommended ?? next.diagnosticCandidate ?? next.candidates[0] ?? null;
-      setSelectedId(defaultCand?.id ?? null);
+      const four = await buildFourObjectiveAlternatives(new RoutingEngine(provider), nextRequest);
+      await new SQLiteRoutingAuditRepository(db).saveOptimizationRun(routeId, four.request, four.result);
+      setRequest(four.request);
+      setResult(four.result);
+      setLabeledAlternatives(four.labeled);
+      setSelectedId(four.result.recommended?.id ?? four.labeled[0]?.candidate.id ?? null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Nepavyko apskaičiuoti maršruto.');
     }
@@ -101,9 +106,9 @@ export default function RouteAlternativesScreen() {
     return () => { active = false; };
   }, [repository, routeId, router]));
 
-  const defaultCandidate = result?.recommended ?? result?.diagnosticCandidate ?? result?.candidates[0];
-  const candidates = result
-    ? (result.recommended ? [result.recommended, ...result.alternatives] : result.diagnosticCandidate ? [result.diagnosticCandidate, ...result.alternatives] : result.candidates.slice(0, 3))
+  const defaultCandidate = result?.recommended ?? result?.diagnosticCandidate ?? labeledAlternatives[0]?.candidate ?? result?.candidates[0];
+  const candidates = labeledAlternatives.length > 0
+    ? labeledAlternatives.map((item) => item.candidate)
     : [];
   const selectedCandidate = candidates.find((candidate) => candidate.id === selectedId) ?? defaultCandidate;
 
@@ -201,11 +206,12 @@ export default function RouteAlternativesScreen() {
           ? { ...stop, priority: 10, preferEarly: true }
           : { ...stop, priority: 1, preferEarly: false }),
       };
-      const next = await new RoutingEngine(createTravelProvider()).optimize(prioritizedRequest);
-      await new SQLiteRoutingAuditRepository(db).saveOptimizationRun(routeId, prioritizedRequest, next);
-      setRequest(prioritizedRequest);
-      setResult(next);
-      const candidate = next.recommended ?? next.diagnosticCandidate ?? next.candidates[0] ?? null;
+      const four = await buildFourObjectiveAlternatives(new RoutingEngine(createTravelProvider()), prioritizedRequest);
+      await new SQLiteRoutingAuditRepository(db).saveOptimizationRun(routeId, four.request, four.result);
+      setRequest(four.request);
+      setResult(four.result);
+      setLabeledAlternatives(four.labeled);
+      const candidate = four.result.recommended ?? four.labeled[0]?.candidate ?? null;
       setSelectedId(candidate?.id ?? null);
       setManualOrder(candidate?.stopSequence ?? manualOrder);
       setManualCandidate(null);
@@ -370,21 +376,22 @@ export default function RouteAlternativesScreen() {
       ) : null}
       {request ? (
         <View style={styles.list}>
-          {candidates.map((candidate, index) => (
+          {labeledAlternatives.map((item) => (
             <CandidateCard
               styles={styles}
-              key={candidate.id}
-              candidate={candidate}
+              key={item.candidate.id}
+              candidate={item.candidate}
               request={request}
-              rank={index + 1}
-              recommended={index === 0}
-              selected={candidate.id === selectedId}
-              onSelect={() => setSelectedId(candidate.id)}
-              expanded={candidate.id === expandedCandidateId}
-              onToggleDetails={() => setExpandedCandidateId((current) => current === candidate.id ? null : candidate.id)}
+              title={item.title}
+              comment={item.comment}
+              recommended={item.candidate.id === result?.recommended?.id}
+              selected={item.candidate.id === selectedId}
+              onSelect={() => setSelectedId(item.candidate.id)}
+              expanded={item.candidate.id === expandedCandidateId}
+              onToggleDetails={() => setExpandedCandidateId((current) => current === item.candidate.id ? null : item.candidate.id)}
               onManualEdit={() => {
-                setSelectedId(candidate.id);
-                setManualOrder(candidate.stopSequence);
+                setSelectedId(item.candidate.id);
+                setManualOrder(item.candidate.stopSequence);
                 setManualPriorityIds([]);
                 setManualCandidate(null);
                 setManualError(null);
@@ -471,7 +478,8 @@ function CandidateCard(props: {
   styles: ReturnType<typeof createStyles>;
   candidate: RouteCandidate;
   request: RouteOptimizationRequest;
-  rank: number;
+  title: string;
+  comment: string;
   recommended: boolean;
   selected: boolean;
   expanded: boolean;
@@ -494,26 +502,18 @@ function CandidateCard(props: {
   const firstDelivery = clockLabel(props.candidate.schedules[0]?.serviceStartAt);
   const lastDelivery = clockLabel(props.candidate.schedules.at(-1)?.departureAt);
   const waitingMinutes = Math.round(props.candidate.waitingMinutes);
-  const comment = props.candidate.explanations[0]?.text
-    ?? (props.recommended
-      ? 'Geriausias balansas pagal laiką, km ir eiliškumą.'
-      : props.candidate.generatedBy.some((tag) => tag.includes('mirror'))
-        ? 'Veidrodinė seka — priešinga geografine kryptimi.'
-        : 'Alternatyvus eiliškumas su kitokia kryptimi ar laiko balansu.');
 
   return (
     <View style={[styles.card, props.recommended && styles.recommended, props.selected && styles.selected]}>
-      <Pressable onPress={props.onSelect} style={styles.candidateSummary}>
+      <Pressable onPress={props.onSelect} style={styles.candidateSummary} testID={`route-alternative-${props.title}`}>
         <View style={styles.candidateTitleRow}>
-          <Text style={styles.title}>
-            {props.rank}. {props.recommended ? 'Rekomenduojamas' : 'Alternatyva'}
-          </Text>
+          <Text style={styles.title}>{props.title}</Text>
           <Text style={styles.selectionLabel}>{props.selected ? '✓ Pasirinkta' : 'Pasirinkti'}</Text>
         </View>
         <Text style={styles.metrics}>
           {durationLabel(props.candidate.totalWorkMinutes)} · {props.candidate.totalDistanceKm.toFixed(1)} km
         </Text>
-        <Text style={styles.comment}>{comment}</Text>
+        <Text style={styles.comment}>{props.comment}</Text>
         {firstDelivery ? (
           <Text style={styles.scheduleLine} testID={`candidate-schedule-${props.candidate.id}`}>
             {departure ? `Išvykimas ${departure} · ` : ''}1-as pristatymas {firstDelivery}
