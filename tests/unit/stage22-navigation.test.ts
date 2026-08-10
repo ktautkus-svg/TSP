@@ -62,7 +62,7 @@ describe('stage 2.2 deterministic navigation', () => {
   it('gives every non-Dashboard stack screen a visible global Home action', () => {
     const layout = source('src/app/_layout.tsx');
     expect(layout).toContain('headerRight: () =>');
-    expect(layout).toContain('<Text style={{ color:');
+    expect(layout).toContain('<Text style={{ ...type.secondary,');
     expect(layout).toContain('>Pradžia</Text>');
     expect(layout).toContain('<Stack.Screen name="settings/index"');
     expect(layout).toContain('<Stack.Screen name="route/[id]/result"');

@@ -99,14 +99,14 @@ describe('premium route dashboard', () => {
     expect(delivery).not.toContain('minHeight: 200');
     expect(delivery).toContain("gap: 14");
     const foundation = source('src/components/foundation-screen.tsx');
-    expect(foundation).toContain("edgeScroll: { backgroundColor: '#FFFFFF' }");
+    expect(foundation).toContain('edgeScroll: { backgroundColor: colors.surface }');
     expect(delivery).toContain('Įtraukti sustojimą');
     expect(delivery).toContain('>Baigti maršrutą<');
   });
 
   it('uses the branded shell on the dashboard and route screens', () => {
     expect(source('src/app/index.tsx')).toContain('<BrandHeader />');
-    expect(source('src/app/_layout.tsx')).toContain("backgroundColor: '#072D1B'");
+    expect(source('src/app/_layout.tsx')).toContain('backgroundColor: colors.brandNavy');
     const header = source('src/components/brand-header.tsx');
     // The wordmark lives inside the logo artwork, so the header must not repeat
     // it as text, and the logo must be the padding-free crop.

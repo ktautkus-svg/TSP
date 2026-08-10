@@ -17,6 +17,16 @@ import { LocalAccessGate } from '@/components/local-access-gate';
 import { migrateDatabase } from '@/database/migrations';
 import { ThemeProvider } from '@/ui/theme';
 import { AlertHost } from '@/ui/alert';
+import { colors, fonts, radius, type } from '@/ui/tokens';
+
+/** Shared by the two full-screen failure states below. */
+const failureStyles = {
+  screen: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, backgroundColor: colors.background } as const,
+  title: { ...type.pageTitle, fontSize: 21, color: colors.text, marginBottom: 12, textAlign: 'center' } as const,
+  body: { ...type.body, color: colors.textMuted, textAlign: 'center', marginBottom: 24 } as const,
+  button: { minHeight: 48, backgroundColor: colors.primary, paddingHorizontal: 24, borderRadius: radius.md, justifyContent: 'center', alignItems: 'center' } as const,
+  buttonText: { ...type.button, color: '#FFFFFF' } as const,
+};
 
 void SplashScreen.preventAutoHideAsync().catch((reason) => {
   if (__DEV__) console.warn('SPLASH_PREVENT_HIDE_FAILED', reason);
@@ -24,17 +34,13 @@ void SplashScreen.preventAutoHideAsync().catch((reason) => {
 
 export function ErrorBoundary({ error, retry }: { error: Error; retry: () => Promise<void> }) {
   return (
-    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, backgroundColor: '#F6F7F9' }}>
-      <Text style={{ fontSize: 22, fontWeight: '800', color: '#0f172a', marginBottom: 12, textAlign: 'center' }}>
-        Įvyko netikėta klaida
-      </Text>
-      <Text style={{ fontSize: 15, color: '#64748b', textAlign: 'center', marginBottom: 24, lineHeight: 22 }}>
+    <View style={failureStyles.screen}>
+      <Text style={failureStyles.title}>Įvyko netikėta klaida</Text>
+      <Text style={failureStyles.body}>
         {error?.message || 'Nepavyko užkrauti aplikacijos duomenų arba nepasiekiama vietinė atmintis.'}
       </Text>
-      <Pressable
-        style={{ minHeight: 48, backgroundColor: '#0E766E', paddingHorizontal: 24, borderRadius: 12, justifyContent: 'center', alignItems: 'center' }}
-        onPress={() => void retry()}>
-        <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>Bandyti iš naujo</Text>
+      <Pressable style={failureStyles.button} onPress={() => void retry()}>
+        <Text style={failureStyles.buttonText}>Bandyti iš naujo</Text>
       </Pressable>
     </View>
   );
@@ -62,15 +68,13 @@ export default function RootLayout() {
 
   if (dbError) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, backgroundColor: '#F6F7F9' }}>
-        <Text style={{ fontSize: 22, fontWeight: '800', color: '#0f172a', marginBottom: 12, textAlign: 'center' }}>
-          Aplikacijos atmintis laikinai nepasiekiama
-        </Text>
-        <Text style={{ fontSize: 15, color: '#64748b', textAlign: 'center', marginBottom: 24, lineHeight: 22 }}>
+      <View style={failureStyles.screen}>
+        <Text style={failureStyles.title}>Aplikacijos atmintis laikinai nepasiekiama</Text>
+        <Text style={failureStyles.body}>
           {dbError.message || 'Nepavyko paruošti vietinės SQLite duomenų bazės. Tai gali nutikti naršyklės privačiame režime arba ribojant atmintį.'}
         </Text>
         <Pressable
-          style={{ minHeight: 48, backgroundColor: '#0E766E', paddingHorizontal: 24, borderRadius: 12, justifyContent: 'center', alignItems: 'center' }}
+          style={failureStyles.button}
           onPress={() => {
             if (typeof window !== 'undefined' && window.location?.reload) {
               window.location.reload();
@@ -78,7 +82,7 @@ export default function RootLayout() {
               setDbError(null);
             }
           }}>
-          <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>Perkrauti puslapį</Text>
+          <Text style={failureStyles.buttonText}>Perkrauti puslapį</Text>
         </Pressable>
       </View>
     );
@@ -100,14 +104,14 @@ export default function RootLayout() {
           <Stack
           screenOptions={{
             headerShadowVisible: false,
-            headerStyle: { backgroundColor: '#072D1B' },
+            headerStyle: { backgroundColor: colors.brandNavy },
             headerTintColor: '#FFFFFF',
-            headerTitleStyle: { fontWeight: '800', color: '#FFFFFF' },
-            contentStyle: { backgroundColor: '#F4F4EF' },
+            headerTitleStyle: { ...type.cardTitle, color: '#FFFFFF' },
+            contentStyle: { backgroundColor: colors.background },
             headerRight: () => (
               <Link href="/" replace asChild>
                 <Pressable accessibilityRole="button" style={{ minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 }}>
-                  <Text style={{ color: '#FFFFFF', fontWeight: '800' }}>Pradžia</Text>
+                  <Text style={{ ...type.secondary, fontFamily: fonts.headingSemiBold, color: '#FFFFFF' }}>Pradžia</Text>
                 </Pressable>
               </Link>
             ),

@@ -1,22 +1,51 @@
 import { Platform } from 'react-native';
 
+/**
+ * TSP design system.
+ *
+ * Colour rules this palette exists to enforce:
+ * - one dark brand green (`primary`) carries brand and primary actions;
+ * - one lighter green (`accent`) is the only other green, used for success and
+ *   positive status — never as decoration;
+ * - neutrals carry everything else: surfaces, borders, secondary text;
+ * - amber means "check this", red means "this is wrong", blue means "this is
+ *   information" — none of them are used just to add colour.
+ *
+ * If a screen needs a colour that is not here, that is a sign the screen is
+ * decorating rather than communicating.
+ */
 export const colors = {
-  background: '#F4F4EF',
+  // Neutrals
+  background: '#F5F6F5',
   surface: '#FFFFFF',
-  text: '#112019',
-  textMuted: '#66736B',
-  primary: '#0B4A2B',
-  primarySoft: '#E6F0E9',
-  success: '#177245',
-  warning: '#A45C00',
-  danger: '#B42318',
-  info: '#1D6FE0',
-  border: '#DDE3DE',
-  // TSP delivery-screen palette, converted from the original mockup tokens.
-  accent: '#0A5A31',
+  surfaceMuted: '#F0F2F0',
+  text: '#17251D',
+  textMuted: '#65716A',
+  textSubtle: '#8A948D',
+  border: '#DCE2DD',
+  borderStrong: '#C3CCC6',
+
+  // Brand green — one dark, one deeper for headers/pressed, one soft wash.
+  primary: '#0A5A31',
+  primaryDark: '#07351E',
+  primarySoft: '#E7F0EA',
+
+  // Single accent green: success and positive status only.
+  accent: '#1F7A46',
   accentSoft: '#E7F2E9',
-  accentStrong: '#063A21',
-  brandNavy: '#072D1B',
+  accentStrong: '#07351E',
+  success: '#1F7A46',
+
+  // Semantic — each has exactly one meaning.
+  warning: '#9A6212',
+  warningSoft: '#FDF3E2',
+  danger: '#B4342A',
+  dangerSoft: '#FCF0EE',
+  info: '#2F5D8C',
+  infoSoft: '#EDF2F8',
+
+  /** Header/chrome surface. Kept as its own key because it is brand, not action. */
+  brandNavy: '#07351E',
 } as const;
 
 export const fonts = {
@@ -27,12 +56,39 @@ export const fonts = {
   body: 'Archivo_400Regular',
 } as const;
 
+/**
+ * Type scale. Weight is part of the step, so a screen picks a role rather than
+ * inventing a size/weight pair — which is how everything ended up bold.
+ */
+export const type = {
+  pageTitle: { fontSize: 26, fontFamily: fonts.headingExtraBold, lineHeight: 32 },
+  sectionTitle: { fontSize: 17, fontFamily: fonts.heading, lineHeight: 22 },
+  cardTitle: { fontSize: 15, fontFamily: fonts.heading, lineHeight: 20 },
+  body: { fontSize: 15, fontFamily: fonts.body, lineHeight: 21 },
+  bodyStrong: { fontSize: 15, fontFamily: fonts.headingSemiBold, lineHeight: 21 },
+  secondary: { fontSize: 13, fontFamily: fonts.body, lineHeight: 18 },
+  meta: { fontSize: 12, fontFamily: fonts.body, lineHeight: 16 },
+  /** All-caps micro label above a value. */
+  label: { fontSize: 11, fontFamily: fonts.headingSemiBold, lineHeight: 14, letterSpacing: 0.5 },
+  /** Numeric readouts that should line up in columns. */
+  readout: { fontSize: 20, fontFamily: fonts.headingExtraBold, lineHeight: 25 },
+  button: { fontSize: 15, fontFamily: fonts.heading, lineHeight: 20 },
+} as const;
+
 export const spacing = {
   xs: 4,
   sm: 8,
   md: 12,
   lg: 20,
   xl: 28,
+} as const;
+
+/** Four steps, so one screen never mixes six different corner sizes. */
+export const radius = {
+  sm: 8,
+  md: 12,
+  lg: 16,
+  pill: 999,
 } as const;
 
 export const layout = {

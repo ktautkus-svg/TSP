@@ -9,7 +9,7 @@ import {
   View,
 } from 'react-native';
 
-import { spacing } from '@/ui/tokens';
+import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { ScreenContainer } from './screen-container';
@@ -73,7 +73,7 @@ export function FoundationScreen({
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background },
-  edgeSafeArea: { backgroundColor: '#FFFFFF' },
+  edgeSafeArea: { backgroundColor: colors.surface },
   flex: { flex: 1 },
   scroll: { flex: 1, minWidth: 0, width: '100%' },
   content: {
@@ -89,36 +89,17 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     paddingTop: 0,
     paddingBottom: 0,
     gap: 0,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.surface,
   },
-  edgeScroll: { backgroundColor: '#FFFFFF' },
-  headingBlock: { gap: spacing.xs },
-  title: {
-    color: colors.text,
-    fontSize: 27,
-    fontFamily: 'Archivo_800ExtraBold',
-    letterSpacing: -0.4,
-  },
-  description: {
-    color: colors.textMuted,
-    fontSize: 16,
-    lineHeight: 23,
-    marginTop: 0,
-  },
+  edgeScroll: { backgroundColor: colors.surface },
+  headingBlock: { gap: 2 },
+  title: { ...type.pageTitle, color: colors.text, letterSpacing: -0.3 },
+  description: { ...type.body, color: colors.textMuted },
   notice: {
     padding: spacing.lg,
-    borderRadius: 18,
-    backgroundColor: colors.primarySoft,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceMuted,
   },
-  noticeTitle: {
-    color: colors.primary,
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  noticeText: {
-    color: colors.text,
-    fontSize: 14,
-    lineHeight: 21,
-    marginTop: spacing.xs,
-  },
+  noticeTitle: { ...type.cardTitle, color: colors.text },
+  noticeText: { ...type.secondary, color: colors.textMuted, marginTop: spacing.xs },
 });

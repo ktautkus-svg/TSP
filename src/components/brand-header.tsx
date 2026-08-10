@@ -1,7 +1,7 @@
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 
-import { spacing } from '@/ui/tokens';
+import { colors, spacing } from '@/ui/tokens';
 
 // Pre-cropped to its artwork, so it fills the header band instead of floating
 // inside a transparent canvas. The wordmark is part of the logo, which is why
@@ -48,7 +48,7 @@ const styles = StyleSheet.create({
     minHeight: 72,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
-    backgroundColor: '#072D1B',
+    backgroundColor: colors.brandNavy,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -68,6 +68,6 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   notification: { width: 32, height: 40, alignItems: 'center', justifyContent: 'center' },
-  notificationDot: { position: 'absolute', top: 7, right: 3, width: 6, height: 6, borderRadius: 9, backgroundColor: '#87C442' },
+  notificationDot: { position: 'absolute', top: 7, right: 3, width: 6, height: 6, borderRadius: 9, backgroundColor: colors.accent },
   profileButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
 });

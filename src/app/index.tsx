@@ -11,7 +11,7 @@ import { BrandHeader } from '@/components/brand-header';
 import { ScreenContainer } from '@/components/screen-container';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import type { Route } from '@/domain/route';
-import { spacing } from '@/ui/tokens';
+import { fonts, radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { formatWeightKg } from '@/ui/format-weight';
@@ -192,34 +192,41 @@ function formatMetric(value: number | null | undefined): string {
 }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#FFFFFF' },
-  content: { flexGrow: 1, paddingHorizontal: 20, paddingTop: 22, paddingBottom: 96, gap: 18, backgroundColor: '#FFFFFF' },
-  eyebrow: { color: '#65716A', fontSize: 11, fontWeight: '800', letterSpacing: 1 },
-  activeCard: { gap: 14, padding: 20, borderRadius: 20, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#DDE4DF', shadowColor: '#183525', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.08, shadowRadius: 14, elevation: 3 },
-  emptyCard: { gap: 12, padding: 20, borderRadius: 20, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#DDE4DF', shadowColor: '#183525', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.08, shadowRadius: 14, elevation: 3 },
-  activeHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
-  activeHeaderText: { flex: 1, minWidth: 0, gap: 4 },
-  activeTitle: { color: '#17251D', fontSize: 21, lineHeight: 26, fontWeight: '900' },
-  activeText: { color: '#65716A', fontSize: 15, lineHeight: 21 },
-  progressBadge: { color: '#0A5A31', fontSize: 30, lineHeight: 34, fontWeight: '900' },
-  routeSummary: { borderRadius: 16, backgroundColor: '#EDF5EE', paddingHorizontal: 16, paddingVertical: 6 },
-  summaryRow: { minHeight: 62, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16 },
-  summaryNumbers: { alignItems: 'flex-end', gap: 2 },
-  summaryDivider: { height: 1, backgroundColor: '#D7E3D9' },
-  summaryLabel: { color: '#526158', fontSize: 12, fontWeight: '900', letterSpacing: 0.8 },
-  summaryValue: { color: '#17251D', fontSize: 22, lineHeight: 25, fontWeight: '900', textAlign: 'right' },
-  summaryRemaining: { color: '#0A5A31', fontSize: 14, fontWeight: '800', textAlign: 'right' },
-  summaryNote: { color: '#65716A', fontSize: 13, lineHeight: 18 },
-  progressTrack: { height: 9, borderRadius: 5, overflow: 'hidden', backgroundColor: '#DDE4DF' },
-  progressFill: { height: '100%', borderRadius: 5, backgroundColor: '#6A973D' },
-  warningText: { color: '#9B6A16', fontWeight: '800' },
-  primaryButton: { minHeight: 60, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: '#073B22' },
-  primaryButtonText: { color: '#fff', fontSize: 17, fontWeight: '800' },
-  secondaryButton: { minHeight: 56, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#C9D4CD' },
-  secondaryButtonText: { color: '#17251D', fontSize: 16, fontWeight: '700' },
-  pilotExportButton: { minHeight: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.primary },
-  pilotExportText: { color: colors.primary, fontWeight: '800' },
-  navigationCard: { flexDirection: 'row', gap: 12 },
-  navigationButton: { flex: 1, minHeight: 58, borderRadius: 10, borderWidth: 1, borderColor: '#C9D4CD', backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
-  historyLink: { color: '#0A5A31', fontWeight: '900', fontSize: 16 },
+  safeArea: { flex: 1, backgroundColor: colors.background },
+  content: { flexGrow: 1, paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: 96, gap: spacing.md },
+  eyebrow: { ...type.label, color: colors.textMuted },
+  // One card style, one radius, one hairline border. No shadow: the border is
+  // enough separation against a light grey page.
+  activeCard: { gap: spacing.md, padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  emptyCard: { gap: spacing.sm, padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  activeHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing.md },
+  activeHeaderText: { flex: 1, minWidth: 0, gap: 2 },
+  activeTitle: { ...type.sectionTitle, fontSize: 19, lineHeight: 24, color: colors.text },
+  activeText: { ...type.body, color: colors.textMuted },
+  progressBadge: { ...type.readout, fontSize: 26, lineHeight: 30, color: colors.primary },
+  // Grouping panel, not decoration: it holds three related readouts together.
+  routeSummary: { borderRadius: radius.md, backgroundColor: colors.surfaceMuted, paddingHorizontal: spacing.md, paddingVertical: 2 },
+  summaryRow: { minHeight: 56, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
+  summaryNumbers: { alignItems: 'flex-end', gap: 1 },
+  summaryDivider: { height: 1, backgroundColor: colors.border },
+  summaryLabel: { ...type.label, color: colors.textMuted },
+  summaryValue: { ...type.readout, color: colors.text, textAlign: 'right' },
+  summaryRemaining: { ...type.secondary, color: colors.textMuted, textAlign: 'right' },
+  summaryNote: { ...type.meta, color: colors.textMuted },
+  progressTrack: { height: 8, borderRadius: radius.sm, overflow: 'hidden', backgroundColor: colors.border },
+  progressFill: { height: '100%', borderRadius: radius.sm, backgroundColor: colors.accent },
+  warningText: { ...type.bodyStrong, color: colors.warning },
+  // Primary: filled brand green, the one dominant action on the screen.
+  primaryButton: { minHeight: 56, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary },
+  primaryButtonText: { ...type.button, fontSize: 16, color: '#FFFFFF' },
+  // Secondary: same shape, neutral surface — clearly the calmer option.
+  secondaryButton: { minHeight: 52, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderStrong },
+  secondaryButtonText: { ...type.button, color: colors.text },
+  pilotExportButton: { minHeight: 44, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  pilotExportText: { ...type.secondary, color: colors.textMuted },
+  // Tertiary navigation: deliberately quiet so it cannot compete with the
+  // primary action above it.
+  navigationCard: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs },
+  navigationButton: { flex: 1, minHeight: 46, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+  historyLink: { ...type.secondary, fontFamily: fonts.headingSemiBold, color: colors.textMuted },
 });

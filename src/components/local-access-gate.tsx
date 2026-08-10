@@ -17,6 +17,7 @@ import {
 } from '@/infrastructure/auth/employee-session';
 import { pullAssignedRoutes } from '@/application/auth/route-assignment-sync';
 import { saveGatewayDeviceSecret } from '@/infrastructure/gateway/device-auth';
+import { colors, fonts, radius, spacing, type } from '@/ui/tokens';
 
 type GateMode = 'bootstrap' | 'login';
 
@@ -223,18 +224,20 @@ export function LocalAccessGate({ children }: { children: ReactNode }) {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#0E1216', alignItems: 'center', justifyContent: 'center', padding: 24, gap: 24 },
+  // Brand-green sign-in backdrop: the one screen where a full colour field is
+  // the point, since it is the app's front door.
+  screen: { flex: 1, backgroundColor: colors.brandNavy, alignItems: 'center', justifyContent: 'center', padding: spacing.lg, gap: spacing.lg },
   brand: { alignItems: 'center', gap: 2 },
-  brandMark: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  brandName: { color: '#FFFFFF', fontSize: 32, lineHeight: 34, fontWeight: '900' },
-  brandSubtitle: { color: '#DDE9E1', fontSize: 8, lineHeight: 10, fontWeight: '900', letterSpacing: 0.7 },
-  card: { width: '100%', maxWidth: 420, padding: 22, borderRadius: 22, backgroundColor: '#FFFFFF', gap: 14 },
-  title: { color: '#102019', fontSize: 25, fontWeight: '900' },
-  helper: { color: '#5D6B64', lineHeight: 21 },
-  input: { minHeight: 54, borderWidth: 1, borderColor: '#CAD2CD', borderRadius: 14, paddingHorizontal: 16, color: '#102019', backgroundColor: '#FFFFFF', fontSize: 17 },
-  button: { minHeight: 56, borderRadius: 15, backgroundColor: '#075B36', alignItems: 'center', justifyContent: 'center' },
-  buttonText: { color: '#FFFFFF', fontSize: 17, fontWeight: '900' },
-  error: { color: '#B42318', fontWeight: '700', lineHeight: 20 },
+  brandMark: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  brandName: { ...type.pageTitle, fontSize: 30, lineHeight: 34, color: '#FFFFFF' },
+  brandSubtitle: { ...type.label, fontSize: 9, lineHeight: 12, color: 'rgba(255,255,255,0.72)' },
+  card: { width: '100%', maxWidth: 420, padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surface, gap: spacing.md },
+  title: { ...type.pageTitle, fontSize: 22, lineHeight: 27, color: colors.text },
+  helper: { ...type.body, color: colors.textMuted },
+  input: { minHeight: 52, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radius.md, paddingHorizontal: spacing.md, color: colors.text, backgroundColor: colors.surface, fontSize: 16, fontFamily: fonts.body },
+  button: { minHeight: 54, borderRadius: radius.md, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+  buttonText: { ...type.button, fontSize: 16, color: '#FFFFFF' },
+  error: { ...type.secondary, fontFamily: fonts.headingSemiBold, color: colors.danger },
   disabled: { opacity: 0.55 },
-  deviceNote: { color: '#9AA59F', textAlign: 'center', fontSize: 13 },
+  deviceNote: { ...type.meta, color: 'rgba(255,255,255,0.6)', textAlign: 'center' },
 });

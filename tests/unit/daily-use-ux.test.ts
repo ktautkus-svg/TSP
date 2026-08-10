@@ -76,7 +76,8 @@ describe('Daily Use menu and Dashboard contract', () => {
     expect(dashboard).not.toContain('Mano maršrutas');
     expect(dashboard).not.toContain("href={'/statistics' as Href}");
     expect(dashboard).not.toContain('Kelionės lapas, transportas ir degalai');
-    expect(dashboard).toContain("safeArea: { flex: 1, backgroundColor: '#FFFFFF' }");
+    // Page background comes from the palette rather than a literal hex.
+    expect(dashboard).toContain('safeArea: { flex: 1, backgroundColor: colors.background }');
   });
 
   it('does not open a new browser context for PWA navigation', () => {
