@@ -16,11 +16,11 @@ describe('planning schedule', () => {
     expect(defaultPlanningDate(new Date(2026, 7, 5, 12))).toBe('2026-08-06');
   });
 
-  it('defaults route departure to 06:00 when no windows are known', () => {
-    expect(defaultPlanningTime()).toBe('06:00');
+  it('defaults route departure to 04:00 when no windows are known', () => {
+    expect(defaultPlanningTime()).toBe('04:00');
   });
 
-  it('suggests departure from the earliest window, not a 04:00 default', () => {
+  it('suggests departure from the earliest window minus a travel buffer', () => {
     expect(suggestPlanningTimeFromWindows([
       { from: '06:00' },
       { from: '07:00' },
@@ -30,7 +30,7 @@ describe('planning schedule', () => {
       { from: '08:00' },
       { from: '06:00' },
     ])).toBe('05:30');
-    expect(suggestPlanningTimeFromWindows([{ from: null }, { from: undefined }])).toBe('06:00');
+    expect(suggestPlanningTimeFromWindows([{ from: null }, { from: undefined }])).toBe('04:00');
   });
 
   it('builds a real local departure and rejects invalid input', () => {

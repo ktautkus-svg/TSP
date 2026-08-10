@@ -21,7 +21,9 @@ describe('premium route dashboard', () => {
     expect(gauge).toContain('remaining ?? safeMaximum - delivered');
     expect(gauge).toContain('needleAngle');
     expect(gauge).toContain('const NEEDLE_TIP = 78');
-    expect(gauge).toContain('stopColor="#FFB24A"');
+    expect(gauge).toContain('fraction >= 0.85');
+    expect(gauge).toContain("stopColor={fraction >= 0.85 ? '#E11D1D' : '#FF6A00'}");
+    expect(gauge).toContain('id="redZone"');
     expect(gauge).toContain('stopColor="#D4FF6E"');
     expect(gauge).not.toContain('LIKO');
     expect(gauge).toContain('{unit}');

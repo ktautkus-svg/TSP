@@ -184,6 +184,7 @@ export type ExplanationEvidence = {
     | 'BETTER_END_LOCATION'
     | 'LESS_BACKTRACKING'
     | 'MANUAL_CONSTRAINT'
+    | 'MIRROR_ROUTE'
     | 'NO_FEASIBLE_ROUTE';
   text: string;
   criterion: RoutingScoreKey | 'feasibility';

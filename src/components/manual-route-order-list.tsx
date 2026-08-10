@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Animated, PanResponder, Platform, Pressable, StyleSheet, Text, View, type ViewStyle } from 'react-native';
 
 import { spacing } from '@/ui/tokens';
@@ -47,8 +47,9 @@ function DraggableRow(props: {
   onMove: (id: string, targetIndex: number) => void;
 }) {
   const { colors } = useTheme();
+  const [dragging, setDragging] = useState(false);
   const translateY = useRef(new Animated.Value(0)).current;
-  const dragging = useRef(false);
+  const draggingRef = useRef(false);
   const latest = useRef(props);
   latest.current = props;
 
@@ -58,10 +59,14 @@ function DraggableRow(props: {
     onStartShouldSetPanResponderCapture: () => true,
     onMoveShouldSetPanResponderCapture: () => true,
     onPanResponderTerminationRequest: () => false,
-    onPanResponderGrant: () => { dragging.current = true; },
+    onPanResponderGrant: () => {
+      draggingRef.current = true;
+      setDragging(true);
+    },
     onPanResponderMove: (_event, gesture) => translateY.setValue(gesture.dy),
     onPanResponderRelease: (_event, gesture) => {
-      dragging.current = false;
+      draggingRef.current = false;
+      setDragging(false);
       const { index, count, item, onMove } = latest.current;
       const offset = Math.round(gesture.dy / ROW_HEIGHT);
       const target = Math.max(0, Math.min(count - 1, index + offset));
@@ -69,7 +74,8 @@ function DraggableRow(props: {
       if (target !== index) onMove(item.id, target);
     },
     onPanResponderTerminate: () => {
-      dragging.current = false;
+      draggingRef.current = false;
+      setDragging(false);
       translateY.setValue(0);
     },
   }), [translateY]);
@@ -84,7 +90,15 @@ function DraggableRow(props: {
     <Animated.View
       style={[
         styles.row,
-        { borderColor: colors.border, backgroundColor: colors.surface, transform: [{ translateY }] },
+        {
+          borderColor: colors.border,
+          backgroundColor: colors.surface,
+          transform: [{ translateY }],
+          zIndex: dragging ? 100 : 1,
+          elevation: dragging ? 12 : 1,
+          shadowOpacity: dragging ? 0.28 : 0,
+        },
+        dragging && styles.rowDragging,
       ]}>
       <Pressable
         accessibilityRole="checkbox"
@@ -128,8 +142,23 @@ function DraggableRow(props: {
 }
 
 const styles = StyleSheet.create({
-  list: { gap: spacing.xs },
-  row: { minHeight: ROW_HEIGHT, borderWidth: 1, borderRadius: 12, flexDirection: 'row', alignItems: 'center', paddingLeft: spacing.sm, zIndex: 1 },
+  list: { gap: spacing.xs, overflow: 'visible' },
+  row: {
+    minHeight: ROW_HEIGHT,
+    borderWidth: 1,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: spacing.sm,
+    zIndex: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 10,
+  },
+  rowDragging: {
+    borderColor: '#0A5A31',
+    backgroundColor: '#F4FFF6',
+  },
   priority: { width: 40, height: 40, borderWidth: 1, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
   textBlock: { flex: 1, minWidth: 0, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
   label: { fontWeight: '800', lineHeight: 19 },

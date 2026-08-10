@@ -145,9 +145,14 @@ export function InstrumentGauge({
               <Stop offset="1" stopColor="#D4FF6E" />
             </LinearGradient>
             <LinearGradient id="needle" x1="0" y1="0" x2="1" y2="0">
-              <Stop offset="0" stopColor="#C45A12" />
-              <Stop offset="0.4" stopColor="#FFB24A" />
-              <Stop offset="1" stopColor="#FFF0C8" />
+              <Stop offset="0" stopColor={fraction >= 0.85 ? '#7A0B0B' : '#9A2F00'} />
+              <Stop offset="0.45" stopColor={fraction >= 0.85 ? '#E11D1D' : '#FF6A00'} />
+              <Stop offset="1" stopColor={fraction >= 0.85 ? '#FF6B6B' : '#FFD36A'} />
+            </LinearGradient>
+            <LinearGradient id="redZone" x1="0" y1="0" x2="1" y2="0">
+              <Stop offset="0" stopColor="#FF2A2A" stopOpacity={0} />
+              <Stop offset="0.55" stopColor="#FF2A2A" stopOpacity={0.18} />
+              <Stop offset="1" stopColor="#FF2A2A" stopOpacity={0.55} />
             </LinearGradient>
             <RadialGradient id="hub" cx="38%" cy="32%" r="70%">
               <Stop offset="0" stopColor="#4B534D" />
@@ -169,6 +174,15 @@ export function InstrumentGauge({
           <Path d={GLASS_PATH} fill="none" stroke="#FFFFFF" strokeOpacity={0.07} strokeWidth={9} />
 
           <Path d={TRACK_PATH} fill="none" stroke="#141A12" strokeWidth={ARC_WIDTH + 1} strokeLinecap="round" />
+          <Path
+            d={TRACK_PATH}
+            fill="none"
+            stroke="url(#redZone)"
+            strokeWidth={ARC_WIDTH + 2}
+            strokeLinecap="round"
+            strokeDasharray={`${(ARC_LENGTH * 0.18).toFixed(2)} ${ARC_LENGTH.toFixed(2)}`}
+            strokeDashoffset={(-(ARC_LENGTH * 0.82)).toFixed(2)}
+          />
           {fraction > 0 ? (
             <>
               <Path
@@ -256,25 +270,25 @@ export function InstrumentGauge({
 
           <G rotation={needleAngle} origin={`${CENTER}, ${CENTER}`}>
             <Path
-              d={`M 115.8 128 L ${CENTER} ${CENTER - NEEDLE_TIP} L 124.2 128 Z`}
+              d={`M 114.8 130 L ${CENTER} ${CENTER - NEEDLE_TIP} L 125.2 130 Z`}
               fill="#000000"
-              opacity={0.45}
-              transform="translate(2.5 2.5)"
+              opacity={0.55}
+              transform="translate(3 3)"
             />
             {/* Counterweight stays cool grey so it never reads as the green wedge edge. */}
-            <Path d={`M 114.5 ${CENTER} L ${CENTER} 148 L 125.5 ${CENTER} Z`} fill="#5A6260" />
+            <Path d={`M 113.5 ${CENTER} L ${CENTER} 150 L 126.5 ${CENTER} Z`} fill="#5A6260" />
             <Path
-              d={`M 115.8 128 L ${CENTER} ${CENTER - NEEDLE_TIP} L 124.2 128 Z`}
+              d={`M 114.8 130 L ${CENTER} ${CENTER - NEEDLE_TIP} L 125.2 130 Z`}
               fill="url(#needle)"
-              stroke="#FFD27A"
-              strokeWidth={0.9}
+              stroke={fraction >= 0.85 ? '#FFB0B0' : '#FFE08A'}
+              strokeWidth={1.4}
             />
             <Path
-              d={`M ${CENTER - 2.8} ${CENTER - NEEDLE_TIP + 14} L ${CENTER} ${CENTER - NEEDLE_TIP} L ${CENTER + 2.8} ${CENTER - NEEDLE_TIP + 14} Z`}
-              fill="#FFF6D6"
+              d={`M ${CENTER - 3.4} ${CENTER - NEEDLE_TIP + 16} L ${CENTER} ${CENTER - NEEDLE_TIP} L ${CENTER + 3.4} ${CENTER - NEEDLE_TIP + 16} Z`}
+              fill={fraction >= 0.85 ? '#FFE0E0' : '#FFF8E0'}
             />
           </G>
-          <Circle cx={CENTER} cy={CENTER} r={12} fill="url(#hub)" stroke="#D0A45A" strokeWidth={2} />
+          <Circle cx={CENTER} cy={CENTER} r={13} fill="url(#hub)" stroke={fraction >= 0.85 ? '#E24A4A' : '#E0A040'} strokeWidth={2.4} />
           <Circle cx={CENTER - 3} cy={CENTER - 4} r={3.2} fill="#69726B" opacity={0.75} />
 
           <SvgText

@@ -73,22 +73,44 @@ export function RoadProgressBar({
 }
 
 function WeatherOverlay({ condition }: { condition: RouteWeatherScene['condition'] }) {
-  if (condition === 'clear') return null;
+  if (condition === 'clear') {
+    return (
+      <Svg pointerEvents="none" style={styles.timeOverlay} viewBox="0 0 100 100" preserveAspectRatio="none">
+        <Defs>
+          <RadialGradient id="sunGlow" cx="50%" cy="50%" r="50%">
+            <Stop offset="0" stopColor="#FFE27A" stopOpacity={0.55} />
+            <Stop offset="0.45" stopColor="#FFC14D" stopOpacity={0.22} />
+            <Stop offset="1" stopColor="#FF9A1A" stopOpacity={0} />
+          </RadialGradient>
+        </Defs>
+        <Circle cx="82" cy="18" r="16" fill="url(#sunGlow)" />
+        <Circle cx="82" cy="18" r="5.5" fill="#FFE9A0" opacity={0.9} />
+      </Svg>
+    );
+  }
   if (condition === 'fog') return <View pointerEvents="none" style={styles.fogOverlay} />;
-  if (condition === 'cloudy') return <View pointerEvents="none" style={styles.cloudOverlay} />;
+  if (condition === 'cloudy') {
+    return (
+      <View pointerEvents="none" style={styles.cloudOverlay}>
+        <View style={[styles.cloudBlob, { left: '8%', top: '18%', width: 72, height: 28 }]} />
+        <View style={[styles.cloudBlob, { left: '42%', top: '10%', width: 88, height: 34 }]} />
+        <View style={[styles.cloudBlob, { left: '68%', top: '28%', width: 64, height: 24 }]} />
+      </View>
+    );
+  }
   if (condition === 'rain' || condition === 'storm') {
     return (
       <View pointerEvents="none" style={[styles.weatherParticles, condition === 'storm' && styles.stormOverlay]}>
-        {Array.from({ length: 18 }, (_, index) => (
-          <View key={index} style={[styles.rainDrop, { left: `${(index * 17) % 100}%`, top: `${(index * 29) % 90}%` }]} />
+        {Array.from({ length: 24 }, (_, index) => (
+          <View key={index} style={[styles.rainDrop, { left: `${(index * 17) % 100}%`, top: `${(index * 29) % 90}%`, height: 12 + (index % 3) * 6 }]} />
         ))}
       </View>
     );
   }
   return (
     <View pointerEvents="none" style={styles.weatherParticles}>
-      {Array.from({ length: 22 }, (_, index) => (
-        <View key={index} style={[styles.snowFlake, { left: `${(index * 23) % 100}%`, top: `${(index * 31) % 92}%` }]} />
+      {Array.from({ length: 26 }, (_, index) => (
+        <View key={index} style={[styles.snowFlake, { left: `${(index * 23) % 100}%`, top: `${(index * 31) % 92}%`, width: 4 + (index % 3), height: 4 + (index % 3) }]} />
       ))}
     </View>
   );
@@ -176,6 +198,7 @@ const styles = StyleSheet.create({
   roadImage: { position: 'absolute', inset: 0, width: '100%', height: '100%' },
   timeOverlay: { position: 'absolute', inset: 0, width: '100%', height: '100%' },
   cloudOverlay: { position: 'absolute', inset: 0, backgroundColor: 'rgba(75, 87, 94, 0.24)' },
+  cloudBlob: { position: 'absolute', borderRadius: 40, backgroundColor: 'rgba(255,255,255,0.28)' },
   fogOverlay: { position: 'absolute', inset: 0, backgroundColor: 'rgba(230, 235, 232, 0.44)' },
   weatherParticles: { position: 'absolute', inset: 0, overflow: 'hidden' },
   stormOverlay: { backgroundColor: 'rgba(16, 25, 36, 0.25)' },

@@ -69,6 +69,15 @@ export type RouteCompletionSummary = {
   unknownWeightStops: number;
   plannedDistanceKm: number | null;
   actualDistanceKm: number | null;
+  /** Delivered within the client window (or within 5 min of planned arrival). */
+  onTimeStops: number;
+  /** Delivered after the client window / planned arrival. */
+  lateStops: number;
+  plannedDurationMinutes: number | null;
+  actualDurationMinutes: number | null;
+  /** actual − planned; negative means finished earlier / shorter. */
+  durationDeviationMinutes: number | null;
+  distanceDeviationKm: number | null;
 };
 
 export type RouteEndpoint = {

@@ -1,4 +1,4 @@
-const FALLBACK_START_TIME = '06:00';
+const FALLBACK_START_TIME = '04:00';
 /** Leave this many minutes before the earliest door opens, so the first stop is reachable without a long kerbside wait. */
 const DEPARTURE_LEAD_MINUTES = 30;
 

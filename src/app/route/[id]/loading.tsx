@@ -16,7 +16,6 @@ import {
   parseOdometer,
   ReverseStopOrder,
   SaveStartOdometer,
-  SkipStartOdometer,
   StartRoute,
   UndoRouteAction,
   type RouteProgress,
@@ -178,15 +177,6 @@ export default function LoadingScreen() {
     }
   };
 
-  const skipOdometer = async () => {
-    try {
-      await new SkipStartOdometer(db).execute(routeId);
-      await load();
-    } catch (reason) {
-      Alert.alert('Veiksmo atlikti nepavyko', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
-    }
-  };
-
   const pickDifferentAlternative = () => {
     Alert.alert(
       'Pasirinkti kitą maršruto variantą?',
@@ -265,8 +255,8 @@ export default function LoadingScreen() {
   const cancelPlannedRoute = () => {
     if (bulkInFlight.current) return;
     Alert.alert(
-      'Atšaukti suplanuotą maršrutą?',
-      'Maršrutas bus perkeltas į istoriją kaip atšauktas. Ankstesni maršrutai nebus ištrinti.',
+      'Atšaukti ir grįžti į pradžią?',
+      'Maršrutas bus atšauktas. Iš pradžios galėsite kurti naują maršrutą.',
       [
         { text: 'Ne', style: 'cancel' },
         {
@@ -309,14 +299,14 @@ export default function LoadingScreen() {
             Atvykimo laikai skaičiuojami nuo šio starto. Paspaudus „Pradėti maršrutą“ jie bus perskaičiuoti nuo realaus starto.
           </Text>
         </View>
-        <Pressable disabled={bulkBusy} style={[styles.primaryButton, bulkBusy && styles.disabled]} onPress={() => { void beginLoading(); }} testID="begin-loading">
-          {bulkBusy ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>Pradėti krovimą</Text>}
+        <Pressable disabled={bulkBusy} style={[styles.plannedPrimaryButton, bulkBusy && styles.disabled]} onPress={() => { void beginLoading(); }} testID="begin-loading">
+          {bulkBusy ? <ActivityIndicator color="#fff" /> : <Text style={styles.plannedPrimaryText}>Pradėti krovimą</Text>}
         </Pressable>
-        {profile.role !== 'driver' || profile.permissions?.canReorderAssignedRoute ? <Pressable disabled={bulkBusy} style={[styles.secondaryButton, bulkBusy && styles.disabled]} onPress={() => { void editPlannedRoute(); }} testID="edit-planned-route">
-          <Text style={styles.secondaryText}>Redaguoti maršrutą</Text>
+        {profile.role !== 'driver' || profile.permissions?.canReorderAssignedRoute ? <Pressable disabled={bulkBusy} style={[styles.plannedSecondaryButton, bulkBusy && styles.disabled]} onPress={() => { void editPlannedRoute(); }} testID="edit-planned-route">
+          <Text style={styles.plannedSecondaryText}>Grįžti į redagavimą</Text>
         </Pressable> : null}
-        {profile.role !== 'driver' || profile.permissions?.canCancelRoute ? <Pressable disabled={bulkBusy} style={[styles.cancelRouteButton, bulkBusy && styles.disabled]} onPress={cancelPlannedRoute} testID="cancel-planned-route">
-          <Text style={styles.cancelRouteText}>Atšaukti esamą maršrutą</Text>
+        {profile.role !== 'driver' || profile.permissions?.canCancelRoute ? <Pressable disabled={bulkBusy} style={[styles.plannedCancelButton, bulkBusy && styles.disabled]} onPress={cancelPlannedRoute} testID="cancel-planned-route">
+          <Text style={styles.plannedCancelText}>Atšaukti</Text>
         </Pressable> : null}
       </FoundationScreen>
     );
@@ -365,7 +355,7 @@ export default function LoadingScreen() {
       ) : null}
       {route?.status === 'loaded' ? (
         <Pressable style={styles.primaryButton} onPress={() => setOdometerModalVisible(true)} testID="open-start-odometer">
-          <Text style={styles.primaryText}>{route.startOdometer === null && !route.startOdometerSkippedAt ? 'Įvesti odometrą ir pradėti' : 'Pradėti maršrutą'}</Text>
+          <Text style={styles.primaryText}>{route.startOdometer === null ? 'Įvesti odometrą ir pradėti' : 'Pradėti maršrutą'}</Text>
         </Pressable>
       ) : null}
       {stops.length > 1 && (profile.role !== 'driver' || profile.permissions?.canReorderAssignedRoute) ? (
@@ -378,7 +368,13 @@ export default function LoadingScreen() {
           <Text style={styles.reverseText}>← Pasirinkti kitą maršruto variantą</Text>
         </Pressable>
       ) : null}
-      {undo ? <Pressable style={styles.undoButton} onPress={undoLast}><Text style={styles.undoText}>Atšaukti paskutinį pakrovimą</Text></Pressable> : null}
+      {undo ? (
+        <Pressable style={styles.undoButton} onPress={undoLast} testID="undo-loading-action">
+          <Text style={styles.undoText}>
+            {undo.actionType === 'all_stops_loaded' ? 'Atšaukti visų pakrovimą' : 'Atšaukti paskutinį pakrovimą'}
+          </Text>
+        </Pressable>
+      ) : null}
       {stops.map((stop, index) => {
         const expanded = expandedStopId === stop.id;
         const markedNotLoaded = stop.loadingStatus === 'pending' && stop.deliveryStatus === 'failed';
@@ -461,12 +457,23 @@ export default function LoadingScreen() {
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalBackdrop} testID="start-odometer-modal">
           <View style={styles.odometerDialog}>
             <Text style={styles.dialogTitle}>Pradinis odometras</Text>
-            <Text style={styles.dialogText}>Įveskite rodmenį prieš pradėdami maršrutą arba pasirinkite „Įvesiu vėliau“.</Text>
+            <Text style={styles.dialogText}>
+              Prieš startą įveskite odometro rodmenį. Be jo maršruto pradėti negalima.
+            </Text>
             <TextInput value={odometer} onChangeText={setOdometer} keyboardType="decimal-pad" placeholder="Pvz. 125430,5" style={styles.input} autoFocus />
-            <Pressable style={styles.secondaryButton} onPress={() => { void saveOdometer(); }}><Text style={styles.secondaryText}>Išsaugoti odometrą</Text></Pressable>
-            <Pressable style={styles.linkButton} onPress={() => { void skipOdometer(); }}><Text style={styles.linkText}>Įvesiu vėliau</Text></Pressable>
-            <Pressable disabled={route?.startOdometer === null && !route?.startOdometerSkippedAt} style={[styles.primaryButton, route?.startOdometer === null && !route?.startOdometerSkippedAt && styles.disabled]} onPress={() => { void startRoute(); }}>
-              <Text style={styles.primaryText}>Pradėti maršrutą</Text>
+            <Pressable
+              style={[styles.secondaryButton, !odometer.trim() && styles.disabled]}
+              disabled={!odometer.trim()}
+              onPress={() => { void saveOdometer(); }}
+              testID="save-start-odometer">
+              <Text style={styles.secondaryText}>1. Išsaugoti odometrą</Text>
+            </Pressable>
+            <Pressable
+              disabled={route?.startOdometer === null}
+              style={[styles.primaryButton, route?.startOdometer === null && styles.disabled]}
+              onPress={() => { void startRoute(); }}
+              testID="confirm-start-route">
+              <Text style={styles.primaryText}>2. Pradėti maršrutą</Text>
             </Pressable>
             <Pressable style={styles.modalCloseButton} onPress={() => setOdometerModalVisible(false)}><Text style={styles.modalCloseText}>Uždaryti</Text></Pressable>
           </View>
@@ -658,17 +665,17 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   notLoadedButtonText: { color: colors.danger, fontFamily: fonts.heading, textAlign: 'center' },
   notLoadedReason: { color: colors.danger, fontFamily: fonts.headingSemiBold },
   reverseButton: {
-    minHeight: 46,
+    minHeight: 48,
     borderRadius: 12,
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: colors.brandNavy,
-    backgroundColor: colors.background,
+    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  reverseText: { color: colors.brandNavy, fontFamily: fonts.heading },
+  reverseText: { color: colors.brandNavy, fontFamily: fonts.heading, fontSize: 15 },
   undoButton: {
-    minHeight: 46,
+    minHeight: 48,
     borderRadius: 12,
     borderWidth: 2,
     borderColor: colors.warning,
@@ -676,7 +683,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  undoText: { color: colors.warning, fontFamily: fonts.heading },
+  undoText: { color: '#9A6700', fontFamily: fonts.heading, fontSize: 15 },
   odometerCard: { gap: spacing.sm, padding: spacing.lg, borderRadius: 20, borderWidth: 1, borderColor: colors.accent, backgroundColor: colors.surface },
   input: { minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.md, color: colors.text, backgroundColor: colors.background, fontFamily: fonts.body },
   secondaryButton: { minHeight: 56, borderRadius: 14, borderWidth: 2, borderColor: colors.brandNavy, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
@@ -685,6 +692,12 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   linkText: { color: colors.textMuted, fontFamily: fonts.headingSemiBold },
   primaryButton: { minHeight: 56, borderRadius: 14, backgroundColor: colors.brandNavy, alignItems: 'center', justifyContent: 'center' },
   primaryText: { color: '#fff', fontFamily: fonts.heading, fontSize: 16 },
+  plannedPrimaryButton: { minHeight: 56, borderRadius: 14, backgroundColor: colors.brandNavy, alignItems: 'center', justifyContent: 'center' },
+  plannedPrimaryText: { color: '#fff', fontFamily: fonts.heading, fontSize: 16 },
+  plannedSecondaryButton: { minHeight: 56, borderRadius: 14, borderWidth: 2, borderColor: colors.brandNavy, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
+  plannedSecondaryText: { color: colors.brandNavy, fontFamily: fonts.heading, fontSize: 16 },
+  plannedCancelButton: { minHeight: 56, borderRadius: 14, borderWidth: 2, borderColor: colors.danger, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
+  plannedCancelText: { color: colors.danger, fontFamily: fonts.heading, fontSize: 16 },
   cancelRouteButton: { minHeight: 56, borderRadius: 14, borderWidth: 2, borderColor: colors.danger, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
   cancelRouteText: { color: colors.danger, fontFamily: fonts.heading, fontSize: 16 },
   disabled: { opacity: 0.45 },

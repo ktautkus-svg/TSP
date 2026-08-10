@@ -97,6 +97,18 @@ export function buildExplanations(
       relatedStopIds: requiredStops.map((stop) => stop.id),
     });
   }
+  if (selected.generatedBy.some((tag) => tag.includes('mirror'))) {
+    add({
+      code: 'MIRROR_ROUTE',
+      text: 'Veidrodinė seka — taškai apeinami priešinga geografine kryptimi.',
+      criterion: 'directionality',
+      baselineValue: round(baseline.directionalityPenalty),
+      selectedValue: round(selected.directionalityPenalty),
+      difference: round(selected.directionalityPenalty - baseline.directionalityPenalty),
+      dataSource: 'mirror_reverse / directional_sweep_mirror',
+      relatedStopIds: selected.stopSequence,
+    });
+  }
   if (selected.directionalityPenalty + 1 < baseline.directionalityPenalty) {
     add({
       code: 'LESS_BACKTRACKING',
@@ -106,6 +118,26 @@ export function buildExplanations(
       selectedValue: round(selected.directionalityPenalty),
       difference: round(selected.directionalityPenalty - baseline.directionalityPenalty),
       dataSource: 'deterministinė kryptingumo heuristika',
+      relatedStopIds: [],
+    });
+  }
+  if (
+    Math.abs(selected.totalWorkMinutes - baseline.totalWorkMinutes) >= 8
+    || Math.abs(selected.totalDistanceKm - baseline.totalDistanceKm) >= 3
+  ) {
+    const timeDelta = round(selected.totalWorkMinutes - baseline.totalWorkMinutes);
+    const distanceDelta = round(selected.totalDistanceKm - baseline.totalDistanceKm);
+    add({
+      code: timeDelta <= 0 ? 'LOWER_TONNE_KM' : 'LONGER_BUT_FASTER',
+      text: [
+        timeDelta === 0 ? null : `${timeDelta > 0 ? '+' : ''}${timeDelta} min`,
+        distanceDelta === 0 ? null : `${distanceDelta > 0 ? '+' : ''}${distanceDelta} km`,
+      ].filter(Boolean).join(' · ') || 'Skiriasi eiliškumas.',
+      criterion: 'drivingTime',
+      baselineValue: round(baseline.totalWorkMinutes),
+      selectedValue: round(selected.totalWorkMinutes),
+      difference: timeDelta,
+      dataSource: 'palyginimas su rekomenduojamu',
       relatedStopIds: [],
     });
   }

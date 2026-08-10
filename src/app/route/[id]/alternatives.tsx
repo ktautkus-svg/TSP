@@ -176,10 +176,10 @@ export default function RouteAlternativesScreen() {
       next.splice(targetIndex, 0, stopId);
       return next;
     });
-    // Stale after reorder — force a fresh "Perskaičiuoti su šia seka" press
-    // before the user can act on numbers that no longer match the sequence.
-    setManualCandidate(null);
     setManualError(null);
+    // Any reorder must recalculate immediately — moving one stop can invalidate
+    // the rest of the sequence's travel times.
+    setTimeout(() => recalculateManualSequenceRef.current?.(), 0);
   };
 
   const toggleManualPriority = (stopId: string) => {
@@ -216,6 +216,8 @@ export default function RouteAlternativesScreen() {
     }
   };
 
+  const recalculateManualSequenceRef = useRef<(() => void) | null>(null);
+
   const recalculateManualSequence = () => {
     if (!request || !result || manualOrder.length === 0) return;
     const candidate = evaluateCandidate({
@@ -232,6 +234,7 @@ export default function RouteAlternativesScreen() {
         : null,
     );
   };
+  recalculateManualSequenceRef.current = recalculateManualSequence;
 
   const useManualSequence = async () => {
     if (!request || !result || !manualCandidate || manualSaving) return;
@@ -360,7 +363,7 @@ export default function RouteAlternativesScreen() {
           {...orderedLocations}
           encodedPolyline={polylineResult?.encodedPolyline}
           totalDistanceKm={selectedCandidate?.totalDistanceKm}
-          totalDurationMinutes={selectedCandidate?.drivingMinutes}
+          totalDurationMinutes={selectedCandidate?.totalWorkMinutes}
           allowStraightLineFallback={false}
           polylineError={polylineError}
         />
@@ -373,6 +376,7 @@ export default function RouteAlternativesScreen() {
               key={candidate.id}
               candidate={candidate}
               request={request}
+              rank={index + 1}
               recommended={index === 0}
               selected={candidate.id === selectedId}
               onSelect={() => setSelectedId(candidate.id)}
@@ -421,7 +425,7 @@ export default function RouteAlternativesScreen() {
           {manualCandidate ? (
             <View style={styles.manualResultCard} testID="manual-sequence-result">
               <Text style={styles.metrics}>
-                {Math.round(manualCandidate.totalWorkMinutes)} min · {manualCandidate.totalDistanceKm.toFixed(1)} km
+                {durationLabel(manualCandidate.totalWorkMinutes)} · {manualCandidate.totalDistanceKm.toFixed(1)} km
               </Text>
               <Pressable
                 disabled={manualSaving}
@@ -467,6 +471,7 @@ function CandidateCard(props: {
   styles: ReturnType<typeof createStyles>;
   candidate: RouteCandidate;
   request: RouteOptimizationRequest;
+  rank: number;
   recommended: boolean;
   selected: boolean;
   expanded: boolean;
@@ -482,7 +487,6 @@ function CandidateCard(props: {
   const orderedStops = props.candidate.stopSequence
     .map((id) => stopMap.get(id))
     .filter((stop): stop is OptimizationStop => Boolean(stop));
-  const totalWeightKg = orderedStops.reduce((sum, stop) => sum + (stop.weightKg ?? 0), 0);
   // Handover times, not raw arrivals: waiting for a door that opens at 08:00 is
   // already baked into the schedule, so the first delivery reads honestly.
   const scheduleById = new Map(props.candidate.schedules.map((item) => [item.stopId, item]));
@@ -490,17 +494,26 @@ function CandidateCard(props: {
   const firstDelivery = clockLabel(props.candidate.schedules[0]?.serviceStartAt);
   const lastDelivery = clockLabel(props.candidate.schedules.at(-1)?.departureAt);
   const waitingMinutes = Math.round(props.candidate.waitingMinutes);
+  const comment = props.candidate.explanations[0]?.text
+    ?? (props.recommended
+      ? 'Geriausias balansas pagal laiką, km ir eiliškumą.'
+      : props.candidate.generatedBy.some((tag) => tag.includes('mirror'))
+        ? 'Veidrodinė seka — priešinga geografine kryptimi.'
+        : 'Alternatyvus eiliškumas su kitokia kryptimi ar laiko balansu.');
 
   return (
     <View style={[styles.card, props.recommended && styles.recommended, props.selected && styles.selected]}>
       <Pressable onPress={props.onSelect} style={styles.candidateSummary}>
         <View style={styles.candidateTitleRow}>
-          <Text style={styles.title}>{props.recommended ? 'Rekomenduojamas' : 'Alternatyva'}</Text>
+          <Text style={styles.title}>
+            {props.rank}. {props.recommended ? 'Rekomenduojamas' : 'Alternatyva'}
+          </Text>
           <Text style={styles.selectionLabel}>{props.selected ? '✓ Pasirinkta' : 'Pasirinkti'}</Text>
         </View>
         <Text style={styles.metrics}>
-          {Math.round(props.candidate.totalWorkMinutes)} min · {props.candidate.totalDistanceKm.toFixed(1)} km · {Math.round(totalWeightKg)} kg
+          {durationLabel(props.candidate.totalWorkMinutes)} · {props.candidate.totalDistanceKm.toFixed(1)} km
         </Text>
+        <Text style={styles.comment}>{comment}</Text>
         {firstDelivery ? (
           <Text style={styles.scheduleLine} testID={`candidate-schedule-${props.candidate.id}`}>
             {departure ? `Išvykimas ${departure} · ` : ''}1-as pristatymas {firstDelivery}
@@ -540,17 +553,18 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   topActions: { gap: spacing.sm },
   list: { gap: spacing.md },
   loading: { alignItems: 'center', gap: spacing.sm, padding: spacing.lg },
-  card: { padding: spacing.md, borderRadius: 18, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
+  card: { padding: spacing.sm, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: 6 },
   recommended: { borderWidth: 2, borderColor: colors.primary },
   selected: { backgroundColor: colors.primarySoft },
-  title: { color: colors.text, fontSize: 17, fontWeight: '800' },
+  title: { color: colors.text, fontSize: 15, fontWeight: '800' },
   description: { color: colors.textMuted, fontSize: 14, lineHeight: 20, marginTop: spacing.xs },
-  candidateSummary: { gap: spacing.xs },
+  candidateSummary: { gap: 4 },
   candidateTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
-  selectionLabel: { color: colors.primary, fontWeight: '800', fontSize: 13 },
-  metrics: { color: colors.primary, fontSize: 18, fontWeight: '900' },
-  scheduleLine: { color: colors.text, fontSize: 13, fontWeight: '700' },
-  scheduleHint: { color: colors.textMuted, fontSize: 12, lineHeight: 16 },
+  selectionLabel: { color: colors.primary, fontWeight: '800', fontSize: 12 },
+  metrics: { color: colors.primary, fontSize: 16, fontWeight: '900' },
+  comment: { color: colors.textMuted, fontSize: 12, lineHeight: 16 },
+  scheduleLine: { color: colors.text, fontSize: 12, fontWeight: '700' },
+  scheduleHint: { color: colors.textMuted, fontSize: 11, lineHeight: 15 },
   sequenceList: { marginTop: spacing.sm, gap: 2 },
   sequenceRow: { color: colors.textMuted, fontSize: 13, lineHeight: 19 },
   detailsButton: { minHeight: 42, borderRadius: 12, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },

@@ -57,13 +57,6 @@ function ScheduleDot({ stop, colors, routeDate }: { stop?: DeliveryStop | null; 
 
 type DeliveryView = 'dashboard' | 'stops';
 
-function compactDurationLabel(totalMinutes: number): string {
-  const safeMinutes = Math.max(0, Math.round(totalMinutes));
-  const hours = Math.floor(safeMinutes / 60);
-  const minutes = safeMinutes % 60;
-  return `${hours}:${String(minutes).padStart(2, '0')}`;
-}
-
 // Whichever of deliveredAt/failedAt is set is when the stop was resolved.
 function recalcTimestamp(stop: DeliveryStop): string | null {
   return stop.deliveryStatus === 'delivered' ? stop.deliveredAt : stop.deliveryStatus === 'failed' ? stop.failedAt : null;
@@ -489,17 +482,17 @@ export default function DeliveryScreen() {
               </View>
               <View style={styles.routeMetrics}>
                 <View style={styles.routeMetricCard}>
-                  <View style={styles.metricIconCircle}><Text style={styles.metricIcon}>●</Text></View>
+                  <View style={styles.metricIconCircle}><Text style={styles.metricIcon}>↗</Text></View>
                   <View style={styles.routeMetricText}>
                     <Text style={styles.routeMetricLabel}>IKI ARTIMIAUSIOS</Text>
                     <Text numberOfLines={1} style={styles.routeMetricValue}>{nextStop?.legDistanceKm === null || nextStop?.legDistanceKm === undefined ? '—' : `${new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(nextStop.legDistanceKm)} km`}</Text>
                   </View>
                 </View>
                 <View style={styles.routeMetricCard}>
-                  <View style={styles.metricIconCircle}><Text style={styles.metricIcon}>◷</Text></View>
+                  <View style={styles.metricIconCircle}><Text style={styles.metricIcon}>⏱</Text></View>
                   <View style={styles.routeMetricText}>
-                    <Text style={styles.routeMetricLabel}>LAIKAS</Text>
-                    <Text numberOfLines={1} style={styles.routeMetricValue}>{nextStop?.legDurationMinutes === null || nextStop?.legDurationMinutes === undefined ? '—' : compactDurationLabel(nextStop.legDurationMinutes)}</Text>
+                    <Text style={styles.routeMetricLabel}>IKI ARTIMIAUSIOS</Text>
+                    <Text numberOfLines={1} style={styles.routeMetricValue}>{nextStop?.legDurationMinutes === null || nextStop?.legDurationMinutes === undefined ? '—' : durationLabel(nextStop.legDurationMinutes)}</Text>
                   </View>
                 </View>
               </View>
@@ -914,10 +907,10 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     gap: 7,
   },
   routeMetricText: { flex: 1, minWidth: 0 },
-  metricIconCircle: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: '#E8F1E8' },
-  metricIcon: { color: '#0A5A31', fontSize: 19 },
+  metricIconCircle: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: '#E8F1E8' },
+  metricIcon: { color: '#0A5A31', fontSize: 18, fontFamily: fonts.headingExtraBold },
   routeMetricLabel: { color: '#6F7772', fontFamily: fonts.headingSemiBold, fontSize: 9, letterSpacing: 0.45 },
-  routeMetricValue: { color: '#183525', fontFamily: fonts.headingExtraBold, fontSize: 20, flexShrink: 1 },
+  routeMetricValue: { color: '#183525', fontFamily: fonts.headingExtraBold, fontSize: 18, flexShrink: 1, lineHeight: 22 },
   nextStopCard: {
     flex: 1,
     minHeight: 0,
@@ -946,17 +939,17 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   dashboardActionButton: {
     flex: 1,
     minWidth: 0,
-    height: 62,
+    height: 68,
     borderRadius: 12,
     paddingHorizontal: 4,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 3,
+    gap: 4,
   },
   dashboardNavigateButton: { backgroundColor: '#2F80C9' },
   dashboardDeliveredButton: { backgroundColor: '#0A6A38' },
   dashboardFailedButton: { backgroundColor: colors.danger },
-  dashboardActionIcon: { color: '#FFFFFF', fontFamily: fonts.headingExtraBold, fontSize: 19, lineHeight: 22 },
+  dashboardActionIcon: { color: '#FFFFFF', fontFamily: fonts.headingExtraBold, fontSize: 26, lineHeight: 28 },
   dashboardActionText: { color: '#FFFFFF', fontFamily: fonts.headingSemiBold, fontSize: 11, letterSpacing: 0.3 },
   completeRouteButton: { minHeight: 58, borderRadius: 8, backgroundColor: '#0A6A38', alignItems: 'center', justifyContent: 'center', marginTop: 4 },
   nextStopMeta: { color: colors.textMuted, lineHeight: 20 },

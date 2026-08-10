@@ -135,7 +135,22 @@ function mapRoute(row: RouteRow): Route {
     activeSequenceSnapshotAt: row.active_sequence_snapshot_at,
     completionStartedAt: row.completion_started_at,
     completionEndOdometerDraft: row.completion_end_odometer_draft,
-    completionSummary: parseJson<Route['completionSummary']>(row.completion_summary_json),
+    completionSummary: normalizeCompletionSummary(parseJson<Route['completionSummary']>(row.completion_summary_json)),
+  };
+}
+
+function normalizeCompletionSummary(
+  summary: Route['completionSummary'] | null,
+): Route['completionSummary'] {
+  if (!summary) return null;
+  return {
+    ...summary,
+    onTimeStops: summary.onTimeStops ?? 0,
+    lateStops: summary.lateStops ?? 0,
+    plannedDurationMinutes: summary.plannedDurationMinutes ?? null,
+    actualDurationMinutes: summary.actualDurationMinutes ?? null,
+    durationDeviationMinutes: summary.durationDeviationMinutes ?? null,
+    distanceDeviationKm: summary.distanceDeviationKm ?? null,
   };
 }
 

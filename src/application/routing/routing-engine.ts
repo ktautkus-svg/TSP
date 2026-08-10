@@ -131,7 +131,11 @@ function selectMeaningfulAlternatives(
 ): RouteCandidate[] {
   const selected: RouteCandidate[] = [];
   const feasible = candidates.filter((candidate) => candidate.feasible);
+  const mirror = feasible.find((candidate) =>
+    candidate.generatedBy.some((tag) => tag.includes('mirror')),
+  );
   const objectiveLeaders = [
+    mirror,
     [...feasible].sort((a, b) => a.drivingMinutes - b.drivingMinutes)[0],
     [...feasible].sort((a, b) => a.totalDistanceKm - b.totalDistanceKm)[0],
     [...feasible].sort((a, b) => a.tonneKilometers - b.tonneKilometers)[0],
@@ -153,16 +157,22 @@ function selectMeaningfulAlternatives(
       candidate.id === recommended.id ||
       !candidate.feasible ||
       candidate.totalScore === null ||
-      routeDiversity(recommended, candidate) < 0.25
+      routeDiversity(recommended, candidate) < 0.18
     ) {
       continue;
     }
-    if (selected.every((item) => routeDiversity(item, candidate) >= 0.2)) {
+    if (selected.every((item) => routeDiversity(item, candidate) >= 0.15)) {
       selected.push(candidate);
     }
     if (selected.length === limit) break;
   }
-  return selected;
+  // Prefer a mirror/reverse when diversity is otherwise too low.
+  if (selected.length < limit && mirror && mirror.id !== recommended.id
+    && !selected.some((item) => item.id === mirror.id)
+    && routeDiversity(recommended, mirror) >= 0.12) {
+    selected.push(mirror);
+  }
+  return selected.slice(0, limit);
 }
 
 function uniqueViolations(violations: ConstraintViolation[]): ConstraintViolation[] {

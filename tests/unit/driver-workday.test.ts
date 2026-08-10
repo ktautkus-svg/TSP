@@ -204,6 +204,8 @@ describe('driver workday persistence', () => {
       loadingPercent: 100,
       remainingStops: 1,
     });
+    await expect(new StartRoute(db).execute('route-1')).rejects.toMatchObject({ code: 'INVALID_ROUTE_STATE' });
+    await new SaveStartOdometer(db).execute('route-1', 100);
     await expect(new StartRoute(db).execute('route-1')).resolves.toMatchObject({ idempotent: false });
   });
 
@@ -309,7 +311,7 @@ describe('driver workday persistence', () => {
     expect((await new RouteRepository(db).getStops('route-1'))[0]?.loadingStatus).toBe('pending');
   });
 
-  it('validates, saves and can deliberately skip the initial odometer', async () => {
+  it('validates and saves the initial odometer; skip alone cannot start the route', async () => {
     const { db } = createDb();
     await loadingRoute(db);
     await new MarkStopLoaded(db).execute('route-1', 'stop-1');
@@ -319,6 +321,7 @@ describe('driver workday persistence', () => {
     expect(() => parseOdometer('12.34')).toThrow();
     await new SkipStartOdometer(db).execute('route-1');
     expect((await new RouteRepository(db).getById('route-1'))?.startOdometerSkippedAt).not.toBeNull();
+    await expect(new StartRoute(db).execute('route-1')).rejects.toMatchObject({ code: 'INVALID_ROUTE_STATE' });
     await new SaveStartOdometer(db).execute('route-1', 123.4);
     expect((await new RouteRepository(db).getById('route-1'))).toMatchObject({ startOdometer: 123.4, startOdometerSkippedAt: null });
   });
@@ -329,7 +332,8 @@ describe('driver workday persistence', () => {
     await expect(new MarkStopDelivered(db).execute('route-1', 'stop-1')).rejects.toMatchObject({ code: 'INVALID_ROUTE_STATE' });
     await new MarkStopLoaded(db).execute('route-1', 'stop-1');
     await new MarkStopLoaded(db).execute('route-1', 'stop-2');
-    await new SkipStartOdometer(db).execute('route-1');
+    await expect(new StartRoute(db).execute('route-1')).rejects.toMatchObject({ code: 'INVALID_ROUTE_STATE' });
+    await new SaveStartOdometer(db).execute('route-1', 100);
     expect(await new StartRoute(db).execute('route-1')).toEqual({ idempotent: false });
     expect(await new StartRoute(db).execute('route-1')).toEqual({ idempotent: true });
   });
@@ -646,23 +650,27 @@ describe('stop priority', () => {
 
     await new SetStopPriority(db).execute('route-p', 'stop-2', true);
     stops = await new RouteRepository(db).getStops('route-p');
-    expect(stops.find((item) => item.id === 'stop-1')?.priorityFirst).toBe(false);
+    expect(stops.find((item) => item.id === 'stop-1')?.priorityFirst).toBe(true);
     expect(stops.find((item) => item.id === 'stop-2')?.priorityFirst).toBe(true);
   });
 
-  it('forces the optimizer request to require a priority-first stop at the front of the route', async () => {
+  it('orders multiple priority stops along the way without hard-locking the first slot', async () => {
     const { db } = createDb();
     await new CreateDraftRoute(db).execute({ id: 'route-p2', startLocation: endpoint, endLocation: endpoint });
     let stopNumber = 0;
     await new ReplaceDraftStops(db, undefined, (prefix) => prefix === 'stop' ? `stop-${++stopNumber}` : `${prefix}-${Math.random()}`)
       .execute('route-p2', [stop('stop-1', 1, 10), stop('stop-2', 2, 20), stop('stop-3', 3, 5)]);
+    await new SetStopPriority(db).execute('route-p2', 'stop-1', true);
     await new SetStopPriority(db).execute('route-p2', 'stop-3', true);
 
     const persisted = await new RouteRepository(db).getWithStops('route-p2');
     const request = buildOptimizationRequestFromRoute(persisted!.route, persisted!.stops);
-    const target = request.stops.find((item) => item.id === 'stop-3');
-    expect(target?.mustBeFirst).toBe(true);
-    expect(request.stops.filter((item) => item.mustBeFirst).length).toBe(1);
+    const first = request.stops.find((item) => item.id === 'stop-1');
+    const third = request.stops.find((item) => item.id === 'stop-3');
+    expect(first?.mustBeFirst).toBe(false);
+    expect(third?.mustBeFirst).toBe(false);
+    expect(first?.deliverBeforeStopIds).toEqual(['stop-3']);
+    expect(request.stops.filter((item) => item.preferEarly).map((item) => item.id).sort()).toEqual(['stop-1', 'stop-3']);
   });
 });
 

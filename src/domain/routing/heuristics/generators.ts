@@ -84,6 +84,23 @@ export function generateHeuristicSeeds(
       generatedBy: 'cluster_then_route',
       sequence: clusterThenRoute(request, distance),
     },
+    {
+      generatedBy: 'mirror_reverse',
+      sequence: [...stops].map((stop) => stop.id).reverse(),
+    },
+    {
+      generatedBy: 'directional_sweep_mirror',
+      sequence: [...stops]
+        .sort(
+          (left, right) =>
+            bearingDegrees(request.startLocation, right.location) -
+              bearingDegrees(request.startLocation, left.location) ||
+            haversineKm(request.startLocation, left.location) -
+              haversineKm(request.startLocation, right.location) ||
+            left.id.localeCompare(right.id),
+        )
+        .map((stop) => stop.id),
+    },
   ];
 
   for (const seed of request.randomSeeds) {

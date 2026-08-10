@@ -405,7 +405,7 @@ export class UpdateDraftStop extends RouteCommandBase {
 }
 
 export class SetStopPriority extends RouteCommandBase {
-  /** Only one stop per route can be priority-first; marking a new one clears any previous pick. */
+  /** Multiple priority stops are allowed; optimizer keeps their relative order along the way. */
   async execute(routeId: string, stopId: string, priorityFirst: boolean): Promise<void> {
     await this.requireDraft(routeId);
     const stops = await this.routes.getStops(routeId);
@@ -413,13 +413,6 @@ export class SetStopPriority extends RouteCommandBase {
     if (!current) throw new RouteCommandError('STOP_NOT_FOUND', 'Pristatymo taškas nerastas.', { stopId });
     const now = this.clock();
     await this.db.withTransactionAsync(async () => {
-      if (priorityFirst) {
-        await this.db.runAsync(
-          'UPDATE delivery_stops SET priority_first = 0, updated_at = ? WHERE route_id = ? AND priority_first = 1',
-          now,
-          routeId,
-        );
-      }
       await this.db.runAsync(
         'UPDATE delivery_stops SET priority_first = ?, updated_at = ? WHERE id = ? AND route_id = ?',
         priorityFirst ? 1 : 0,

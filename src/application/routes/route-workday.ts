@@ -38,8 +38,8 @@ export type RouteProgress = {
 export type UndoableAction = {
   id: string;
   routeId: string;
-  stopId: string;
-  actionType: 'stop_loaded' | 'stop_not_loaded' | 'stop_delivered' | 'stop_failed';
+  stopId: string | null;
+  actionType: 'stop_loaded' | 'stop_not_loaded' | 'stop_delivered' | 'stop_failed' | 'all_stops_loaded';
   createdAt: string;
   undoExpiresAt: string;
 };
@@ -216,6 +216,7 @@ export class MarkAllStopsLoaded extends WorkdayCommand {
         'all_stops_loaded',
         { routeStatus: route.status, changedStopIds },
         { routeStatus: 'loaded', changedStopIds, loadedAt: now },
+        true,
       );
       idempotent = false;
       allLoaded = true;
@@ -374,6 +375,9 @@ export class StartRoute extends WorkdayCommand {
     if (route.status === 'in_progress') return { idempotent: true };
     if (route.status !== 'loaded') {
       throw new RouteCommandError('INVALID_ROUTE_STATE', 'Maršrutą galima pradėti tik užbaigus krovimą.');
+    }
+    if (route.startOdometer === null) {
+      throw new RouteCommandError('INVALID_ROUTE_STATE', 'Prieš pradėdami įveskite pradinį odometrą.');
     }
     const pending = await this.db.getFirstAsync<{ count: number }>(
       "SELECT COUNT(*) AS count FROM delivery_stops WHERE route_id = ? AND delivery_status = 'pending' AND loading_status <> 'loaded'",
@@ -628,13 +632,61 @@ export class UndoRouteAction extends WorkdayCommand {
       before_json: string; after_json: string; created_at: string;
       undo_expires_at: string | null; undone_at: string | null;
     }>('SELECT * FROM action_journal WHERE id = ?', actionId);
-    if (!action || !action.stop_id || !['stop_loaded', 'stop_not_loaded', 'stop_delivered', 'stop_failed'].includes(action.action_type)) {
+    const undoableTypes = ['stop_loaded', 'stop_not_loaded', 'stop_delivered', 'stop_failed', 'all_stops_loaded'];
+    if (!action || !undoableTypes.includes(action.action_type)) {
+      throw new RouteCommandError('INVALID_STOP', 'Atšaukiamas veiksmas nerastas.');
+    }
+    if (action.action_type !== 'all_stops_loaded' && !action.stop_id) {
       throw new RouteCommandError('INVALID_STOP', 'Atšaukiamas veiksmas nerastas.');
     }
     if (action.undone_at) return { idempotent: true };
     const now = this.clock();
     if (!action.undo_expires_at || action.undo_expires_at < now) {
       throw new RouteCommandError('INVALID_ROUTE_STATE', 'Veiksmo atšaukimo laikas jau pasibaigė.');
+    }
+    if (action.action_type === 'all_stops_loaded') {
+      const later = await this.db.getFirstAsync<{ id: string }>(
+        `SELECT id FROM action_journal
+         WHERE route_id = ? AND undone_at IS NULL
+           AND action_type IN ('stop_loaded','stop_not_loaded','stop_unloaded','all_stops_loaded','route_started')
+           AND (created_at > ? OR (created_at = ? AND id > ?))
+         LIMIT 1`,
+        action.route_id,
+        action.created_at,
+        action.created_at,
+        action.id,
+      );
+      if (later) throw new RouteCommandError('INVALID_ROUTE_STATE', 'Po šio veiksmo maršrutas jau buvo pakeistas dar kartą.');
+      const before = JSON.parse(action.before_json) as { routeStatus?: string; changedStopIds?: string[] };
+      const after = JSON.parse(action.after_json) as { changedStopIds?: string[] };
+      const changedStopIds = after.changedStopIds ?? before.changedStopIds ?? [];
+      const route = await this.route(action.route_id);
+      if (route.status === 'in_progress') {
+        throw new RouteCommandError('INVALID_ROUTE_STATE', 'Pradėjus maršrutą pakrovimo veiksmo atšaukti nebegalima.');
+      }
+      await this.db.withTransactionAsync(async () => {
+        for (const stopId of changedStopIds) {
+          await this.db.runAsync(
+            `UPDATE delivery_stops SET loading_status = 'pending', loaded_at = NULL, updated_at = ?
+             WHERE id = ? AND route_id = ? AND loading_status = 'loaded' AND delivery_status = 'pending'`,
+            now,
+            stopId,
+            action.route_id,
+          );
+        }
+        await refreshRemaining(this.db, action.route_id, now);
+        if (route.status === 'loaded' && before.routeStatus === 'loading') {
+          await this.db.runAsync(
+            "UPDATE routes SET status = 'loading', updated_at = ? WHERE id = ? AND status = 'loaded'",
+            now,
+            action.route_id,
+          );
+        }
+        await this.db.runAsync('UPDATE action_journal SET undone_at = ? WHERE id = ? AND undone_at IS NULL', now, action.id);
+        await this.journal(action.route_id, null, 'undo_applied', { actionId }, { restored: before });
+      });
+      await new RefreshRouteEtas(this.db, this.clock).execute(action.route_id);
+      return { idempotent: false };
     }
     const later = await this.db.getFirstAsync<{ id: string }>(
       `SELECT id FROM action_journal
@@ -702,13 +754,14 @@ export class GetLatestUndoableAction extends WorkdayCommand {
   async execute(routeId: string): Promise<UndoableAction | null> {
     const now = this.clock();
     const row = await this.db.getFirstAsync<{
-      id: string; route_id: string; stop_id: string; action_type: UndoableAction['actionType'];
+      id: string; route_id: string; stop_id: string | null; action_type: UndoableAction['actionType'];
       created_at: string; undo_expires_at: string;
     }>(
       `SELECT id, route_id, stop_id, action_type, created_at, undo_expires_at
-       FROM action_journal WHERE route_id = ? AND stop_id IS NOT NULL
-       AND action_type IN ('stop_loaded','stop_not_loaded','stop_delivered','stop_failed')
+       FROM action_journal WHERE route_id = ?
+       AND action_type IN ('stop_loaded','stop_not_loaded','stop_delivered','stop_failed','all_stops_loaded')
        AND undone_at IS NULL AND undo_expires_at >= ?
+       AND (stop_id IS NOT NULL OR action_type = 'all_stops_loaded')
        ORDER BY created_at DESC, id DESC LIMIT 1`,
       routeId,
       now,
@@ -788,6 +841,18 @@ export class CompleteRoute extends WorkdayCommand {
     }
     const delivered = stops.filter((stop) => stop.deliveryStatus === 'delivered');
     const failed = stops.filter((stop) => stop.deliveryStatus === 'failed');
+    let onTimeStops = 0;
+    let lateStops = 0;
+    for (const stop of delivered) {
+      const punctuality = completionPunctuality(stop);
+      if (punctuality === 'on_time') onTimeStops += 1;
+      if (punctuality === 'late') lateStops += 1;
+    }
+    const now = this.clock();
+    const plannedDurationMinutes = route.estimatedDurationMinutes;
+    const actualDurationMinutes = route.startedAt
+      ? Math.round((Date.parse(now) - Date.parse(route.startedAt)) / 60_000)
+      : null;
     const summary: RouteCompletionSummary = {
       totalStops: stops.length,
       deliveredStops: delivered.length,
@@ -798,9 +863,20 @@ export class CompleteRoute extends WorkdayCommand {
       unknownWeightStops: stops.filter((stop) => stop.weightKg === null).length,
       plannedDistanceKm: route.estimatedDistanceKm,
       actualDistanceKm: actual,
+      onTimeStops,
+      lateStops,
+      plannedDurationMinutes,
+      actualDurationMinutes,
+      durationDeviationMinutes:
+        plannedDurationMinutes === null || actualDurationMinutes === null
+          ? null
+          : actualDurationMinutes - plannedDurationMinutes,
+      distanceDeviationKm:
+        route.estimatedDistanceKm === null || actual === null
+          ? null
+          : round(actual - route.estimatedDistanceKm),
     };
     assertRouteTransition('in_progress', 'completed');
-    const now = this.clock();
     await this.db.withTransactionAsync(async () => {
       const result = await this.db.runAsync(
         `UPDATE routes SET status = 'completed', end_odometer = ?,
@@ -897,6 +973,31 @@ function validateOdometer(value: number): void {
   if (!Number.isFinite(value) || value < 0 || Math.round(value * 10) !== value * 10) {
     throw new Error('Odometras turi būti neneigiamas skaičius su ne daugiau kaip viena dešimtaine dalimi.');
   }
+}
+
+function completionPunctuality(stop: DeliveryStop): 'on_time' | 'late' | 'unknown' {
+  if (!stop.deliveredAt) return 'unknown';
+  const deliveredMs = Date.parse(stop.deliveredAt);
+  if (!Number.isFinite(deliveredMs)) return 'unknown';
+  if (stop.deliveryTimeTo) {
+    const [hours, minutes] = stop.deliveryTimeTo.split(':').map(Number);
+    if (Number.isInteger(hours) && Number.isInteger(minutes)) {
+      const deadline = new Date(stop.deliveredAt);
+      deadline.setHours(hours!, minutes!, 0, 0);
+      const slackMs = deliveredMs - deadline.getTime();
+      if (slackMs <= 5 * 60_000) return 'on_time';
+      return 'late';
+    }
+  }
+  if (stop.plannedArrivalAt) {
+    const plannedMs = Date.parse(stop.plannedArrivalAt);
+    if (Number.isFinite(plannedMs)) {
+      const diffMinutes = Math.round((deliveredMs - plannedMs) / 60_000);
+      if (diffMinutes <= 5) return 'on_time';
+      if (diffMinutes > 5) return 'late';
+    }
+  }
+  return 'unknown';
 }
 
 function stopState(stop: DeliveryStop): Record<string, unknown> {

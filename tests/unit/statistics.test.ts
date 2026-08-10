@@ -63,6 +63,12 @@ function summary(overrides: Partial<RouteCompletionSummary> = {}): RouteCompleti
     unknownWeightStops: 0,
     plannedDistanceKm: null,
     actualDistanceKm: null,
+    onTimeStops: 0,
+    lateStops: 0,
+    plannedDurationMinutes: null,
+    actualDurationMinutes: null,
+    durationDeviationMinutes: null,
+    distanceDeviationKm: null,
     ...overrides,
   };
 }

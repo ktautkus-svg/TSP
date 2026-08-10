@@ -28,6 +28,32 @@ export type ParseLogisticsExcelOptions = {
 const STREET_MARKER = /\b(?:g\.|gatv(?:ė|e)|pr\.|prospekt(?:as|o)|pl\.|plentas|kelias|takas|tak\.|al\.|alėja|aikšt(?:ė|e)|a\.|skg\.)\s*\d/iu;
 const ORDER_NUMBER = /^\p{L}{1,3}\d{5,}[\p{L}\d-]*$/iu;
 const ROUTE_CODE = /^[A-Z]{1,3}\d{2,4}$/iu;
+/** First three rows are contact/header noise; route sheets need more than that. */
+const MIN_ROUTE_SHEET_ROWS = 4;
+const IGNORED_SHEET_NAMES = new Set([
+  'kontaktai',
+  'kelių mokestis',
+  'keliu mokestis',
+  'ataskaita',
+]);
+
+export function normalizeExcelSheetName(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '');
+}
+
+/** Sheets that never carry deliveries (contacts, tolls, reports). */
+export function isIgnoredExcelSheetName(name: string): boolean {
+  return IGNORED_SHEET_NAMES.has(normalizeExcelSheetName(name));
+}
+
+/** Candidate route sheets: not blacklisted and more than 3 visible rows. */
+export function isRouteCandidateSheet(sheet: { name: string; rowCount: number }): boolean {
+  return !isIgnoredExcelSheetName(sheet.name) && sheet.rowCount >= MIN_ROUTE_SHEET_ROWS;
+}
 
 export function parseLogisticsExcelWorkbook(
   bytes: Uint8Array,
@@ -37,10 +63,23 @@ export function parseLogisticsExcelWorkbook(
   const workbook = readXlsxWorkbook(bytes);
   if (!workbook.length) throw new Error('Excel faile nerasta skaitomų lapų.');
 
-  const scored = workbook.map((sheet) => ({ sheet, score: scoreSheet(sheet, template) }));
+  const scored = workbook.map((sheet) => {
+    const rowCount = sheet.rows.filter(hasVisibleCells).length;
+    const eligible = isRouteCandidateSheet({ name: sheet.name, rowCount });
+    return {
+      sheet,
+      rowCount,
+      eligible,
+      score: eligible ? scoreSheet(sheet, template) : -1,
+    };
+  });
+  const eligible = scored.filter((entry) => entry.eligible);
+  if (!options.sheetName && eligible.length === 0) {
+    throw new Error('Excel faile nerasta maršruto lapų (daugiau nei 3 eilutės, ne Kontaktai / Kelių mokestis / Ataskaita).');
+  }
   const selected = options.sheetName
     ? scored.find((entry) => entry.sheet.name === options.sheetName)
-    : [...scored].sort((a, b) => b.score - a.score || b.sheet.rows.length - a.sheet.rows.length)[0];
+    : [...eligible].sort((a, b) => b.score - a.score || b.rowCount - a.rowCount)[0];
   if (!selected) throw new Error('Pasirinktas Excel lapas nerastas.');
 
   const detected = detectColumnMapping(selected.sheet, template);
@@ -54,9 +93,10 @@ export function parseLogisticsExcelWorkbook(
   const routeCodes = uniqueStrings(parsedRows.map((row) => row.routeCode));
   const rows = markDuplicateOrders(parsedRows);
   const groups = groupExcelRows(rows);
-  const sheets: ExcelWorkbookSheet[] = scored.map(({ sheet, score }) => ({
+  // Initially show every eligible sheet; ignored / tiny sheets stay hidden.
+  const sheets: ExcelWorkbookSheet[] = (eligible.length > 0 ? eligible : scored).map(({ sheet, score, rowCount }) => ({
     name: sheet.name,
-    rowCount: sheet.rows.filter(hasVisibleCells).length,
+    rowCount,
     score,
     selected: sheet.name === selected.sheet.name,
   }));

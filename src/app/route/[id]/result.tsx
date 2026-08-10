@@ -58,10 +58,26 @@ export default function RouteResultScreen() {
         {route ? (
           <View style={styles.summary} testID="route-completion-result">
             <Text style={styles.title}>Maršrutas užbaigtas</Text>
-            <Text style={styles.meta}>Pristatyta: {route.completionSummary?.deliveredStops ?? 0}</Text>
-            <Text style={styles.meta}>Nepavyko pristatyti: {route.completionSummary?.failedStops ?? 0}</Text>
             <Text style={styles.meta}>Faktinis kilometražas: {route.actualDistanceKm?.toFixed(1) ?? '—'} km</Text>
             <Text style={styles.meta}>Planuotas kilometražas: {route.estimatedDistanceKm?.toFixed(1) ?? '—'} km</Text>
+            <Text style={styles.meta}>
+              Nuokrypis km: {route.completionSummary?.distanceDeviationKm == null
+                ? '—'
+                : `${route.completionSummary.distanceDeviationKm > 0 ? '+' : ''}${route.completionSummary.distanceDeviationKm.toFixed(1)} km`}
+            </Text>
+            <Text style={styles.meta}>Laiku: {route.completionSummary?.onTimeStops ?? 0}</Text>
+            <Text style={styles.meta}>Vėlavo: {route.completionSummary?.lateStops ?? 0}</Text>
+            <Text style={styles.meta}>
+              Trukmė: planuota {route.completionSummary?.plannedDurationMinutes ?? route.estimatedDurationMinutes ?? '—'} min ·
+              faktinė {route.completionSummary?.actualDurationMinutes ?? '—'} min
+            </Text>
+            <Text style={styles.meta}>
+              Nuokrypis laiku: {route.completionSummary?.durationDeviationMinutes == null
+                ? '—'
+                : `${route.completionSummary.durationDeviationMinutes > 0 ? '+' : ''}${route.completionSummary.durationDeviationMinutes} min`}
+            </Text>
+            <Text style={styles.meta}>Pristatyta: {route.completionSummary?.deliveredStops ?? 0}</Text>
+            <Text style={styles.meta}>Nepavyko pristatyti: {route.completionSummary?.failedStops ?? 0}</Text>
             <Text style={styles.meta}>Pradinis odometras: {route.startOdometer ?? 'neįvestas'}</Text>
             <Text style={styles.meta}>Galutinis odometras: {route.endOdometer ?? 'neįvestas'}</Text>
           </View>

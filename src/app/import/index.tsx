@@ -39,7 +39,7 @@ import {
   importedDeliveriesToDraftStops,
 } from '@/application/routes/route-draft-mappers';
 import { resolveRoute } from '@/application/routes/route-navigation';
-import { defaultPlanningDate, defaultPlanningTime, planningDepartureIso, suggestPlanningTimeFromWindows } from '@/application/routes/planning-schedule';
+import { defaultPlanningDate, defaultPlanningTime, planningDepartureIso } from '@/application/routes/planning-schedule';
 import { GetDefaultLocations, PlanningModePreference, RouteEndPreference, SaveDefaultLocation } from '@/application/routes/saved-locations';
 import { confidenceLevel } from '@/domain/import/confidence';
 import {
@@ -87,6 +87,11 @@ export default function ImportScreen() {
   const [showOnlyExcelProblems, setShowOnlyExcelProblems] = useState(true);
   const [excelProblemIndex, setExcelProblemIndex] = useState(0);
   const [showExcelOptions, setShowExcelOptions] = useState(false);
+  const [showPasteField, setShowPasteField] = useState(false);
+  const [rememberedExcel, setRememberedExcel] = useState<{
+    preview: ExcelImportPreview;
+    result: ImportResult | null;
+  } | null>(null);
   const [movingExcelLineId, setMovingExcelLineId] = useState<string | null>(null);
   const [columnMapping, setColumnMapping] = useState<ExcelColumnMapping>(LOGISTICS_EXCEL_V1.columns);
   const [busy, setBusy] = useState(false);
@@ -117,38 +122,15 @@ export default function ImportScreen() {
 
   useEffect(() => {
     let active = true;
-    void excelRepository.getLatestReview().then(async (restored) => {
-      if (!active || !restored || result || document) return;
-      const restoredResult = restored.result ?? excelPreviewToImportResult(restored.preview);
-      const unresolved = restoredResult.deliveries.filter((delivery) =>
-        !delivery.selectedAddress || delivery.validationState !== 'valid',
-      );
-      let recoveredResult = restoredResult;
-      if (unresolved.length > 0) {
-        const resolved = await resolveDeliveryAddresses(unresolved, addressResolver);
-        const resolvedById = new Map(resolved.map((delivery) => [delivery.id, delivery]));
-        recoveredResult = {
-          ...restoredResult,
-          deliveries: restoredResult.deliveries.map((delivery) => resolvedById.get(delivery.id) ?? delivery),
-        };
-        recoveredResult.requiresReview = recoveredResult.deliveries.some((delivery) =>
-          !delivery.selectedAddress || delivery.validationState !== 'valid',
-        );
-        await excelRepository.saveReviewResult(restored.preview.id, recoveredResult);
-      }
-      if (!active) return;
-      setExcelPreview(restored.preview);
-      setColumnMapping(restored.preview.mapping);
-      setResult(recoveredResult);
-      setExpandedExcelGroups([]);
-      setShowOnlyExcelProblems(true);
-      setExcelProblemIndex(0);
-      setMessage(null);
+    // Remember last Excel session as an optional card — do not auto-open the full review.
+    void excelRepository.getLatestReview().then((restored) => {
+      if (!active || !restored || result || document || excelPreview) return;
+      setRememberedExcel(restored);
     }).catch((reason) => {
-      if (__DEV__) console.warn('EXCEL_IMPORT_RESTORE_FAILED', reason);
+      if (__DEV__) console.warn('EXCEL_IMPORT_REMEMBER_FAILED', reason);
     });
     return () => { active = false; };
-  }, [addressResolver, document, excelRepository, result]);
+  }, [document, excelPreview, excelRepository, result]);
 
   useEffect(() => {
     void new GetDefaultLocations(db).execute().then(async ({ warehouse, home }) => {
@@ -286,10 +268,16 @@ export default function ImportScreen() {
       setColumnMapping(preview.mapping);
       const duplicate = await excelRepository.findLatestByFingerprint(read.sha256, preview.selectedSheetName);
       if (duplicate) {
+        // Same file already in audit — offer restore without forcing a fresh blank import.
         setExcelDuplicate(duplicate);
-        setMessage('Šis failas ir lapas jau buvo importuotas. Atkurkite peržiūrą arba sąmoningai pradėkite naujos dienos importą.');
+        setRememberedExcel({
+          preview: duplicate,
+          result: await excelRepository.getReviewResult(duplicate.id),
+        });
+        setMessage('Šis failas jau buvo importuotas. Galite atkurti ankstesnę peržiūrą arba pradėti naują dieną.');
         return;
       }
+      setRememberedExcel(null);
       await openExcelPreview(preview);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Excel failo perskaityti nepavyko.');
@@ -298,9 +286,49 @@ export default function ImportScreen() {
     }
   };
 
-  const applySuggestedPlanningTime = (windows: Array<{ from: string | null | undefined }>) => {
+  const applySuggestedPlanningTime = (_windows: Array<{ from: string | null | undefined }>) => {
+    // Import create-flow defaults to 04:00 unless the driver already changed it.
     if (planningTimeTouched.current) return;
-    setPlanningTime(suggestPlanningTimeFromWindows(windows));
+    setPlanningTime(defaultPlanningTime());
+  };
+
+  const restoreRememberedExcel = async () => {
+    if (!rememberedExcel) return;
+    setBusy(true);
+    try {
+      const restoredResult = rememberedExcel.result ?? excelPreviewToImportResult(rememberedExcel.preview);
+      const unresolved = restoredResult.deliveries.filter((delivery) =>
+        !delivery.selectedAddress || delivery.validationState !== 'valid',
+      );
+      let recoveredResult = restoredResult;
+      if (unresolved.length > 0) {
+        const resolved = await resolveDeliveryAddresses(unresolved, addressResolver);
+        const resolvedById = new Map(resolved.map((delivery) => [delivery.id, delivery]));
+        recoveredResult = {
+          ...restoredResult,
+          deliveries: restoredResult.deliveries.map((delivery) => resolvedById.get(delivery.id) ?? delivery),
+        };
+        recoveredResult.requiresReview = recoveredResult.deliveries.some((delivery) =>
+          !delivery.selectedAddress || delivery.validationState !== 'valid',
+        );
+        await excelRepository.saveReviewResult(rememberedExcel.preview.id, recoveredResult);
+      }
+      setColumnMapping(rememberedExcel.preview.mapping);
+      setExcelPreview(rememberedExcel.preview);
+      setExcelDuplicate(null);
+      setRememberedExcel(null);
+      setResult(recoveredResult);
+      setDocument(null);
+      setExpandedExcelGroups([]);
+      setShowOnlyExcelProblems(true);
+      setExcelProblemIndex(0);
+      setShowExcelOptions(false);
+      setMessage(`Atkurtas failas: ${rememberedExcel.preview.fileName}`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Prisiminto Excel atkurti nepavyko.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   const openExcelPreview = async (preview: ExcelImportPreview, restoredResult?: ImportResult | null) => {
@@ -728,18 +756,40 @@ export default function ImportScreen() {
           <SourceButton styles={styles} title="Excel (.xlsx)" onPress={pickExcel} />
         </View>
 
+        {rememberedExcel && !excelDuplicate ? (
+          <View style={styles.card} testID="remembered-excel-card">
+            <Text style={styles.cardTitle}>Prisimintas Excel</Text>
+            <Text style={styles.helper}>
+              {rememberedExcel.preview.fileName} · {rememberedExcel.preview.selectedSheetName} · {rememberedExcel.preview.summary.physicalStopCount} taškų
+            </Text>
+            <Pressable style={styles.primaryButton} onPress={() => { void restoreRememberedExcel(); }} testID="restore-remembered-excel">
+              <Text style={styles.primaryText}>Naudoti prisimintą failą</Text>
+            </Pressable>
+            <Pressable style={styles.secondaryButton} onPress={() => setRememberedExcel(null)}>
+              <Text style={styles.secondaryText}>Atmesti</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Įklijuoti tekstą</Text>
-          <TextInput
-            value={pastedText}
-            onChangeText={setPastedText}
-            multiline
-            textAlignVertical="top"
-            placeholder={'Vilnius\nGedimino pr. 9\n150 kg\n08:00\n\nKaunas\nSavanorių pr. 1'}
-            placeholderTextColor={colors.textMuted}
-            style={styles.textArea}
-          />
-          <Pressable style={styles.secondaryButton} onPress={useText}><Text style={styles.secondaryText}>Naudoti įklijuotą tekstą</Text></Pressable>
+          <Pressable style={styles.optionsToggle} onPress={() => setShowPasteField((current) => !current)} testID="toggle-paste-field">
+            <Text style={styles.secondaryText}>{showPasteField ? 'Slėpti teksto įklijavimą' : 'Įklijuoti tekstą / OCR (antrinis)'}</Text>
+          </Pressable>
+          {showPasteField ? (
+            <>
+              <Text style={styles.cardTitle}>Įklijuoti tekstą</Text>
+              <TextInput
+                value={pastedText}
+                onChangeText={setPastedText}
+                multiline
+                textAlignVertical="top"
+                placeholder={'Vilnius\nGedimino pr. 9\n150 kg\n08:00\n\nKaunas\nSavanorių pr. 1'}
+                placeholderTextColor={colors.textMuted}
+                style={styles.textArea}
+              />
+              <Pressable style={styles.secondaryButton} onPress={useText}><Text style={styles.secondaryText}>Naudoti įklijuotą tekstą</Text></Pressable>
+            </>
+          ) : null}
         </View>
 
         {document ? <Text style={styles.fileText}>{document.fileName} · {document.pageCount} psl.</Text> : null}
@@ -762,23 +812,16 @@ export default function ImportScreen() {
         {result && (!excelPreview || excelProblemCount === 0) ? (
           <View style={styles.routeSetupTop} testID="route-setup-top">
             <Text style={styles.cardTitle}>Paruošti maršrutą</Text>
+            <View style={styles.compactSummary}>
+              <Text style={styles.summaryText}>
+                {(excelPreview?.summary.physicalStopCount ?? result.deliveries.length)} taškų · {excelPreview ? formatWeight(excelPreview.summary.totalWeightGrams) : 'svoris pagal taškus'}
+              </Text>
+              {(excelPreview?.summary.routeCodes.length ?? 0) > 0 ? (
+                <Text style={styles.helper}>Regionai: {excelPreview!.summary.routeCodes.join(', ')}</Text>
+              ) : null}
+            </View>
             <Text style={styles.label}>Pradžia</Text>
-            <Text style={styles.endpointText}>{warehouseAddress || 'Sandėlio vieta nenustatyta'}</Text>
-            <Text style={styles.label}>Pabaiga</Text>
-            <Choice
-              styles={styles}
-              label={warehouseAddress ? `Grįžti į ${warehouseAddress}` : 'Grįžti į sandėlį'}
-              selected={endMode === 'warehouse'}
-              disabled={!warehouseEndpoint?.latitude}
-              onPress={() => setEndMode('warehouse')}
-            />
-            <Choice
-              styles={styles}
-              label={homeAddress ? `Baigti ${homeAddress}` : 'Baigti namuose'}
-              selected={endMode === 'home'}
-              disabled={!homeEndpoint?.latitude}
-              onPress={() => setEndMode('home')}
-            />
+            <Text style={styles.endpointText}>{warehouseAddress || 'Savanorių 180, Vilnius'}</Text>
             <Text style={styles.label}>Kada</Text>
             <View style={styles.scheduleRow}>
               <View style={styles.scheduleField}>
@@ -802,7 +845,7 @@ export default function ImportScreen() {
                     setPlanningTime(value);
                   }}
                   style={styles.scheduleInput}
-                  placeholder="06:00"
+                  placeholder="04:00"
                   placeholderTextColor={colors.textMuted}
                   {...({ type: 'time' } as object)}
                   testID="planning-time"
@@ -830,6 +873,21 @@ export default function ImportScreen() {
               <Choice styles={styles} label="Atsižvelgti" selected={planningMode === 'with_time_windows'} onPress={() => setPlanningMode('with_time_windows')} />
               <Choice styles={styles} label="Neatsižvelgti" selected={planningMode === 'ignore_time_windows'} onPress={() => setPlanningMode('ignore_time_windows')} />
             </View>
+            <Text style={styles.label}>Pabaiga</Text>
+            <Choice
+              styles={styles}
+              label={warehouseAddress ? `Grįžti į ${warehouseAddress}` : 'Grįžti į sandėlį'}
+              selected={endMode === 'warehouse'}
+              disabled={!warehouseEndpoint?.latitude}
+              onPress={() => setEndMode('warehouse')}
+            />
+            <Choice
+              styles={styles}
+              label={homeAddress ? `Baigti ${homeAddress}` : 'Baigti namuose'}
+              selected={endMode === 'home'}
+              disabled={!homeEndpoint?.latitude}
+              onPress={() => setEndMode('home')}
+            />
             {!readyForRoute ? (
               <View style={styles.blockerList} testID="route-creation-blockers">
                 {excelPreview && excelProblemCount > 0 ? (
@@ -847,7 +905,7 @@ export default function ImportScreen() {
               style={[styles.primaryButton, (!readyForRoute || busy) && styles.disabled]}
               onPress={sendToRouting}
               testID="create-route-top">
-              <Text style={styles.primaryText}>Tęsti: pasirinkti prioritetus</Text>
+              <Text style={styles.primaryText}>Kurti maršrutą</Text>
             </Pressable>
           </View>
         ) : null}

@@ -111,6 +111,23 @@ export default function RouteHistoryDetailScreen() {
         <Text style={styles.meta}>Laikas: {formatLithuanianDateTime(route.startedAt)} – {formatLithuanianDateTime(route.completedAt ?? route.cancelledAt)}</Text>
         <Text style={styles.meta}>Odometras: {route.startOdometer ?? 'neįvestas'} – {route.endOdometer ?? 'neįvestas'}</Text>
         <Text style={styles.meta}>Atstumas: planuota {route.estimatedDistanceKm?.toFixed(1) ?? '—'} km · faktinė {route.actualDistanceKm?.toFixed(1) ?? '—'} km</Text>
+        {route.completionSummary ? (
+          <View style={styles.reportBlock} testID="completion-report">
+            <Text style={styles.reportTitle}>Užbaigimo ataskaita</Text>
+            <Text style={styles.meta}>Laiku: {route.completionSummary.onTimeStops} · Vėlavo: {route.completionSummary.lateStops}</Text>
+            <Text style={styles.meta}>
+              Trukmė: planuota {route.completionSummary.plannedDurationMinutes ?? '—'} min · faktinė {route.completionSummary.actualDurationMinutes ?? '—'} min
+              {route.completionSummary.durationDeviationMinutes == null
+                ? ''
+                : ` (${route.completionSummary.durationDeviationMinutes > 0 ? '+' : ''}${route.completionSummary.durationDeviationMinutes} min)`}
+            </Text>
+            <Text style={styles.meta}>
+              Km nuokrypis: {route.completionSummary.distanceDeviationKm == null
+                ? '—'
+                : `${route.completionSummary.distanceDeviationKm > 0 ? '+' : ''}${route.completionSummary.distanceDeviationKm.toFixed(1)} km`}
+            </Text>
+          </View>
+        ) : null}
       </View>
       {stops.map((stop) => (
         <View key={stop.id} style={styles.card}>
@@ -164,6 +181,8 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   summary: { padding: spacing.md, borderRadius: 16, backgroundColor: colors.primarySoft, gap: spacing.xs },
   card: { padding: spacing.md, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.xs },
   title: { color: colors.text, fontSize: 17, fontWeight: '800' },
+  reportBlock: { marginTop: spacing.sm, gap: 4, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border },
+  reportTitle: { color: colors.text, fontSize: 15, fontWeight: '800' },
   meta: { color: colors.textMuted, lineHeight: 20 },
   failure: { color: colors.danger, fontWeight: '700', lineHeight: 20 },
   audit: { color: colors.textMuted, fontSize: 12, lineHeight: 18 },

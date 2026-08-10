@@ -28,9 +28,11 @@ describe('compact daily Excel UI', () => {
     expect(importScreen).toContain('testID="planning-time"');
     expect(importScreen).toContain('defaultPlanningDate');
     expect(importScreen).toContain('plannedDepartureAt');
-    expect(importScreen).toContain('Tęsti: pasirinkti prioritetus');
-    expect(importScreen).toContain('placeholder="06:00"');
-    expect(importScreen).toContain('suggestPlanningTimeFromWindows');
+    expect(importScreen).toContain('Kurti maršrutą');
+    expect(importScreen).toContain('placeholder="04:00"');
+    expect(importScreen).toContain('defaultPlanningTime');
+    expect(importScreen).toContain('remembered-excel-card');
+    expect(importScreen).toContain('toggle-paste-field');
     expect(importScreen).toContain("pathname: '/route/[id]/review'");
     expect(importScreen).toContain("result && (!excelPreview || excelProblemCount === 0)");
     expect(importScreen).not.toContain('Duomenys prasideda nuo');
@@ -46,11 +48,13 @@ describe('compact daily Excel UI', () => {
     const reviewScreen = readFileSync(resolve(process.cwd(), 'src/app/route/[id]/review.tsx'), 'utf8');
     const loadingScreen = readFileSync(resolve(process.cwd(), 'src/app/route/[id]/loading.tsx'), 'utf8');
 
-    expect(reviewScreen).toContain('compact={allReady}');
+    expect(reviewScreen).toContain('Optimizuoti maršrutą');
+    expect(reviewScreen).toContain('compact={allReady');
     expect(reviewScreen).toContain('numberOfLines={1}');
     expect(reviewScreen).toContain('Rodyti detales');
     expect(loadingScreen).toContain('testID="start-odometer-modal"');
     expect(loadingScreen).toContain('testID="open-start-odometer"');
+    expect(loadingScreen).not.toContain('Įvesiu vėliau');
   });
 
   it('does not render order numbers or phone fields in daily stop editors', () => {
@@ -121,6 +125,7 @@ describe('compact daily Excel UI', () => {
     expect(loadingScreen).toContain('testID="begin-loading"');
     expect(loadingScreen).toContain('testID="edit-planned-route"');
     expect(loadingScreen).toContain('testID="cancel-planned-route"');
+    expect(loadingScreen).toContain('Grįžti į redagavimą');
     expect(loadingScreen).toContain('await new ActivateRoute(db).execute(routeId)');
     expect(loadingScreen).not.toContain("if (persisted.route.status === 'planned') await new ActivateRoute");
     expect(dashboardScreen).toContain('Tęsti suplanuotą maršrutą');
