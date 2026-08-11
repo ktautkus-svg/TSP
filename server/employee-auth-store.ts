@@ -71,6 +71,53 @@ export class EmployeeAuthStore {
     return !(await this.users.limit(1).get()).empty;
   }
 
+  async migrateLegacyAdmin(input: {
+    fromUsername: string;
+    username: string;
+    displayName: string;
+    pin: string;
+  }): Promise<void> {
+    const fromUsername = normalizeUsername(input.fromUsername);
+    const username = validateUsername(input.username);
+    const displayName = validateDisplayName(input.displayName);
+    validatePin(input.pin);
+    if (fromUsername === username) return;
+
+    let migratedUserId: string | null = null;
+    await this.db.runTransaction(async (transaction) => {
+      const legacyUsernameRef = this.usernames.doc(fromUsername);
+      const targetUsernameRef = this.usernames.doc(username);
+      const targetMapping = await transaction.get(targetUsernameRef);
+      if (targetMapping.exists) return;
+
+      const legacyMapping = await transaction.get(legacyUsernameRef);
+      const legacyUserId = legacyMapping.data()?.userId;
+      if (typeof legacyUserId !== 'string') return;
+
+      const userRef = this.users.doc(legacyUserId);
+      const userDocument = await transaction.get(userRef);
+      const current = userDocument.data() as StoredUser | undefined;
+      if (!current || current.role !== 'admin') return;
+
+      transaction.update(userRef, {
+        username,
+        displayName,
+        ...pinCredentials(username, input.pin),
+        updatedAt: new Date().toISOString(),
+      });
+      transaction.create(targetUsernameRef, { userId: current.id });
+      transaction.delete(legacyUsernameRef);
+      migratedUserId = current.id;
+    });
+
+    if (!migratedUserId) return;
+    const sessions = await this.sessions.where('userId', '==', migratedUserId).get();
+    if (sessions.empty) return;
+    const batch = this.db.batch();
+    sessions.docs.forEach((session) => batch.delete(session.ref));
+    await batch.commit();
+  }
+
   async bootstrapAdmin(input: { username: string; displayName: string; pin: string }): Promise<EmployeeProfile> {
     const username = validateUsername(input.username);
     const displayName = validateDisplayName(input.displayName);

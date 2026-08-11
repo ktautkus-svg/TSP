@@ -17,6 +17,22 @@ const routeSyncStore = new RouteSyncStore();
 const bootstrapNonces = new GatewayNonceRegistry();
 const loginAttempts = new Map<string, number[]>();
 const initialAdminPin = process.env.TSP_INITIAL_ADMIN_PIN?.trim() || '12345';
+let legacyAdminMigration: Promise<void> | null = null;
+
+function ensureLegacyAdminMigrated(): Promise<void> {
+  if (!legacyAdminMigration) {
+    legacyAdminMigration = store.migrateLegacyAdmin({
+      fromUsername: 'admln',
+      username: 'sensejus',
+      displayName: 'Sensejus',
+      pin: initialAdminPin,
+    }).catch((error) => {
+      legacyAdminMigration = null;
+      throw error;
+    });
+  }
+  return legacyAdminMigration;
+}
 
 export async function handleEmployeeApi(
   request: IncomingMessage,
@@ -26,6 +42,7 @@ export async function handleEmployeeApi(
 ): Promise<boolean> {
   if (!isEmployeePath(pathname)) return false;
   try {
+    await ensureLegacyAdminMigrated();
     if (request.method === 'GET' && pathname === '/api/auth/status') {
       return send(response, 200, { initialized: await store.hasUsers() }, requestId);
     }

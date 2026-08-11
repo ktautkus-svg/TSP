@@ -42,7 +42,7 @@ export default function RouteHistoryDetailScreen() {
     let mounted = true;
     void Promise.all([repository.getWithStops(routeId), repository.listAudit(routeId), shipmentRepository.getGroupedByStop(routeId), repository.getActive()]).then(([persisted, entries, lines, active]) => {
       if (!mounted) return;
-      if (persisted && persisted.route.status !== 'completed') {
+      if (persisted && !['completed', 'cancelled'].includes(persisted.route.status)) {
         const destination = resolveRoute(persisted.route);
         router.replace({ pathname: destination.pathname, params: destination.params } as Href);
         return;

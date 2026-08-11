@@ -25,7 +25,7 @@ describe('stage 2.2 deterministic navigation', () => {
     expect(detail).toContain("router.replace('/' as Href)");
     expect(detail).toContain('← Istorija');
     expect(detail).toContain('Į pradžią');
-    expect(detail).toContain("persisted.route.status !== 'completed'");
+    expect(detail).toContain("!['completed', 'cancelled'].includes(persisted.route.status)");
     expect(detail).toContain('resolveRoute(persisted.route)');
     expect(detail).toContain('gestureEnabled: false');
     expect(detail).not.toContain('router.back(');

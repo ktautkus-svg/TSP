@@ -31,6 +31,8 @@ class ExpoLikeDatabase {
 const migrationSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../src/database/migrations.ts'), 'utf8');
 const accessGateSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../src/components/local-access-gate.tsx'), 'utf8');
 const settingsSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../src/app/settings/index.tsx'), 'utf8');
+const employeeApiSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../server/employee-api.ts'), 'utf8');
+const employeeStoreSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../server/employee-auth-store.ts'), 'utf8');
 function migration(version: number): string {
   const match = migrationSource.match(new RegExp(`const migrationV${version} = \`([\\s\\S]*?)\`;`));
   if (!match) throw new Error(`Missing migration V${version}`);
@@ -50,6 +52,15 @@ afterEach(async () => {
 });
 
 describe('employee server session', () => {
+  it('migrates the legacy administrator identity before accepting authentication requests', () => {
+    expect(employeeApiSource).toContain("fromUsername: 'admln'");
+    expect(employeeApiSource).toContain("username: 'sensejus'");
+    expect(employeeApiSource).toContain('await ensureLegacyAdminMigrated()');
+    expect(employeeStoreSource).toContain('async migrateLegacyAdmin');
+    expect(employeeStoreSource).toContain('...pinCredentials(username, input.pin)');
+    expect(employeeStoreSource).toContain('transaction.delete(legacyUsernameRef)');
+  });
+
   it('restores a saved session automatically and keeps logout explicit', () => {
     expect(accessGateSource).toContain('setUnlocked(Boolean(cachedSession))');
     expect(accessGateSource).toContain('await logoutEmployee()');
