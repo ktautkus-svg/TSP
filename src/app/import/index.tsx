@@ -21,10 +21,13 @@ import { getRouteCreationBlockers, hasRouteCoordinates } from '@/application/imp
 import {
   excelPreviewToDraftStops,
   excelPreviewToImportResult,
+  mergeImportResult,
 } from '@/application/import/excel-route-mapper';
 import { ImagePreprocessingPipeline } from '@/application/import/image-preprocessing';
 import { ImportEngine } from '@/application/import/import-engine';
 import {
+  EXCEL_UNASSIGNED_ROUTE_CODE,
+  collectRouteCodes,
   filterExcelPreviewByRouteCodes,
   groupExcelRows,
   parseLogisticsExcelWorkbook,
@@ -406,7 +409,20 @@ export default function ImportScreen() {
       ? excelPreview.selectedRouteCodes.filter((value) => value !== code)
       : [...excelPreview.selectedRouteCodes, code];
     if (selected.length === 0) selected = allRouteCodes(excelPreview);
-    await openExcelPreview(filterExcelPreviewByRouteCodes(excelPreview, selected));
+    const filtered = filterExcelPreviewByRouteCodes(excelPreview, selected);
+    await openExcelPreview(filtered, mergeImportResult(result, excelPreviewToImportResult(filtered)));
+  };
+
+  const selectAllRouteCodes = async () => {
+    if (!excelPreview) return;
+    const selected = allRouteCodes(excelPreview);
+    const filtered = filterExcelPreviewByRouteCodes(excelPreview, selected);
+    await openExcelPreview(filtered, mergeImportResult(result, excelPreviewToImportResult(filtered)));
+  };
+
+  const clearRouteCodeFilter = async () => {
+    // Empty selection is not allowed — clear resets to all regions.
+    await selectAllRouteCodes();
   };
 
   const updateExcelRows = async (
@@ -891,6 +907,14 @@ export default function ImportScreen() {
                   <RegionIcon size={16} color={colors.textMuted} />
                   <Text style={styles.setupRowLabel}>RAJONAI · palieskite, kad neįtrauktumėte</Text>
                 </View>
+                <View style={styles.regionActionRow}>
+                  <Pressable testID="region-select-all" onPress={() => { void selectAllRouteCodes(); }} style={styles.regionActionButton}>
+                    <Text style={styles.regionActionText}>Visi</Text>
+                  </Pressable>
+                  <Pressable testID="region-clear" onPress={() => { void clearRouteCodeFilter(); }} style={styles.regionActionButton}>
+                    <Text style={styles.regionActionText}>Atstatyti</Text>
+                  </Pressable>
+                </View>
                 <View style={styles.regionChipRow}>
                   {regionSummaries(excelPreview).map((region) => {
                     const active = excelPreview.selectedRouteCodes.includes(region.code);
@@ -900,7 +924,7 @@ export default function ImportScreen() {
                         onPress={() => { void toggleRouteCode(region.code); }}
                         style={[styles.regionChip, active ? styles.regionChipActive : styles.regionChipMuted]}
                         testID={`region-chip-${region.code}`}>
-                        <Text style={[styles.regionChipCode, active && styles.regionChipCodeActive]}>{region.code}</Text>
+                        <Text style={[styles.regionChipCode, active && styles.regionChipCodeActive]}>{region.label}</Text>
                         <Text style={[styles.regionChipMeta, active && styles.regionChipMetaActive]}>
                           {region.stopCount} tšk · {formatWeight(region.weightGrams)}
                         </Text>
@@ -908,6 +932,9 @@ export default function ImportScreen() {
                     );
                   })}
                 </View>
+                <Text style={styles.regionRemaining} testID="region-remaining-count">
+                  Liko {excelPreview.summary.physicalStopCount} taškų · {excelPreview.summary.includedRowCount} eilučių
+                </Text>
               </View>
             ) : null}
 
@@ -1504,25 +1531,42 @@ function excelProblemText(group: ExcelImportPreview['groups'][number], delivery?
 }
 
 function allRouteCodes(preview: ExcelImportPreview): string[] {
-  return [...new Set(preview.rows.map((row) => row.routeCode).filter((value): value is string => Boolean(value)))].sort();
+  return collectRouteCodes(preview.rows);
 }
 
-type RegionSummary = { code: string; stopCount: number; weightGrams: number };
+type RegionSummary = { code: string; label: string; stopCount: number; weightGrams: number };
 
-// Groups are the physical stops (deduped by address); a group's route code is
-// taken from its first constituent Excel row, since every line at one delivery
-// point belongs to the same region in practice.
+// Inventory every region from the full sheet (including currently filtered-out
+// codes) so chips remain toggleable after deselection.
 function regionSummaries(preview: ExcelImportPreview): RegionSummary[] {
+  const inventoryRows = preview.rows.map((row) => ({ ...row, excluded: false }));
+  const inventoryGroups = groupExcelRows(inventoryRows);
   const rowsById = new Map(preview.rows.map((row) => [row.id, row]));
   const byCode = new Map<string, RegionSummary>();
-  for (const group of preview.groups) {
-    const code = group.lineIds.map((id) => rowsById.get(id)?.routeCode).find((value): value is string => Boolean(value)) ?? 'Be regiono';
-    const existing = byCode.get(code) ?? { code, stopCount: 0, weightGrams: 0 };
+  for (const group of inventoryGroups) {
+    const rawCode = group.lineIds.map((id) => rowsById.get(id)?.routeCode).find((value) => value !== undefined) ?? null;
+    const code = rawCode?.trim() ? rawCode.trim().toUpperCase() : EXCEL_UNASSIGNED_ROUTE_CODE;
+    const label = code === EXCEL_UNASSIGNED_ROUTE_CODE ? 'Be regiono' : code;
+    const existing = byCode.get(code) ?? { code, label, stopCount: 0, weightGrams: 0 };
     existing.stopCount += 1;
     existing.weightGrams += group.totalWeightGrams;
     byCode.set(code, existing);
   }
-  return [...byCode.values()].sort((left, right) => left.code.localeCompare(right.code));
+  for (const code of allRouteCodes(preview)) {
+    if (!byCode.has(code)) {
+      byCode.set(code, {
+        code,
+        label: code === EXCEL_UNASSIGNED_ROUTE_CODE ? 'Be regiono' : code,
+        stopCount: 0,
+        weightGrams: 0,
+      });
+    }
+  }
+  return [...byCode.values()].sort((left, right) => {
+    if (left.code === EXCEL_UNASSIGNED_ROUTE_CODE) return 1;
+    if (right.code === EXCEL_UNASSIGNED_ROUTE_CODE) return -1;
+    return left.code.localeCompare(right.code);
+  });
 }
 
 function mappingLabel(key: keyof ExcelColumnMapping): string {
@@ -1598,7 +1642,20 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   inlineLinkText: { ...type.secondaryStrong, color: colors.info, textDecorationLine: 'underline' },
   regionSection: { gap: spacing.xs },
   regionHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  regionActionRow: { flexDirection: 'row', gap: spacing.sm },
+  regionActionButton: {
+    minHeight: 36,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  regionActionText: { ...type.secondaryStrong, color: colors.textSecondary },
   regionChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
+  regionRemaining: { ...type.secondaryStrong, color: colors.info, marginTop: 2 },
   regionChip: { minHeight: 46, paddingHorizontal: spacing.sm, paddingVertical: 5, borderRadius: radius.md, borderWidth: 1, justifyContent: 'center' },
   regionChipActive: { borderColor: colors.info, backgroundColor: colors.infoSoft },
   regionChipMuted: { borderColor: colors.border, backgroundColor: colors.surfaceSubtle, opacity: 0.6 },

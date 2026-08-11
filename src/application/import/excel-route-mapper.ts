@@ -45,6 +45,51 @@ export function excelPreviewToImportResult(preview: ExcelImportPreview): ImportR
   };
 }
 
+/** Keeps previously resolved addresses when region filtering rebuilds the preview. */
+export function mergeImportResult(previous: ImportResult | null | undefined, next: ImportResult): ImportResult {
+  if (!previous) return next;
+  const previousById = new Map(previous.deliveries.map((delivery) => [delivery.id, delivery]));
+  const deliveries = next.deliveries.map((delivery) => {
+    const prior = previousById.get(delivery.id);
+    if (!prior) return delivery;
+    const addressUnchanged = (prior.addressQuery ?? prior.address.value) === (delivery.addressQuery ?? delivery.address.value);
+    if (!addressUnchanged) return delivery;
+    return {
+      ...delivery,
+      address: prior.address.manuallyCorrected ? prior.address : delivery.address,
+      addressQuery: prior.addressQuery ?? delivery.addressQuery,
+      recipient: prior.recipient.manuallyCorrected ? prior.recipient : delivery.recipient,
+      weightKg: prior.weightKg.manuallyCorrected ? prior.weightKg : delivery.weightKg,
+      deliveryTime: prior.deliveryTime.manuallyCorrected ? prior.deliveryTime : delivery.deliveryTime,
+      addressCandidates: prior.addressCandidates.length ? prior.addressCandidates : delivery.addressCandidates,
+      selectedAddress: prior.selectedAddress ?? delivery.selectedAddress,
+      validationState: prior.selectedAddress || prior.validationState !== 'pending'
+        ? prior.validationState
+        : delivery.validationState,
+      addressConfidence: prior.addressConfidence || delivery.addressConfidence,
+      importConfidence: Math.max(prior.importConfidence, delivery.importConfidence),
+    };
+  });
+  const addressConfidence = deliveries.length
+    ? deliveries.reduce((sum, delivery) => sum + delivery.addressConfidence, 0) / deliveries.length
+    : 0;
+  const parserConfidence = deliveries.length
+    ? deliveries.reduce((sum, delivery) => sum + delivery.parserConfidence, 0) / deliveries.length
+    : 0;
+  return {
+    ...next,
+    deliveries,
+    quality: {
+      ...next.quality,
+      parserConfidence,
+      addressConfidence,
+      importConfidence: parserConfidence,
+      overallConfidence: (parserConfidence + addressConfidence) / 2,
+    },
+    requiresReview: deliveries.some((delivery) => delivery.validationState !== 'valid' || !delivery.selectedAddress),
+  };
+}
+
 export function excelPreviewToDraftStops(
   preview: ExcelImportPreview,
   deliveries: ParsedDelivery[],

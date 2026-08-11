@@ -5,8 +5,9 @@ import { fileURLToPath } from 'node:url';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { excelPreviewToDraftStops, excelPreviewToImportResult } from '../../src/application/import/excel-route-mapper';
+import { excelPreviewToDraftStops, excelPreviewToImportResult, mergeImportResult } from '../../src/application/import/excel-route-mapper';
 import {
+  EXCEL_UNASSIGNED_ROUTE_CODE,
   extractAddressText,
   filterExcelPreviewByRouteCodes,
   looksLikeAddress,
@@ -153,6 +154,44 @@ describe('LOGISTICS_EXCEL_V1 direct cell parser', () => {
     expect(filterExcelPreviewByRouteCodes(preview, ['R56']).summary.includedRowCount).toBe(20);
     expect(filterExcelPreviewByRouteCodes(preview, ['R57']).summary.includedRowCount).toBe(20);
     expect(filterExcelPreviewByRouteCodes(preview, ['R56', 'R57']).summary.includedRowCount).toBe(40);
+  });
+
+  it('keeps UNASSIGNED rows when the sentinel is selected and preserves geocoding on toggle merge', () => {
+    const preview = parseFixture();
+    const withUnassigned = {
+      ...preview,
+      rows: preview.rows.map((row, index) => index < 2
+        ? { ...row, routeCode: null }
+        : row),
+    };
+    const filteredUnassigned = filterExcelPreviewByRouteCodes(withUnassigned, [EXCEL_UNASSIGNED_ROUTE_CODE]);
+    expect(filteredUnassigned.summary.includedRowCount).toBe(2);
+    expect(filteredUnassigned.rows.filter((row) => !row.excluded).every((row) => row.routeCode === null)).toBe(true);
+
+    const multi = filterExcelPreviewByRouteCodes(withUnassigned, ['R56', EXCEL_UNASSIGNED_ROUTE_CODE]);
+    expect(multi.summary.includedRowCount).toBeGreaterThan(2);
+    expect(multi.rows.some((row) => !row.excluded && row.routeCode === null)).toBe(true);
+
+    const baseResult = excelPreviewToImportResult(filterExcelPreviewByRouteCodes(withUnassigned, ['R56', EXCEL_UNASSIGNED_ROUTE_CODE]));
+    const geocoded = {
+      ...baseResult,
+      deliveries: baseResult.deliveries.map((delivery, index) => ({
+        ...delivery,
+        validationState: 'valid' as const,
+        selectedAddress: {
+          placeId: `place-${index}`,
+          normalizedAddress: delivery.addressQuery ?? 'Adresas',
+          latitude: 55.9,
+          longitude: 23.3,
+          confidence: 0.99,
+        },
+        addressConfidence: 0.99,
+      })),
+    };
+    const nextPreview = filterExcelPreviewByRouteCodes(withUnassigned, [EXCEL_UNASSIGNED_ROUTE_CODE]);
+    const merged = mergeImportResult(geocoded, excelPreviewToImportResult(nextPreview));
+    expect(merged.deliveries.every((delivery) => delivery.selectedAddress !== null)).toBe(true);
+    expect(merged.deliveries.every((delivery) => delivery.validationState === 'valid')).toBe(true);
   });
 });
 

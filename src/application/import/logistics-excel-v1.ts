@@ -16,6 +16,9 @@ import {
 type WorkbookRow = { rowNumber: number; cells: Record<string, ExcelCellValue> };
 type WorkbookSheetData = { name: string; rows: WorkbookRow[] };
 
+/** Sentinel route code for Excel rows without a region/route assignment. */
+export const EXCEL_UNASSIGNED_ROUTE_CODE = 'UNASSIGNED';
+
 export type ParseLogisticsExcelOptions = {
   importId: string;
   fileName: string;
@@ -90,7 +93,7 @@ export function parseLogisticsExcelWorkbook(
     detected.firstDataRow,
     template,
   );
-  const routeCodes = uniqueStrings(parsedRows.map((row) => row.routeCode));
+  const routeCodes = collectRouteCodes(parsedRows);
   const rows = markDuplicateOrders(parsedRows);
   const groups = groupExcelRows(rows);
   // Initially show every eligible sheet; ignored / tiny sheets stay hidden.
@@ -125,12 +128,33 @@ export function filterExcelPreviewByRouteCodes(
   selectedRouteCodes: string[],
 ): ExcelImportPreview {
   const normalized = uniqueStrings(selectedRouteCodes.map((value) => value.toUpperCase()));
-  const rows = preview.rows.map((row) => ({
-    ...row,
-    excluded: normalized.length > 0 && (!row.routeCode || !normalized.includes(row.routeCode.toUpperCase())),
-  }));
+  const rows = preview.rows.map((row) => {
+    const code = excelRouteCodeKey(row.routeCode);
+    return {
+      ...row,
+      excluded: normalized.length > 0 && !normalized.includes(code),
+    };
+  });
   const groups = groupExcelRows(rows);
   return { ...preview, selectedRouteCodes: normalized, rows, groups, summary: summarizeExcelRows(rows, groups) };
+}
+
+export function excelRouteCodeKey(routeCode: string | null | undefined): string {
+  const trimmed = routeCode?.trim();
+  return trimmed ? trimmed.toUpperCase() : EXCEL_UNASSIGNED_ROUTE_CODE;
+}
+
+export function collectRouteCodes(rows: Array<{ routeCode: string | null }>): string[] {
+  const codes = new Set<string>();
+  let hasUnassigned = false;
+  for (const row of rows) {
+    const trimmed = row.routeCode?.trim();
+    if (trimmed) codes.add(trimmed.toUpperCase());
+    else hasUnassigned = true;
+  }
+  const ordered = [...codes].sort((left, right) => left.localeCompare(right));
+  if (hasUnassigned) ordered.push(EXCEL_UNASSIGNED_ROUTE_CODE);
+  return ordered;
 }
 
 export function parseLithuanianWeightToGrams(value: ExcelCellValue): {
