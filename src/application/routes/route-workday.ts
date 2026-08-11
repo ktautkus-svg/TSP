@@ -130,6 +130,10 @@ export class MarkStopLoaded extends WorkdayCommand {
       if (allLoaded && route.status === 'loading') {
         assertRouteTransition('loading', 'loaded');
         await this.db.runAsync("UPDATE routes SET status = 'loaded', updated_at = ? WHERE id = ?", now, routeId);
+      } else {
+        // Route snapshots are the sync unit, so stop-only progress must also
+        // advance the parent route's computed dirty timestamp.
+        await this.db.runAsync('UPDATE routes SET updated_at = ? WHERE id = ?', now, routeId);
       }
       actionId = await this.journal(
         routeId,
@@ -252,6 +256,8 @@ export class MarkStopUnloaded extends WorkdayCommand {
           now,
           routeId,
         );
+      } else {
+        await this.db.runAsync('UPDATE routes SET updated_at = ? WHERE id = ?', now, routeId);
       }
       actionId = await this.journal(
         routeId,
@@ -436,6 +442,7 @@ export class ReverseStopOrder extends WorkdayCommand {
           routeId,
         );
       }
+      await this.db.runAsync('UPDATE routes SET updated_at = ? WHERE id = ?', now, routeId);
       await this.journal(
         routeId,
         null,

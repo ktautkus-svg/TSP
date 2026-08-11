@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Constants from 'expo-constants';
 import { Pressable, SafeAreaView, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { Link, useFocusEffect, useRouter, type Href } from 'expo-router';
@@ -20,7 +20,7 @@ import { formatWeightKg } from '@/ui/format-weight';
 import { Alert } from '@/ui/alert';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { pullAssignedRoutes, pushRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
-import { syncRoutesWithCloud } from '@/application/sync/route-cloud-sync';
+import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 
 let initialActiveRouteRestoreHandled = false;
 
@@ -28,6 +28,7 @@ export default function HomeScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
   const { profile, online } = useLocalAccess();
+  const { requestSync, revision: syncRevision } = useRouteCloudSync();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const repository = useMemo(() => new RouteRepository(db), [db]);
@@ -62,9 +63,7 @@ export default function HomeScreen() {
     void (async () => {
       try {
         if (online && profile.role === 'driver') await pullAssignedRoutes(db, profile);
-        if (online) await syncRoutesWithCloud(db).catch((reason) => {
-          if (__DEV__) console.warn('ROUTE_CLOUD_SYNC_FAILED', reason);
-        });
+        await requestSync('home-focus');
         const route = await repository.getActive();
         const nextProgress = route ? await new GetRouteProgress(db).execute(route.id) : null;
         if (online && route) void pushRouteAssignmentProgress(db, route.id).catch(() => undefined);
@@ -85,7 +84,23 @@ export default function HomeScreen() {
       }
     })();
     return () => { mounted = false; };
-  }, [db, online, profile, repository, router]));
+  }, [db, online, profile, repository, requestSync, router]));
+
+  useEffect(() => {
+    if (syncRevision === 0) return;
+    let mounted = true;
+    void (async () => {
+      const route = await repository.getActive();
+      const nextProgress = route ? await new GetRouteProgress(db).execute(route.id) : null;
+      if (mounted) {
+        setActive(route);
+        setProgress(nextProgress);
+      }
+    })().catch((reason) => {
+      if (__DEV__) console.warn('ACTIVE_ROUTE_SYNC_REFRESH_FAILED', reason);
+    });
+    return () => { mounted = false; };
+  }, [db, repository, syncRevision]);
 
   return (
     <SafeAreaView style={styles.safeArea}>

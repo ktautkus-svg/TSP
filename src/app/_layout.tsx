@@ -15,6 +15,8 @@ import {
 
 import { PwaRuntime } from '@/components/pwa-runtime';
 import { LocalAccessGate } from '@/components/local-access-gate';
+import { CloudSyncStatus } from '@/components/cloud-sync-status';
+import { RouteCloudSyncProvider } from '@/application/sync/route-cloud-sync-context';
 import { migrateDatabase } from '@/database/migrations';
 import { ThemeProvider } from '@/ui/theme';
 import { AlertHost } from '@/ui/alert';
@@ -100,43 +102,48 @@ export default function RootLayout() {
       }}>
       <ThemeProvider>
         <LocalAccessGate>
-          <AlertHost />
-          <PwaRuntime />
-          <StatusBar style="light" />
-          <Stack
-          screenOptions={{
-            headerShadowVisible: false,
-            headerStyle: { backgroundColor: colors.brandNavy },
-            headerTintColor: '#FFFFFF',
-            headerTitleStyle: { ...type.cardTitle, color: '#FFFFFF' },
-            contentStyle: { backgroundColor: colors.background },
-            headerRight: () => (
-              <Link href="/" replace asChild>
-                <Pressable accessibilityRole="button" style={{ minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 }}>
-                  <Text style={{ ...type.secondary, fontFamily: fonts.headingSemiBold, color: '#FFFFFF' }}>Pradžia</Text>
-                </Pressable>
-              </Link>
-            ),
-          }}>
-          <Stack.Screen name="index" options={{ headerShown: false }} />
-          <Stack.Screen name="route/new" options={{ title: 'Naujas maršrutas' }} />
-          <Stack.Screen name="import/index" options={{ title: 'Dokumentų importas' }} />
-          <Stack.Screen name="route/[id]/review" options={{ title: 'Patikra ir planavimas' }} />
-          <Stack.Screen name="route/[id]/alternatives" options={{ title: 'Maršruto variantai' }} />
-          <Stack.Screen name="route/[id]/loading" options={{ title: 'Krovimasis' }} />
-          <Stack.Screen name="route/[id]/delivery" options={{ title: 'Pristatymai' }} />
-          <Stack.Screen name="route/[id]/result" options={{ title: 'Maršruto rezultatas' }} />
-          <Stack.Screen name="history" options={{ title: 'Maršrutų istorija' }} />
-          <Stack.Screen name="history/[id]" options={{ title: 'Maršruto istorija' }} />
-          <Stack.Screen name="settings/index" options={{ title: 'Nustatymai' }} />
-          <Stack.Screen name="settings/locations" options={{ title: 'Numatytosios vietos' }} />
-          <Stack.Screen name="statistics" options={{ title: 'Statistika' }} />
-          <Stack.Screen name="trip-sheet" options={{ title: 'Kelionės lapas' }} />
-          <Stack.Screen name="fuel" options={{ title: 'Degalai' }} />
-          <Stack.Screen name="vehicle" options={{ title: 'Transporto priemonė' }} />
-          <Stack.Screen name="admin" options={{ title: 'Administratoriaus panelė' }} />
-          <Stack.Screen name="dispatcher" options={{ title: 'Dispečerio skydelis' }} />
-          </Stack>
+          <RouteCloudSyncProvider>
+            <AlertHost />
+            <PwaRuntime />
+            <StatusBar style="light" />
+            <Stack
+              screenOptions={{
+                headerShadowVisible: false,
+                headerStyle: { backgroundColor: colors.brandNavy },
+                headerTintColor: '#FFFFFF',
+                headerTitleStyle: { ...type.cardTitle, color: '#FFFFFF' },
+                contentStyle: { backgroundColor: colors.background },
+                headerRight: () => (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <CloudSyncStatus compact />
+                    <Link href="/" replace asChild>
+                      <Pressable accessibilityRole="button" style={{ minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 }}>
+                        <Text style={{ ...type.secondary, fontFamily: fonts.headingSemiBold, color: '#FFFFFF' }}>Pradžia</Text>
+                      </Pressable>
+                    </Link>
+                  </View>
+                ),
+              }}>
+              <Stack.Screen name="index" options={{ headerShown: false }} />
+              <Stack.Screen name="route/new" options={{ title: 'Naujas maršrutas' }} />
+              <Stack.Screen name="import/index" options={{ title: 'Dokumentų importas' }} />
+              <Stack.Screen name="route/[id]/review" options={{ title: 'Patikra ir planavimas' }} />
+              <Stack.Screen name="route/[id]/alternatives" options={{ title: 'Maršruto variantai' }} />
+              <Stack.Screen name="route/[id]/loading" options={{ title: 'Krovimasis' }} />
+              <Stack.Screen name="route/[id]/delivery" options={{ title: 'Pristatymai' }} />
+              <Stack.Screen name="route/[id]/result" options={{ title: 'Maršruto rezultatas' }} />
+              <Stack.Screen name="history" options={{ title: 'Maršrutų istorija' }} />
+              <Stack.Screen name="history/[id]" options={{ title: 'Maršruto istorija' }} />
+              <Stack.Screen name="settings/index" options={{ title: 'Nustatymai' }} />
+              <Stack.Screen name="settings/locations" options={{ title: 'Numatytosios vietos' }} />
+              <Stack.Screen name="statistics" options={{ title: 'Statistika' }} />
+              <Stack.Screen name="trip-sheet" options={{ title: 'Kelionės lapas' }} />
+              <Stack.Screen name="fuel" options={{ title: 'Degalai' }} />
+              <Stack.Screen name="vehicle" options={{ title: 'Transporto priemonė' }} />
+              <Stack.Screen name="admin" options={{ title: 'Administratoriaus panelė' }} />
+              <Stack.Screen name="dispatcher" options={{ title: 'Dispečerio skydelis' }} />
+            </Stack>
+          </RouteCloudSyncProvider>
         </LocalAccessGate>
       </ThemeProvider>
     </SQLiteProvider>

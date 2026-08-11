@@ -1,8 +1,9 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useLocalAccess } from '@/application/auth/local-access-context';
+import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 
 import { ActivateRoute, CancelDraftRoute, ReopenRouteForPlanning } from '@/application/routes/route-commands';
 import { resolveRoute } from '@/application/routes/route-navigation';
@@ -37,6 +38,7 @@ import { formatWeightKg } from '@/ui/format-weight';
 
 export default function LoadingScreen() {
   const { profile } = useLocalAccess();
+  const { requestSync, revision: syncRevision } = useRouteCloudSync();
   const db = useSQLiteContext();
   const router = useRouter();
   const { id: routeId = '' } = useLocalSearchParams<{ id: string }>();
@@ -105,10 +107,15 @@ export default function LoadingScreen() {
 
   useFocusEffect(useCallback(() => { void load(); }, [load]));
 
+  useEffect(() => {
+    if (syncRevision > 0) void load();
+  }, [load, syncRevision]);
+
   const markLoaded = async (stopId: string) => {
     try {
       await new MarkStopLoaded(db).execute(routeId, stopId);
       await load();
+      void requestSync('mutation');
     } catch (reason) {
       Alert.alert('Nepavyko pažymėti', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
     }
@@ -118,6 +125,7 @@ export default function LoadingScreen() {
     try {
       await new MarkStopUnloaded(db).execute(routeId, stopId);
       await load();
+      void requestSync('mutation');
     } catch (reason) {
       Alert.alert('Nepavyko atžymėti', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
     }
@@ -137,6 +145,7 @@ export default function LoadingScreen() {
       setNotLoadedStopId(null);
       setExpandedStopId(null);
       await load();
+      void requestSync('mutation');
     } catch (reason) {
       Alert.alert('Nepavyko išsaugoti', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
     } finally {
@@ -152,6 +161,7 @@ export default function LoadingScreen() {
     try {
       const result = await new MarkAllStopsLoaded(db).execute(routeId);
       await load();
+      void requestSync('mutation');
       if (!result.idempotent) {
         Alert.alert('Pakrovimas atnaujintas', 'Visi kroviniai pažymėti kaip pakrauti');
       }
@@ -168,6 +178,7 @@ export default function LoadingScreen() {
     try {
       await new UndoRouteAction(db).execute(undo.id);
       await load();
+      void requestSync('mutation');
     } catch (reason) {
       Alert.alert('Veiksmo atšaukti nepavyko', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
     }
@@ -177,6 +188,7 @@ export default function LoadingScreen() {
     try {
       await new SaveStartOdometer(db).execute(routeId, parseOdometer(odometer));
       await load();
+      void requestSync('mutation');
       return true;
     } catch (reason) {
       Alert.alert('Neteisingas odometras', reason instanceof Error ? reason.message : 'Patikrinkite reikšmę.');
@@ -203,6 +215,7 @@ export default function LoadingScreen() {
         { text: 'Taip, grįžti', onPress: () => { void (async () => {
           try {
             await new ReopenRouteForPlanning(db).execute(routeId);
+            void requestSync('mutation');
             router.replace({ pathname: '/route/[id]/alternatives', params: { id: routeId } });
           } catch (reason) {
             Alert.alert('Nepavyko grįžti', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
@@ -222,6 +235,7 @@ export default function LoadingScreen() {
           try {
             await new ReverseStopOrder(db).execute(routeId);
             await load();
+            void requestSync('mutation');
           } catch (reason) {
             Alert.alert('Nepavyko apsukti krypties', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
           }
@@ -233,6 +247,7 @@ export default function LoadingScreen() {
   const startRoute = async () => {
     try {
       await new StartRoute(db).execute(routeId);
+      void requestSync('mutation');
       router.replace({ pathname: '/route/[id]/delivery', params: { id: routeId } });
     } catch (reason) {
       Alert.alert('Maršrutas nepradėtas', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
@@ -254,6 +269,7 @@ export default function LoadingScreen() {
             try {
               await new ActivateRoute(db).execute(routeId);
               await load();
+              void requestSync('mutation');
             } catch (reason) {
               Alert.alert('Krovimas nepradėtas', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
             } finally {
@@ -272,6 +288,7 @@ export default function LoadingScreen() {
     setBulkBusy(true);
     try {
       await new ReopenRouteForPlanning(db).execute(routeId);
+      void requestSync('mutation');
       router.replace({ pathname: '/route/[id]/alternatives', params: { id: routeId } });
     } catch (reason) {
       Alert.alert('Redagavimas neatidarytas', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
@@ -296,7 +313,10 @@ export default function LoadingScreen() {
             selfCancelled.current = true;
             setBulkBusy(true);
             void new CancelDraftRoute(db).execute(routeId)
-              .then(() => router.replace('/' as Href))
+              .then(() => {
+                void requestSync('mutation');
+                router.replace('/' as Href);
+              })
               .catch((reason) => {
                 selfCancelled.current = false;
                 Alert.alert('Maršrutas neatšauktas', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
