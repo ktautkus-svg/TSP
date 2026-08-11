@@ -140,9 +140,9 @@ export function InstrumentGauge({
               <Stop offset="1" stopColor="#F6F7F5" />
             </LinearGradient>
             <LinearGradient id="progress" x1="0" y1="1" x2="1" y2="0">
-              <Stop offset="0" stopColor="#1F5A18" />
-              <Stop offset="0.45" stopColor="#4FA82A" />
-              <Stop offset="1" stopColor="#D4FF6E" />
+              <Stop offset="0" stopColor="#1D5B45" />
+              <Stop offset="0.5" stopColor="#2F8962" />
+              <Stop offset="1" stopColor="#65B88C" />
             </LinearGradient>
             <LinearGradient id="needle" x1="0" y1="0" x2="1" y2="0">
               <Stop offset="0" stopColor={fraction >= 0.85 ? '#7A0B0B' : '#9A2F00'} />
@@ -159,9 +159,9 @@ export function InstrumentGauge({
               <Stop offset="1" stopColor="#0A0D0B" />
             </RadialGradient>
             <RadialGradient id="wedgeGlow" cx="50%" cy="50%" r="50%">
-              <Stop offset="0" stopColor="#78C43C" stopOpacity={0.22} />
-              <Stop offset="0.6" stopColor="#78C43C" stopOpacity={0.06} />
-              <Stop offset="1" stopColor="#78C43C" stopOpacity={0} />
+              <Stop offset="0" stopColor="#5FAE85" stopOpacity={0.2} />
+              <Stop offset="0.6" stopColor="#5FAE85" stopOpacity={0.05} />
+              <Stop offset="1" stopColor="#5FAE85" stopOpacity={0} />
             </RadialGradient>
           </Defs>
 
@@ -188,7 +188,7 @@ export function InstrumentGauge({
               <Path
                 d={TRACK_PATH}
                 fill="none"
-                stroke="#D4FF6E"
+                stroke="#65B88C"
                 strokeOpacity={0.22}
                 strokeWidth={ARC_WIDTH + 5}
                 strokeLinecap="round"

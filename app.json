@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "TSP – Tikslus siuntų pristatymas",
+    "name": "TSP – Maršrutai ir pristatymai",
     "slug": "logistikos-pristatymai",
     "version": "1.0.0",
     "orientation": "default",
@@ -31,16 +31,16 @@
     "web": {
       "output": "single",
       "favicon": "./assets/images/favicon.png",
-      "name": "TSP – Tikslus siuntų pristatymas",
+      "name": "TSP – Maršrutai ir pristatymai",
       "shortName": "TSP",
-      "description": "Tikslus siuntų maršruto planavimas ir pristatymo vykdymas.",
+      "description": "Maršrutų planavimas ir pristatymų vykdymas.",
       "lang": "lt",
       "scope": "/",
       "startUrl": "/",
       "display": "standalone",
       "orientation": "portrait",
-      "themeColor": "#0E766E",
-      "backgroundColor": "#F6F7F9"
+      "themeColor": "#142832",
+      "backgroundColor": "#F3F6F8"
     },
     "plugins": [
       [

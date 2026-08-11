@@ -178,7 +178,7 @@ export default function RouteHistoryDetailScreen() {
 }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
-  screen: { flex: 1, alignSelf: 'center', width: '100%', maxWidth: 430, backgroundColor: colors.background },
+  screen: { flex: 1, alignSelf: 'center', width: '100%', maxWidth: 900, backgroundColor: colors.background },
   summary: { padding: spacing.md, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, gap: spacing.xs },
   card: { padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.xs },
   title: { ...type.sectionTitle, color: colors.text },

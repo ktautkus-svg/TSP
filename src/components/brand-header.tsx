@@ -22,9 +22,9 @@ export function BrandHeader({ onMenuPress }: { onMenuPress?: () => void } = {}) 
         </View>
         <Pressable accessibilityLabel="Atidaryti meniu" onPress={onMenuPress} style={styles.profileButton}>
           <Svg width={34} height={34} viewBox="0 0 34 34">
-            <Circle cx={17} cy={17} fill="#E9EFE9" r={16} stroke="rgba(255,255,255,0.65)" />
-            <Circle cx={17} cy={12} fill="#31523D" r={5} />
-            <Path d="M8 28c1.5-6 5-9 9-9s7.5 3 9 9" fill="#31523D" />
+            <Circle cx={17} cy={17} fill="#EAF1F5" r={16} stroke="rgba(255,255,255,0.55)" />
+            <Circle cx={17} cy={12} fill="#405B6A" r={5} />
+            <Path d="M8 28c1.5-6 5-9 9-9s7.5 3 9 9" fill="#405B6A" />
           </Svg>
         </Pressable>
       </View>
@@ -51,6 +51,6 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   notification: { width: 32, height: 40, alignItems: 'center', justifyContent: 'center' },
-  notificationDot: { position: 'absolute', top: 7, right: 3, width: 6, height: 6, borderRadius: 9, backgroundColor: colors.accent },
+  notificationDot: { position: 'absolute', top: 7, right: 3, width: 6, height: 6, borderRadius: 9, backgroundColor: colors.info },
   profileButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
 });

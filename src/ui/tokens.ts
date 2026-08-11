@@ -4,10 +4,9 @@ import { Platform } from 'react-native';
  * TSP design system.
  *
  * Colour rules this palette exists to enforce:
- * - one dark brand green (`primary`) carries brand and primary actions;
- * - one lighter green (`accent`) is the only other green, used for success and
- *   positive status — never as decoration;
- * - neutrals carry everything else: surfaces, borders, secondary text;
+ * - ink and cool slate carry structure, surfaces, borders, and text;
+ * - route blue carries planning, navigation, and primary operational actions;
+ * - green is reserved for brand punctuation, success, and positive progress;
  * - amber means "check this", red means "this is wrong", blue means "this is
  *   information" — none of them are used just to add colour.
  *
@@ -16,51 +15,51 @@ import { Platform } from 'react-native';
  */
 export const colors = {
   // Neutrals
-  background: '#F5F6F5',
+  background: '#F3F6F8',
   surface: '#FFFFFF',
   surfaceElevated: '#FFFFFF',
-  surfaceMuted: '#F0F2F0',
-  surfaceSubtle: '#F8F9F8',
-  text: '#17251D',
-  textSecondary: '#46534C',
-  textMuted: '#65716A',
-  textSubtle: '#8A948D',
-  textDisabled: '#9CA59F',
+  surfaceMuted: '#EAF0F4',
+  surfaceSubtle: '#F7F9FB',
+  text: '#17232D',
+  textSecondary: '#41515E',
+  textMuted: '#657582',
+  textSubtle: '#8996A0',
+  textDisabled: '#9AA6AF',
   textInverse: '#FFFFFF',
-  border: '#DCE2DD',
-  borderSubtle: '#E9EDEA',
-  borderStrong: '#C3CCC6',
+  border: '#D7E0E7',
+  borderSubtle: '#E7EDF1',
+  borderStrong: '#BCC9D2',
 
-  // Brand green — one dark, one deeper for headers/pressed, one soft wash.
-  primary: '#0A5A31',
-  primaryDark: '#07351E',
-  primarySoft: '#E7F0EA',
+  // Brand green — punctuation and identity, not universal interface chrome.
+  primary: '#187447',
+  primaryDark: '#0E4E31',
+  primarySoft: '#E8F3ED',
 
-  // Single accent green: success and positive status only.
-  accent: '#1F7A46',
-  accentSoft: '#E7F2E9',
-  accentStrong: '#07351E',
-  success: '#1F7A46',
+  // Accent green: success and positive status only.
+  accent: '#218052',
+  accentSoft: '#E6F3EB',
+  accentStrong: '#115B39',
+  success: '#218052',
 
   // Semantic — each has exactly one meaning.
-  warning: '#9A6212',
-  warningSoft: '#FDF3E2',
-  danger: '#B4342A',
+  warning: '#9A6110',
+  warningSoft: '#FFF4DE',
+  danger: '#B63B32',
   dangerSoft: '#FCF0EE',
-  info: '#2F5D8C',
-  infoSoft: '#EDF2F8',
+  info: '#276C98',
+  infoSoft: '#EAF3F9',
 
   // Interaction roles. These aliases make intent explicit at call sites and
   // allow the brand and operational actions to evolve independently later.
-  actionPrimary: '#0A5A31',
-  actionPrimaryPressed: '#073F24',
-  actionRoute: '#2F5D8C',
-  actionRoutePressed: '#244A70',
-  disabledSurface: '#E7EAE8',
-  disabledText: '#7D8881',
+  actionPrimary: '#1F5F86',
+  actionPrimaryPressed: '#174A69',
+  actionRoute: '#176F9F',
+  actionRoutePressed: '#115778',
+  disabledSurface: '#E3E9ED',
+  disabledText: '#7D8B95',
 
   /** Header/chrome surface. Kept as its own key because it is brand, not action. */
-  brandNavy: '#07351E',
+  brandNavy: '#142832',
 } as const;
 
 export const fonts = {
@@ -110,5 +109,6 @@ export const radius = {
 
 export const layout = {
   maxContentWidth: 900,
+  maxOperationalWidth: 1180,
   minTouchTarget: 48,
 } as const;

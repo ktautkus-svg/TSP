@@ -227,7 +227,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   activeHeaderText: { flex: 1, minWidth: 0, gap: 2 },
   activeTitle: { ...type.sectionTitle, fontSize: 19, lineHeight: 24, color: colors.text },
   activeText: { ...type.body, color: colors.textMuted },
-  progressBadge: { ...type.readout, fontSize: 26, lineHeight: 30, color: colors.primary },
+  progressBadge: { ...type.readout, fontSize: 26, lineHeight: 30, color: colors.info },
   // Grouping panel, not decoration: it holds three related readouts together.
   routeSummary: { borderRadius: radius.md, backgroundColor: colors.surfaceSubtle, paddingHorizontal: spacing.md, paddingVertical: 2 },
   summaryRow: { minHeight: 56, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },

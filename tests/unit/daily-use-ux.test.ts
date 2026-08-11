@@ -98,6 +98,22 @@ describe('Daily Use menu and Dashboard contract', () => {
     expect(source('src/app/+html.tsx')).toContain('overflow-x: hidden');
   });
 
+  it('uses the Design V3 responsive operations workspace without demoting the next stop', () => {
+    const delivery = source('src/app/route/[id]/delivery.tsx');
+    const history = source('src/app/history.tsx');
+    const alternatives = source('src/app/route/[id]/alternatives.tsx');
+    const tokens = source('src/ui/tokens.ts');
+    expect(delivery).toContain('const isWideDashboard = viewportWidth >= 760');
+    expect(delivery).toContain('styles.dashboardGridWide');
+    expect(delivery).toContain("dashboardGrid: { width: '100%', flexDirection: 'column-reverse'");
+    expect(delivery).toContain('maxWidth: layout.maxOperationalWidth');
+    expect(history).toContain('maxWidth: 900');
+    expect(alternatives).toContain("groupRow: { flexDirection: 'row', flexWrap: 'wrap'");
+    expect(alternatives).toContain('minWidth: 260');
+    expect(tokens).toContain("actionPrimary: '#1F5F86'");
+    expect(tokens).toContain("brandNavy: '#142832'");
+  });
+
   it('keeps next-stop actions visible and replaces duplicate distance data with the delivery window state', () => {
     const delivery = source('src/app/route/[id]/delivery.tsx');
     expect(delivery).toContain('dashboard-arrival-window');
