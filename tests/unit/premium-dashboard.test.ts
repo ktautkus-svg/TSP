@@ -105,7 +105,7 @@ describe('premium route dashboard', () => {
   });
 
   it('uses the branded shell on the dashboard and route screens', () => {
-    expect(source('src/app/index.tsx')).toContain('<BrandHeader />');
+    expect(source('src/app/index.tsx')).toContain('<BrandHeader onMenuPress={() => setAccountMenuOpen(true)} />');
     expect(source('src/app/_layout.tsx')).toContain('backgroundColor: colors.brandNavy');
     const header = source('src/components/brand-header.tsx');
     const brand = source('src/components/tsp-brand.tsx');
