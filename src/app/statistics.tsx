@@ -9,7 +9,7 @@ import { StatisticsRepository } from '@/database/repositories/statistics-reposit
 import type { StatisticsPeriodTotals, StatisticsSnapshot } from '@/domain/statistics';
 import { formatLithuanianDate } from '@/ui/history-labels';
 import { durationLabel } from '@/ui/route-eta-labels';
-import { spacing } from '@/ui/tokens';
+import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 
@@ -173,26 +173,26 @@ function shortMonthLabel(monthKey: string): string {
 }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
-  empty: { padding: spacing.lg, borderRadius: 16, backgroundColor: colors.surface, gap: spacing.xs },
-  card: { padding: spacing.md, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.xs },
-  highlightCard: { padding: spacing.md, borderRadius: 16, backgroundColor: colors.primarySoft, gap: spacing.xs },
-  cardTitle: { color: colors.text, fontSize: 17, fontWeight: '800' },
-  meta: { color: colors.textMuted, lineHeight: 20 },
-  error: { color: colors.danger, fontWeight: '700' },
+  empty: { padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surface, gap: spacing.xs },
+  card: { padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.xs },
+  highlightCard: { padding: spacing.md, borderRadius: radius.lg, backgroundColor: colors.infoSoft, gap: spacing.xs },
+  cardTitle: { ...type.sectionTitle, color: colors.text },
+  meta: { ...type.secondary, color: colors.textMuted },
+  error: { ...type.secondaryStrong, color: colors.danger },
   tileRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  tile: { flexGrow: 1, minWidth: '45%', padding: spacing.md, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: 2 },
-  tileLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '700' },
-  tileValue: { color: colors.text, fontSize: 22, fontWeight: '800' },
+  tile: { flexGrow: 1, minWidth: '45%', padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: 2 },
+  tileLabel: { ...type.label, color: colors.textMuted },
+  tileValue: { ...type.readout, color: colors.text },
   tileMeta: { color: colors.textMuted, fontSize: 13 },
   failureRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 },
-  failureCount: { color: colors.text, fontWeight: '800' },
+  failureCount: { ...type.bodyStrong, color: colors.text },
   outcomeBar: { flexDirection: 'row', height: 16, borderRadius: 8, overflow: 'hidden', backgroundColor: colors.border },
   outcomeLegendRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.xs },
-  outcomeLegend: { fontSize: 12, fontWeight: '700' },
-  homeButton: { minHeight: 52, borderRadius: 16, borderWidth: 1, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  tripSheetButton: { minHeight: 52, borderRadius: 16, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  tripSheetText: { color: '#fff', fontWeight: '900', fontSize: 16 },
-  homeText: { color: colors.primary, fontWeight: '800' },
+  outcomeLegend: { ...type.meta },
+  homeButton: { minHeight: 52, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
+  tripSheetButton: { minHeight: 52, borderRadius: radius.md, backgroundColor: colors.actionPrimary, alignItems: 'center', justifyContent: 'center' },
+  tripSheetText: { ...type.button, color: colors.textInverse, fontSize: 16 },
+  homeText: { ...type.button, color: colors.textSecondary },
   headerAction: { minWidth: 84, minHeight: 44, justifyContent: 'center' },
-  headerText: { color: colors.primary, fontWeight: '800' },
+  headerText: { ...type.button, color: colors.textInverse },
 });

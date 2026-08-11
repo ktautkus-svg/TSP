@@ -5,7 +5,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { TripSheetRepository } from '@/database/repositories/trip-sheet-repository';
 import type { FuelType } from '@/domain/vehicle-and-trip';
-import { spacing } from '@/ui/tokens';
+import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 
@@ -76,16 +76,16 @@ export default function VehicleScreen() {
 }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
-  card: { padding: spacing.md, borderRadius: 18, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
-  label: { color: colors.text, fontWeight: '800' },
-  input: { minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.background, color: colors.text, paddingHorizontal: spacing.md },
+  card: { padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
+  label: { ...type.cardTitle, color: colors.text },
+  input: { minHeight: 48, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surfaceSubtle, color: colors.text, paddingHorizontal: spacing.md, ...type.body },
   options: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  option: { minHeight: 44, borderRadius: 999, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.md, alignItems: 'center', justifyContent: 'center' },
-  optionSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
-  optionText: { color: colors.text, fontWeight: '700' },
-  optionTextSelected: { color: '#fff' },
-  button: { minHeight: 54, borderRadius: 16, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  buttonText: { color: '#fff', fontSize: 16, fontWeight: '800' },
+  option: { minHeight: 44, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.md, alignItems: 'center', justifyContent: 'center' },
+  optionSelected: { backgroundColor: colors.actionPrimary, borderColor: colors.actionPrimary },
+  optionText: { ...type.secondaryStrong, color: colors.text },
+  optionTextSelected: { color: colors.textInverse },
+  button: { minHeight: 54, borderRadius: radius.md, backgroundColor: colors.actionPrimary, alignItems: 'center', justifyContent: 'center' },
+  buttonText: { ...type.button, color: colors.textInverse, fontSize: 16 },
   disabled: { opacity: 0.55 },
   message: { color: colors.textMuted, lineHeight: 20 },
 });

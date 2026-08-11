@@ -14,7 +14,7 @@ import { ShipmentLineRepository } from '@/database/repositories/shipment-line-re
 import type { DeliveryStop, Route } from '@/domain/route';
 import type { ShipmentLine } from '@/domain/shipment-line';
 import { deliveryStatusLabel, formatLithuanianDateTime, loadingStatusLabel } from '@/ui/history-labels';
-import { spacing } from '@/ui/tokens';
+import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { Alert } from '@/ui/alert';
@@ -178,24 +178,24 @@ export default function RouteHistoryDetailScreen() {
 }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
-  screen: { flex: 1, alignSelf: 'center', width: '100%', maxWidth: 430, backgroundColor: '#FFFFFF' },
-  summary: { padding: spacing.md, borderRadius: 16, backgroundColor: colors.primarySoft, gap: spacing.xs },
-  card: { padding: spacing.md, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.xs },
-  title: { color: colors.text, fontSize: 17, fontWeight: '800' },
+  screen: { flex: 1, alignSelf: 'center', width: '100%', maxWidth: 430, backgroundColor: colors.background },
+  summary: { padding: spacing.md, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, gap: spacing.xs },
+  card: { padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.xs },
+  title: { ...type.sectionTitle, color: colors.text },
   reportBlock: { marginTop: spacing.sm, gap: 4, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border },
-  reportTitle: { color: colors.text, fontSize: 15, fontWeight: '800' },
-  meta: { color: colors.textMuted, lineHeight: 20 },
-  failure: { color: colors.danger, fontWeight: '700', lineHeight: 20 },
-  audit: { color: colors.textMuted, fontSize: 12, lineHeight: 18 },
-  exportButton: { minHeight: 48, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary },
-  exportButtonText: { color: colors.surface, fontWeight: '800' },
+  reportTitle: { ...type.cardTitle, color: colors.text },
+  meta: { ...type.secondary, color: colors.textMuted },
+  failure: { ...type.secondaryStrong, color: colors.danger },
+  audit: { ...type.meta, color: colors.textMuted },
+  exportButton: { minHeight: 48, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.actionRoute },
+  exportButtonText: { ...type.button, color: colors.textInverse },
   pressed: { opacity: 0.75 },
   technicalToggle: { minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  technicalText: { color: colors.primary, fontWeight: '800' },
-  historyButton: { minHeight: 52, borderRadius: 16, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  historyText: { color: '#fff', fontWeight: '800' },
-  homeButton: { minHeight: 52, borderRadius: 16, borderWidth: 1, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  homeText: { color: colors.primary, fontWeight: '800' },
+  technicalText: { ...type.button, color: colors.info },
+  historyButton: { minHeight: 52, borderRadius: radius.md, backgroundColor: colors.actionPrimary, alignItems: 'center', justifyContent: 'center' },
+  historyText: { ...type.button, color: colors.textInverse },
+  homeButton: { minHeight: 52, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
+  homeText: { ...type.button, color: colors.textSecondary },
   headerAction: { minWidth: 84, minHeight: 44, justifyContent: 'center' },
-  headerText: { color: '#FFFFFF', fontWeight: '800' },
+  headerText: { ...type.button, color: colors.textInverse },
 });

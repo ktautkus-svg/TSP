@@ -6,7 +6,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { TripSheetRepository, type TripSheetWithRoutes } from '@/database/repositories/trip-sheet-repository';
 import { formatWeightKg } from '@/ui/format-weight';
-import { spacing } from '@/ui/tokens';
+import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 
@@ -50,7 +50,7 @@ export default function TripSheetScreen() {
       title="Kelionės lapai"
       description="Faktiniai dienos duomenys sudaromi iš užbaigtų maršrutų ir odometro rodmenų.">
       <Pressable style={styles.primaryButton} disabled={busy} onPress={() => { void sync(); }} testID="sync-trip-sheets">
-        {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>Atnaujinti iš užbaigtų maršrutų</Text>}
+        {busy ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.primaryText}>Atnaujinti iš užbaigtų maršrutų</Text>}
       </Pressable>
       <Pressable style={styles.secondaryButton} onPress={() => router.push('/vehicle' as Href)}>
         <Text style={styles.secondaryText}>Transporto priemonė</Text>
@@ -110,21 +110,21 @@ function formatDuration(minutes: number | null): string {
 }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
-  primaryButton: { minHeight: 54, borderRadius: 16, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
-  primaryText: { color: '#fff', fontSize: 16, fontWeight: '800' },
-  secondaryButton: { minHeight: 48, borderRadius: 14, borderWidth: 1, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  secondaryText: { color: colors.primary, fontWeight: '800' },
+  primaryButton: { minHeight: 54, borderRadius: radius.md, backgroundColor: colors.actionPrimary, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
+  primaryText: { ...type.button, color: colors.textInverse, fontSize: 16 },
+  secondaryButton: { minHeight: 48, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
+  secondaryText: { ...type.button, color: colors.textSecondary },
   message: { color: colors.textMuted, lineHeight: 20 },
-  empty: { padding: spacing.lg, borderRadius: 18, backgroundColor: colors.surface, gap: spacing.xs },
-  card: { padding: spacing.md, borderRadius: 18, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
+  empty: { padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surface, gap: spacing.xs },
+  card: { padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
   titleRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing.sm },
   flex: { flex: 1, minWidth: 0 },
-  cardTitle: { color: colors.text, fontSize: 18, fontWeight: '800' },
-  meta: { color: colors.textMuted, lineHeight: 20 },
-  distance: { color: colors.primary, fontSize: 18, fontWeight: '900' },
+  cardTitle: { ...type.sectionTitle, color: colors.text },
+  meta: { ...type.secondary, color: colors.textMuted },
+  distance: { ...type.readout, color: colors.info },
   metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  metric: { minWidth: 120, flexGrow: 1, padding: spacing.sm, borderRadius: 12, backgroundColor: colors.primarySoft, gap: 3 },
-  metricLabel: { color: colors.textMuted, fontSize: 10, fontWeight: '800', letterSpacing: 0.6 },
-  metricValue: { color: colors.text, fontSize: 15, fontWeight: '800' },
+  metric: { minWidth: 120, flexGrow: 1, padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.infoSoft, gap: 3 },
+  metricLabel: { ...type.label, color: colors.textMuted },
+  metricValue: { ...type.bodyStrong, color: colors.text },
   routeLine: { color: colors.text, fontSize: 14, lineHeight: 20 },
 });

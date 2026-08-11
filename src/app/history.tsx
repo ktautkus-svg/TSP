@@ -9,7 +9,7 @@ import { resolveRoute } from '@/application/routes/route-navigation';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import type { Route } from '@/domain/route';
 import { formatLithuanianDate, routeStatusLabel } from '@/ui/history-labels';
-import { fonts, spacing } from '@/ui/tokens';
+import { fonts, radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { formatWeightKg } from '@/ui/format-weight';
@@ -88,18 +88,18 @@ export default function HistoryScreen() {
 }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
-  screen: { flex: 1, alignSelf: 'center', width: '100%', maxWidth: 430, backgroundColor: '#FFFFFF' },
-  empty: { padding: spacing.lg, borderWidth: 2, borderColor: colors.border, backgroundColor: colors.surface },
-  card: { flexDirection: 'row', borderWidth: 2, borderColor: colors.border, backgroundColor: colors.surface },
+  screen: { flex: 1, alignSelf: 'center', width: '100%', maxWidth: 430, backgroundColor: colors.background },
+  empty: { padding: spacing.lg, borderWidth: 1, borderRadius: radius.lg, borderColor: colors.border, backgroundColor: colors.surface },
+  card: { flexDirection: 'row', overflow: 'hidden', borderWidth: 1, borderRadius: radius.md, borderColor: colors.border, backgroundColor: colors.surface },
   statusStripe: { width: 6 },
   statusStripeCompleted: { backgroundColor: colors.accent },
   statusStripeCancelled: { backgroundColor: colors.border },
   cardBody: { flex: 1, padding: spacing.md, gap: spacing.xs },
-  title: { color: colors.text, fontSize: 17, fontFamily: fonts.heading },
-  meta: { color: colors.textMuted, lineHeight: 20 },
-  homeButton: { minHeight: 52, borderWidth: 2, borderColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
-  homeText: { color: colors.accent, fontFamily: fonts.heading },
+  title: { ...type.sectionTitle, color: colors.text },
+  meta: { ...type.secondary, color: colors.textMuted },
+  homeButton: { minHeight: 52, borderWidth: 1, borderRadius: radius.md, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
+  homeText: { ...type.button, color: colors.textSecondary },
   headerAction: { minWidth: 84, minHeight: 44, justifyContent: 'center' },
-  headerText: { color: '#FFFFFF', fontFamily: fonts.heading },
+  headerText: { color: colors.textInverse, fontFamily: fonts.heading },
   error: { color: colors.danger, fontFamily: fonts.headingSemiBold },
 });

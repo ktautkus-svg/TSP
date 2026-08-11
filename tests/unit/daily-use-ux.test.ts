@@ -118,6 +118,6 @@ describe('Daily Use menu and Dashboard contract', () => {
     }
     expect(settings).toContain('Duomenys ir atsarginė kopija');
     expect(settings).toContain('← Pradžios meniu');
-    expect(settings).toContain("headerText: { color: '#FFFFFF'");
+    expect(settings).toContain('headerText: { ...type.button, color: colors.textInverse');
   });
 });

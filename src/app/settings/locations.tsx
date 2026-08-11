@@ -7,7 +7,7 @@ import { GetDefaultLocations, SaveDefaultLocation } from '@/application/routes/s
 import { FoundationScreen } from '@/components/foundation-screen';
 import { GatewayAddressResolver } from '@/infrastructure/import/gateway-address-resolver';
 import type { RouteEndpoint, SavedLocation } from '@/domain/route';
-import { spacing } from '@/ui/tokens';
+import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { Alert } from '@/ui/alert';
@@ -142,7 +142,7 @@ export default function LocationSettingsScreen() {
           </Text>
         ) : null}
         <Pressable disabled={saving} style={[styles.button, saving && styles.disabled]} onPress={() => void save()}>
-          {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Išsaugoti vietas</Text>}
+          {saving ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.buttonText}>Išsaugoti vietas</Text>}
         </Pressable>
       </View>
       <Pressable style={styles.backButton} onPress={goSettings}><Text style={styles.backText}>← Nustatymai</Text></Pressable>
@@ -177,17 +177,17 @@ function plainEndpoint(address: string): RouteEndpoint {
 }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
-  card: { padding: spacing.md, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
-  label: { color: colors.text, fontWeight: '800' },
-  input: { minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.md, color: colors.text },
-  confirmed: { color: colors.primary, fontWeight: '700', fontSize: 13 },
-  unconfirmed: { color: colors.warning ?? '#A15C00', fontWeight: '700', fontSize: 13 },
-  button: { minHeight: 52, borderRadius: 14, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+  card: { padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
+  label: { ...type.cardTitle, color: colors.text },
+  input: { minHeight: 48, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, paddingHorizontal: spacing.md, color: colors.text, backgroundColor: colors.surfaceSubtle, ...type.body },
+  confirmed: { ...type.secondaryStrong, color: colors.success },
+  unconfirmed: { ...type.secondaryStrong, color: colors.warning },
+  button: { minHeight: 52, borderRadius: radius.md, backgroundColor: colors.actionPrimary, alignItems: 'center', justifyContent: 'center' },
   disabled: { opacity: 0.6 },
-  buttonText: { color: '#fff', fontWeight: '800' },
+  buttonText: { ...type.button, color: colors.textInverse },
   backButton: { minHeight: 48, alignItems: 'center', justifyContent: 'center' },
-  backText: { color: colors.primary, fontWeight: '800' },
+  backText: { ...type.button, color: colors.textSecondary },
   headerAction: { minWidth: 96, minHeight: 44, justifyContent: 'center' },
-  headerText: { color: colors.primary, fontWeight: '800' },
-  error: { color: colors.danger, fontWeight: '700' },
+  headerText: { ...type.button, color: colors.textInverse },
+  error: { ...type.secondaryStrong, color: colors.danger },
 });

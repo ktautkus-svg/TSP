@@ -20,7 +20,7 @@ import {
   type EmployeeRole,
   type ServerRouteAssignment,
 } from '@/infrastructure/auth/employee-session';
-import { spacing } from '@/ui/tokens';
+import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 
@@ -172,7 +172,7 @@ export default function AdminScreen() {
                 <Text style={[styles.choiceText, newRole === role && styles.choiceTextActive]}>{roleLabel(role)}</Text>
               </Pressable>)}</View>
             <Pressable disabled={busy || !online} style={[styles.primaryButton, (busy || !online) && styles.disabled]} onPress={() => void createEmployee()}>
-              {busy ? <ActivityIndicator color="#FFF" /> : <Text style={styles.primaryText}>Sukurti darbuotoją</Text>}
+              {busy ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.primaryText}>Sukurti darbuotoją</Text>}
             </Pressable>
           </View>
 
@@ -242,47 +242,47 @@ function Metric({ label, value, styles }: { label: string; value: number | undef
 }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
-  card: { padding: spacing.md, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
-  title: { color: colors.text, fontSize: 18, fontWeight: '900' },
-  username: { color: colors.primary, fontSize: 18, fontWeight: '900' },
-  meta: { color: colors.textMuted, lineHeight: 20 },
+  card: { padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
+  title: { ...type.sectionTitle, color: colors.text },
+  username: { ...type.sectionTitle, color: colors.info },
+  meta: { ...type.secondary, color: colors.textMuted },
   metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  metric: { minWidth: '46%', flexGrow: 1, padding: spacing.md, borderRadius: 14, backgroundColor: colors.primarySoft, alignItems: 'center' },
-  metricValue: { color: colors.primary, fontSize: 25, fontWeight: '900' },
-  metricLabel: { color: colors.textMuted, fontWeight: '700' },
-  input: { minHeight: 50, borderRadius: 12, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.md, backgroundColor: colors.surface, color: colors.text, fontSize: 16 },
-  primaryButton: { minHeight: 52, borderRadius: 14, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  primaryText: { color: '#FFFFFF', fontWeight: '900' },
-  secondaryButton: { minHeight: 52, borderRadius: 14, borderWidth: 1, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  secondaryText: { color: colors.primary, fontWeight: '900' },
-  lockButton: { minHeight: 52, borderRadius: 14, backgroundColor: '#252B30', alignItems: 'center', justifyContent: 'center' },
-  lockText: { color: '#FFFFFF', fontWeight: '900' },
-  message: { color: colors.text, padding: spacing.md, borderRadius: 12, backgroundColor: colors.primarySoft, fontWeight: '700' },
+  metric: { minWidth: '46%', flexGrow: 1, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.infoSoft, alignItems: 'center' },
+  metricValue: { ...type.readout, color: colors.info },
+  metricLabel: { ...type.secondaryStrong, color: colors.textMuted },
+  input: { minHeight: 50, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, paddingHorizontal: spacing.md, backgroundColor: colors.surfaceSubtle, color: colors.text, ...type.body },
+  primaryButton: { minHeight: 52, borderRadius: radius.md, backgroundColor: colors.actionPrimary, alignItems: 'center', justifyContent: 'center' },
+  primaryText: { ...type.button, color: colors.textInverse },
+  secondaryButton: { minHeight: 52, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
+  secondaryText: { ...type.button, color: colors.textSecondary },
+  lockButton: { minHeight: 52, borderRadius: radius.md, backgroundColor: colors.text, alignItems: 'center', justifyContent: 'center' },
+  lockText: { ...type.button, color: colors.textInverse },
+  message: { ...type.bodyStrong, color: colors.text, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.infoSoft },
   disabled: { opacity: 0.5 },
   headerAction: { minWidth: 170, minHeight: 48, justifyContent: 'center' },
-  headerText: { color: '#FFFFFF', fontWeight: '900' },
+  headerText: { ...type.button, color: colors.textInverse },
   choiceRow: { flexDirection: 'row', gap: spacing.sm },
   choiceColumn: { gap: spacing.xs },
-  choice: { flex: 1, minHeight: 46, borderWidth: 1, borderColor: colors.border, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  choiceActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  choiceText: { color: colors.text, fontWeight: '800' },
-  choiceTextActive: { color: '#FFFFFF' },
+  choice: { flex: 1, minHeight: 46, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
+  choiceActive: { backgroundColor: colors.actionPrimary, borderColor: colors.actionPrimary },
+  choiceText: { ...type.secondaryStrong, color: colors.text },
+  choiceTextActive: { color: colors.textInverse },
   listRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border },
   employeeBlock: { gap: spacing.sm, paddingBottom: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border },
   listContent: { flex: 1, minWidth: 0 },
-  listTitle: { color: colors.text, fontWeight: '900', fontSize: 16 },
-  smallButton: { minHeight: 42, paddingHorizontal: spacing.md, borderRadius: 10, borderWidth: 1, borderColor: colors.border, justifyContent: 'center' },
-  smallButtonText: { color: colors.text, fontWeight: '800' },
-  selection: { padding: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: 12 },
-  selectionActive: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
-  sectionLabel: { color: colors.textMuted, fontWeight: '900', textTransform: 'uppercase', fontSize: 12, letterSpacing: 0.7, marginTop: spacing.xs },
+  listTitle: { ...type.cardTitle, color: colors.text },
+  smallButton: { minHeight: 42, paddingHorizontal: spacing.md, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, justifyContent: 'center' },
+  smallButtonText: { ...type.secondaryStrong, color: colors.text },
+  selection: { padding: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md },
+  selectionActive: { borderColor: colors.info, backgroundColor: colors.infoSoft },
+  sectionLabel: { ...type.label, color: colors.textMuted, textTransform: 'uppercase', marginTop: spacing.xs },
   permissions: { gap: spacing.xs, paddingLeft: spacing.sm },
   permissionRow: { minHeight: 62, flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xs },
   permissionCopy: { flex: 1, minWidth: 0 },
-  permissionTitle: { color: colors.text, fontWeight: '800' },
+  permissionTitle: { ...type.bodyStrong, color: colors.text },
   permissionDescription: { color: colors.textMuted, fontSize: 12, lineHeight: 17, marginTop: 2 },
   switchTrack: { width: 46, height: 26, borderRadius: 13, padding: 3, backgroundColor: colors.border },
-  switchTrackOn: { backgroundColor: colors.primary },
-  switchThumb: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#FFFFFF' },
+  switchTrackOn: { backgroundColor: colors.success },
+  switchThumb: { width: 20, height: 20, borderRadius: radius.pill, backgroundColor: colors.textInverse },
   switchThumbOn: { alignSelf: 'flex-end' },
 });

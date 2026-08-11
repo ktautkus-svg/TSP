@@ -6,6 +6,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { assignRouteToDriver } from '@/application/auth/route-assignment-sync';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { employeeApi, type EmployeeProfile, type ServerRouteAssignment } from '@/infrastructure/auth/employee-session';
+import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 
@@ -162,7 +163,7 @@ export default function DispatcherScreen() {
             <Summary label="Maršrutas" value={selectedRoute ? `${formatDate(selectedRoute.date)} · ${selectedRoute.total_stops} taškų` : 'Nepasirinktas'} styles={styles} />
             <Summary label="Vairuotojas" value={selectedDriver?.displayName ?? 'Nepasirinktas'} styles={styles} />
             <Pressable disabled={busy || !online || !selectedRoute || !selectedDriver} onPress={() => void assign()} style={[styles.assignButton, (busy || !online || !selectedRoute || !selectedDriver) && styles.disabled]}>
-              {busy ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.assignText}>Priskirti vairuotojui</Text>}
+              {busy ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.assignText}>Priskirti vairuotojui</Text>}
             </Pressable>
             <Pressable style={styles.permissionsLink} onPress={() => router.push('/admin' as Href)}><Text style={styles.permissionsText}>Darbuotojai ir leidimai →</Text></Pressable>
           </View>
@@ -193,60 +194,60 @@ function StatusBadge({ status, styles }: { status: string; styles: ReturnType<ty
 function Summary({ label, value, styles }: { label: string; value: string; styles: ReturnType<typeof createStyles> }) { return <View style={styles.summary}><Text style={styles.summaryLabel}>{label}</Text><Text style={styles.summaryValue}>{value}</Text></View>; }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#F2F5F1' },
-  page: { width: '100%', maxWidth: 1440, alignSelf: 'center', padding: 28, gap: 20 },
-  topbar: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 20 },
-  eyebrow: { color: '#547061', fontSize: 12, fontWeight: '900', letterSpacing: 1.2 },
-  pageTitle: { color: '#12231A', fontSize: 34, lineHeight: 40, fontWeight: '900' },
-  subtitle: { color: '#65736B', fontSize: 16, marginTop: 4 },
+  safeArea: { flex: 1, backgroundColor: colors.background },
+  page: { width: '100%', maxWidth: 1440, alignSelf: 'center', padding: spacing.xl, gap: spacing.lg },
+  topbar: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: spacing.lg },
+  eyebrow: { ...type.label, color: colors.textMuted },
+  pageTitle: { ...type.pageTitle, color: colors.text, fontSize: 32, lineHeight: 38 },
+  subtitle: { ...type.body, color: colors.textSecondary, marginTop: spacing.xs },
   topActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  primaryButton: { minHeight: 48, paddingHorizontal: 20, borderRadius: 12, justifyContent: 'center', backgroundColor: '#0A5A31' },
-  primaryText: { color: '#FFFFFF', fontWeight: '900' },
-  secondaryButton: { minHeight: 48, paddingHorizontal: 18, borderRadius: 12, justifyContent: 'center', backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#CAD6CE' },
-  secondaryText: { color: '#244532', fontWeight: '800' },
+  primaryButton: { minHeight: 48, paddingHorizontal: spacing.lg, borderRadius: radius.md, justifyContent: 'center', backgroundColor: colors.actionPrimary },
+  primaryText: { ...type.button, color: colors.textInverse },
+  secondaryButton: { minHeight: 48, paddingHorizontal: spacing.lg, borderRadius: radius.md, justifyContent: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderStrong },
+  secondaryText: { ...type.button, color: colors.textSecondary },
   metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  metric: { minWidth: 170, flexGrow: 1, padding: 18, borderRadius: 16, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#DCE5DF' },
-  metricValue: { color: '#0A5A31', fontSize: 28, fontWeight: '900' },
-  metricLabel: { color: '#66736B', fontSize: 13, fontWeight: '700' },
-  message: { padding: 14, borderRadius: 12, backgroundColor: '#E5F2E9', color: '#174E2F', fontWeight: '800' },
-  warning: { padding: 14, borderRadius: 12, backgroundColor: '#FFF1CF', color: '#805B08', fontWeight: '800' },
+  metric: { minWidth: 170, flexGrow: 1, padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  metricValue: { ...type.pageTitle, color: colors.info },
+  metricLabel: { ...type.secondaryStrong, color: colors.textMuted },
+  message: { ...type.bodyStrong, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.infoSoft, color: colors.info },
+  warning: { ...type.bodyStrong, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.warningSoft, color: colors.warning },
   workspace: { gap: 16 },
   workspaceDesktop: { flexDirection: 'row', alignItems: 'flex-start' },
-  panel: { padding: 18, borderRadius: 18, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#DCE5DF', gap: 12 },
+  panel: { padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, gap: spacing.md },
   routePanel: { flex: 1.05, minWidth: 0 },
   driverPanel: { flex: 1.15, minWidth: 0 },
   actionPanel: { width: 300 },
   panelHeading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 },
-  panelTitle: { color: '#17251D', fontSize: 19, fontWeight: '900' },
-  panelHint: { color: '#718078', fontSize: 13, lineHeight: 18 },
-  countBadge: { minWidth: 30, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 15, overflow: 'hidden', textAlign: 'center', backgroundColor: '#E8F2EA', color: '#0A5A31', fontWeight: '900' },
+  panelTitle: { ...type.sectionTitle, color: colors.text, fontSize: 19, lineHeight: 24 },
+  panelHint: { ...type.secondary, color: colors.textMuted },
+  countBadge: { minWidth: 30, paddingHorizontal: 9, paddingVertical: 5, borderRadius: radius.pill, overflow: 'hidden', textAlign: 'center', backgroundColor: colors.infoSoft, color: colors.info, fontFamily: type.secondaryStrong.fontFamily },
   empty: { paddingVertical: 24, gap: 5 },
-  emptyTitle: { color: '#32443A', fontSize: 16, fontWeight: '900' },
-  routeCard: { padding: 14, borderRadius: 13, borderWidth: 1, borderColor: '#DCE5DF', gap: 7 },
-  selectedCard: { borderColor: '#0A7A41', borderWidth: 2, backgroundColor: '#F1F8F3' },
+  emptyTitle: { ...type.cardTitle, color: colors.text },
+  routeCard: { padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, gap: spacing.sm },
+  selectedCard: { borderColor: colors.info, borderWidth: 2, backgroundColor: colors.infoSoft },
   routeCardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
-  routeDate: { color: '#17251D', fontWeight: '900', fontSize: 16 },
-  statusBadge: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, overflow: 'hidden', backgroundColor: '#E6F3E9', color: '#0A6738', fontSize: 12, fontWeight: '900' },
-  routeNumbers: { color: '#244532', fontWeight: '800' },
-  routeEndpoint: { color: '#718078', fontSize: 13 },
+  routeDate: { ...type.cardTitle, color: colors.text, fontSize: 16 },
+  statusBadge: { ...type.meta, paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.pill, overflow: 'hidden', backgroundColor: colors.accentSoft, color: colors.success },
+  routeNumbers: { ...type.bodyStrong, color: colors.textSecondary },
+  routeEndpoint: { ...type.secondary, color: colors.textMuted },
   driverGrid: { gap: 9 },
-  driverCard: { flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 13, borderWidth: 1, borderColor: '#DCE5DF', gap: 10 },
-  unavailable: { opacity: 0.5, backgroundColor: '#F3F4F3' },
-  avatar: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', backgroundColor: '#DDEDE2' },
-  avatarText: { color: '#0A5A31', fontWeight: '900' },
+  driverCard: { flexDirection: 'row', alignItems: 'center', padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, gap: 10 },
+  unavailable: { opacity: 0.5, backgroundColor: colors.disabledSurface },
+  avatar: { width: 42, height: 42, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.infoSoft },
+  avatarText: { ...type.bodyStrong, color: colors.info },
   driverText: { flex: 1, minWidth: 0 },
-  driverName: { color: '#17251D', fontSize: 15, fontWeight: '900' },
-  availability: { color: '#13824B', fontSize: 12, fontWeight: '900' },
-  busyText: { color: '#8B5D14' },
+  driverName: { ...type.cardTitle, color: colors.text },
+  availability: { ...type.meta, color: colors.success },
+  busyText: { color: colors.warning },
   summary: { gap: 3, paddingVertical: 6 },
-  summaryLabel: { color: '#718078', fontSize: 11, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.8 },
-  summaryValue: { color: '#17251D', fontSize: 15, lineHeight: 20, fontWeight: '800' },
-  assignButton: { minHeight: 54, borderRadius: 12, backgroundColor: '#0A5A31', alignItems: 'center', justifyContent: 'center', marginTop: 4 },
-  assignText: { color: '#FFFFFF', fontWeight: '900', fontSize: 16 },
+  summaryLabel: { ...type.label, color: colors.textMuted, textTransform: 'uppercase' },
+  summaryValue: { ...type.bodyStrong, color: colors.text },
+  assignButton: { minHeight: 54, borderRadius: radius.md, backgroundColor: colors.actionPrimary, alignItems: 'center', justifyContent: 'center', marginTop: spacing.xs },
+  assignText: { ...type.button, color: colors.textInverse, fontSize: 16 },
   disabled: { opacity: 0.45 },
   permissionsLink: { minHeight: 44, alignItems: 'center', justifyContent: 'center' },
-  permissionsText: { color: '#0A5A31', fontWeight: '800' },
-  assignmentsPanel: { padding: 18, borderRadius: 18, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#DCE5DF', gap: 8 },
-  assignmentRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#E5EBE7' },
+  permissionsText: { ...type.button, color: colors.info },
+  assignmentsPanel: { padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, gap: spacing.sm },
+  assignmentRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.borderSubtle },
 });
 
