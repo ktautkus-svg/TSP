@@ -105,8 +105,18 @@ $secretsArg = ($allSecrets | ForEach-Object { "$($_)=$($_):latest" }) -join ','
 if ($LASTEXITCODE -ne 0) { throw 'Cloud Run deploy nepavyko. Aukščiau pateikta Google Cloud klaida nurodo blokuojantį veiksmą.' }
 
 $url = (& $gcloudExe run services describe $service --project $project --region $region --format='value(status.url)').Trim()
+$latestRevision = (& $gcloudExe run services describe $service --project $project --region $region --format='value(status.latestCreatedRevisionName)').Trim()
+if (-not $latestRevision) { throw 'Cloud Run negrąžino naujausios sukurtos revizijos.' }
+
+# Istorinės testavimo žymos gali palikti produkcinį srautą prisegtą prie senesnės
+# revizijos net ir po sėkmingo naujo image build. Publikavimas laikomas baigtu tik
+# aiškiai nukreipus 100 % pagrindinio URL srauto į ką tik sukurtą reviziją.
+& $gcloudExe run services update-traffic $service --project $project --region $region --to-revisions="$latestRevision=100" --quiet
+if ($LASTEXITCODE -ne 0) { throw 'Nepavyko nukreipti produkcinio srauto į naujausią Cloud Run reviziją.' }
+
 $health = Invoke-RestMethod -Uri "$url/health" -TimeoutSec 30
 if ($health.status -ne 'ok') { throw 'Cloud Run /health negrąžino status: ok.' }
 Write-Host "PWA HTTPS URL: $url"
 Write-Host "Health: $url/health"
+Write-Host "Aktyvi revizija: $latestRevision (100% produkcinio srauto)"
 Write-Host "Vienkartinio įrenginio rakto failas: $deviceSecretFile"
