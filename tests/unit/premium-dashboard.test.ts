@@ -56,9 +56,9 @@ describe('premium route dashboard', () => {
     expect(road).toContain('GERO POILSIO!');
     expect(road).toContain('<WeatherOverlay');
     expect(road).toContain('<TimeOfDayOverlay');
-    // Night must stay readable through glass: soft indigo, moon, not a blackout.
+    // Night stays readable through glass without decorative celestial objects.
     expect(road).toContain("timeOfDay === 'night'");
-    expect(road).toContain('moonGlow');
+    expect(road).not.toContain('moonGlow');
     expect(road).toContain('opacity: 0.52');
     expect(road).not.toContain('opacity: 0.93');
   });
@@ -70,13 +70,14 @@ describe('premium route dashboard', () => {
     expect(delivery).toContain('<RoadProgressBar');
     expect(delivery.indexOf('<RoadProgressBar')).toBeLessThan(delivery.indexOf('<InstrumentGauge'));
     expect(delivery).toContain('<InstrumentGauge');
-    // Needles climb with delivered totals while the wedge digits show the load
-    // still on board, so both gauges are fed the pair of values.
-    expect(delivery).toContain('value={progress.totalKnownWeightKg - progress.remainingKnownWeightKg}');
-    expect(delivery).toContain('remaining={progress.remainingKnownWeightKg}');
-    expect(delivery).toContain('unit="kg"');
+    // The instruments expose live operational values: delivery progress and
+    // remaining route distance, never invented vehicle telemetry.
+    expect(delivery).toContain('title="Progresas"');
     expect(delivery).toContain('value={progress.totalStops - progress.remainingStops}');
     expect(delivery).toContain('remaining={progress.remainingStops}');
+    expect(delivery).toContain('title="Likęs kelias"');
+    expect(delivery).toContain('remaining={progress.preliminaryRemainingDistanceKm ?? 0}');
+    expect(delivery).toContain('unit="km"');
     expect(delivery).toContain('styles.gaugeCenterStats');
     expect(delivery).toContain('IKI ARTIMIAUSIOS');
     expect(delivery).toContain('NAVIGUOTI');
@@ -87,7 +88,7 @@ describe('premium route dashboard', () => {
     expect(delivery).toContain('dashboard-failed-button');
     expect(delivery).toContain('ATLIKTA');
     expect(delivery).toContain('NEATLIKTA');
-    expect(delivery).toContain('UŽBAIGTI MARŠRUTĄ');
+    expect(delivery).toContain('PRISTATYMAI UŽBAIGTI');
     expect(delivery).toContain('dashboard-complete-route-button');
     expect(delivery).toContain('<RouteBottomTabs');
     expect(delivery).toContain('route-bottom-tabs');

@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-export const SCHEMA_VERSION = 17;
+export const SCHEMA_VERSION = 19;
 
 const migrationV1 = `
 PRAGMA journal_mode = WAL;
@@ -1035,6 +1035,60 @@ PRAGMA user_version = 17;
 COMMIT;
 `;
 
+// v18 was previously released from the operations branch. Keep its exact
+// version number and route-guard semantics so devices that already reached v18
+// can move forward without a downgrade or database reset.
+const migrationV18 = `
+BEGIN IMMEDIATE;
+
+DROP INDEX IF EXISTS one_active_route;
+CREATE UNIQUE INDEX one_active_route
+ON routes ((1))
+WHERE status IN ('draft','loading','loaded','in_progress');
+
+PRAGMA user_version = 18;
+COMMIT;
+`;
+
+// v17 had two independently released shapes. v19 gives both lines one
+// canonical route guard; missing return columns are added conditionally by
+// ensureRouteReturnColumns before this SQL is executed.
+const migrationV19 = `
+BEGIN IMMEDIATE;
+
+DROP INDEX IF EXISTS one_working_route;
+DROP INDEX IF EXISTS one_active_route;
+CREATE UNIQUE INDEX one_active_route
+ON routes ((1))
+WHERE status IN ('draft','loading','loaded','in_progress');
+
+PRAGMA user_version = 19;
+COMMIT;
+`;
+
+async function ensureRouteReturnColumns(db: SQLiteDatabase): Promise<void> {
+  const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(routes)');
+  const names = new Set(columns.map((column) => column.name));
+  if (
+    names.has('return_destination_kind')
+    && names.has('return_started_at')
+    && names.has('return_arrived_at')
+  ) return;
+
+  await db.withTransactionAsync(async () => {
+    if (!names.has('return_destination_kind')) {
+      await db.execAsync(`ALTER TABLE routes ADD COLUMN return_destination_kind TEXT
+        CHECK (return_destination_kind IS NULL OR return_destination_kind IN ('warehouse','home'));`);
+    }
+    if (!names.has('return_started_at')) {
+      await db.execAsync('ALTER TABLE routes ADD COLUMN return_started_at TEXT;');
+    }
+    if (!names.has('return_arrived_at')) {
+      await db.execAsync('ALTER TABLE routes ADD COLUMN return_arrived_at TEXT;');
+    }
+  });
+}
+
 export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
   await db.execAsync('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
 
@@ -1129,5 +1183,16 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
 
   if (currentVersion < 17) {
     await db.execAsync(migrationV17);
+    currentVersion = 17;
+  }
+
+  if (currentVersion < 18) {
+    await db.execAsync(migrationV18);
+    currentVersion = 18;
+  }
+
+  if (currentVersion < 19) {
+    await ensureRouteReturnColumns(db);
+    await db.execAsync(migrationV19);
   }
 }

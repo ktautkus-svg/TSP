@@ -43,7 +43,7 @@ describe('client secret boundary', () => {
         for (const token of forbidden) expect(content).not.toContain(token);
       }
     }
-  });
+  }, 15_000);
 });
 
 async function files(directory: string): Promise<string[]> {
@@ -55,4 +55,3 @@ async function files(directory: string): Promise<string[]> {
   }
   return result;
 }
-

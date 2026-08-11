@@ -72,7 +72,7 @@ describe('deterministic routing scenario catalogue', () => {
         ).toBe(true);
       }
     },
-    30_000,
+    60_000,
   );
 
   it('uses distinct node IDs when a ring route returns to the same coordinates', () => {

@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 
 import { CreateDraftRoute } from '../../src/application/routes/route-commands';
 import { ConfirmRouteReturnArrival, StartRouteReturn } from '../../src/application/routes/route-workday';
+import { migrateDatabase } from '../../src/database/migrations';
 
 class ExpoLikeDatabase {
   constructor(readonly raw = new DatabaseSync(':memory:')) {}
@@ -43,6 +44,31 @@ const endpoint = {
 };
 
 describe('several planned routes and durable return stage', () => {
+  it('repairs the previously released conflicting schema v18 without deleting data', async () => {
+    const adapter = new ExpoLikeDatabase();
+    for (let index = 1; index <= 16; index += 1) adapter.raw.exec(migration(index));
+    adapter.raw.exec(`
+      DROP INDEX IF EXISTS one_active_route;
+      CREATE UNIQUE INDEX one_active_route ON routes ((1))
+      WHERE status IN ('draft','loading','loaded','in_progress');
+      INSERT INTO app_preferences (key, value, updated_at)
+      VALUES ('migration-survivor', 'kept', '2026-08-11T00:00:00.000Z');
+      PRAGMA user_version = 18;
+    `);
+
+    await migrateDatabase(adapter as unknown as SQLiteDatabase);
+
+    expect(adapter.raw.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 19 });
+    const columns = adapter.raw.prepare('PRAGMA table_info(routes)').all().map((column) => String(column.name));
+    expect(columns).toEqual(expect.arrayContaining([
+      'return_destination_kind',
+      'return_started_at',
+      'return_arrived_at',
+    ]));
+    expect(adapter.raw.prepare("SELECT value FROM app_preferences WHERE key = 'migration-survivor'").get())
+      .toMatchObject({ value: 'kept' });
+  });
+
   it('keeps several planned routes but only one physically worked route', async () => {
     const { adapter, db } = database();
     await new CreateDraftRoute(db).execute({ id: 'route-one', startLocation: endpoint, endLocation: endpoint });
