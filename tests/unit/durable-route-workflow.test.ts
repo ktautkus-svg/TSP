@@ -61,9 +61,10 @@ function createDb(): { adapter: ExpoLikeDatabase; db: SQLiteDatabase } {
     resolve(dirname(fileURLToPath(import.meta.url)), '../../src/database/migrations.ts'),
     'utf8',
   );
-  for (const name of ['migrationV1', 'migrationV2', 'migrationV3', 'migrationV4', 'migrationV5', 'migrationV6', 'migrationV7', 'migrationV8', 'migrationV9', 'migrationV10', 'migrationV11']) {
-    const match = source.match(new RegExp(`const ${name} = \`([\\s\\S]*?)\`;`));
-    if (!match) throw new Error(`Missing ${name}`);
+  const schemaVersion = Number(source.match(/SCHEMA_VERSION = (\d+)/)![1]);
+  for (let version = 1; version <= schemaVersion; version += 1) {
+    const match = source.match(new RegExp(`const migrationV${version} = \`([\\s\\S]*?)\`;`));
+    if (!match) throw new Error(`Missing migrationV${version}`);
     adapter.raw.exec(match[1]);
   }
   return { adapter, db: adapter as unknown as SQLiteDatabase };
@@ -134,12 +135,33 @@ describe('durable route workflow', () => {
     expect(request.workdayEndAt).toBeUndefined();
   });
 
-  it('allows only one active route and permits a new one only after explicit cancellation', async () => {
+  it('allows only one blocking route and permits a new draft after planned deferral', async () => {
     const { db } = createDb();
     await draftWithStops(db);
     await expect(new CreateDraftRoute(db).execute({ id: 'route-2', startLocation: endpoint })).rejects.toMatchObject({ code: 'ACTIVE_ROUTE_EXISTS' });
     await new CancelDraftRoute(db).execute('route-1');
     await expect(new CreateDraftRoute(db).execute({ id: 'route-2', startLocation: endpoint })).resolves.toEqual({ routeId: 'route-2' });
+  });
+
+  it('allows creating a new draft while another route remains planned', async () => {
+    const { db } = createDb();
+    await draftWithStops(db);
+    const request = { ...createBaseRequest(2), routeId: 'route-1' };
+    const result = await new RoutingEngine(new SyntheticTravelCostProvider('linear')).optimize(request);
+    await new SQLiteRoutingAuditRepository(db).saveOptimizationRun('route-1', request, result);
+    await new SaveSelectedRouteCandidate(db).execute('route-1', result.requestId, result.recommended!.id);
+    expect(await new RouteRepository(db).getById('route-1')).toMatchObject({ status: 'planned' });
+    await expect(new CreateDraftRoute(db).execute({ id: 'route-2', startLocation: endpoint }))
+      .resolves.toEqual({ routeId: 'route-2' });
+    expect(await new RouteRepository(db).getBlockingRoute()).toMatchObject({ id: 'route-2', status: 'draft' });
+    expect(await new RouteRepository(db).getActive()).toMatchObject({ id: 'route-2', status: 'draft' });
+  });
+
+  it('still blocks creation while a draft exists', async () => {
+    const { db } = createDb();
+    await draftWithStops(db);
+    await expect(new CreateDraftRoute(db).execute({ id: 'route-2', startLocation: endpoint }))
+      .rejects.toMatchObject({ code: 'ACTIVE_ROUTE_EXISTS' });
   });
 
   it('edits, reorders and deletes draft stops transactionally', async () => {

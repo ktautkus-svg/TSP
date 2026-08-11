@@ -41,7 +41,7 @@ describe('stop service time', () => {
 
   it('backfills pending stops with a migration that never changes', () => {
     const migrations = source('src/database/migrations.ts');
-    expect(migrations).toContain('SCHEMA_VERSION = 17');
+    expect(migrations).toContain('SCHEMA_VERSION = 18');
     expect(migrations).toContain('PRAGMA user_version = 14');
     expect(migrations).toContain("WHERE delivery_status = 'pending'");
     // A migration must not read live tuning constants.

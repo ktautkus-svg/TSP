@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-export const SCHEMA_VERSION = 17;
+export const SCHEMA_VERSION = 18;
 
 const migrationV1 = `
 PRAGMA journal_mode = WAL;
@@ -1049,6 +1049,20 @@ PRAGMA user_version = 17;
 COMMIT;
 `;
 
+// v18 lets deferred `planned` routes coexist with a new draft. Creation still
+// blocks on draft|loading|loaded|in_progress via getBlockingRoute + this index.
+const migrationV18 = `
+BEGIN IMMEDIATE;
+
+DROP INDEX IF EXISTS one_active_route;
+CREATE UNIQUE INDEX one_active_route
+ON routes ((1))
+WHERE status IN ('draft','loading','loaded','in_progress');
+
+PRAGMA user_version = 18;
+COMMIT;
+`;
+
 export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
   await db.execAsync('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
 
@@ -1143,5 +1157,10 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
 
   if (currentVersion < 17) {
     await db.execAsync(migrationV17);
+    currentVersion = 17;
+  }
+
+  if (currentVersion < 18) {
+    await db.execAsync(migrationV18);
   }
 }

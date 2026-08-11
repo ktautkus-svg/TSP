@@ -178,8 +178,8 @@ export class CreateDraftRoute extends RouteCommandBase {
               return;
             }
           }
-          const active = await this.routes.getActive();
-          if (active) throw activeRouteError(active);
+          const blocking = await this.routes.getBlockingRoute();
+          if (blocking) throw activeRouteError(blocking);
           await insertDraftRoute(this.db, routeId, input, now);
           if (input.importSource) await insertImportSource(this.db, routeId, input.importSource, now, this.idFactory);
           if (input.sourceImportAuditId) {
@@ -206,7 +206,7 @@ export class CreateDraftRoute extends RouteCommandBase {
         });
       } catch (error) {
         if (String(error).includes('one_active_route')) {
-          const winner = await this.routes.getActive();
+          const winner = await this.routes.getBlockingRoute();
           if (winner) throw activeRouteError(winner);
         }
         throw error;
@@ -261,11 +261,11 @@ export class CreateDraftRouteWithStops extends RouteCommandBase {
             return;
           }
 
-          const active = await this.routes.getActive();
-          const recoverable = active ? await isRecoverableIncompleteDraft(this.db, active, input) : false;
-          const routeId = recoverable ? active!.id : generatedRouteId;
+          const blocking = await this.routes.getBlockingRoute();
+          const recoverable = blocking ? await isRecoverableIncompleteDraft(this.db, blocking, input) : false;
+          const routeId = recoverable ? blocking!.id : generatedRouteId;
           result = { ...result, routeId, recoveredIncompleteDraft: recoverable };
-          if (active && !recoverable) throw activeRouteError(active);
+          if (blocking && !recoverable) throw activeRouteError(blocking);
 
           if (!recoverable) {
             await insertDraftRoute(this.db, routeId, input, now);
@@ -642,6 +642,37 @@ export class ReopenRouteForPlanning extends RouteCommandBase {
       );
       await this.audit(routeId, 'route_reopened_for_planning', { status: route.status }, { status: 'draft' });
     });
+  }
+}
+
+/** Returns a loading/loaded route to planned without clearing stop loading marks. */
+export class DeferRouteForLater extends RouteCommandBase {
+  async execute(routeId: string): Promise<{ idempotent: boolean }> {
+    const route = await this.requireRoute(routeId);
+    if (route.status === 'planned') return { idempotent: true };
+    if (!['loading', 'loaded'].includes(route.status)) {
+      throw new RouteCommandError(
+        'INVALID_ROUTE_STATE',
+        'Atidėti galima tik krovimo arba paruošto maršruto būsenoje.',
+        { routeId, status: route.status },
+      );
+    }
+    assertRouteTransition(route.status, 'planned');
+    const now = this.clock();
+    await this.db.withTransactionAsync(async () => {
+      await this.db.runAsync(
+        `UPDATE routes SET status = 'planned', updated_at = ? WHERE id = ? AND status IN ('loading', 'loaded')`,
+        now,
+        routeId,
+      );
+      await this.audit(
+        routeId,
+        'route_deferred_for_later',
+        { status: route.status },
+        { status: 'planned' },
+      );
+    });
+    return { idempotent: false };
   }
 }
 

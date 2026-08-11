@@ -199,14 +199,41 @@ function mapStop(row: DeliveryStopRow): DeliveryStop {
   };
 }
 
+const BLOCKING_ROUTE_STATUSES = `('draft','loading','loaded','in_progress')`;
+const OPERATIONAL_ROUTE_STATUSES = `('planned','loading','loaded','in_progress','draft')`;
+
 export class RouteRepository {
   constructor(private readonly db: SQLiteDatabase) {}
 
+  /** Route that blocks creating a new draft (operational work in progress). */
+  async getBlockingRoute(): Promise<Route | null> {
+    const row = await this.db.getFirstAsync<RouteRow>(
+      `SELECT * FROM routes
+       WHERE status IN ${BLOCKING_ROUTE_STATUSES}
+       ORDER BY updated_at DESC LIMIT 1`,
+    );
+    return row ? mapRoute(row) : null;
+  }
+
+  /**
+   * Home restore preference: in_progress > loaded > loading > draft > planned,
+   * newest (updated_at) within the highest present priority.
+   */
   async getActive(): Promise<Route | null> {
     const row = await this.db.getFirstAsync<RouteRow>(
       `SELECT * FROM routes
        WHERE status NOT IN ('completed', 'cancelled')
-       ORDER BY created_at DESC LIMIT 1`,
+       ORDER BY
+         CASE status
+           WHEN 'in_progress' THEN 0
+           WHEN 'loaded' THEN 1
+           WHEN 'loading' THEN 2
+           WHEN 'draft' THEN 3
+           WHEN 'planned' THEN 4
+           ELSE 5
+         END,
+         updated_at DESC
+       LIMIT 1`,
     );
     return row ? mapRoute(row) : null;
   }
@@ -241,6 +268,16 @@ export class RouteRepository {
       `SELECT * FROM routes
        WHERE status IN ('completed', 'cancelled')
        ORDER BY COALESCE(completed_at, cancelled_at, created_at) DESC LIMIT ?`,
+      limit,
+    );
+    return rows.map(mapRoute);
+  }
+
+  async listOperational(limit = 50): Promise<Route[]> {
+    const rows = await this.db.getAllAsync<RouteRow>(
+      `SELECT * FROM routes
+       WHERE status IN ${OPERATIONAL_ROUTE_STATUSES}
+       ORDER BY updated_at DESC LIMIT ?`,
       limit,
     );
     return rows.map(mapRoute);

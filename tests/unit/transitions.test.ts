@@ -22,8 +22,9 @@ describe('route transitions', () => {
     expect(() => assertRouteTransition('completed', 'in_progress')).toThrow();
   });
 
-  it('does not silently skip or reverse required workday states', () => {
-    expect(canTransitionRoute('loading', 'planned')).toBe(false);
+  it('does not silently skip required workday states, but allows defer back to planned', () => {
+    expect(canTransitionRoute('loading', 'planned')).toBe(true);
+    expect(canTransitionRoute('loaded', 'planned')).toBe(true);
     expect(canTransitionRoute('loaded', 'loading')).toBe(false);
     expect(canTransitionRoute('draft', 'cancelled')).toBe(true);
     expect(canTransitionRoute('loading', 'cancelled')).toBe(true);

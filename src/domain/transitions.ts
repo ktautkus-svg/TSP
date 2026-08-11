@@ -5,8 +5,9 @@ const routeTransitions: Record<RouteStatus, readonly RouteStatus[]> = {
   // 'draft' here lets the user reopen planning to pick a different route alternative
   // before loading starts (ReopenRouteForPlanning).
   planned: ['loading', 'draft', 'cancelled'],
-  loading: ['loaded', 'draft', 'cancelled'],
-  loaded: ['in_progress', 'cancelled'],
+  // 'planned' lets the driver defer loading/loaded work and resume later without cancelling.
+  loading: ['loaded', 'draft', 'cancelled', 'planned'],
+  loaded: ['in_progress', 'cancelled', 'planned'],
   in_progress: ['completed', 'cancelled'],
   completed: [],
   cancelled: [],

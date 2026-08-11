@@ -5,7 +5,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 
-import { ActivateRoute, CancelDraftRoute, ReopenRouteForPlanning } from '@/application/routes/route-commands';
+import { ActivateRoute, CancelDraftRoute, DeferRouteForLater, ReopenRouteForPlanning } from '@/application/routes/route-commands';
 import { resolveRoute } from '@/application/routes/route-navigation';
 import {
   GetLatestUndoableAction,
@@ -58,7 +58,6 @@ export default function LoadingScreen() {
   const [notLoadedReason, setNotLoadedReason] = useState<LoadingFailureReason>('Atšauktas užsakymas');
   const [odometerModalVisible, setOdometerModalVisible] = useState(false);
   const bulkInFlight = useRef(false);
-  const odometerPrompted = useRef(false);
   // See alternatives.tsx: suppresses this screen's own status guard while a
   // deliberate cancel is navigating away, so it cannot redirect to /history.
   const selfCancelled = useRef(false);
@@ -87,10 +86,6 @@ export default function LoadingScreen() {
         const destination = resolveRoute(refreshed.route);
         router.replace({ pathname: destination.pathname, params: destination.params } as Href);
         return;
-      }
-      if (refreshed.route.status === 'loaded' && !odometerPrompted.current) {
-        odometerPrompted.current = true;
-        setOdometerModalVisible(true);
       }
       setRoute(refreshed.route);
       setStops(await repository.getStops(routeId, 'loading'));
@@ -331,6 +326,44 @@ export default function LoadingScreen() {
     );
   };
 
+  const deferPlannedRoute = () => {
+    if (bulkInFlight.current) return;
+    selfCancelled.current = true;
+    router.replace('/' as Href);
+  };
+
+  const deferLoadedRoute = () => {
+    if (bulkInFlight.current) return;
+    Alert.alert(
+      'Atidėti maršrutą?',
+      'Maršrutas grįš į suplanuotą būseną. Pakrovimo pažymos išliks. Galėsite tęsti vėliau arba kurti naują maršrutą.',
+      [
+        { text: 'Ne', style: 'cancel' },
+        {
+          text: 'Taip, atidėti',
+          onPress: () => {
+            bulkInFlight.current = true;
+            selfCancelled.current = true;
+            setBulkBusy(true);
+            void new DeferRouteForLater(db).execute(routeId)
+              .then(() => {
+                void requestSync('mutation');
+                router.replace('/' as Href);
+              })
+              .catch((reason) => {
+                selfCancelled.current = false;
+                Alert.alert('Nepavyko atidėti', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
+              })
+              .finally(() => {
+                bulkInFlight.current = false;
+                setBulkBusy(false);
+              });
+          },
+        },
+      ],
+    );
+  };
+
   if (!busy && route?.status === 'planned') {
     return (
       <FoundationScreen
@@ -357,6 +390,9 @@ export default function LoadingScreen() {
             <TruckIcon size={22} color="#FFFFFF" />
             <Text style={styles.plannedPrimaryText}>Pradėti krovimą</Text>
           </>}
+        </Pressable>
+        <Pressable disabled={bulkBusy} style={[styles.plannedSecondaryButton, bulkBusy && styles.disabled]} onPress={deferPlannedRoute} testID="defer-planned-route">
+          <Text style={styles.plannedSecondaryText}>Atidėti · Į pradžią</Text>
         </Pressable>
         {profile.role !== 'driver' || profile.permissions?.canReorderAssignedRoute ? <Pressable disabled={bulkBusy} style={[styles.plannedSecondaryButton, bulkBusy && styles.disabled]} onPress={() => { void editPlannedRoute(); }} testID="edit-planned-route">
           <PencilIcon size={19} color={colors.brandNavy} />
@@ -413,9 +449,18 @@ export default function LoadingScreen() {
         )
       ) : null}
       {route?.status === 'loaded' ? (
-        <Pressable style={styles.primaryButton} onPress={() => setOdometerModalVisible(true)} testID="open-start-odometer">
-          <Text style={styles.primaryText}>{route.startOdometer === null ? 'Įvesti odometrą ir pradėti' : 'Pradėti maršrutą'}</Text>
-        </Pressable>
+        <View style={styles.loadedActions} testID="loaded-route-actions">
+          <Pressable style={styles.primaryButton} onPress={() => setOdometerModalVisible(true)} testID="open-start-odometer">
+            <Text style={styles.primaryText}>Pradėti maršrutą</Text>
+          </Pressable>
+          <Pressable
+            disabled={bulkBusy}
+            style={[styles.plannedSecondaryButton, bulkBusy && styles.disabled]}
+            onPress={deferLoadedRoute}
+            testID="defer-loaded-route">
+            <Text style={styles.plannedSecondaryText}>Atidėti</Text>
+          </Pressable>
+        </View>
       ) : null}
       {stops.length > 1 && (profile.role !== 'driver' || profile.permissions?.canReorderAssignedRoute) ? (
         <Pressable style={styles.reverseButton} onPress={reverseDirection}>
@@ -623,6 +668,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     paddingHorizontal: spacing.md,
   },
   allLoadedText: { ...type.button, color: colors.success, fontSize: 16, textAlign: 'center' },
+  loadedActions: { gap: spacing.sm },
   card: {
     padding: spacing.md,
     paddingLeft: spacing.md + 6,
