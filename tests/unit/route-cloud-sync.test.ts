@@ -434,6 +434,10 @@ class InMemoryRouteCloud {
 
   async fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
     const url = new URL(String(input), 'https://tsp.test');
+    // Every sync pass resolves its employee from the authenticated session
+    // before touching route data, so the fake answers it exactly like the real
+    // server does — without it no device can establish ownership at all.
+    if (url.pathname === '/api/auth/me') return Response.json({ profile });
     if (init?.method === 'POST') {
       const body = JSON.parse(String(init.body)) as {
         routes: Array<{ routeSnapshot: InMemoryRouteCloud['routes'] extends Map<string, infer T> ? T extends { routeSnapshot: infer S } ? S : never : never; deleted: boolean }>;

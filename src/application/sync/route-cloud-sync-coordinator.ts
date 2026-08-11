@@ -10,6 +10,7 @@ export type RouteCloudSyncState = {
 export type RouteCloudSyncTrigger =
   | 'startup'
   | 'home-focus'
+  | 'dispatcher-refresh'
   | 'foreground'
   | 'window-focus'
   | 'network-restored'

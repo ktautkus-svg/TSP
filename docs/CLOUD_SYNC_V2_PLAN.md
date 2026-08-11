@@ -1179,11 +1179,31 @@ Not verified: two physical devices. Phase 0 changes what happens on a real
 account switch and on a real trip-sheet device, and unit tests cannot prove the
 two-device behaviour that validated v1 in the first place (§11.4).
 
-### 16.4 Integration note
+### 16.4 Integration with the event-driven sync UX
 
-`agent/codex-sync-ux` holds event-driven sync UX for the same feature. The
-overlapping files are `src/application/sync/route-cloud-sync.ts` (this branch
-rewrote its internals; the exported `syncRoutesWithCloud(db)` signature is
-unchanged, and `RouteCloudSyncResult` gained `deleted`, `rejected` and
-`foreign`) and `src/app/dispatcher.tsx` (one added call, isolated in its own
-commit so it can be dropped if that branch adds its own trigger).
+`agent/codex-sync-ux` was merged on top of Phase 0 in `agent/integration-sync`.
+Both merges were textually clean; the reconciliation that was required is
+recorded here.
+
+- **Trigger ownership moved to the coordinator.** `RouteCloudSyncProvider`
+  wraps the whole navigation stack inside `LocalAccessGate`, so its startup,
+  foreground, window-focus, network-restored and mutation triggers are
+  role-agnostic and already cover dispatchers — the gap §14.8 described. The
+  dispatcher-specific `syncRoutesWithCloud` call was therefore removed: keeping
+  it would have run a second pass concurrently with a lifecycle one, outside the
+  coordinator's serialisation and invisible to the status indicator. The
+  workspace refresh now requests `'dispatcher-refresh'` through the coordinator,
+  which preserves the fix without the duplication.
+- **The engine itself is untouched by the merge.** The coordinator calls
+  `syncRoutesWithCloud(db)` and ignores its return value, so every Phase 0
+  guarantee — ownership claiming, per-account cursors, non-destructive apply,
+  tombstones, deferrals, bad-record isolation — survives the UX layer unchanged.
+- **Semantic conflict found by the merged tests:** the in-memory cloud fake did
+  not serve `/api/auth/me`, which Phase 0 made the first call of every pass. The
+  fake now answers it like the real server, rather than the engine being
+  loosened to tolerate a missing identity.
+- **Known gap, not a regression:** `RouteCloudSyncResult.foreign`, `.rejected`
+  and `.deferred` are computed but never surfaced, because the coordinator's
+  `sync` callback is typed `() => Promise<unknown>`. Routes held back because
+  they belong to another account, or rejected as unsyncable, are therefore
+  invisible in the UI. Worth wiring into `CloudSyncStatus` in a follow-up.
