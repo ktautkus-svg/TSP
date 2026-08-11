@@ -370,6 +370,81 @@ describe('H. deletion / tombstone propagation', () => {
   });
 });
 
+describe('I. bad records are isolated, not fatal', () => {
+  it('pushes the good routes of a mixed batch and reports the rejected one', async () => {
+    await saveEmployeeSession({ profile: driverA, expiresAt: '2099-01-01T00:00:00.000Z' });
+    const { adapter, db } = createDb();
+    insertRoute(adapter, { id: 'route-good', owner: 'employee-a' });
+    insertRoute(adapter, { id: 'route-bad', owner: 'employee-a' });
+
+    const cloud = stubCloud({
+      serverProfile: driverA,
+      onPush: (routes) => routes.map((route) => (route.routeSnapshot.route.id === 'route-bad'
+        ? { routeId: 'route-bad', outcome: 'rejected', reason: 'Maršruto duomenys nepilni.' }
+        : { routeId: route.routeSnapshot.route.id, outcome: 'applied' })),
+      pull: { routes: [], cursor: '2026-08-11T12:00:00.000Z' },
+    });
+
+    const result = await syncRoutesWithCloud(db);
+
+    expect(result.pushed).toBe(1);
+    expect(result.rejected).toBe(1);
+    // The pass completed: the pull ran despite the bad record.
+    expect(cloud.pullSince).toEqual([null]);
+    const good = adapter.raw.prepare('SELECT cloud_synced_at FROM routes WHERE id = ?').get('route-good') as { cloud_synced_at: string | null };
+    const bad = adapter.raw.prepare('SELECT cloud_synced_at FROM routes WHERE id = ?').get('route-bad') as { cloud_synced_at: string | null };
+    expect(good.cloud_synced_at).not.toBeNull();
+    expect(bad.cloud_synced_at).toBeNull();
+  });
+
+  it('does not let a zero-stop route stop the rest of the sync pass', async () => {
+    await saveEmployeeSession({ profile: driverA, expiresAt: '2099-01-01T00:00:00.000Z' });
+    const { adapter, db } = createDb();
+    insertRoute(adapter, { id: 'route-good', owner: 'employee-a' });
+    insertRoute(adapter, { id: 'route-empty', owner: 'employee-a' });
+    adapter.raw.prepare('DELETE FROM delivery_stops WHERE route_id = ?').run('route-empty');
+
+    const cloud = stubCloud({ serverProfile: driverA, pull: { routes: [], cursor: '2026-08-11T12:00:00.000Z' } });
+    const result = await syncRoutesWithCloud(db);
+
+    expect(cloud.pushed[0]?.map((route) => route.routeSnapshot.route.id)).toEqual(['route-good']);
+    expect(result.rejected).toBe(1);
+    expect(result.pushed).toBe(1);
+    expect(cloud.pullSince).toEqual([null]);
+    // Still local, still dirty: it uploads as soon as it has stops again.
+    expect(adapter.raw.prepare('SELECT cloud_synced_at FROM routes WHERE id = ?').get('route-empty')).toMatchObject({ cloud_synced_at: null });
+  });
+
+  it('J. repeated sync is idempotent', async () => {
+    await saveEmployeeSession({ profile: driverA, expiresAt: '2099-01-01T00:00:00.000Z' });
+    const { adapter, db } = createDb();
+    insertRoute(adapter, { id: 'route-good', owner: 'employee-a' });
+    const remote = {
+      routeSnapshot: {
+        route: { id: 'route-remote', date: '2026-08-11', status: 'completed', total_stops: 1, created_at: '2026-08-11T07:00:00.000Z', updated_at: '2026-08-11T07:00:00.000Z' },
+        stops: [{ id: 'route-remote-stop-1', route_id: 'route-remote', original_order: 1, recipient: 'G', address: 'A', created_at: '2026-08-11T07:00:00.000Z', updated_at: '2026-08-11T07:00:00.000Z' }],
+        shipmentLines: [],
+      },
+      deleted: false,
+      serverUpdatedAt: '2026-08-11T07:00:01.000Z',
+    };
+    const cloud = stubCloud({
+      serverProfile: driverA,
+      pull: (since) => (since ? { routes: [], cursor: '2026-08-11T12:00:00.000Z' } : { routes: [remote], cursor: '2026-08-11T07:00:01.000Z' }),
+    });
+
+    await syncRoutesWithCloud(db);
+    const second = await syncRoutesWithCloud(db);
+    const third = await syncRoutesWithCloud(db);
+
+    expect(second).toMatchObject({ pushed: 0, pulled: 0, conflicts: 0, rejected: 0, deleted: 0, deferred: 0 });
+    expect(third).toMatchObject({ pushed: 0, pulled: 0 });
+    expect(cloud.pushed).toHaveLength(1);
+    expect(adapter.raw.prepare('SELECT count(*) AS count FROM routes').get()).toMatchObject({ count: 2 });
+    expect(adapter.raw.prepare('SELECT count(*) AS count FROM delivery_stops').get()).toMatchObject({ count: 2 });
+  });
+});
+
 describe('F. per-account sync cursor', () => {
   it('keeps a separate cursor per employee so one account cannot suppress the other', async () => {
     const { adapter, db } = createDb();

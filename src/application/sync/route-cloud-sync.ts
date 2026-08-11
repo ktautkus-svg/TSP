@@ -10,7 +10,8 @@ type RouteSyncPushItem = { routeSnapshot: RouteSnapshot; deleted: boolean };
 type RouteSyncPushResult =
   | { routeId: string; outcome: 'applied' }
   | { routeId: string; outcome: 'conflict'; routeSnapshot: RouteSnapshot; deleted: boolean }
-  | { routeId: string; outcome: 'forbidden' };
+  | { routeId: string; outcome: 'forbidden' }
+  | { routeId: string; outcome: 'rejected'; reason: string };
 type RouteSyncPulledRoute = { routeSnapshot: RouteSnapshot; deleted: boolean; serverUpdatedAt: string };
 
 export type RouteCloudSyncResult = {
@@ -20,6 +21,8 @@ export type RouteCloudSyncResult = {
   deferred: number;
   /** Routes removed locally because they were deleted on another device. */
   deleted: number;
+  /** Routes the server or this device could not turn into a valid snapshot. */
+  rejected: number;
   /** Local routes owned by a different account, deliberately never uploaded. */
   foreign: number;
 };
@@ -68,6 +71,7 @@ export async function syncRoutesWithCloud(db: SQLiteDatabase): Promise<RouteClou
   return {
     pushed: pushOutcome.pushed,
     conflicts: pushOutcome.conflicts,
+    rejected: pushOutcome.rejected,
     foreign: pushOutcome.foreign,
     pulled: pullOutcome.pulled,
     deferred: pullOutcome.deferred,
@@ -123,7 +127,7 @@ async function claimUnownedRoutes(db: SQLiteDatabase, employeeId: string): Promi
   );
 }
 
-async function pushDirtyRoutes(db: SQLiteDatabase, employeeId: string): Promise<{ pushed: number; conflicts: number; deleted: number; foreign: number }> {
+async function pushDirtyRoutes(db: SQLiteDatabase, employeeId: string): Promise<{ pushed: number; conflicts: number; deleted: number; rejected: number; foreign: number }> {
   const foreignRow = await db.getFirstAsync<{ count: number }>(
     `SELECT count(*) AS count FROM routes
      WHERE owner_employee_id IS NULL OR owner_employee_id <> ?`,
@@ -136,12 +140,25 @@ async function pushDirtyRoutes(db: SQLiteDatabase, employeeId: string): Promise<
      WHERE owner_employee_id = ? AND (cloud_synced_at IS NULL OR updated_at > cloud_synced_at)`,
     employeeId,
   );
-  if (dirty.length === 0) return { pushed: 0, conflicts: 0, deleted: 0, foreign };
+  if (dirty.length === 0) return { pushed: 0, conflicts: 0, deleted: 0, rejected: 0, foreign };
 
   const items: RouteSyncPushItem[] = [];
+  let rejected = 0;
   for (const row of dirty) {
-    const routeSnapshot = await exportRouteSnapshot(db, row.id);
-    items.push({ routeSnapshot, deleted: Boolean(row.cloud_deleted_at) });
+    try {
+      const routeSnapshot = await exportRouteSnapshot(db, row.id);
+      // The server requires at least one stop. Sending a route that can only be
+      // rejected wastes a round trip, and before per-item isolation existed it
+      // cost the client its whole sync pass; the route simply stays dirty and
+      // goes up as soon as it has stops again.
+      if (routeSnapshot.stops.length === 0) {
+        rejected += 1;
+        continue;
+      }
+      items.push({ routeSnapshot, deleted: Boolean(row.cloud_deleted_at) });
+    } catch {
+      rejected += 1;
+    }
   }
 
   const response = await employeeApi<{ results: RouteSyncPushResult[] }>('/api/route-sync', {
@@ -176,12 +193,16 @@ async function pushDirtyRoutes(db: SQLiteDatabase, employeeId: string): Promise<
         await applyRouteSnapshot(db, result.routeSnapshot, cloudSyncedAt, employeeId);
       }
       conflicts += 1;
+    } else if (result.outcome === 'rejected') {
+      // Isolated and reported, not fatal: the route stays dirty and is retried
+      // once whatever made it unsyncable is fixed.
+      rejected += 1;
     }
     // 'forbidden' should not occur for a route this account owns; left pending
     // (cloud_synced_at untouched) so it surfaces on the next sync rather than
     // being silently dropped.
   }
-  return { pushed, conflicts, deleted, foreign };
+  return { pushed, conflicts, deleted, rejected, foreign };
 }
 
 /**
