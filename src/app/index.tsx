@@ -20,6 +20,7 @@ import { formatWeightKg } from '@/ui/format-weight';
 import { Alert } from '@/ui/alert';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { pullAssignedRoutes, pushRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
+import { syncRoutesWithCloud } from '@/application/sync/route-cloud-sync';
 
 let initialActiveRouteRestoreHandled = false;
 
@@ -61,6 +62,9 @@ export default function HomeScreen() {
     void (async () => {
       try {
         if (online && profile.role === 'driver') await pullAssignedRoutes(db, profile);
+        if (online) await syncRoutesWithCloud(db).catch((reason) => {
+          if (__DEV__) console.warn('ROUTE_CLOUD_SYNC_FAILED', reason);
+        });
         const route = await repository.getActive();
         const nextProgress = route ? await new GetRouteProgress(db).execute(route.id) : null;
         if (online && route) void pushRouteAssignmentProgress(db, route.id).catch(() => undefined);

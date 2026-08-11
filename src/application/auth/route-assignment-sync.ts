@@ -20,7 +20,31 @@ export async function exportRouteSnapshot(db: SQLiteDatabase, routeId: string): 
     'SELECT * FROM shipment_lines WHERE route_id = ? ORDER BY created_at, id',
     routeId,
   );
-  return { route: { ...route, vehicle_id: null }, stops, shipmentLines };
+  return {
+    route: { ...route, vehicle_id: null, cloud_synced_at: null, cloud_deleted_at: null },
+    stops,
+    shipmentLines,
+  };
+}
+
+/**
+ * Replaces a route's local snapshot (route + stops + shipment lines) in one
+ * transaction and stamps the device's own cloud-sync bookkeeping columns —
+ * used for applying a snapshot pulled from another device, as opposed to
+ * `importAssignmentSnapshot`'s insert-only first download.
+ */
+export async function applyRouteSnapshot(db: SQLiteDatabase, snapshot: RouteSnapshot, cloudSyncedAt: string): Promise<void> {
+  validateSnapshot(snapshot);
+  const routeId = String(snapshot.route.id ?? '');
+  if (!routeId) throw new Error('Maršruto ID nenurodytas.');
+  await db.withTransactionAsync(async () => {
+    await db.runAsync('DELETE FROM shipment_lines WHERE route_id = ?', routeId);
+    await db.runAsync('DELETE FROM delivery_stops WHERE route_id = ?', routeId);
+    await db.runAsync('DELETE FROM routes WHERE id = ?', routeId);
+    await insertRow(db, 'routes', { ...snapshot.route, id: routeId, cloud_synced_at: cloudSyncedAt, cloud_deleted_at: null });
+    for (const stop of snapshot.stops) await insertRow(db, SNAPSHOT_TABLES[1], stop);
+    for (const line of snapshot.shipmentLines) await insertRow(db, SNAPSHOT_TABLES[2], line);
+  });
 }
 
 export async function pullAssignedRoutes(db: SQLiteDatabase, profile: EmployeeProfile): Promise<{ imported: number; skipped: number }> {
@@ -102,7 +126,7 @@ export async function importAssignmentSnapshot(db: SQLiteDatabase, assignment: S
   });
 }
 
-async function insertRow(db: SQLiteDatabase, table: typeof SNAPSHOT_TABLES[number], row: Record<string, unknown>): Promise<void> {
+export async function insertRow(db: SQLiteDatabase, table: typeof SNAPSHOT_TABLES[number], row: Record<string, unknown>): Promise<void> {
   const columns = Object.keys(row);
   if (columns.length === 0) throw new Error(`Tuščias ${table} įrašas.`);
   if (columns.some((column) => !/^[a-z][a-z0-9_]*$/.test(column))) throw new Error('Neleistinas duomenų laukas.');
