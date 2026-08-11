@@ -192,12 +192,15 @@ export class EmployeeAuthStore {
     if (!driver || driver.disabled || driver.role !== 'driver') {
       throw new EmployeeApiError('DRIVER_NOT_FOUND', 'Aktyvus vairuotojas nerastas.', 404);
     }
-    const existing = await this.assignments.where('driverId', '==', driver.id).get();
-    if (existing.docs.some((doc) => ['assigned', 'downloaded', 'in_progress'].includes(String(doc.data().status)))) {
-      throw new EmployeeApiError('DRIVER_HAS_ACTIVE_ROUTE', 'Vairuotojas jau turi aktyvų maršrutą.', 409);
-    }
     const routeId = String(input.routeSnapshot.route.id ?? '');
     if (!routeId) throw new EmployeeApiError('INVALID_ROUTE', 'Maršruto ID nenurodytas.', 400);
+    const existing = await this.assignments.where('driverId', '==', driver.id).get();
+    if (existing.docs.some((doc) => {
+      const assignment = doc.data() as RouteAssignment;
+      return assignment.routeId === routeId && !['completed', 'cancelled'].includes(assignment.status);
+    })) {
+      throw new EmployeeApiError('ROUTE_ALREADY_ASSIGNED', 'Šis maršrutas vairuotojui jau priskirtas.', 409);
+    }
     const now = new Date().toISOString();
     const assignment: RouteAssignment = {
       id: randomUUID(),
@@ -345,7 +348,7 @@ function validateDisplayName(value: string): string {
 }
 
 function validatePin(pin: string): void {
-  if (!/^\d{6,8}$/.test(pin)) throw new EmployeeApiError('INVALID_PIN', 'Serverio PIN turi būti 6–8 skaitmenų.', 400);
+  if (!/^\d{4,8}$/.test(pin)) throw new EmployeeApiError('INVALID_PIN', 'Serverio PIN turi būti 4–8 skaitmenų.', 400);
 }
 
 function hashToken(token: string): string {

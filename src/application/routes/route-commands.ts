@@ -178,8 +178,11 @@ export class CreateDraftRoute extends RouteCommandBase {
               return;
             }
           }
-          const active = await this.routes.getActive();
-          if (active) throw activeRouteError(active);
+          const draftRow = await this.db.getFirstAsync<{ id: string }>(
+            "SELECT id FROM routes WHERE status = 'draft' ORDER BY created_at DESC LIMIT 1",
+          );
+          const draft = draftRow ? await this.routes.getById(draftRow.id) : null;
+          if (draft) throw activeRouteError(draft);
           await insertDraftRoute(this.db, routeId, input, now);
           if (input.importSource) await insertImportSource(this.db, routeId, input.importSource, now, this.idFactory);
           if (input.sourceImportAuditId) {
@@ -261,7 +264,10 @@ export class CreateDraftRouteWithStops extends RouteCommandBase {
             return;
           }
 
-          const active = await this.routes.getActive();
+          const draftRow = await this.db.getFirstAsync<{ id: string }>(
+            "SELECT id FROM routes WHERE status = 'draft' ORDER BY created_at DESC LIMIT 1",
+          );
+          const active = draftRow ? await this.routes.getById(draftRow.id) : null;
           const recoverable = active ? await isRecoverableIncompleteDraft(this.db, active, input) : false;
           const routeId = recoverable ? active!.id : generatedRouteId;
           result = { ...result, routeId, recoveredIncompleteDraft: recoverable };

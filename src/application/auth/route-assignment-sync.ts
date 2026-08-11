@@ -115,13 +115,6 @@ export async function pullAssignedRoutes(db: SQLiteDatabase, profile: EmployeePr
       skipped += 1;
       continue;
     }
-    const active = await db.getFirstAsync<{ id: string }>(
-      "SELECT id FROM routes WHERE status NOT IN ('completed','cancelled') LIMIT 1",
-    );
-    if (active && active.id !== assignment.routeId) {
-      skipped += 1;
-      continue;
-    }
     await importAssignmentSnapshot(db, assignment, profile.id);
     await employeeApi<void>(`/api/assignments/${encodeURIComponent(assignment.id)}/downloaded`, { method: 'POST' });
     imported += 1;
@@ -162,10 +155,18 @@ export async function importAssignmentSnapshot(db: SQLiteDatabase, assignment: S
   await db.withTransactionAsync(async () => {
     const existingRoute = await db.getFirstAsync<{ id: string }>('SELECT id FROM routes WHERE id = ?', assignment.routeId);
     if (!existingRoute) {
-      await insertRow(db, SNAPSHOT_TABLES[0], assignment.routeSnapshot.route);
+      await insertRow(db, SNAPSHOT_TABLES[0], {
+        ...assignment.routeSnapshot.route,
+        owner_employee_id: employeeId,
+      });
       for (const stop of assignment.routeSnapshot.stops) await insertRow(db, SNAPSHOT_TABLES[1], stop);
       for (const line of assignment.routeSnapshot.shipmentLines) await insertRow(db, SNAPSHOT_TABLES[2], line);
     }
+    await db.runAsync(
+      'UPDATE routes SET owner_employee_id = COALESCE(owner_employee_id, ?) WHERE id = ?',
+      employeeId,
+      assignment.routeId,
+    );
     const now = new Date().toISOString();
     await db.runAsync(
       `INSERT INTO route_sync_state

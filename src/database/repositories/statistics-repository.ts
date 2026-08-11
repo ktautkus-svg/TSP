@@ -44,18 +44,30 @@ export class StatisticsRepository {
    * driver's lifetime history stays small, so the 365-day window is applied once,
    * in buildStatisticsSnapshot, rather than duplicating the cutoff computation here).
    */
-  async getSnapshot(now: Date = new Date(), windowDays = 365): Promise<StatisticsSnapshot> {
+  async getSnapshot(now: Date = new Date(), windowDays = 365, ownerEmployeeId?: string | null): Promise<StatisticsSnapshot> {
+    const ownerClause = ownerEmployeeId
+      ? `AND (owner_employee_id = ? OR EXISTS (
+           SELECT 1 FROM route_sync_state sync
+           WHERE sync.route_id = routes.id AND sync.employee_id = ?
+         ))`
+      : '';
+    const ownerParams = ownerEmployeeId ? [ownerEmployeeId, ownerEmployeeId] : [];
     const rows = await this.db.getAllAsync<StatsRouteQueryRow>(
       `SELECT date, status, estimated_distance_km, actual_distance_km, total_stops,
               started_at, completed_at, completion_summary_json
-       FROM routes WHERE status IN ('completed', 'cancelled')`,
+       FROM routes WHERE status IN ('completed', 'cancelled') ${ownerClause}`,
+      ...ownerParams,
     );
     const failureRows = await this.db.getAllAsync<{ reason: string | null; count: number }>(
       `SELECT ds.failure_reason AS reason, COUNT(*) AS count
        FROM delivery_stops ds
        JOIN routes r ON r.id = ds.route_id
        WHERE ds.delivery_status = 'failed' AND r.status IN ('completed', 'cancelled')
+       ${ownerEmployeeId ? `AND (r.owner_employee_id = ? OR EXISTS (
+         SELECT 1 FROM route_sync_state sync WHERE sync.route_id = r.id AND sync.employee_id = ?
+       ))` : ''}
        GROUP BY ds.failure_reason`,
+      ...ownerParams,
     );
     const failureCounts: FailureReasonCount[] = failureRows
       .filter((row): row is { reason: string; count: number } => row.reason !== null)

@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-export const SCHEMA_VERSION = 16;
+export const SCHEMA_VERSION = 17;
 
 const migrationV1 = `
 PRAGMA journal_mode = WAL;
@@ -1015,6 +1015,26 @@ PRAGMA user_version = 16;
 COMMIT;
 `;
 
+// v17 allows several planned routes while still enforcing a single route that
+// is physically being worked. Return-to-base progress stays separate from the
+// delivery status so history is reached only after arrival and final odometer.
+const migrationV17 = `
+BEGIN IMMEDIATE;
+
+DROP INDEX IF EXISTS one_active_route;
+CREATE UNIQUE INDEX IF NOT EXISTS one_working_route
+ON routes ((1))
+WHERE status IN ('loading','loaded','in_progress');
+
+ALTER TABLE routes ADD COLUMN return_destination_kind TEXT
+  CHECK (return_destination_kind IS NULL OR return_destination_kind IN ('warehouse','home'));
+ALTER TABLE routes ADD COLUMN return_started_at TEXT;
+ALTER TABLE routes ADD COLUMN return_arrived_at TEXT;
+
+PRAGMA user_version = 17;
+COMMIT;
+`;
+
 export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
   await db.execAsync('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
 
@@ -1104,5 +1124,10 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
 
   if (currentVersion < 16) {
     await db.execAsync(migrationV16);
+    currentVersion = 16;
+  }
+
+  if (currentVersion < 17) {
+    await db.execAsync(migrationV17);
   }
 }

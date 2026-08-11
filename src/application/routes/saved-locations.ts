@@ -4,7 +4,8 @@ import { SavedLocationRepository } from '@/database/repositories/saved-location-
 import type { PlanningMode, RouteEndpoint, SavedLocation, SavedLocationKind } from '@/domain/route';
 
 export const DEFAULT_WAREHOUSE_ADDRESS = 'Savanorių pr. 180, Vilnius';
-export const DEFAULT_HOME_ADDRESS = 'Alinkos g. 1A, Elektrėnai';
+export const DEFAULT_HOME_ADDRESS = '';
+const LEGACY_EXAMPLE_HOME_ADDRESS = 'Alinkos g. 1A, Elektrėnai';
 export type PreferredRouteEnd = 'warehouse' | 'home';
 
 export class SaveDefaultLocation {
@@ -27,7 +28,10 @@ export class GetDefaultLocations {
   async execute(): Promise<{ warehouse: SavedLocation | null; home: SavedLocation | null }> {
     const repository = new SavedLocationRepository(this.db);
     const [warehouse, home] = await Promise.all([repository.get('warehouse'), repository.get('home')]);
-    return { warehouse, home };
+    return {
+      warehouse,
+      home: home?.endpoint.originalAddress === LEGACY_EXAMPLE_HOME_ADDRESS ? null : home,
+    };
   }
 }
 

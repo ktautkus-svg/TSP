@@ -36,6 +36,9 @@ type RouteRow = {
   active_sequence_snapshot_at: string | null;
   completion_started_at: string | null;
   completion_end_odometer_draft: string | null;
+  return_destination_kind: Route['returnDestinationKind'];
+  return_started_at: string | null;
+  return_arrived_at: string | null;
   completion_summary_json: string | null;
 };
 
@@ -135,6 +138,9 @@ function mapRoute(row: RouteRow): Route {
     activeSequenceSnapshotAt: row.active_sequence_snapshot_at,
     completionStartedAt: row.completion_started_at,
     completionEndOdometerDraft: row.completion_end_odometer_draft,
+    returnDestinationKind: row.return_destination_kind ?? null,
+    returnStartedAt: row.return_started_at ?? null,
+    returnArrivedAt: row.return_arrived_at ?? null,
     completionSummary: normalizeCompletionSummary(parseJson<Route['completionSummary']>(row.completion_summary_json)),
   };
 }
@@ -206,9 +212,30 @@ export class RouteRepository {
     const row = await this.db.getFirstAsync<RouteRow>(
       `SELECT * FROM routes
        WHERE status NOT IN ('completed', 'cancelled')
-       ORDER BY created_at DESC LIMIT 1`,
+       ORDER BY CASE status
+         WHEN 'in_progress' THEN 0 WHEN 'loaded' THEN 1 WHEN 'loading' THEN 2
+         WHEN 'planned' THEN 3 ELSE 4 END,
+         date, created_at DESC LIMIT 1`,
     );
     return row ? mapRoute(row) : null;
+  }
+
+  async listOperational(ownerEmployeeId?: string | null): Promise<Route[]> {
+    const ownerClause = ownerEmployeeId
+      ? `AND (owner_employee_id = ? OR EXISTS (
+           SELECT 1 FROM route_sync_state sync
+           WHERE sync.route_id = routes.id AND sync.employee_id = ?
+         ))`
+      : '';
+    const rows = await this.db.getAllAsync<RouteRow>(
+      `SELECT * FROM routes
+       WHERE status NOT IN ('completed', 'cancelled') ${ownerClause}
+       ORDER BY date,
+         CASE status WHEN 'in_progress' THEN 0 WHEN 'loaded' THEN 1 WHEN 'loading' THEN 2 ELSE 3 END,
+         created_at DESC`,
+      ...(ownerEmployeeId ? [ownerEmployeeId, ownerEmployeeId] : []),
+    );
+    return rows.map(mapRoute);
   }
 
   async getById(routeId: string): Promise<Route | null> {
@@ -236,11 +263,19 @@ export class RouteRepository {
     return { route, stops: await this.getStops(routeId) };
   }
 
-  async listHistory(limit = 50): Promise<Route[]> {
+  async listHistory(limit = 50, ownerEmployeeId?: string | null): Promise<Route[]> {
+    const ownerClause = ownerEmployeeId
+      ? `AND (owner_employee_id = ? OR EXISTS (
+           SELECT 1 FROM route_sync_state sync
+           WHERE sync.route_id = routes.id AND sync.employee_id = ?
+         ))`
+      : '';
     const rows = await this.db.getAllAsync<RouteRow>(
       `SELECT * FROM routes
        WHERE status IN ('completed', 'cancelled')
+       ${ownerClause}
        ORDER BY COALESCE(completed_at, cancelled_at, created_at) DESC LIMIT ?`,
+      ...(ownerEmployeeId ? [ownerEmployeeId, ownerEmployeeId] : []),
       limit,
     );
     return rows.map(mapRoute);

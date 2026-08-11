@@ -3,7 +3,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import { isDeliveryFailureReason } from '@/domain/delivery-failure';
 import { isLoadingFailureReason, type LoadingFailureReason } from '@/domain/loading-failure';
-import type { DeliveryStop, Route, RouteCompletionSummary } from '@/domain/route';
+import type { DeliveryStop, Route, RouteCompletionSummary, RouteEndpoint } from '@/domain/route';
 import { assertRouteTransition } from '@/domain/transitions';
 import { RouteCommandError } from './route-commands';
 import { RefreshRouteEtas } from './route-eta';
@@ -907,6 +907,66 @@ export class CompleteRoute extends WorkdayCommand {
       });
     });
     return { idempotent: false, summary };
+  }
+}
+
+export class StartRouteReturn extends WorkdayCommand {
+  async execute(
+    routeId: string,
+    destinationKind: 'warehouse' | 'home',
+    destination: RouteEndpoint,
+  ): Promise<{ idempotent: boolean; destination: RouteEndpoint }> {
+    const route = await this.route(routeId);
+    if (route.status !== 'in_progress') {
+      throw new RouteCommandError('INVALID_ROUTE_STATE', 'Grįžimą galima pradėti tik vykdomam maršrutui.');
+    }
+    if (route.remainingStops > 0) {
+      throw new RouteCommandError('INVALID_ROUTE_STATE', 'Pirmiausia užbaikite visus pristatymo taškus.');
+    }
+    if (!destination.originalAddress.trim()) throw new Error('Grįžimo adresas nenurodytas.');
+    if (route.returnStartedAt && route.endLocation) {
+      return { idempotent: true, destination: route.endLocation };
+    }
+    const now = this.clock();
+    await this.db.withTransactionAsync(async () => {
+      const result = await this.db.runAsync(
+        `UPDATE routes SET return_destination_kind = ?, return_started_at = ?,
+         return_arrived_at = NULL, end_location_json = ?, updated_at = ?
+         WHERE id = ? AND status = 'in_progress' AND return_started_at IS NULL`,
+        destinationKind,
+        now,
+        JSON.stringify(destination),
+        now,
+        routeId,
+      );
+      if (result.changes !== 1) throw new RouteCommandError('INVALID_ROUTE_STATE', 'Grįžimo būsena jau pasikeitė.');
+      await this.journal(routeId, null, 'route_return_started', {}, { destinationKind, destination, startedAt: now });
+    });
+    return { idempotent: false, destination };
+  }
+}
+
+export class ConfirmRouteReturnArrival extends WorkdayCommand {
+  async execute(routeId: string): Promise<{ idempotent: boolean; arrivedAt: string }> {
+    const route = await this.route(routeId);
+    if (route.status !== 'in_progress' || !route.returnStartedAt) {
+      throw new RouteCommandError('INVALID_ROUTE_STATE', 'Pirmiausia pasirinkite grįžimo vietą ir paleiskite navigaciją.');
+    }
+    if (route.returnArrivedAt) return { idempotent: true, arrivedAt: route.returnArrivedAt };
+    const now = this.clock();
+    await this.db.withTransactionAsync(async () => {
+      const result = await this.db.runAsync(
+        `UPDATE routes SET return_arrived_at = ?, completion_started_at = COALESCE(completion_started_at, ?), updated_at = ?
+         WHERE id = ? AND status = 'in_progress' AND return_started_at IS NOT NULL AND return_arrived_at IS NULL`,
+        now,
+        now,
+        now,
+        routeId,
+      );
+      if (result.changes !== 1) throw new RouteCommandError('INVALID_ROUTE_STATE', 'Grįžimo būsena jau pasikeitė.');
+      await this.journal(routeId, null, 'route_return_arrived', {}, { arrivedAt: now });
+    });
+    return { idempotent: false, arrivedAt: now };
   }
 }
 

@@ -56,6 +56,9 @@ export type Route = {
   activeSequenceSnapshotAt: string | null;
   completionStartedAt: string | null;
   completionEndOdometerDraft: string | null;
+  returnDestinationKind?: 'warehouse' | 'home' | null;
+  returnStartedAt?: string | null;
+  returnArrivedAt?: string | null;
   completionSummary: RouteCompletionSummary | null;
 };
 
