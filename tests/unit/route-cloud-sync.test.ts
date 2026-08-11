@@ -287,7 +287,7 @@ describe('route cloud sync — pull (second device download)', () => {
     expect(historyRoute).toBeTruthy();
   });
 
-  it('marks a pulled soft-deleted route locally without crashing', async () => {
+  it('does not recreate a route this device never had just because a tombstone arrived', async () => {
     await saveEmployeeSession({ profile, expiresAt: '2099-01-01T00:00:00.000Z' });
     const { adapter, db } = createDb();
     const remoteSnapshot = {
@@ -302,7 +302,7 @@ describe('route cloud sync — pull (second device download)', () => {
 
     await syncRoutesWithCloud(db);
     const row = adapter.raw.prepare('SELECT id FROM routes WHERE id = ?').get('route-deleted-remote');
-    expect(row).toBeTruthy();
+    expect(row).toBeUndefined();
   });
 
   it('sends an incremental since= cursor on the second pull instead of refetching everything', async () => {

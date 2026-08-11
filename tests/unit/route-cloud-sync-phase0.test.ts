@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { syncRoutesWithCloud } from '../../src/application/sync/route-cloud-sync';
+import { markRouteDeletedForCloud, syncRoutesWithCloud } from '../../src/application/sync/route-cloud-sync';
 import { clearEmployeeSession, saveEmployeeSession } from '../../src/infrastructure/auth/employee-session';
 
 class ExpoLikeDatabase {
@@ -261,6 +261,112 @@ describe('G. deferred routes are retried, not lost', () => {
 
     const route = adapter.raw.prepare('SELECT status, updated_at FROM routes WHERE id = ?').get('route-from-phone') as { status: string; updated_at: string };
     expect(route).toMatchObject({ status: 'in_progress', updated_at: '2026-08-11T10:00:00.000Z' });
+  });
+});
+
+describe('H. deletion / tombstone propagation', () => {
+  it('device A: marks a route deleted, pushes the tombstone and then drops the local row', async () => {
+    await saveEmployeeSession({ profile: driverA, expiresAt: '2099-01-01T00:00:00.000Z' });
+    const { adapter, db } = createDb();
+    insertRoute(adapter, { id: 'route-doomed', status: 'cancelled', owner: 'employee-a', cloudSyncedAt: '2026-08-11T08:00:00.000Z' });
+    const cloud = stubCloud({ serverProfile: driverA });
+
+    await markRouteDeletedForCloud(db, 'route-doomed');
+    const result = await syncRoutesWithCloud(db);
+
+    expect(cloud.pushed[0]).toHaveLength(1);
+    expect(cloud.pushed[0]![0]!.deleted).toBe(true);
+    expect(result.deleted).toBe(1);
+    expect(adapter.raw.prepare('SELECT id FROM routes WHERE id = ?').get('route-doomed')).toBeUndefined();
+    expect(adapter.raw.prepare('SELECT id FROM delivery_stops WHERE route_id = ?').all('route-doomed')).toEqual([]);
+  });
+
+  it('device B: applies a pulled tombstone, unlinking the trip sheet that referenced the route', async () => {
+    await saveEmployeeSession({ profile: driverA, expiresAt: '2099-01-01T00:00:00.000Z' });
+    const { adapter, db } = createDb();
+    insertRoute(adapter, { id: 'route-doomed', status: 'completed', owner: 'employee-a', cloudSyncedAt: '2026-08-11T08:00:00.000Z' });
+    adapter.raw.prepare(
+      `INSERT INTO vehicles (id, name, registration_number, fuel_type, created_at, updated_at)
+       VALUES ('vehicle-primary', 'Darbinis', 'ABC123', 'diesel', '2026-08-11T08:00:00.000Z', '2026-08-11T08:00:00.000Z')`,
+    ).run();
+    adapter.raw.prepare(
+      `INSERT INTO trip_sheets (id, date, vehicle_id, start_location_json, end_location_json, created_at)
+       VALUES ('trip-sheet-1', '2026-08-11', 'vehicle-primary', '{}', '{}', '2026-08-11T08:00:00.000Z')`,
+    ).run();
+    adapter.raw.prepare(
+      `INSERT INTO trip_sheet_routes (trip_sheet_id, route_id, route_order) VALUES ('trip-sheet-1', 'route-doomed', 1)`,
+    ).run();
+
+    const tombstone = {
+      routeSnapshot: {
+        route: { id: 'route-doomed', date: '2026-08-11', status: 'cancelled', created_at: '2026-08-11T08:00:00.000Z', updated_at: '2026-08-11T09:00:00.000Z' },
+        stops: [{ id: 'route-doomed-stop-1', route_id: 'route-doomed', original_order: 1, recipient: 'G', address: 'A', created_at: '2026-08-11T08:00:00.000Z', updated_at: '2026-08-11T08:00:00.000Z' }],
+        shipmentLines: [],
+      },
+      deleted: true,
+      serverUpdatedAt: '2026-08-11T09:00:01.000Z',
+    };
+    stubCloud({ serverProfile: driverA, pull: { routes: [tombstone], cursor: '2026-08-11T09:00:01.000Z' } });
+
+    const result = await syncRoutesWithCloud(db);
+
+    expect(result.deleted).toBe(1);
+    expect(adapter.raw.prepare('SELECT id FROM routes WHERE id = ?').get('route-doomed')).toBeUndefined();
+    expect(adapter.raw.prepare('SELECT route_id FROM trip_sheet_routes').all()).toEqual([]);
+    // The trip sheet itself survives; it is derived and regenerates.
+    expect(adapter.raw.prepare('SELECT id FROM trip_sheets').all()).toHaveLength(1);
+  });
+
+  it('refuses to delete a route that is being driven right now, and retries later', async () => {
+    await saveEmployeeSession({ profile: driverA, expiresAt: '2099-01-01T00:00:00.000Z' });
+    const { adapter, db } = createDb();
+    insertRoute(adapter, { id: 'route-active', status: 'in_progress', owner: 'employee-a', cloudSyncedAt: '2026-08-11T08:00:00.000Z' });
+    const tombstone = {
+      routeSnapshot: {
+        route: { id: 'route-active', date: '2026-08-11', status: 'cancelled', created_at: '2026-08-11T08:00:00.000Z', updated_at: '2026-08-11T09:00:00.000Z' },
+        stops: [{ id: 'route-active-stop-1', route_id: 'route-active', original_order: 1, recipient: 'G', address: 'A', created_at: '2026-08-11T08:00:00.000Z', updated_at: '2026-08-11T08:00:00.000Z' }],
+        shipmentLines: [],
+      },
+      deleted: true,
+      serverUpdatedAt: '2026-08-11T09:00:01.000Z',
+    };
+    stubCloud({
+      serverProfile: driverA,
+      pull: (since) => (since ? { routes: [], cursor: '2026-08-11T12:00:00.000Z' } : { routes: [tombstone], cursor: '2026-08-11T09:00:01.000Z' }),
+    });
+
+    const first = await syncRoutesWithCloud(db);
+    expect(first.deferred).toBe(1);
+    expect(adapter.raw.prepare('SELECT id FROM routes WHERE id = ?').get('route-active')).toBeTruthy();
+    expect(adapter.raw.prepare('SELECT last_reason FROM route_sync_deferrals WHERE route_id = ?').get('route-active')).toMatchObject({ last_reason: 'ROUTE_IN_PROGRESS' });
+
+    adapter.raw.prepare("UPDATE routes SET status = 'completed' WHERE id = ?").run('route-active');
+    const second = await syncRoutesWithCloud(db);
+
+    expect(second.deleted).toBe(1);
+    expect(adapter.raw.prepare('SELECT id FROM routes WHERE id = ?').get('route-active')).toBeUndefined();
+  });
+
+  it('is idempotent — a tombstone pulled twice stays a no-op the second time', async () => {
+    await saveEmployeeSession({ profile: driverA, expiresAt: '2099-01-01T00:00:00.000Z' });
+    const { adapter, db } = createDb();
+    insertRoute(adapter, { id: 'route-doomed', status: 'completed', owner: 'employee-a', cloudSyncedAt: '2026-08-11T08:00:00.000Z' });
+    const tombstone = {
+      routeSnapshot: {
+        route: { id: 'route-doomed', date: '2026-08-11', status: 'cancelled', created_at: '2026-08-11T08:00:00.000Z', updated_at: '2026-08-11T09:00:00.000Z' },
+        stops: [{ id: 'route-doomed-stop-1', route_id: 'route-doomed', original_order: 1, recipient: 'G', address: 'A', created_at: '2026-08-11T08:00:00.000Z', updated_at: '2026-08-11T08:00:00.000Z' }],
+        shipmentLines: [],
+      },
+      deleted: true,
+      serverUpdatedAt: '2026-08-11T09:00:01.000Z',
+    };
+    stubCloud({ serverProfile: driverA, pull: { routes: [tombstone], cursor: '2026-08-11T09:00:01.000Z' } });
+
+    await syncRoutesWithCloud(db);
+    const second = await syncRoutesWithCloud(db);
+
+    expect(second.deleted).toBe(0);
+    expect(adapter.raw.prepare('SELECT count(*) AS count FROM routes').get()).toMatchObject({ count: 0 });
   });
 });
 
