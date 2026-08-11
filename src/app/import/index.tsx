@@ -13,6 +13,7 @@ import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useLocalAccess } from '@/application/auth/local-access-context';
+import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 
 import { Alert } from '@/ui/alert';
 import { resolveDeliveryAddresses } from '@/application/import/address-resolver';
@@ -73,6 +74,7 @@ type ManualRowResolution = {
 
 export default function ImportScreen() {
   const { profile } = useLocalAccess();
+  const { requestSync } = useRouteCloudSync();
   const router = useRouter();
   const db = useSQLiteContext();
   const { colors } = useTheme();
@@ -673,6 +675,7 @@ export default function ImportScreen() {
         stops: [...baseStops, ...manualStops],
       });
       if (excelPreview) await excelRepository.markRouted(excelPreview.id, created.routeId);
+      void requestSync('mutation');
       // Po importo pereinama į trumpą prioritetų peržiūrą. Patvirtinti adresai
       // nebetvirtinami antrą kartą, tačiau vairuotojas gali pažymėti kelis
       // prioritetinius taškus arba iškart skaičiuoti maršrutą.

@@ -6,6 +6,12 @@ import { LOCAL_ACCESS_PREFERENCE_PREFIX } from '@/application/auth/local-access'
 export const BACKUP_FORMAT = 'logistikos-pristatymai-backup';
 export const BACKUP_FORMAT_VERSION = 1;
 
+// `sync_accounts`, `sync_cursors` and `route_sync_deferrals` are deliberately
+// absent: they describe *this device's* relationship with the cloud (which
+// account claimed which local routes, how far each account has pulled, what is
+// waiting to be applied). Restoring another device's copy of them would make an
+// account skip data it never received. Routes themselves carry
+// `owner_employee_id` and are backed up normally.
 const tables = [
   'vehicles',
   'routes',

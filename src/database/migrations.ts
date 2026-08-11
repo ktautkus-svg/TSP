@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-export const SCHEMA_VERSION = 15;
+export const SCHEMA_VERSION = 16;
 
 const migrationV1 = `
 PRAGMA journal_mode = WAL;
@@ -962,6 +962,59 @@ PRAGMA user_version = 15;
 COMMIT;
 `;
 
+// v16 makes cloud sync account-aware and gives deferred pulls a durable home.
+// Everything here is additive: no table is rebuilt, no row is rewritten and no
+// data is deleted except the single device-global sync cursor, which cannot be
+// attributed to an account and is therefore dropped so each account re-pulls
+// once (applying a pulled snapshot is idempotent).
+//
+// `routes.owner_employee_id` is NULL for every existing row. It is claimed on
+// the first sync by the first account to sync on this device, and *only* by
+// that account — see `claimLocalRoutes` in route-cloud-sync.ts. A second
+// account claims nothing it did not create, so one employee's route history
+// can never be uploaded into another employee's cloud account.
+const migrationV16 = `
+BEGIN IMMEDIATE;
+
+ALTER TABLE routes ADD COLUMN owner_employee_id TEXT;
+
+CREATE INDEX IF NOT EXISTS routes_by_cloud_owner
+ON routes(owner_employee_id, updated_at);
+
+CREATE TABLE IF NOT EXISTS sync_accounts (
+  employee_id TEXT PRIMARY KEY NOT NULL,
+  claim_from TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sync_cursors (
+  entity TEXT NOT NULL,
+  employee_id TEXT NOT NULL,
+  cursor TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (entity, employee_id)
+);
+
+CREATE TABLE IF NOT EXISTS route_sync_deferrals (
+  route_id TEXT NOT NULL,
+  employee_id TEXT NOT NULL,
+  snapshot_json TEXT NOT NULL,
+  deleted INTEGER NOT NULL DEFAULT 0 CHECK (deleted IN (0,1)),
+  server_updated_at TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+  last_reason TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (route_id, employee_id)
+);
+
+DELETE FROM app_preferences WHERE key = 'route_cloud_sync_cursor';
+
+PRAGMA user_version = 16;
+COMMIT;
+`;
+
 export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
   await db.execAsync('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
 
@@ -1046,5 +1099,10 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
 
   if (currentVersion < 15) {
     await db.execAsync(migrationV15);
+    currentVersion = 15;
+  }
+
+  if (currentVersion < 16) {
+    await db.execAsync(migrationV16);
   }
 }

@@ -191,12 +191,15 @@ avoids inventing field-level merge machinery this app doesn't need yet.
   existing `pullAssignedRoutes` pattern), local reads/writes are completely
   unaffected, `cloud_synced_at` simply stays stale. The active route remains
   fully usable offline (no behavior change here — this already works today).
-- Reconnect: the same sync pass that already runs opportunistically
-  (mirroring where `pullAssignedRoutes`/`pushRouteAssignmentProgress` are
-  currently called from the home-screen focus effect) pushes every route
-  with `cloud_synced_at IS NULL OR updated_at > cloud_synced_at`, then pulls
-  since the stored cursor and applies. No background scheduler is
-  introduced.
+- Reconnect: an event-driven coordinator runs the same incremental pass when
+  connectivity returns. It also runs after important route/stop mutations,
+  when Home becomes active, and when the app returns to foreground/focus.
+  Bursts are coalesced and no polling scheduler is introduced. Every pass
+  still pushes only routes matching `cloud_synced_at IS NULL OR updated_at >
+  cloud_synced_at`, then pulls since the stored cursor and applies.
+- Sync failures are represented as `offline` or `error` UI state and never
+  reject a completed local operational mutation. SQLite remains the source
+  used by the driver while disconnected.
 
 ## 5. Account ownership & security
 

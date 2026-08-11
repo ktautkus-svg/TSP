@@ -4,6 +4,7 @@ import { Stack, useFocusEffect, useLocalSearchParams, useRouter, type Href } fro
 import { useSQLiteContext } from 'expo-sqlite';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalAccess } from '@/application/auth/local-access-context';
+import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 
 import { Alert } from '@/ui/alert';
 import { buildNavigationUrls, navigationTargetFromStop } from '@/application/navigation/navigation-url-builder';
@@ -65,6 +66,7 @@ function recalcTimestamp(stop: DeliveryStop): string | null {
 
 export default function DeliveryScreen() {
   const { profile } = useLocalAccess();
+  const { requestSync, revision: syncRevision } = useRouteCloudSync();
   const db = useSQLiteContext();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -155,6 +157,10 @@ export default function DeliveryScreen() {
   useFocusEffect(useCallback(() => { void load(); }, [load]));
 
   useEffect(() => {
+    if (syncRevision > 0) void load();
+  }, [load, syncRevision]);
+
+  useEffect(() => {
     if (Platform.OS !== 'web' || typeof window === 'undefined') return;
     document.documentElement.scrollLeft = 0;
     document.body.scrollLeft = 0;
@@ -168,6 +174,7 @@ export default function DeliveryScreen() {
       await new MarkStopDelivered(db).execute(routeId, stopId);
       setExpandedStopId(null);
       await load();
+      void requestSync('mutation');
     } catch (reason) {
       Alert.alert('Nepavyko pažymėti', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
     } finally {
@@ -190,6 +197,7 @@ export default function DeliveryScreen() {
       setFailedStopId(null);
       setExpandedStopId(null);
       await load();
+      void requestSync('mutation');
       Alert.alert('Pristatymas pažymėtas kaip nepavykęs', 'Taškas pašalintas iš likusių pristatymų. Esama seka nepakeista.');
     } catch (reason) {
       Alert.alert('Nepavyko išsaugoti', reason instanceof Error ? reason.message : 'Patikrinkite komentarą.');
@@ -214,6 +222,7 @@ export default function DeliveryScreen() {
       await new ResolveRouteRecalculation(db).execute(routeId, recalculation.id, accept);
       setRecalculation(null);
       await load();
+      void requestSync('mutation');
     } catch (reason) {
       Alert.alert('Sekos pakeisti nepavyko', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
     }
@@ -249,6 +258,7 @@ export default function DeliveryScreen() {
       setNewStopWeight('');
       setShowAddStop(false);
       await load();
+      void requestSync('mutation');
       // Anchor recalculation on the most recently completed stop, so the new
       // stop gets positioned "according to the route" (per closest-to-current
       // travel cost) rather than just appended at the end.
@@ -272,6 +282,7 @@ export default function DeliveryScreen() {
     try {
       await new UndoRouteAction(db).execute(undo.id);
       await load();
+      void requestSync('mutation');
     } catch (reason) {
       Alert.alert('Veiksmo atšaukti nepavyko', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
     }
@@ -301,6 +312,7 @@ export default function DeliveryScreen() {
     try {
       await new SaveStartOdometer(db).execute(routeId, parseOdometer(startOdometer));
       await load();
+      void requestSync('mutation');
     } catch (reason) {
       Alert.alert('Neteisingas odometras', reason instanceof Error ? reason.message : 'Patikrinkite reikšmę.');
     }
@@ -316,6 +328,7 @@ export default function DeliveryScreen() {
         confirmUnfinished,
         confirmLargeDifference,
       });
+      void requestSync('mutation');
       router.replace({ pathname: '/route/[id]/result', params: { id: routeId } } as unknown as Href);
       return result;
     } catch (reason) {
@@ -362,6 +375,7 @@ export default function DeliveryScreen() {
       completionDismissed.current = false;
       setShowFinish(true);
       await load();
+      void requestSync('mutation');
     } catch (reason) {
       Alert.alert('Užbaigimo pradėti nepavyko', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
     } finally {
@@ -426,6 +440,7 @@ export default function DeliveryScreen() {
           selfCancelled.current = true;
           try {
             await new CancelDraftRoute(db).execute(routeId);
+            void requestSync('mutation');
             router.replace('/' as Href);
           } catch (reason) {
             selfCancelled.current = false;

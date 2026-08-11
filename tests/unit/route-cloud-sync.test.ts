@@ -6,6 +6,8 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { syncRoutesWithCloud } from '../../src/application/sync/route-cloud-sync';
+import { RouteCloudSyncCoordinator } from '../../src/application/sync/route-cloud-sync-coordinator';
+import { MarkStopDelivered, MarkStopLoaded } from '../../src/application/routes/route-workday';
 import { clearEmployeeSession, saveEmployeeSession } from '../../src/infrastructure/auth/employee-session';
 
 class ExpoLikeDatabase {
@@ -28,7 +30,7 @@ function migration(version: number): string {
 }
 function createDb(): { adapter: ExpoLikeDatabase; db: SQLiteDatabase } {
   const adapter = new ExpoLikeDatabase();
-  for (let version = 1; version <= 15; version += 1) adapter.raw.exec(migration(version));
+  for (let version = 1; version <= 16; version += 1) adapter.raw.exec(migration(version));
   return { adapter, db: adapter as unknown as SQLiteDatabase };
 }
 
@@ -52,7 +54,13 @@ function insertRoute(adapter: ExpoLikeDatabase, overrides: Partial<{
 const profile = { id: 'employee-1', username: 'vairuotojas', displayName: 'Jonas Jonaitis', role: 'driver' as const, disabled: false };
 
 function stubFetch(handler: (input: RequestInfo | URL, init?: RequestInit) => Response | Promise<Response>) {
-  vi.stubGlobal('fetch', vi.fn(handler));
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    // Every sync pass now confirms the signed-in employee with the server
+    // before deciding what to upload. The handler still runs so offline and
+    // failing stubs keep failing; only its payload is replaced.
+    const response = await handler(input, init);
+    return String(input).includes('/api/auth/me') ? Response.json({ profile }) : response;
+  }));
 }
 
 afterEach(async () => {
@@ -89,13 +97,15 @@ describe('route cloud sync — push (upload)', () => {
     const { adapter, db } = createDb();
     insertRoute(adapter, { id: 'route-synced', updatedAt: '2026-08-11T08:00:00.000Z', cloudSyncedAt: '2026-08-11T08:00:00.000Z' });
 
-    const fetchMock = vi.fn(async () => Response.json({ routes: [], cursor: '2026-08-11T09:00:00.000Z' }));
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => (String(input).includes('/api/auth/me')
+      ? Response.json({ profile })
+      : Response.json({ routes: [], cursor: '2026-08-11T09:00:00.000Z' })));
     vi.stubGlobal('fetch', fetchMock);
 
     await syncRoutesWithCloud(db);
 
-    // Only the pull GET should have been made; nothing was dirty to push.
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // Identity check plus the pull GET; nothing was dirty to push.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('propagates a local soft-delete flag on push', async () => {
@@ -209,8 +219,8 @@ describe('route cloud sync — pull (second device download)', () => {
     const stops = adapter.raw.prepare('SELECT * FROM delivery_stops WHERE route_id = ?').all('route-from-phone');
     expect(stops).toHaveLength(1);
 
-    const cursorRow = adapter.raw.prepare("SELECT value FROM app_preferences WHERE key = 'route_cloud_sync_cursor'").get() as { value: string };
-    expect(cursorRow.value).toBe('2026-08-11T07:00:01.000Z');
+    const cursorRow = adapter.raw.prepare("SELECT cursor FROM sync_cursors WHERE entity = 'routes' AND employee_id = ?").get(profile.id) as { cursor: string };
+    expect(cursorRow.cursor).toBe('2026-08-11T07:00:01.000Z');
   });
 
   it('applies pulling twice without duplicating rows (idempotent apply)', async () => {
@@ -279,7 +289,7 @@ describe('route cloud sync — pull (second device download)', () => {
     expect(historyRoute).toBeTruthy();
   });
 
-  it('marks a pulled soft-deleted route locally without crashing', async () => {
+  it('does not recreate a route this device never had just because a tombstone arrived', async () => {
     await saveEmployeeSession({ profile, expiresAt: '2099-01-01T00:00:00.000Z' });
     const { adapter, db } = createDb();
     const remoteSnapshot = {
@@ -294,7 +304,7 @@ describe('route cloud sync — pull (second device download)', () => {
 
     await syncRoutesWithCloud(db);
     const row = adapter.raw.prepare('SELECT id FROM routes WHERE id = ?').get('route-deleted-remote');
-    expect(row).toBeTruthy();
+    expect(row).toBeUndefined();
   });
 
   it('sends an incremental since= cursor on the second pull instead of refetching everything', async () => {
@@ -302,7 +312,7 @@ describe('route cloud sync — pull (second device download)', () => {
     const { db } = createDb();
     const urls: string[] = [];
     stubFetch(async (url, init) => {
-      urls.push(String(url));
+      if (!String(url).includes('/api/auth/me')) urls.push(String(url));
       if (init?.method === 'POST') return Response.json({ results: [] });
       return Response.json({ routes: [], cursor: '2026-08-11T07:00:01.000Z' });
     });
@@ -314,3 +324,147 @@ describe('route cloud sync — pull (second device download)', () => {
     expect(urls[1]).toContain('since=2026-08-11T07%3A00%3A01.000Z');
   });
 });
+
+describe('route cloud sync — event-driven multi-device workflow', () => {
+  it('propagates Device B delivery progress back to Device A', async () => {
+    await saveEmployeeSession({ profile, expiresAt: '2099-01-01T00:00:00.000Z' });
+    const deviceA = createDb();
+    const deviceB = createDb();
+    insertRoute(deviceA.adapter, { id: 'route-device-pair', status: 'in_progress' });
+    const cloud = new InMemoryRouteCloud();
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => cloud.fetch(input, init)));
+
+    // Device A creates and uploads the route; Device B downloads the same snapshot.
+    await syncRoutesWithCloud(deviceA.db);
+    await syncRoutesWithCloud(deviceB.db);
+    expect(deviceB.adapter.raw.prepare('SELECT delivery_status FROM delivery_stops WHERE id = ?')
+      .get('route-device-pair-stop-1')).toMatchObject({ delivery_status: 'pending' });
+
+    // Device B changes operational progress and immediately syncs its dirty route.
+    await new MarkStopDelivered(deviceB.db, () => '2026-08-11T10:00:00.000Z').execute(
+      'route-device-pair',
+      'route-device-pair-stop-1',
+    );
+    await syncRoutesWithCloud(deviceB.db);
+
+    // Device A's next event-driven pass pulls the changed delivery state.
+    await syncRoutesWithCloud(deviceA.db);
+    expect(deviceA.adapter.raw.prepare('SELECT delivery_status, delivered_at FROM delivery_stops WHERE id = ?')
+      .get('route-device-pair-stop-1')).toMatchObject({
+        delivery_status: 'delivered',
+        delivered_at: '2026-08-11T10:00:00.000Z',
+      });
+  });
+
+  it('keeps an offline delivery mutation local, then pushes it after reconnect', async () => {
+    await saveEmployeeSession({ profile, expiresAt: '2099-01-01T00:00:00.000Z' });
+    const { adapter, db } = createDb();
+    insertRoute(adapter, {
+      id: 'route-reconnect',
+      status: 'in_progress',
+      updatedAt: '2026-08-11T08:00:00.000Z',
+      cloudSyncedAt: '2026-08-11T08:00:00.000Z',
+    });
+    await new MarkStopDelivered(db, () => '2026-08-11T10:00:00.000Z').execute(
+      'route-reconnect',
+      'route-reconnect-stop-1',
+    );
+
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+    const coordinator = new RouteCloudSyncCoordinator({ sync: () => syncRoutesWithCloud(db) });
+    await expect(coordinator.trigger('mutation')).resolves.toBeUndefined();
+    expect(coordinator.getState().status).toBe('offline');
+    expect(adapter.raw.prepare('SELECT delivery_status FROM delivery_stops WHERE id = ?')
+      .get('route-reconnect-stop-1')).toMatchObject({ delivery_status: 'delivered' });
+
+    let pushed = 0;
+    stubFetch(async (_url, init) => {
+      if (init?.method === 'POST') {
+        pushed += 1;
+        return Response.json({ results: [{ routeId: 'route-reconnect', outcome: 'applied' }] });
+      }
+      return Response.json({ routes: [], cursor: '2026-08-11T10:00:01.000Z' });
+    });
+    coordinator.setOnline(true);
+    await coordinator.trigger('network-restored');
+
+    expect(pushed).toBe(1);
+    expect(coordinator.getState().status).toBe('synced');
+    expect(adapter.raw.prepare('SELECT cloud_synced_at, updated_at FROM routes WHERE id = ?')
+      .get('route-reconnect')).toMatchObject({
+        cloud_synced_at: '2026-08-11T10:00:00.000Z',
+        updated_at: '2026-08-11T10:00:00.000Z',
+      });
+  });
+
+  it('marks individual loading progress dirty without changing route status', async () => {
+    const { adapter, db } = createDb();
+    insertRoute(adapter, {
+      id: 'route-loading-progress',
+      status: 'loading',
+      updatedAt: '2026-08-11T08:00:00.000Z',
+      cloudSyncedAt: '2026-08-11T08:00:00.000Z',
+    });
+    adapter.raw.prepare(
+      `INSERT INTO delivery_stops (id, route_id, original_order, recipient, address, created_at, updated_at)
+       VALUES (?, ?, 2, 'Antras', 'Adresas 2', ?, ?)`,
+    ).run('route-loading-progress-stop-2', 'route-loading-progress', '2026-08-11T08:00:00.000Z', '2026-08-11T08:00:00.000Z');
+
+    await new MarkStopLoaded(db, () => '2026-08-11T09:00:00.000Z').execute(
+      'route-loading-progress',
+      'route-loading-progress-stop-1',
+    );
+
+    expect(adapter.raw.prepare('SELECT status, updated_at, cloud_synced_at FROM routes WHERE id = ?')
+      .get('route-loading-progress')).toMatchObject({
+        status: 'loading',
+        updated_at: '2026-08-11T09:00:00.000Z',
+        cloud_synced_at: '2026-08-11T08:00:00.000Z',
+      });
+  });
+});
+
+class InMemoryRouteCloud {
+  private revision = 0;
+  private readonly routes = new Map<string, {
+    routeSnapshot: { route: Record<string, unknown>; stops: Array<Record<string, unknown>>; shipmentLines: Array<Record<string, unknown>> };
+    deleted: boolean;
+    serverUpdatedAt: string;
+  }>();
+
+  async fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+    const url = new URL(String(input), 'https://tsp.test');
+    // Every sync pass resolves its employee from the authenticated session
+    // before touching route data, so the fake answers it exactly like the real
+    // server does — without it no device can establish ownership at all.
+    if (url.pathname === '/api/auth/me') return Response.json({ profile });
+    if (init?.method === 'POST') {
+      const body = JSON.parse(String(init.body)) as {
+        routes: Array<{ routeSnapshot: InMemoryRouteCloud['routes'] extends Map<string, infer T> ? T extends { routeSnapshot: infer S } ? S : never : never; deleted: boolean }>;
+      };
+      const results = body.routes.map((item) => {
+        const routeId = String(item.routeSnapshot.route.id);
+        this.routes.set(routeId, {
+          routeSnapshot: item.routeSnapshot,
+          deleted: item.deleted,
+          serverUpdatedAt: this.nextCursor(),
+        });
+        return { routeId, outcome: 'applied' as const };
+      });
+      return Response.json({ results });
+    }
+
+    const since = url.searchParams.get('since');
+    const routes = [...this.routes.values()].filter((route) => !since || route.serverUpdatedAt > since);
+    return Response.json({ routes, cursor: this.currentCursor() });
+  }
+
+  private nextCursor(): string {
+    this.revision += 1;
+    return `2026-08-11T12:00:${String(this.revision).padStart(2, '0')}.000Z`;
+  }
+
+  private currentCursor(): string {
+    return `2026-08-11T12:00:${String(this.revision).padStart(2, '0')}.000Z`;
+  }
+}

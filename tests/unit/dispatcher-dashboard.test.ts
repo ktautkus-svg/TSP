@@ -14,6 +14,7 @@ const adminSource = readFileSync(resolve(root, 'src/app/admin.tsx'), 'utf8');
 const homeSource = readFileSync(resolve(root, 'src/app/index.tsx'), 'utf8');
 const loadingSource = readFileSync(resolve(root, 'src/app/route/[id]/loading.tsx'), 'utf8');
 const deliverySource = readFileSync(resolve(root, 'src/app/route/[id]/delivery.tsx'), 'utf8');
+const layoutSource = readFileSync(resolve(root, 'src/app/_layout.tsx'), 'utf8');
 
 describe('dispatcher desktop workspace', () => {
   it('contains the route, driver and confirmation workflow', () => {
@@ -48,6 +49,25 @@ describe('driver permissions', () => {
     const permissions = normalizeDriverPermissions({ canReorderAssignedRoute: true });
     expect(permissions.canReorderAssignedRoute).toBe(true);
     expect(permissions.canCancelRoute).toBe(false);
+  });
+
+  it('syncs the dispatcher own routes through the shared coordinator, never by calling the engine directly', () => {
+    // Dispatchers create routes here ("+ Planuoti maršrutą"), so they own local
+    // routes and the home screen redirects them away before its own sync runs.
+    // The refresh must go through the coordinator: a direct syncRoutesWithCloud
+    // call would run a second pass alongside a lifecycle one and would never
+    // reach the shared status indicator.
+    expect(dispatcherSource).toContain("import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context'");
+    expect(dispatcherSource).toContain("await requestSync('dispatcher-refresh')");
+    expect(dispatcherSource).not.toContain('syncRoutesWithCloud(');
+    expect(homeSource).toContain("if (profile.role === 'dispatcher')");
+  });
+
+  it('keeps the dispatcher screen inside the app-wide sync provider', () => {
+    // The provider is what covers dispatcher startup, foreground and network
+    // triggers without any screen-specific wiring.
+    expect(layoutSource).toContain('<RouteCloudSyncProvider>');
+    expect(layoutSource).toContain('<Stack.Screen name="dispatcher"');
   });
 
   it('renders administrator permission switches and enforces the route actions in driver screens', () => {

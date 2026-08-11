@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useLocalAccess } from '@/application/auth/local-access-context';
+import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 
 import { parseDeliveryText } from '@/application/parsing/text-parser';
 import {
@@ -24,6 +25,7 @@ import type { RouteEndpoint } from '@/domain/route';
 
 export default function NewRouteScreen() {
   const { profile } = useLocalAccess();
+  const { requestSync } = useRouteCloudSync();
   const router = useRouter();
   const db = useSQLiteContext();
   const { colors } = useTheme();
@@ -106,6 +108,7 @@ export default function NewRouteScreen() {
       importSource: { type: 'manual', originalText: sourceText, imageReference: null },
       stops: manualAddressesToDraftStops(parsedResult.points.map((point) => point.fullAddress)),
     });
+    void requestSync('mutation');
     router.push({ pathname: '/route/[id]/review', params: { id: created.routeId } });
   };
 

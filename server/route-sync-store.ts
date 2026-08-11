@@ -10,7 +10,8 @@ export type RouteSyncPushItem = {
 export type RouteSyncPushResult =
   | { routeId: string; outcome: 'applied' }
   | { routeId: string; outcome: 'conflict'; routeSnapshot: RouteSnapshot; deleted: boolean }
-  | { routeId: string; outcome: 'forbidden' };
+  | { routeId: string; outcome: 'forbidden' }
+  | { routeId: string; outcome: 'rejected'; reason: string };
 
 export type RouteSyncPulledRoute = {
   routeSnapshot: RouteSnapshot;
@@ -63,21 +64,51 @@ export class RouteSyncStore {
   private readonly routes = this.db.collection('tsp_routes');
 
   /**
-   * Applies each pushed route independently so one rejected record (bad
-   * ownership or a losing conflict) never blocks the rest of the batch.
+   * Applies each pushed route independently so one bad record — malformed,
+   * empty, wrongly owned or a losing conflict — never blocks the rest of the
+   * batch. Validation deliberately happens per item rather than up front: a
+   * single unsyncable route used to fail the whole request, which stopped the
+   * client's push *and* its pull until that route was fixed or deleted.
    */
   async push(employeeId: string, items: RouteSyncPushItem[]): Promise<RouteSyncPushResult[]> {
     const results: RouteSyncPushResult[] = [];
     for (const item of items) {
-      validateSnapshot(item.routeSnapshot);
-      const routeId = safeId(String(item.routeSnapshot.route.id ?? ''));
-      const incomingUpdatedAt = String(item.routeSnapshot.route.updated_at ?? '');
-      const incomingStatus = String(item.routeSnapshot.route.status ?? '');
+      let routeId: string;
+      let incomingUpdatedAt: string;
+      let incomingStatus: string;
+      try {
+        validateSnapshot(item.routeSnapshot);
+        routeId = safeId(String(item.routeSnapshot.route.id ?? ''));
+        incomingUpdatedAt = String(item.routeSnapshot.route.updated_at ?? '');
+        incomingStatus = String(item.routeSnapshot.route.status ?? '');
+      } catch (error) {
+        results.push({
+          routeId: reportableRouteId(item),
+          outcome: 'rejected',
+          reason: error instanceof Error ? error.message : 'Maršruto duomenys nepilni.',
+        });
+        continue;
+      }
       const reference = this.routes.doc(routeId);
 
       // A rejected record (bad ownership) must never abort the rest of the
       // batch, so per-item failures are caught and reported, not thrown.
-      const outcome = await this.db.runTransaction<RouteSyncPushResult>(async (transaction) => {
+      const outcome = await this.applyOne(reference, employeeId, item, routeId, incomingStatus, incomingUpdatedAt);
+      results.push(outcome);
+    }
+    return results;
+  }
+
+  private async applyOne(
+    reference: FirebaseFirestore.DocumentReference,
+    employeeId: string,
+    item: RouteSyncPushItem,
+    routeId: string,
+    incomingStatus: string,
+    incomingUpdatedAt: string,
+  ): Promise<RouteSyncPushResult> {
+    try {
+      return await this.db.runTransaction<RouteSyncPushResult>(async (transaction) => {
         const existingDoc = await transaction.get(reference);
         const existing = existingDoc.exists ? (existingDoc.data() as StoredRoute) : null;
 
@@ -112,9 +143,11 @@ export class RouteSyncStore {
         transaction.set(reference, record as unknown as DocumentData);
         return { routeId, outcome: 'applied' };
       });
-      results.push(outcome);
+    } catch (error) {
+      // Even a storage-level failure stays contained to its own record: the
+      // client leaves that route dirty and retries it on the next pass.
+      return { routeId, outcome: 'rejected', reason: error instanceof Error ? error.message : 'Nepavyko išsaugoti maršruto.' };
     }
-    return results;
   }
 
   /**
@@ -142,6 +175,16 @@ export class RouteSyncStore {
       }));
     return { routes, cursor };
   }
+}
+
+/**
+ * A best-effort id for a record that failed validation, so the client can tell
+ * which of its routes was rejected. Never used to address a document — it is
+ * sanitised purely because it is echoed back to the caller.
+ */
+function reportableRouteId(item: RouteSyncPushItem): string {
+  const raw = (item as { routeSnapshot?: { route?: { id?: unknown } } })?.routeSnapshot?.route?.id;
+  return String(raw ?? '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 80);
 }
 
 function toMillis(value: FirebaseFirestore.Timestamp | FirebaseFirestore.FieldValue): number {
