@@ -1,9 +1,17 @@
-export type RouteCloudSyncStatus = 'synced' | 'syncing' | 'offline' | 'error';
+export type RouteCloudSyncStatus = 'synced' | 'syncing' | 'offline' | 'error' | 'attention';
+
+/** Counts from a pass that finished, but left something unresolved. */
+export type RouteCloudSyncAttention = {
+  foreign: number;
+  rejected: number;
+  deferred: number;
+};
 
 export type RouteCloudSyncState = {
   status: RouteCloudSyncStatus;
   lastSyncedAt: string | null;
   error: string | null;
+  attention: RouteCloudSyncAttention | null;
   revision: number;
 };
 
@@ -28,6 +36,7 @@ const initialState: RouteCloudSyncState = {
   status: 'syncing',
   lastSyncedAt: null,
   error: null,
+  attention: null,
   revision: 0,
 };
 
@@ -86,18 +95,23 @@ export class RouteCloudSyncCoordinator {
         return;
       }
 
-      this.publish({ status: 'syncing', error: null });
+      this.publish({ status: 'syncing', error: null, attention: null });
       try {
-        await this.options.sync();
+        const outcome = await this.options.sync();
         if (this.stopped) return;
         if (!this.online) {
           this.publish({ status: 'offline', error: null });
           return;
         }
+        // A pass can finish without failing and still leave work unresolved.
+        // Reporting that as plain "Sinchronizuota" would tell the driver their
+        // data is safely in the cloud when some of it deliberately is not.
+        const attention = attentionFrom(outcome);
         this.publish({
-          status: 'synced',
+          status: attention ? 'attention' : 'synced',
           lastSyncedAt: (this.options.now ?? (() => new Date().toISOString()))(),
           error: null,
+          attention,
           revision: this.state.revision + 1,
         });
       } catch (reason) {
@@ -117,6 +131,47 @@ export class RouteCloudSyncCoordinator {
     this.state = { ...this.state, ...patch };
     this.options.onStateChange?.(this.state);
   }
+}
+
+/**
+ * Reads the unresolved counts out of a completed sync pass.
+ *
+ * `deleted` is deliberately not one of them: a tombstone that synchronised
+ * successfully is finished work, not something the driver has to look at.
+ */
+export function attentionFrom(outcome: unknown): RouteCloudSyncAttention | null {
+  if (!outcome || typeof outcome !== 'object') return null;
+  const counts = outcome as Record<string, unknown>;
+  const attention: RouteCloudSyncAttention = {
+    foreign: positiveCount(counts.foreign),
+    rejected: positiveCount(counts.rejected),
+    deferred: positiveCount(counts.deferred),
+  };
+  const total = attention.foreign + attention.rejected + attention.deferred;
+  return total > 0 ? attention : null;
+}
+
+/**
+ * Plain-language explanation of what is unresolved and what happens next.
+ * Deliberately free of counts and internal vocabulary: the driver needs to know
+ * whether their work is safe and whether they must act, not how sync is built.
+ */
+export function describeAttention(attention: RouteCloudSyncAttention): string {
+  const reasons: string[] = [];
+  if (attention.foreign > 0) {
+    reasons.push('Įrenginyje yra maršrutų, sukurtų su kita paskyra. Jie lieka įrenginyje, bet į šios paskyros debesį nesiunčiami.');
+  }
+  if (attention.rejected > 0) {
+    reasons.push('Dalies įrašų išsiųsti nepavyko. Jie lieka įrenginyje ir bus išsiųsti automatiškai per kitą sinchronizavimą.');
+  }
+  if (attention.deferred > 0) {
+    reasons.push('Dalis gautų duomenų bus pritaikyta vėliau — dabar vykdomas kitas maršrutas.');
+  }
+  return reasons.join('\n\n');
+}
+
+function positiveCount(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.trunc(value) : 0;
 }
 
 export function isNetworkFailure(reason: unknown): boolean {

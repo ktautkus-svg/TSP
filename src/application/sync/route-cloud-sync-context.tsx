@@ -18,6 +18,7 @@ const initialState: RouteCloudSyncState = {
   status: browserIsOffline() ? 'offline' : 'syncing',
   lastSyncedAt: null,
   error: null,
+  attention: null,
   revision: 0,
 };
 

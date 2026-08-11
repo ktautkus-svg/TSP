@@ -1,15 +1,18 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
+import { describeAttention } from '@/application/sync/route-cloud-sync-coordinator';
 import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
+import { Alert } from '@/ui/alert';
 
 const labels = {
   synced: 'Sinchronizuota',
   syncing: 'Sinchronizuojama',
   offline: 'Neprisijungta',
   error: 'Sinchronizavimo klaida',
+  attention: 'Reikia dėmesio',
 } as const;
 
 const compactLabels = {
@@ -17,10 +20,11 @@ const compactLabels = {
   syncing: 'Siunčiama',
   offline: 'Nėra ryšio',
   error: 'Klaida',
+  attention: 'Reikia dėmesio',
 } as const;
 
 export function CloudSyncStatus({ compact = false }: { compact?: boolean }) {
-  const { status, error, requestSync } = useRouteCloudSync();
+  const { status, error, attention, requestSync } = useRouteCloudSync();
   const { colors } = useTheme();
   const styles = createStyles(colors);
   const retryable = status === 'error' || status === 'offline';
@@ -39,6 +43,23 @@ export function CloudSyncStatus({ compact = false }: { compact?: boolean }) {
         accessibilityLabel={`${label}. Bandyti dar kartą`}
         accessibilityRole="button"
         onPress={() => { void requestSync('manual-retry'); }}
+        style={[styles.badge, styles[`${status}Badge`]]}
+        testID="cloud-sync-status">
+        {content}
+      </Pressable>
+    );
+  }
+
+  // The pass itself succeeded, so there is nothing to retry — what the driver
+  // needs is an explanation of what was left out and what happens next.
+  if (status === 'attention' && attention) {
+    const detail = describeAttention(attention);
+    return (
+      <Pressable
+        accessibilityHint={detail}
+        accessibilityLabel={`${label}. Peržiūrėti`}
+        accessibilityRole="button"
+        onPress={() => Alert.alert(labels.attention, detail)}
         style={[styles.badge, styles[`${status}Badge`]]}
         testID="cloud-sync-status">
         {content}
@@ -73,4 +94,9 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   errorBadge: { backgroundColor: colors.dangerSoft },
   errorDot: { backgroundColor: colors.danger },
   errorText: { color: colors.danger },
+  // Amber, not red: the pass completed and no data was lost — something was
+  // deliberately held back. Red stays reserved for actual failures.
+  attentionBadge: { backgroundColor: colors.warningSoft },
+  attentionDot: { backgroundColor: colors.warning },
+  attentionText: { color: colors.warning },
 });
