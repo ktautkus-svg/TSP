@@ -13,9 +13,13 @@ node_modules/
 # Expo
 .expo/
 dist/
+dist-*/
 build-server/
 web-build/
 expo-env.d.ts
+
+# ad-hoc local deploy/build check output
+.tmp-deploy-out.txt
 
 # Native
 .kotlin/
