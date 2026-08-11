@@ -50,8 +50,8 @@ export function LocalAccessGate({ children }: { children: ReactNode }) {
       try { cachedSession = await refreshEmployeeSession(); } catch { /* Offline or expired server session: keep the explicit local session. */ }
     }
     setConfigured(configuration.configured);
-    setUsername(cachedSession?.profile.username ?? configuration.username ?? '');
-    setDisplayName(cachedSession?.profile.displayName ?? '');
+    setUsername(cachedSession?.profile.username ?? configuration.username ?? (initialized === false ? 'sensejus' : ''));
+    setDisplayName(cachedSession?.profile.displayName ?? (initialized === false ? 'Sensejus' : ''));
     setProfile(cachedSession?.profile ?? null);
     setUnlocked(Boolean(cachedSession));
     setOnline(Boolean(cachedSession && initialized !== null));
@@ -139,7 +139,7 @@ export function LocalAccessGate({ children }: { children: ReactNode }) {
         <View style={styles.card}>
           <Text style={styles.title}>{bootstrap ? 'Aktyvuoti administratorių' : 'Darbuotojo prisijungimas'}</Text>
           <Text style={styles.helper}>{bootstrap
-            ? 'Sukurkite pirmą serverio administratorių. PIN turi turėti 6–8 skaitmenis.'
+            ? 'Aktyvuokite administratoriaus paskyrą „Sensejus“. Pradinį 4–8 skaitmenų PIN vėliau galėsite pakeisti nustatymuose.'
             : 'Prisijunkite darbdavio suteiktu vardu ir PIN. Aktyvus maršrutas vėliau veiks ir be interneto.'}</Text>
           {bootstrap ? <TextInput
             value={displayName}
@@ -164,7 +164,7 @@ export function LocalAccessGate({ children }: { children: ReactNode }) {
             onChangeText={(value) => setPin(value.replace(/\D/g, '').slice(0, 8))}
             keyboardType="number-pad"
             secureTextEntry
-            placeholder="6–8 skaitmenų PIN"
+            placeholder="4–8 skaitmenų PIN"
             placeholderTextColor="#708078"
             style={styles.input}
             testID="login-pin"

@@ -167,7 +167,7 @@ export default function AdminScreen() {
             <Text style={styles.title}>Naujas darbuotojas</Text>
             {input(newName, setNewName, 'Vardas ir pavardė')}
             {input(newUsername, setNewUsername, 'Prisijungimo vardas')}
-            {input(newPin, (value) => setNewPin(value.replace(/\D/g, '').slice(0, 8)), '6–8 skaitmenų pradinis PIN', true)}
+            {input(newPin, (value) => setNewPin(value.replace(/\D/g, '').slice(0, 8)), '4–8 skaitmenų pradinis PIN', true)}
             <View style={styles.choiceRow}>{(['driver', 'dispatcher'] as EmployeeRole[]).map((role) =>
               <Pressable key={role} onPress={() => setNewRole(role)} style={[styles.choice, newRole === role && styles.choiceActive]}>
                 <Text style={[styles.choiceText, newRole === role && styles.choiceTextActive]}>{roleLabel(role)}</Text>
@@ -220,7 +220,7 @@ export default function AdminScreen() {
         <View style={styles.card}>
           <Text style={styles.title}>Keisti savo PIN</Text>
           {input(currentPin, (value) => setCurrentPin(value.replace(/\D/g, '').slice(0, 8)), 'Dabartinis PIN', true)}
-          {input(nextPin, (value) => setNextPin(value.replace(/\D/g, '').slice(0, 8)), 'Naujas 6–8 skaitmenų PIN', true)}
+          {input(nextPin, (value) => setNextPin(value.replace(/\D/g, '').slice(0, 8)), 'Naujas 4–8 skaitmenų PIN', true)}
           {input(confirmPin, (value) => setConfirmPin(value.replace(/\D/g, '').slice(0, 8)), 'Pakartokite naują PIN', true)}
           <Pressable disabled={busy || !online} style={[styles.primaryButton, (busy || !online) && styles.disabled]} onPress={() => void changePin()}><Text style={styles.primaryText}>Pakeisti PIN</Text></Pressable>
         </View>

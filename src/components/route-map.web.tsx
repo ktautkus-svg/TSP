@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import L from 'leaflet';
 import { MapContainer, Marker, Polyline, TileLayer, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -72,7 +72,9 @@ export function RouteMapView({
   polylineError,
 }: RouteMapViewProps) {
   const { colors } = useTheme();
+  const { width } = useWindowDimensions();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const mapHeight = width >= 1024 ? 540 : width >= 720 ? 430 : 330;
   const routePoints = useMemo(() => (
     encodedPolyline
       ? decodePolyline(encodedPolyline)
@@ -103,7 +105,7 @@ export function RouteMapView({
         ) : null}
       </View>
 
-      <View style={styles.canvasContainer}>
+      <View style={[styles.canvasContainer, { height: mapHeight }]} testID="route-map-canvas">
         <MapContainer
           center={[startLocation.latitude, startLocation.longitude]}
           zoom={12}

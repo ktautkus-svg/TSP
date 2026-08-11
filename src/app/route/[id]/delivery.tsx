@@ -20,6 +20,7 @@ import {
   AddStopDuringDelivery,
   BeginRouteCompletion,
   CompleteRoute,
+  ConfirmRouteReturnArrival,
   GetLatestUndoableAction,
   GetRouteProgress,
   MarkStopDelivered,
@@ -27,10 +28,12 @@ import {
   parseOdometer,
   SaveStartOdometer,
   SaveCompletionOdometerDraft,
+  StartRouteReturn,
   UndoRouteAction,
   type RouteProgress,
   type UndoableAction,
 } from '@/application/routes/route-workday';
+import { GetDefaultLocations } from '@/application/routes/saved-locations';
 import { resolveRoute } from '@/application/routes/route-navigation';
 import { RefreshRouteEtas } from '@/application/routes/route-eta';
 import { loadRouteWeatherScene, type RouteWeatherScene } from '@/application/weather/route-weather';
@@ -44,7 +47,7 @@ import { SwipeActionCard } from '@/components/swipe-action-card';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import { GatewayGeocodingProvider } from '@/infrastructure/routing/providers/gateway-geocoding-provider';
 import { DELIVERY_FAILURE_REASONS, deliveryMatchesFilter, type DeliveryFailureReason } from '@/domain/delivery-failure';
-import type { DeliveryFilter, DeliveryStop, Route } from '@/domain/route';
+import type { DeliveryFilter, DeliveryStop, Route, RouteEndpoint } from '@/domain/route';
 import { colors as instrumentColors, fonts, radius, spacing, type } from '@/ui/tokens';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { formatWeightKg } from '@/ui/format-weight';
@@ -101,6 +104,7 @@ export default function DeliveryScreen() {
   const [activeMenuExpanded, setActiveMenuExpanded] = useState(false);
   const [activeView, setActiveView] = useState<DeliveryView>(view === 'stops' ? 'stops' : 'dashboard');
   const [weatherScene, setWeatherScene] = useState<RouteWeatherScene | null>(null);
+  const [returnLocations, setReturnLocations] = useState<{ warehouse: RouteEndpoint | null; home: RouteEndpoint | null }>({ warehouse: null, home: null });
   const completionDismissed = useRef(false);
   // See alternatives.tsx: keeps the periodic reload from resolving a route we
   // just cancelled ourselves into a /history redirect mid-navigation.
@@ -127,6 +131,8 @@ export default function DeliveryScreen() {
       setUndo(await new GetLatestUndoableAction(db).execute(routeId));
       setStartOdometer(refreshed.route.startOdometer === null ? '' : String(refreshed.route.startOdometer));
       setEndOdometer(refreshed.route.completionEndOdometerDraft ?? '');
+      const locations = await new GetDefaultLocations(db).execute();
+      setReturnLocations({ warehouse: locations.warehouse?.endpoint ?? null, home: locations.home?.endpoint ?? null });
       const weatherStop = refreshed.stops.find((stop) => stop.deliveryStatus === 'pending');
       const weatherLatitude = weatherStop?.latitude ?? refreshed.route.startLocation?.latitude ?? null;
       const weatherLongitude = weatherStop?.longitude ?? refreshed.route.startLocation?.longitude ?? null;
@@ -308,6 +314,51 @@ export default function DeliveryScreen() {
     }
   };
 
+  const navigateToEndpoint = async (target: RouteEndpoint) => {
+    try {
+      const platform = Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'web';
+      const urls = buildNavigationUrls(target, platform);
+      const provider = await new NavigationPreference(db).get();
+      const selectedUrl = navigationUrlForProvider(urls, provider);
+      if (platform === 'web') return openWebNavigationInSameContext(selectedUrl);
+      await Linking.openURL(selectedUrl);
+    } catch (reason) {
+      Alert.alert('Navigacija neatidaryta', reason instanceof Error ? reason.message : 'Grįžimo adresas netinkamas navigacijai.');
+    }
+  };
+
+  const startReturn = async (kind: 'warehouse' | 'home') => {
+    const endpoint = returnLocations[kind];
+    if (!endpoint || busy) return;
+    setBusy(true);
+    try {
+      await new StartRouteReturn(db).execute(routeId, kind, endpoint);
+      await load();
+      void requestSync('mutation');
+      await navigateToEndpoint(endpoint);
+    } catch (reason) {
+      Alert.alert('Grįžimo pradėti nepavyko', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const confirmReturnArrival = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await new ConfirmRouteReturnArrival(db).execute(routeId);
+      completionDismissed.current = false;
+      await load();
+      setShowFinish(true);
+      void requestSync('mutation');
+    } catch (reason) {
+      Alert.alert('Atvykimo patvirtinti nepavyko', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const saveLateStartOdometer = async () => {
     try {
       await new SaveStartOdometer(db).execute(routeId, parseOdometer(startOdometer));
@@ -369,6 +420,12 @@ export default function DeliveryScreen() {
       if (current.status !== 'in_progress') {
         const destination = resolveRoute(current);
         router.replace({ pathname: destination.pathname, params: destination.params } as Href);
+        return;
+      }
+      if (!current.returnArrivedAt) {
+        Alert.alert('Maršrutas dar aktyvus', current.remainingStops > 0
+          ? 'Pirmiausia užbaikite visus pristatymo taškus.'
+          : 'Pasirinkite grįžimo vietą, nuvykite ir patvirtinkite atvykimą.');
         return;
       }
       await new BeginRouteCompletion(db).execute(routeId);
@@ -476,29 +533,28 @@ export default function DeliveryScreen() {
                 <View style={styles.gaugeRow}>
                   <InstrumentGauge
                     colors={colors}
-                    maximum={progress.totalKnownWeightKg}
-                    remaining={progress.remainingKnownWeightKg}
+                    maximum={progress.totalStops}
+                    remaining={progress.remainingStops}
                     size={gaugeSize}
-                    title="Svoris"
-                    unit="kg"
-                    value={progress.totalKnownWeightKg - progress.remainingKnownWeightKg}
+                    title="Progresas"
+                    unit={`${progress.totalStops - progress.remainingStops}/${progress.totalStops} · ${progress.deliveryPercent}%`}
+                    value={progress.totalStops - progress.remainingStops}
                   />
                   <View style={styles.gaugeCenterStats}>
                     <Text style={styles.gaugeCenterLabel}>LAIKAS</Text>
                     <Text numberOfLines={1} style={styles.gaugeCenterValue}>{elapsedLabel(route?.startedAt ?? null)}</Text>
                     <View style={styles.gaugeCenterDivider} />
-                    <Text style={styles.gaugeCenterLabel}>LIKĘ KM</Text>
-                    <Text numberOfLines={1} style={styles.gaugeCenterValue}>{progress.preliminaryRemainingDistanceKm?.toFixed(0) ?? '—'}</Text>
-                    <Text style={styles.gaugeCenterUnit}>km</Text>
+                    <Text style={styles.gaugeCenterLabel}>BŪSENA</Text>
+                    <Text numberOfLines={2} style={styles.gaugeCenterUnit}>{operationalRouteStatus(route)}</Text>
                   </View>
                   <InstrumentGauge
                     colors={colors}
-                    maximum={progress.totalStops}
-                    remaining={progress.remainingStops}
+                    maximum={route?.estimatedDistanceKm ?? progress.preliminaryRemainingDistanceKm ?? 1}
+                    remaining={progress.preliminaryRemainingDistanceKm ?? 0}
                     size={gaugeSize}
-                    title="Taškai"
-                    unit="tšk."
-                    value={progress.totalStops - progress.remainingStops}
+                    title="Likęs kelias"
+                    unit="km"
+                    value={Math.max(0, (route?.estimatedDistanceKm ?? progress.preliminaryRemainingDistanceKm ?? 0) - (progress.preliminaryRemainingDistanceKm ?? 0))}
                   />
                 </View>
               </View>
@@ -565,15 +621,40 @@ export default function DeliveryScreen() {
                 </View>
               ) : (
                 <View style={styles.nextStopCard} testID="dashboard-next-stop">
-                  <Text style={styles.dashboardCardLabel}>MARŠRUTAS ĮVYKDYTAS</Text>
-                  <Text style={styles.nextStopAddress}>Visi taškai apdoroti</Text>
-                  <Pressable
-                    disabled={busy}
-                    onPress={() => { void beginFinish(); }}
-                    style={[styles.completeRouteButton, busy && styles.disabled]}
-                    testID="dashboard-complete-route-button">
-                    <Text style={styles.buttonText}>UŽBAIGTI MARŠRUTĄ</Text>
-                  </Pressable>
+                  <Text style={styles.dashboardCardLabel}>{route?.returnArrivedAt ? 'LAUKIAMA GALUTINIO ODOMETRO' : route?.returnStartedAt ? 'GRĮŽIMAS Į GALUTINĮ TAŠKĄ' : 'PRISTATYMAI UŽBAIGTI'}</Text>
+                  <Text style={styles.nextStopAddress}>{route?.returnStartedAt
+                    ? `${route.returnDestinationKind === 'home' ? 'Namai' : 'Sandėlis'} · ${route.endLocation?.normalizedAddress ?? route.endLocation?.originalAddress ?? ''}`
+                    : 'Pasirinkite, kur važiuosite po paskutinio pristatymo.'}</Text>
+                  {!route?.returnStartedAt ? (
+                    <View style={styles.returnChoiceRow} testID="route-return-choice">
+                      <Pressable
+                        disabled={busy || !returnLocations.warehouse}
+                        onPress={() => { void startReturn('warehouse'); }}
+                        style={[styles.returnChoiceButton, styles.warehouseReturnButton, (busy || !returnLocations.warehouse) && styles.disabled]}>
+                        <Text style={styles.buttonText}>VAŽIUOTI Į SANDĖLĮ</Text>
+                      </Pressable>
+                      <Pressable
+                        disabled={busy || !returnLocations.home}
+                        onPress={() => { void startReturn('home'); }}
+                        style={[styles.returnChoiceButton, styles.homeReturnButton, (busy || !returnLocations.home) && styles.disabled]}>
+                        <Text style={styles.buttonText}>VAŽIUOTI NAMO</Text>
+                      </Pressable>
+                      {!returnLocations.home ? <Text style={styles.meta}>Namų adresą pirmiausia įveskite nustatymuose.</Text> : null}
+                    </View>
+                  ) : !route.returnArrivedAt ? (
+                    <View style={styles.returnChoiceRow}>
+                      {route.endLocation ? <Pressable style={[styles.returnChoiceButton, styles.warehouseReturnButton]} onPress={() => { void navigateToEndpoint(route.endLocation!); }}><Text style={styles.buttonText}>ATIDARYTI NAVIGACIJĄ</Text></Pressable> : null}
+                      <Pressable disabled={busy} style={[styles.returnChoiceButton, styles.homeReturnButton, busy && styles.disabled]} onPress={() => { void confirmReturnArrival(); }} testID="confirm-return-arrival"><Text style={styles.buttonText}>PATVIRTINTI ATVYKIMĄ</Text></Pressable>
+                    </View>
+                  ) : (
+                    <Pressable
+                      disabled={busy}
+                      onPress={() => { void beginFinish(); }}
+                      style={[styles.completeRouteButton, busy && styles.disabled]}
+                      testID="dashboard-complete-route-button">
+                      <Text style={styles.buttonText}>ĮVESTI GALUTINĮ ODOMETRĄ</Text>
+                    </Pressable>
+                  )}
                 </View>
               )}
               {route?.startOdometer === null ? (
@@ -842,6 +923,14 @@ function elapsedLabel(startedAt: string | null): string {
   return `${hours}:${String(minutes).padStart(2, '0')}`;
 }
 
+function operationalRouteStatus(route: Route | null): string {
+  if (!route) return 'Aktyvus';
+  if (route.returnArrivedAt) return 'Odometras';
+  if (route.returnStartedAt) return route.returnDestinationKind === 'home' ? 'Namo' : 'Sandėlis';
+  if (route.remainingStops === 0) return 'Pristatyta';
+  return 'Aktyvus';
+}
+
 function filterLabel(filter: DeliveryFilter): string {
   return ({ all: 'Visi', undelivered: 'Liko nepristatyti', delivered: 'Pristatyti', failed: 'Nepavykę' })[filter];
 }
@@ -972,6 +1061,10 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   dashboardActionIcon: { color: colors.textInverse, fontFamily: fonts.headingExtraBold, fontSize: 26, lineHeight: 28 },
   dashboardActionText: { ...type.label, color: colors.textInverse },
   completeRouteButton: { minHeight: 58, borderRadius: radius.md, backgroundColor: colors.success, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
+  returnChoiceRow: { gap: spacing.sm },
+  returnChoiceButton: { minHeight: 56, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
+  warehouseReturnButton: { backgroundColor: colors.actionRoute },
+  homeReturnButton: { backgroundColor: colors.actionPrimary },
   nextStopMeta: { color: colors.textMuted, lineHeight: 20 },
   nextStopEta: { color: colors.accent, fontSize: 16, fontFamily: fonts.heading },
   etaRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
@@ -998,7 +1091,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   filterChipActive: { backgroundColor: colors.actionPrimary, borderColor: colors.actionPrimary },
   filterText: { ...type.secondaryStrong, color: colors.textSecondary },
   filterTextActive: { color: colors.textInverse },
-  card: { padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.xs },
+  card: { padding: 0, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: 0 },
   deliveredCard: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
   failedCard: { borderColor: colors.danger, backgroundColor: colors.dangerSoft },
   cardHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 44 },

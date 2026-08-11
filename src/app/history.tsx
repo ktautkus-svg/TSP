@@ -13,10 +13,12 @@ import { fonts, radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { formatWeightKg } from '@/ui/format-weight';
+import { useLocalAccess } from '@/application/auth/local-access-context';
 
 export default function HistoryScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
+  const { profile } = useLocalAccess();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const repository = useMemo(() => new RouteRepository(db), [db]);
@@ -26,17 +28,18 @@ export default function HistoryScreen() {
 
   useFocusEffect(useCallback(() => {
     let mounted = true;
-    void Promise.all([repository.listHistory(), repository.getActive()]).then(([history, active]) => {
+    const owner = profile.role === 'driver' ? profile.id : null;
+    void Promise.all([repository.listHistory(50, owner), repository.listOperational(owner)]).then(([history, operational]) => {
       if (!mounted) return;
       setRoutes(history);
-      setActiveRoute(active);
+      setActiveRoute(operational[0] ?? null);
       setError(null);
     }).catch((reason) => {
       if (__DEV__) console.warn('ROUTE_HISTORY_LOAD_FAILED', reason);
       if (mounted) setError(reason instanceof Error ? reason.message : 'Istorijos atkurti nepavyko.');
     });
     return () => { mounted = false; };
-  }, [repository]));
+  }, [profile.id, profile.role, repository]));
 
   const goHome = () => router.replace('/' as Href);
   const goActiveDashboard = () => {

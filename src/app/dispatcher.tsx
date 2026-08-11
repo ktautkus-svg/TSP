@@ -37,6 +37,7 @@ export default function DispatcherScreen() {
   const [assignments, setAssignments] = useState<ServerRouteAssignment[]>([]);
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
   const [selectedDriverId, setSelectedDriverId] = useState<string | null>(null);
+  const [selectionOrigin, setSelectionOrigin] = useState<'route' | 'driver'>('route');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -70,7 +71,7 @@ export default function DispatcherScreen() {
     setAssignments(assignmentResponse.assignments);
     setSelectedDriverId((current) => current && availableDrivers.some((driver) => driver.id === current)
       ? current
-      : availableDrivers.find((driver) => !assignmentResponse.assignments.some((assignment) => assignment.driverId === driver.id && isActiveAssignment(assignment)))?.id ?? null);
+      : availableDrivers[0]?.id ?? null);
   }, [db, online, requestSync]);
 
   useEffect(() => {
@@ -141,7 +142,7 @@ export default function DispatcherScreen() {
               <View style={styles.empty}><Text style={styles.emptyTitle}>Paruoštų maršrutų nėra</Text><Text style={styles.panelHint}>Importuokite Excel arba įveskite adresus ir pasirinkite maršruto variantą.</Text></View>
             ) : routes.map((route) => {
               const alreadyAssigned = assignments.some((assignment) => assignment.routeId === route.id && isActiveAssignment(assignment));
-              return <Pressable key={route.id} onPress={() => setSelectedRouteId(route.id)} style={[styles.routeCard, selectedRouteId === route.id && styles.selectedCard]}>
+              return <Pressable key={route.id} onPress={() => { setSelectionOrigin('route'); setSelectedRouteId(route.id); }} style={[styles.routeCard, selectedRouteId === route.id && styles.selectedCard]}>
                 <View style={styles.routeCardTop}><Text style={styles.routeDate}>{formatDate(route.date)}</Text><StatusBadge status={alreadyAssigned ? 'assigned' : route.status} styles={styles} /></View>
                 <Text style={styles.routeNumbers}>{route.total_stops} taškų · {Math.round(route.total_weight_kg)} kg · {formatKm(route.estimated_distance_km)}</Text>
                 <Text numberOfLines={1} style={styles.routeEndpoint}>{endpointLabel(route.start_location_json)} → {endpointLabel(route.end_location_json)}</Text>
@@ -153,27 +154,25 @@ export default function DispatcherScreen() {
             <View style={styles.panelHeading}><View><Text style={styles.panelTitle}>2. Vairuotojas</Text><Text style={styles.panelHint}>Pasirinkite, kam perduoti darbą</Text></View><Text style={styles.countBadge}>{freeDrivers.length}</Text></View>
             <View style={styles.driverGrid}>
               {drivers.map((driver) => {
-                const assignment = activeAssignments.find((item) => item.driverId === driver.id);
-                const unavailable = Boolean(assignment);
+                const driverAssignments = activeAssignments.filter((item) => item.driverId === driver.id);
                 return <Pressable
                   key={driver.id}
-                  disabled={unavailable}
-                  onPress={() => setSelectedDriverId(driver.id)}
-                  style={[styles.driverCard, selectedDriverId === driver.id && styles.selectedCard, unavailable && styles.unavailable]}>
+                  onPress={() => { setSelectionOrigin('driver'); setSelectedDriverId(driver.id); }}
+                  style={[styles.driverCard, selectedDriverId === driver.id && styles.selectedCard]}>
                   <View style={styles.avatar}><Text style={styles.avatarText}>{initials(driver.displayName)}</Text></View>
                   <View style={styles.driverText}><Text style={styles.driverName}>{driver.displayName}</Text><Text style={styles.panelHint}>@{driver.username}</Text></View>
-                  <Text style={[styles.availability, unavailable && styles.busyText]}>{unavailable ? 'Turi maršrutą' : 'Laisvas'}</Text>
+                  <Text style={[styles.availability, driverAssignments.length > 0 && styles.busyText]}>{driverAssignments.length > 0 ? `${driverAssignments.length} suplanuota` : 'Laisvas'}</Text>
                 </Pressable>;
               })}
             </View>
           </View>
 
           <View style={[styles.panel, desktop && styles.actionPanel]}>
-            <Text style={styles.panelTitle}>3. Patvirtinimas</Text>
+            <Text style={styles.panelTitle}>{selectionOrigin === 'driver' ? '3. Priskirti maršrutą' : '3. Priskirti vairuotoją'}</Text>
             <Summary label="Maršrutas" value={selectedRoute ? `${formatDate(selectedRoute.date)} · ${selectedRoute.total_stops} taškų` : 'Nepasirinktas'} styles={styles} />
             <Summary label="Vairuotojas" value={selectedDriver?.displayName ?? 'Nepasirinktas'} styles={styles} />
             <Pressable disabled={busy || !online || !selectedRoute || !selectedDriver} onPress={() => void assign()} style={[styles.assignButton, (busy || !online || !selectedRoute || !selectedDriver) && styles.disabled]}>
-              {busy ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.assignText}>Priskirti vairuotojui</Text>}
+              {busy ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.assignText}>{selectionOrigin === 'driver' ? 'Priskirti maršrutą' : 'Priskirti vairuotoją'}</Text>}
             </Pressable>
             <Pressable style={styles.permissionsLink} onPress={() => router.push('/admin' as Href)}><Text style={styles.permissionsText}>Darbuotojai ir leidimai →</Text></Pressable>
           </View>

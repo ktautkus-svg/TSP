@@ -1,8 +1,8 @@
 import { StatusBar } from 'expo-status-bar';
-import { Link, Stack } from 'expo-router';
+import { Link, Stack, usePathname, useRouter, type Href } from 'expo-router';
 import { SQLiteProvider } from 'expo-sqlite';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import {
   useFonts,
@@ -21,6 +21,23 @@ import { migrateDatabase } from '@/database/migrations';
 import { ThemeProvider } from '@/ui/theme';
 import { AlertHost } from '@/ui/alert';
 import { colors, fonts, radius, type } from '@/ui/tokens';
+import { useLocalAccess } from '@/application/auth/local-access-context';
+
+function RoleAccessBoundary({ children }: { children: ReactNode }) {
+  const { profile } = useLocalAccess();
+  const pathname = usePathname();
+  const router = useRouter();
+  const adminOnly = pathname === '/admin'
+    || pathname === '/dispatcher'
+    || pathname.startsWith('/import')
+    || pathname === '/route/new'
+    || /\/route\/[^/]+\/(review|alternatives)$/.test(pathname);
+  const blocked = profile.role === 'driver' && adminOnly;
+  useEffect(() => {
+    if (blocked) router.replace('/' as Href);
+  }, [blocked, router]);
+  return blocked ? null : children;
+}
 
 /** Shared by the two full-screen failure states below. */
 const failureStyles = {
@@ -106,6 +123,7 @@ export default function RootLayout() {
             <AlertHost />
             <PwaRuntime />
             <StatusBar style="light" />
+            <RoleAccessBoundary>
             <Stack
               screenOptions={{
                 headerShadowVisible: false,
@@ -143,6 +161,7 @@ export default function RootLayout() {
               <Stack.Screen name="admin" options={{ title: 'Administratoriaus panelė' }} />
               <Stack.Screen name="dispatcher" options={{ title: 'Dispečerio skydelis' }} />
             </Stack>
+            </RoleAccessBoundary>
           </RouteCloudSyncProvider>
         </LocalAccessGate>
       </ThemeProvider>

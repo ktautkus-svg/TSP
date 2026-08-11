@@ -33,6 +33,8 @@ export default function HomeScreen() {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const repository = useMemo(() => new RouteRepository(db), [db]);
   const [active, setActive] = useState<Route | null>(null);
+  const [driverRoutes, setDriverRoutes] = useState<Route[]>([]);
+  const [routeNumbers, setRouteNumbers] = useState<Record<string, string>>({});
   const [progress, setProgress] = useState<RouteProgress | null>(null);
   const [exporting, setExporting] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
@@ -64,13 +66,20 @@ export default function HomeScreen() {
       try {
         if (online && profile.role === 'driver') await pullAssignedRoutes(db, profile);
         await requestSync('home-focus');
-        const route = await repository.getActive();
+        const operational = await repository.listOperational(profile.role === 'driver' ? profile.id : null);
+        const route = operational[0] ?? null;
         const nextProgress = route ? await new GetRouteProgress(db).execute(route.id) : null;
         if (online && route) void pushRouteAssignmentProgress(db, route.id).catch(() => undefined);
         if (!mounted) return;
         setActive(route);
+        setDriverRoutes(operational);
+        const numberRows = await db.getAllAsync<{ route_id: string; order_number: string | null }>(
+          `SELECT route_id, order_number FROM delivery_stops
+           WHERE order_number IS NOT NULL AND TRIM(order_number) <> ''`,
+        );
+        setRouteNumbers(groupRouteNumbers(numberRows));
         setProgress(nextProgress);
-        if (!initialRestoreHandled.current && route?.status === 'in_progress') {
+        if (profile.role !== 'driver' && !initialRestoreHandled.current && route?.status === 'in_progress') {
           initialRestoreHandled.current = true;
           initialActiveRouteRestoreHandled = true;
           const destination = resolveRoute(route);
@@ -90,17 +99,19 @@ export default function HomeScreen() {
     if (syncRevision === 0) return;
     let mounted = true;
     void (async () => {
-      const route = await repository.getActive();
+      const operational = await repository.listOperational(profile.role === 'driver' ? profile.id : null);
+      const route = operational[0] ?? null;
       const nextProgress = route ? await new GetRouteProgress(db).execute(route.id) : null;
       if (mounted) {
         setActive(route);
+        setDriverRoutes(operational);
         setProgress(nextProgress);
       }
     })().catch((reason) => {
       if (__DEV__) console.warn('ACTIVE_ROUTE_SYNC_REFRESH_FAILED', reason);
     });
     return () => { mounted = false; };
-  }, [db, repository, syncRevision]);
+  }, [db, profile.id, profile.role, repository, syncRevision]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -108,7 +119,43 @@ export default function HomeScreen() {
       <AccountMenuSheet visible={accountMenuOpen} onClose={() => setAccountMenuOpen(false)} />
       <ScreenContainer>
         <ScrollView contentContainerStyle={styles.content}>
-          {active ? (
+          {profile.role === 'driver' ? (
+            <View style={styles.driverRouteList} testID="driver-route-list">
+              <View style={styles.listHeading}>
+                <Text style={styles.activeTitle}>Mano maršrutai</Text>
+                <Text style={styles.activeText}>{driverRoutes.length} suplanuota</Text>
+              </View>
+              {driverRoutes.length === 0 ? (
+                <AppCard style={styles.emptyCard}>
+                  <Text style={styles.activeTitle}>Maršrutas dar nepriskirtas</Text>
+                  <Text style={styles.activeText}>Kai administratorius priskirs maršrutą, jis automatiškai atsiras šiame įrenginyje.</Text>
+                </AppCard>
+              ) : driverRoutes.map((route) => (
+                <AppCard key={route.id} style={styles.driverRouteCard} testID={`driver-route-${route.id}`}>
+                  <View style={styles.routeCardHeader}>
+                    <View style={styles.activeHeaderText}>
+                      <Text style={styles.eyebrow}>{formatRouteDate(route.date)}</Text>
+                      <Text style={styles.activeTitle}>{routeNumbers[route.id] || shortRouteId(route.id)}</Text>
+                    </View>
+                    <Text style={styles.routeStatus}>{operationalStatus(route)}</Text>
+                  </View>
+                  <View style={styles.driverRouteMetrics}>
+                    <RouteMetric label="Svoris" value={`${formatWeightKg(route.totalWeightKg)} kg`} styles={styles} />
+                    <RouteMetric label="Taškai" value={String(route.totalStops)} styles={styles} />
+                    <RouteMetric label="Atstumas" value={`${formatMetric(route.estimatedDistanceKm)} km`} styles={styles} />
+                  </View>
+                  <AppButton
+                    disabled={hasDifferentWorkingRoute(driverRoutes, route)}
+                    label={hasDifferentWorkingRoute(driverRoutes, route) ? 'Pirma užbaikite aktyvų maršrutą' : route.status === 'in_progress' ? 'Tęsti maršrutą' : 'Pradėti maršrutą'}
+                    onPress={() => {
+                      const destination = resolveRoute(route);
+                      router.push({ pathname: destination.pathname, params: destination.params } as Href);
+                    }}
+                  />
+                </AppCard>
+              ))}
+            </View>
+          ) : active ? (
             <AppCard style={styles.activeCard} testID="active-route-card">
               <View style={styles.activeHeader}>
                 <View style={styles.activeHeaderText}>
@@ -173,9 +220,9 @@ export default function HomeScreen() {
               ) : null}
             </AppCard>
           ) : (
-            <AppCard style={styles.emptyCard}><Text style={styles.activeTitle}>{profile.role === 'driver' ? 'Maršrutas dar nepriskirtas' : 'Aktyvaus maršruto nėra'}</Text><Text style={styles.activeText}>{profile.role === 'driver' ? 'Kai dispečeris priskirs maršrutą, jis automatiškai atsiras šiame įrenginyje.' : 'Importuokite dokumentą arba įveskite adresų sąrašą.'}</Text></AppCard>
+            <AppCard style={styles.emptyCard}><Text style={styles.activeTitle}>Aktyvaus maršruto nėra</Text><Text style={styles.activeText}>Importuokite dokumentą arba įveskite adresų sąrašą.</Text></AppCard>
           )}
-          {!active && (profile.role !== 'driver' || profile.permissions?.canCreateRoutes) ? (
+          {!active && profile.role !== 'driver' ? (
             <>
               <AppButton label="Naujas maršrutas" onPress={() => router.push('/import' as Href)} />
               <AppButton label="Įvesti adresus rankiniu būdu" onPress={() => router.push('/route/new' as Href)} variant="secondary" />
@@ -215,9 +262,59 @@ function formatMetric(value: number | null | undefined): string {
   return new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(value);
 }
 
+function groupRouteNumbers(rows: Array<{ route_id: string; order_number: string | null }>): Record<string, string> {
+  const grouped = new Map<string, Set<string>>();
+  for (const row of rows) {
+    const value = row.order_number?.trim();
+    if (!value) continue;
+    const normalized = /^R/i.test(value) ? value.toUpperCase() : `R${value}`;
+    const values = grouped.get(row.route_id) ?? new Set<string>();
+    values.add(normalized);
+    grouped.set(row.route_id, values);
+  }
+  return Object.fromEntries([...grouped].map(([routeId, values]) => [routeId, [...values].join(', ')]));
+}
+
+function shortRouteId(routeId: string): string {
+  const suffix = routeId.match(/(\d{1,4})$/)?.[1];
+  return suffix ? `R${suffix}` : `Maršrutas ${routeId.slice(-6).toUpperCase()}`;
+}
+
+function formatRouteDate(value: string): string {
+  const date = new Date(`${value}T12:00:00`);
+  return Number.isNaN(date.getTime())
+    ? value
+    : new Intl.DateTimeFormat('lt-LT', { weekday: 'short', month: 'short', day: 'numeric' }).format(date);
+}
+
+function operationalStatus(route: Route): string {
+  if (route.returnArrivedAt) return 'Laukiama odometro';
+  if (route.returnStartedAt) return route.returnDestinationKind === 'home' ? 'Grįžtama namo' : 'Grįžtama į sandėlį';
+  if (route.remainingStops === 0 && route.status === 'in_progress') return 'Pristatymai užbaigti';
+  return ({ draft: 'Ruošiamas', planned: 'Suplanuotas', loading: 'Kraunamas', loaded: 'Paruoštas', in_progress: 'Aktyvus' } as Record<string, string>)[route.status] ?? route.status;
+}
+
+function hasDifferentWorkingRoute(routes: Route[], candidate: Route): boolean {
+  return !['loading', 'loaded', 'in_progress'].includes(candidate.status)
+    && routes.some((route) => route.id !== candidate.id && ['loading', 'loaded', 'in_progress'].includes(route.status));
+}
+
+function RouteMetric({ label, value, styles }: { label: string; value: string; styles: ReturnType<typeof createStyles> }) {
+  return <View style={styles.driverMetric}><Text numberOfLines={1} style={styles.driverMetricValue}>{value}</Text><Text style={styles.driverMetricLabel}>{label}</Text></View>;
+}
+
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background },
   content: { flexGrow: 1, paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: 96, gap: spacing.md },
+  driverRouteList: { gap: spacing.md },
+  listHeading: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: spacing.md },
+  driverRouteCard: { gap: spacing.md },
+  routeCardHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing.md },
+  routeStatus: { ...type.meta, color: colors.info, backgroundColor: colors.infoSoft, borderRadius: radius.pill, overflow: 'hidden', paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
+  driverRouteMetrics: { flexDirection: 'row', borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
+  driverMetric: { flex: 1, minWidth: 0, minHeight: 58, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.xs, backgroundColor: colors.surfaceSubtle, borderRightWidth: 1, borderRightColor: colors.border },
+  driverMetricValue: { ...type.bodyStrong, color: colors.text, textAlign: 'center' },
+  driverMetricLabel: { ...type.meta, color: colors.textMuted, textAlign: 'center' },
   eyebrow: { ...type.label, color: colors.textMuted },
   // One card style, one radius, one hairline border. No shadow: the border is
   // enough separation against a light grey page.

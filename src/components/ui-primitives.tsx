@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -39,6 +39,7 @@ export function AppButton({
   const { colors } = useTheme();
   const styles = createStyles(colors);
   const inactive = Boolean(disabled || loading);
+  const [focused, setFocused] = useState(false);
 
   return (
     <Pressable
@@ -48,11 +49,15 @@ export function AppButton({
       style={({ pressed }) => [
         styles.button,
         styles[`${variant}Button`],
+        focused && !inactive && styles.focusedButton,
+        pressed && !inactive && styles.pressedButton,
         pressed && !inactive && styles[`${variant}Pressed`],
         inactive && styles.disabledButton,
         style,
       ]}
-      {...props}>
+      {...props}
+      onBlur={(event) => { setFocused(false); props.onBlur?.(event); }}
+      onFocus={(event) => { setFocused(true); props.onFocus?.(event); }}>
       {loading ? <ActivityIndicator color={variant === 'secondary' || variant === 'ghost' ? colors.text : colors.textInverse} /> : leading}
       <Text style={[styles.buttonText, styles[`${variant}Text`], inactive && styles.disabledText]}>{label}</Text>
     </Pressable>
@@ -134,6 +139,8 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     borderWidth: 1,
     borderColor: 'transparent',
   },
+  pressedButton: { transform: [{ translateY: 1 }, { scale: 0.985 }] },
+  focusedButton: { borderColor: colors.info, shadowColor: colors.info, shadowOpacity: 0.22, shadowRadius: 3, shadowOffset: { width: 0, height: 0 } },
   primaryButton: { backgroundColor: colors.actionPrimary },
   primaryPressed: { backgroundColor: colors.actionPrimaryPressed },
   primaryText: { color: colors.textInverse },
