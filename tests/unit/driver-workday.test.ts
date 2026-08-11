@@ -51,6 +51,8 @@ const migrationSource = readFileSync(
   'utf8',
 );
 
+const latestSchemaVersion = Number(migrationSource.match(/SCHEMA_VERSION = (\d+)/)![1]);
+
 function migration(name: string): string {
   const match = migrationSource.match(new RegExp(`const ${name} = \`([\\s\\S]*?)\`;`));
   if (!match) throw new Error(`Missing ${name}`);
@@ -98,8 +100,11 @@ async function startedRoute(db: SQLiteDatabase) {
 describe('driver workday persistence', () => {
   it('migrates the product defaults and remembers the preferred route end', async () => {
     const { adapter, db } = createDb(9);
-    adapter.raw.exec(migration('migrationV10'));
-    adapter.raw.exec(migration('migrationV11'));
+    // v10/v11 are what seed the product defaults; the rest are applied so the
+    // preference writers run against the schema they actually ship with.
+    for (let version = 10; version <= latestSchemaVersion; version += 1) {
+      adapter.raw.exec(migration(`migrationV${version}`));
+    }
     const defaults = await new GetDefaultLocations(db).execute();
     expect(defaults.warehouse?.endpoint.originalAddress).toBe('Savanorių pr. 180, Vilnius');
     expect(defaults.home?.endpoint.originalAddress).toBe('Alinkos g. 1A, Elektrėnai');
