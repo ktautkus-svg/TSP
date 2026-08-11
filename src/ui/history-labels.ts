@@ -11,9 +11,24 @@ export function loadingStatusLabel(status: DeliveryStop['loadingStatus']): strin
 }
 
 export function routeStatusLabel(status: Route['status']): string {
-  if (status === 'completed') return 'Užbaigtas';
-  if (status === 'cancelled') return 'Atšauktas';
-  return 'Aktyvus';
+  switch (status) {
+    case 'draft':
+      return 'Juodraštis';
+    case 'planned':
+      return 'Suplanuotas';
+    case 'loading':
+      return 'Krovimas';
+    case 'loaded':
+      return 'Paruoštas';
+    case 'in_progress':
+      return 'Vykdomas';
+    case 'completed':
+      return 'Užbaigtas';
+    case 'cancelled':
+      return 'Atšauktas';
+    default:
+      return status;
+  }
 }
 
 export function formatLithuanianDate(value: string): string {

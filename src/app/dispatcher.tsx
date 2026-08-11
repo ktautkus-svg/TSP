@@ -6,6 +6,8 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { assignRouteToDriver } from '@/application/auth/route-assignment-sync';
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 import { useLocalAccess } from '@/application/auth/local-access-context';
+import { resolveRouteDestination } from '@/application/routes/route-navigation';
+import type { RouteStatus } from '@/domain/route';
 import { employeeApi, type EmployeeProfile, type ServerRouteAssignment } from '@/infrastructure/auth/employee-session';
 import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
@@ -117,7 +119,15 @@ export default function DispatcherScreen() {
           </View>
           <View style={styles.topActions}>
             <Pressable style={styles.secondaryButton} onPress={() => void load()}><Text style={styles.secondaryText}>Atnaujinti</Text></Pressable>
-            <Pressable style={styles.primaryButton} onPress={() => router.push('/import' as Href)}><Text style={styles.primaryText}>+ Planuoti maršrutą</Text></Pressable>
+            <Pressable style={styles.secondaryButton} onPress={() => router.push('/history' as Href)} testID="dispatcher-open-history">
+              <Text style={styles.secondaryText}>Maršrutų sąrašas</Text>
+            </Pressable>
+            <Pressable style={styles.secondaryButton} onPress={() => router.push('/route/new' as Href)} testID="dispatcher-manual-route">
+              <Text style={styles.secondaryText}>Rankinis</Text>
+            </Pressable>
+            <Pressable style={styles.primaryButton} onPress={() => router.push('/import' as Href)} testID="dispatcher-plan-route">
+              <Text style={styles.primaryText}>+ Planuoti maršrutą</Text>
+            </Pressable>
           </View>
         </View>
 
@@ -175,6 +185,22 @@ export default function DispatcherScreen() {
             <Pressable disabled={busy || !online || !selectedRoute || !selectedDriver} onPress={() => void assign()} style={[styles.assignButton, (busy || !online || !selectedRoute || !selectedDriver) && styles.disabled]}>
               {busy ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.assignText}>Priskirti vairuotojui</Text>}
             </Pressable>
+            {selectedRoute ? (
+              <Pressable
+                style={styles.permissionsLink}
+                testID="dispatcher-open-selected-route"
+                onPress={() => {
+                  const destination = resolveRouteDestination(selectedRoute.status as RouteStatus, {
+                    routeId: selectedRoute.id,
+                    hasSelectedCandidate: selectedRoute.status !== 'draft',
+                  });
+                  router.push({ pathname: destination.pathname, params: destination.params } as Href);
+                }}>
+                <Text style={styles.permissionsText}>
+                  {selectedRoute.status === 'planned' ? 'Atidaryti / redaguoti maršrutą →' : 'Atidaryti maršrutą →'}
+                </Text>
+              </Pressable>
+            ) : null}
             <Pressable style={styles.permissionsLink} onPress={() => router.push('/admin' as Href)}><Text style={styles.permissionsText}>Darbuotojai ir leidimai →</Text></Pressable>
           </View>
         </View>

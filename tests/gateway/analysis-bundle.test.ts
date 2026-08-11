@@ -1,3 +1,4 @@
+import { access } from 'node:fs/promises';
 import { readFile, readdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -37,7 +38,11 @@ describe('provider comparison', () => {
 describe('client secret boundary', () => {
   it('keeps server API key variable names outside Expo src and production dist', async () => {
     const forbidden = ['HERE_API_KEY', 'GOOGLE_ROUTES_API_KEY'];
-    for (const directory of ['src', 'dist']) {
+    const directories = ['src'];
+    // dist/ exists only after `npm run pwa:build`; skip it when absent so unit
+    // runs stay green without a production bundle artifact.
+    if (await exists(resolve('dist'))) directories.push('dist');
+    for (const directory of directories) {
       for (const file of await files(resolve(directory))) {
         const content = await readFile(file, 'utf8').catch(() => '');
         for (const token of forbidden) expect(content).not.toContain(token);
@@ -45,6 +50,15 @@ describe('client secret boundary', () => {
     }
   });
 });
+
+async function exists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 async function files(directory: string): Promise<string[]> {
   const result: string[] = [];
