@@ -53,14 +53,14 @@ export function RoadProgressBar({
           <Path
             d="M 18 56 Q 215 -10 412 56"
             fill="none"
-            stroke="#3C433E"
+            stroke="#46545D"
             strokeLinecap="round"
             strokeWidth={10}
           />
           <Path
             d="M 18 56 Q 215 -10 412 56"
             fill="none"
-            stroke="#83D13D"
+            stroke="#4FA778"
             strokeDasharray={`${Math.max(1, displayedProgress * ARC_LENGTH)} ${ARC_LENGTH}`}
             strokeLinecap="round"
             strokeWidth={10}

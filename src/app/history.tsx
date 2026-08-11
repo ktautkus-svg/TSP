@@ -88,10 +88,10 @@ export default function HistoryScreen() {
 }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
-  screen: { flex: 1, alignSelf: 'center', width: '100%', maxWidth: 430, backgroundColor: colors.background },
+  screen: { flex: 1, alignSelf: 'center', width: '100%', maxWidth: 900, backgroundColor: colors.background },
   empty: { padding: spacing.lg, borderWidth: 1, borderRadius: radius.lg, borderColor: colors.border, backgroundColor: colors.surface },
   card: { flexDirection: 'row', overflow: 'hidden', borderWidth: 1, borderRadius: radius.md, borderColor: colors.border, backgroundColor: colors.surface },
-  statusStripe: { width: 6 },
+  statusStripe: { width: 5 },
   statusStripeCompleted: { backgroundColor: colors.accent },
   statusStripeCancelled: { backgroundColor: colors.border },
   cardBody: { flex: 1, padding: spacing.md, gap: spacing.xs },

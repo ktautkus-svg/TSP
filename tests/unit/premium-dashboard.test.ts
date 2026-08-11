@@ -24,7 +24,7 @@ describe('premium route dashboard', () => {
     expect(gauge).toContain('fraction >= 0.85');
     expect(gauge).toContain("stopColor={fraction >= 0.85 ? '#E11D1D' : '#FF6A00'}");
     expect(gauge).toContain('id="redZone"');
-    expect(gauge).toContain('stopColor="#D4FF6E"');
+    expect(gauge).toContain('stopColor="#65B88C"');
     expect(gauge).not.toContain('LIKO');
     expect(gauge).toContain('{unit}');
     expect(gauge).toContain('stroke="url(#bezel)"');
@@ -52,7 +52,7 @@ describe('premium route dashboard', () => {
     expect(road).toContain('<Image');
     expect(road).not.toContain('<SvgImage');
     expect(road).not.toContain('PRISTATYMO EIGA');
-    expect(road).toContain('stroke="#83D13D"');
+    expect(road).toContain('stroke="#4FA778"');
     expect(road).toContain('GERO POILSIO!');
     expect(road).toContain('<WeatherOverlay');
     expect(road).toContain('<TimeOfDayOverlay');
@@ -91,7 +91,9 @@ describe('premium route dashboard', () => {
     expect(delivery).toContain('dashboard-complete-route-button');
     expect(delivery).toContain('<RouteBottomTabs');
     expect(delivery).toContain('route-bottom-tabs');
-    expect(delivery).toContain('maxWidth: 430');
+    expect(delivery).toContain('maxWidth: layout.maxOperationalWidth');
+    expect(delivery).toContain("dashboardGrid: { width: '100%', flexDirection: 'column-reverse'");
+    expect(delivery).toContain("dashboardGridWide: { flexDirection: 'row-reverse'");
     expect(delivery).toContain('edgeToEdge');
     expect(delivery).toContain('showHeading={false}');
     expect(delivery).toContain('minHeight: 48');

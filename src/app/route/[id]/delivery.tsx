@@ -45,7 +45,7 @@ import { RouteRepository } from '@/database/repositories/route-repository';
 import { GatewayGeocodingProvider } from '@/infrastructure/routing/providers/gateway-geocoding-provider';
 import { DELIVERY_FAILURE_REASONS, deliveryMatchesFilter, type DeliveryFailureReason } from '@/domain/delivery-failure';
 import type { DeliveryFilter, DeliveryStop, Route } from '@/domain/route';
-import { colors as instrumentColors, fonts, radius, spacing, type } from '@/ui/tokens';
+import { colors as instrumentColors, fonts, layout, radius, spacing, type } from '@/ui/tokens';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { formatWeightKg } from '@/ui/format-weight';
 import { failedDeliveryLabel, userVisibleStopNote } from '@/ui/route-labels';
@@ -428,7 +428,10 @@ export default function DeliveryScreen() {
   const canRecalculateRemaining = Boolean(recalculationAnchor && stops.some((stop) => stop.deliveryStatus === 'pending'));
   const nextStop = stops.find((stop) => stop.deliveryStatus === 'pending') ?? null;
   const nextStopWindow = arrivalWindowStatus(nextStop, route?.date);
-  const gaugeSize = Math.min(152, Math.max(104, (Math.min(viewportWidth, 430) - 124) / 2));
+  const isWideDashboard = viewportWidth >= 760;
+  const gaugeSize = isWideDashboard
+    ? 150
+    : Math.min(138, Math.max(100, (Math.min(viewportWidth, 430) - 124) / 2));
 
   const stopRoute = () => {
     if (busy) return;
@@ -465,6 +468,8 @@ export default function DeliveryScreen() {
           {error ? <Text style={styles.error}>{error}</Text> : null}
           {activeView === 'dashboard' && progress ? (
             <View style={styles.dashboard} testID="route-dashboard">
+              <View style={[styles.dashboardGrid, isWideDashboard && styles.dashboardGridWide]}>
+              <View style={[styles.instrumentColumn, isWideDashboard && styles.instrumentColumnWide]}>
               <RoadProgressBar
                 fraction={progress.totalStops > 0
                   ? (progress.totalStops - progress.remainingStops) / progress.totalStops
@@ -518,8 +523,9 @@ export default function DeliveryScreen() {
                   </View>
                 </View>
               </View>
+              </View>
               {nextStop ? (
-                <View style={styles.nextStopCard} testID="dashboard-next-stop">
+                <View style={[styles.nextStopCard, isWideDashboard && styles.nextStopCardWide]} testID="dashboard-next-stop">
                   <Text style={styles.dashboardCardLabel}>KITA STOTELĖ</Text>
                   <View style={styles.nextStopHeading} testID="dashboard-stop-heading">
                     <View style={styles.stopNumberBadge}>
@@ -576,6 +582,7 @@ export default function DeliveryScreen() {
                   </Pressable>
                 </View>
               )}
+              </View>
               {route?.startOdometer === null ? (
                 <View style={styles.reminder}>
                   <Text style={styles.heading}>Trūksta pradinio odometro</Text>
@@ -862,28 +869,29 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     flex: 1,
     minWidth: 0,
     alignSelf: 'center',
+    marginHorizontal: 'auto',
     width: '100%',
-    maxWidth: 430,
+    maxWidth: layout.maxOperationalWidth,
     overflow: 'hidden',
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#111814',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.12,
-    shadowRadius: 18,
+    backgroundColor: colors.background,
   },
   routeMain: { flex: 1, minHeight: 0, minWidth: 0, width: '100%' },
-  routeContent: { flexGrow: 1, alignSelf: 'center', minWidth: 0, width: '100%', maxWidth: 430, overflow: 'hidden', gap: 0 },
-  stopsView: { width: '100%', padding: spacing.md, gap: spacing.md, backgroundColor: colors.background },
+  routeContent: { flexGrow: 1, alignSelf: 'center', minWidth: 0, width: '100%', maxWidth: layout.maxOperationalWidth, overflow: 'hidden', gap: 0 },
+  stopsView: { width: '100%', maxWidth: 900, alignSelf: 'center', padding: spacing.md, gap: spacing.md, backgroundColor: colors.background },
   dashboard: {
     flexGrow: 1,
     minWidth: 0,
     alignSelf: 'center',
     width: '100%',
-    maxWidth: 430,
+    maxWidth: layout.maxOperationalWidth,
     overflow: 'hidden',
     gap: 0,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.background,
   },
+  dashboardGrid: { width: '100%', flexDirection: 'column-reverse', backgroundColor: colors.background },
+  dashboardGridWide: { flexDirection: 'row-reverse', alignItems: 'stretch', gap: spacing.lg, padding: spacing.lg },
+  instrumentColumn: { width: '100%', overflow: 'hidden', backgroundColor: '#090D0B' },
+  instrumentColumnWide: { flex: 1.15, minWidth: 0, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border },
   gaugePanel: {
     width: '100%',
     paddingTop: 1,
@@ -941,9 +949,10 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     backgroundColor: colors.surface,
     gap: 12,
   },
+  nextStopCardWide: { flex: 1, minWidth: 0, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.lg, justifyContent: 'center' },
   dashboardCardLabel: { ...type.label, color: colors.textMuted },
   nextStopHeading: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  stopNumberBadge: { width: 42, height: 42, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.actionPrimary },
+  stopNumberBadge: { width: 42, height: 42, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.actionRoute },
   stopNumber: { color: colors.textInverse, fontFamily: fonts.headingExtraBold, fontSize: 18 },
   nextStopAddress: { flex: 1, minWidth: 0, ...type.cardTitle, color: colors.text },
   nextStopChevron: { color: colors.textMuted, fontSize: 20, lineHeight: 24 },
@@ -995,19 +1004,19 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   stopsProgressFill: { height: '100%', borderRadius: radius.pill, backgroundColor: colors.success },
   filters: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
   filterChip: { minHeight: 42, paddingHorizontal: 13, borderRadius: radius.pill, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
-  filterChipActive: { backgroundColor: colors.actionPrimary, borderColor: colors.actionPrimary },
+  filterChipActive: { backgroundColor: colors.infoSoft, borderColor: colors.info },
   filterText: { ...type.secondaryStrong, color: colors.textSecondary },
-  filterTextActive: { color: colors.textInverse },
+  filterTextActive: { color: colors.info },
   card: { padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.xs },
   deliveredCard: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
   failedCard: { borderColor: colors.danger, backgroundColor: colors.dangerSoft },
   cardHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 44 },
   cardHeaderText: { flex: 1, minWidth: 0 },
   chevron: { color: colors.textMuted, fontSize: 16, fontFamily: fonts.heading },
-  order: { color: colors.accent, fontFamily: fonts.headingSemiBold },
-  address: { color: colors.text, fontSize: 17, fontFamily: fonts.heading },
+  order: { color: colors.info, fontFamily: fonts.headingSemiBold },
+  address: { color: colors.text, ...type.cardTitle },
   weight: { color: colors.text, fontSize: 16, fontFamily: fonts.headingSemiBold },
-  eta: { color: colors.accent, fontSize: 17, fontFamily: fonts.heading },
+  eta: { color: colors.info, ...type.cardTitle },
   schedule: { color: colors.text, fontFamily: fonts.headingSemiBold },
   informational: { color: colors.textMuted, opacity: 0.7, lineHeight: 20 },
   offline: { color: colors.warning, fontSize: 13, fontFamily: fonts.headingSemiBold },
