@@ -92,7 +92,7 @@ describe('employee route assignment offline copy', () => {
     };
     await importAssignmentSnapshot(target.db, assignment, profile.id);
     await importAssignmentSnapshot(target.db, assignment, profile.id);
-    expect(target.adapter.raw.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 15 });
+    expect(target.adapter.raw.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 16 });
     expect(target.adapter.raw.prepare('SELECT count(*) AS count FROM routes').get()).toMatchObject({ count: 1 });
     expect(target.adapter.raw.prepare('SELECT count(*) AS count FROM delivery_stops').get()).toMatchObject({ count: 1 });
     expect(target.adapter.raw.prepare('SELECT employee_id, sync_status FROM route_sync_state').get()).toMatchObject({ employee_id: profile.id, sync_status: 'synced' });
