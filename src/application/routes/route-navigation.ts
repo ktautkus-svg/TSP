@@ -3,6 +3,7 @@ import type { Route, RouteStatus } from '@/domain/route';
 export type RouteScreen =
   | 'review'
   | 'alternatives'
+  | 'edit'
   | 'loading'
   | 'delivery'
   | 'history-detail'
@@ -20,6 +21,7 @@ export type ResolvedRouteDestination = {
   pathname:
     | '/route/[id]/review'
     | '/route/[id]/alternatives'
+    | '/route/[id]/edit'
     | '/route/[id]/loading'
     | '/route/[id]/delivery'
     | '/history/[id]'
@@ -82,6 +84,9 @@ export function routePathForStatus(
   return resolveRouteDestination(status, { routeId }).pathname;
 }
 
-export function planningScreenAllowsStatus(screen: 'review' | 'alternatives', status: RouteStatus): boolean {
-  return status === 'draft' && (screen === 'review' || screen === 'alternatives');
+export function planningScreenAllowsStatus(
+  screen: 'review' | 'alternatives' | 'edit',
+  status: RouteStatus,
+): boolean {
+  return status === 'draft' && (screen === 'review' || screen === 'alternatives' || screen === 'edit');
 }

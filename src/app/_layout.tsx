@@ -1,5 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
-import { Link, Stack } from 'expo-router';
+import { Stack } from 'expo-router';
 import { SQLiteProvider } from 'expo-sqlite';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useState } from 'react';
@@ -16,11 +16,12 @@ import {
 import { PwaRuntime } from '@/components/pwa-runtime';
 import { LocalAccessGate } from '@/components/local-access-gate';
 import { CloudSyncStatus } from '@/components/cloud-sync-status';
+import { HomeLink } from '@/components/screen-nav';
 import { RouteCloudSyncProvider } from '@/application/sync/route-cloud-sync-context';
 import { migrateDatabase } from '@/database/migrations';
 import { ThemeProvider } from '@/ui/theme';
 import { AlertHost } from '@/ui/alert';
-import { colors, fonts, radius, type } from '@/ui/tokens';
+import { colors, radius, type } from '@/ui/tokens';
 
 /** Shared by the two full-screen failure states below. */
 const failureStyles = {
@@ -116,11 +117,7 @@ export default function RootLayout() {
                 headerRight: () => (
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                     <CloudSyncStatus compact />
-                    <Link href="/" replace asChild>
-                      <Pressable accessibilityRole="button" style={{ minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 }}>
-                        <Text style={{ ...type.secondary, fontFamily: fonts.headingSemiBold, color: '#FFFFFF' }}>Pradžia</Text>
-                      </Pressable>
-                    </Link>
+                    <HomeLink style={{ minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 }} />
                   </View>
                 ),
               }}>
@@ -129,6 +126,7 @@ export default function RootLayout() {
               <Stack.Screen name="import/index" options={{ title: 'Dokumentų importas' }} />
               <Stack.Screen name="route/[id]/review" options={{ title: 'Patikra ir planavimas' }} />
               <Stack.Screen name="route/[id]/alternatives" options={{ title: 'Maršruto variantai' }} />
+              <Stack.Screen name="route/[id]/edit" options={{ title: 'Maršruto redaktorius' }} />
               <Stack.Screen name="route/[id]/loading" options={{ title: 'Krovimasis' }} />
               <Stack.Screen name="route/[id]/delivery" options={{ title: 'Pristatymai' }} />
               <Stack.Screen name="route/[id]/result" options={{ title: 'Maršruto rezultatas' }} />

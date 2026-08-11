@@ -52,9 +52,11 @@ describe('central route navigation recovery', () => {
   it('never permits review or alternatives to edit a non-draft route', () => {
     expect(planningScreenAllowsStatus('review', 'draft')).toBe(true);
     expect(planningScreenAllowsStatus('alternatives', 'draft')).toBe(true);
+    expect(planningScreenAllowsStatus('edit', 'draft')).toBe(true);
     for (const status of ['planned', 'loading', 'loaded', 'in_progress', 'completed', 'cancelled'] as const) {
       expect(planningScreenAllowsStatus('review', status)).toBe(false);
       expect(planningScreenAllowsStatus('alternatives', status)).toBe(false);
+      expect(planningScreenAllowsStatus('edit', status)).toBe(false);
     }
   });
 

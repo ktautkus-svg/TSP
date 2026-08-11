@@ -1,12 +1,20 @@
 import { useMemo, useRef, useState } from 'react';
 import { Animated, PanResponder, Platform, Pressable, StyleSheet, Text, View, type ViewStyle } from 'react-native';
 
-import { spacing } from '@/ui/tokens';
+import { spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 
-export type ManualOrderItem = { id: string; label: string; weightKg: number | null };
+export type ManualOrderItem = {
+  id: string;
+  label: string;
+  address?: string | null;
+  recipient?: string | null;
+  weightKg: number | null;
+  timeWindowLabel?: string | null;
+  priority: boolean;
+};
 
-const ROW_HEIGHT = 62;
+const ROW_HEIGHT = 96;
 
 // Mobile browsers claim vertical gestures for scrolling before JavaScript sees
 // them, which silently kills dragging inside the surrounding ScrollView. Opting
@@ -17,7 +25,6 @@ const dragHandleTouchTarget = Platform.OS === 'web'
 
 export function ManualRouteOrderList(props: {
   items: ManualOrderItem[];
-  priorityIds: ReadonlySet<string>;
   onTogglePriority: (id: string) => void;
   onMove: (id: string, targetIndex: number) => void;
 }) {
@@ -29,7 +36,6 @@ export function ManualRouteOrderList(props: {
           item={item}
           index={index}
           count={props.items.length}
-          priority={props.priorityIds.has(item.id)}
           onTogglePriority={props.onTogglePriority}
           onMove={props.onMove}
         />
@@ -42,7 +48,6 @@ function DraggableRow(props: {
   item: ManualOrderItem;
   index: number;
   count: number;
-  priority: boolean;
   onTogglePriority: (id: string) => void;
   onMove: (id: string, targetIndex: number) => void;
 }) {
@@ -86,6 +91,10 @@ function DraggableRow(props: {
     props.onMove(props.item.id, target);
   };
 
+  const title = props.item.recipient?.trim() || props.item.label;
+  const address = props.item.address?.trim() || null;
+  const showAddress = Boolean(address && address !== title);
+
   return (
     <Animated.View
       style={[
@@ -102,15 +111,33 @@ function DraggableRow(props: {
       ]}>
       <Pressable
         accessibilityRole="checkbox"
-        accessibilityState={{ checked: props.priority }}
+        accessibilityState={{ checked: props.item.priority }}
         onPress={() => props.onTogglePriority(props.item.id)}
-        style={[styles.priority, { borderColor: colors.primary }, props.priority && { backgroundColor: colors.primary }]}
+        style={[styles.priority, { borderColor: colors.primary }, props.item.priority && { backgroundColor: colors.primary }]}
         testID={`manual-priority-${props.item.id}`}>
-        <Text style={{ color: props.priority ? '#fff' : colors.primary, fontWeight: '900' }}>{props.priority ? '★' : '☆'}</Text>
+        <Text style={{ color: props.item.priority ? '#fff' : colors.primary, fontWeight: '700' }}>{props.item.priority ? '★' : '☆'}</Text>
       </Pressable>
+      <View style={styles.sequenceBadge}>
+        <Text style={[styles.sequenceText, { color: colors.text }]}>{props.index + 1}</Text>
+      </View>
       <View style={styles.textBlock}>
-        <Text numberOfLines={2} style={[styles.label, { color: colors.text }]}>{props.index + 1}. {props.item.label}</Text>
-        {props.item.weightKg !== null ? <Text style={[styles.meta, { color: colors.textMuted }]}>{Math.round(props.item.weightKg)} kg</Text> : null}
+        <Text numberOfLines={1} style={[styles.label, { color: colors.text }]}>{title}</Text>
+        {showAddress ? (
+          <Text numberOfLines={2} style={[styles.address, { color: colors.textSecondary }]}>{address}</Text>
+        ) : null}
+        <View style={styles.metaRow}>
+          {props.item.weightKg !== null ? (
+            <Text style={[styles.meta, { color: colors.textMuted }]}>{Math.round(props.item.weightKg)} kg</Text>
+          ) : (
+            <Text style={[styles.meta, { color: colors.textMuted }]}>Svoris —</Text>
+          )}
+          {props.item.timeWindowLabel ? (
+            <Text style={[styles.meta, { color: colors.textMuted }]}>{props.item.timeWindowLabel}</Text>
+          ) : null}
+          {props.item.priority ? (
+            <Text style={[styles.meta, { color: colors.primary }]}>Prioritetas</Text>
+          ) : null}
+        </View>
       </View>
       <View style={styles.stepperColumn}>
         <Pressable
@@ -160,13 +187,24 @@ const styles = StyleSheet.create({
     backgroundColor: '#F4FFF6',
   },
   priority: { width: 40, height: 40, borderWidth: 1, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
-  textBlock: { flex: 1, minWidth: 0, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
-  label: { fontWeight: '800', lineHeight: 19 },
-  meta: { fontSize: 12, marginTop: 2 },
+  sequenceBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: spacing.xs,
+  },
+  sequenceText: { ...type.label, fontWeight: '700' },
+  textBlock: { flex: 1, minWidth: 0, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, gap: 2 },
+  label: { ...type.bodyStrong, lineHeight: 20 },
+  address: { ...type.secondary, lineHeight: 18 },
+  metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: 2 },
+  meta: { ...type.meta },
   stepperColumn: { gap: 3, paddingVertical: 4 },
   stepper: { width: 40, height: 26, borderWidth: 1, borderRadius: 7, alignItems: 'center', justifyContent: 'center' },
   stepperDisabled: { opacity: 0.3 },
-  stepperText: { fontSize: 12, fontWeight: '900' },
+  stepperText: { fontSize: 12, fontWeight: '700' },
   dragHandle: {
     width: 56,
     alignSelf: 'stretch',
@@ -176,5 +214,5 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 11,
     borderBottomRightRadius: 11,
   },
-  dragText: { fontSize: 28, fontWeight: '900' },
+  dragText: { fontSize: 28, fontWeight: '700' },
 });
