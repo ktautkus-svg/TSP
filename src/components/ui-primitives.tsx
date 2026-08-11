@@ -9,6 +9,7 @@ import {
   type PressableProps,
   type StyleProp,
   type TextInputProps,
+  type ViewProps,
   type ViewStyle,
 } from 'react-native';
 
@@ -58,10 +59,10 @@ export function AppButton({
   );
 }
 
-export function AppCard({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
+export function AppCard({ children, style, ...props }: Omit<ViewProps, 'style'> & { children: ReactNode; style?: StyleProp<ViewStyle> }) {
   const { colors } = useTheme();
   const styles = createStyles(colors);
-  return <View style={[styles.card, style]}>{children}</View>;
+  return <View style={[styles.card, style]} {...props}>{children}</View>;
 }
 
 type AppTextFieldProps = TextInputProps & {

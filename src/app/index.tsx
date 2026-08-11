@@ -87,7 +87,7 @@ export default function HomeScreen() {
       <ScreenContainer>
         <ScrollView contentContainerStyle={styles.content}>
           {active ? (
-            <AppCard style={styles.activeCard}>
+            <AppCard style={styles.activeCard} testID="active-route-card">
               <View style={styles.activeHeader}>
                 <View style={styles.activeHeaderText}>
                   <Text style={styles.eyebrow}>AKTYVUS MARŠRUTAS</Text>
@@ -137,7 +137,6 @@ export default function HomeScreen() {
                   const destination = resolveRoute(active);
                   router.push({ pathname: destination.pathname, params: destination.params } as Href);
                 }}
-                testID="active-route-card"
               />
               {__DEV__ || process.env.EXPO_PUBLIC_PILOT_MODE === '1' ? (
                 <AppButton

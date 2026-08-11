@@ -1,13 +1,14 @@
 import { useCallback, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text } from 'react-native';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
 import { resolveRoute } from '@/application/routes/route-navigation';
 import { FoundationScreen } from '@/components/foundation-screen';
+import { AppButton, AppCard, StatusBadge } from '@/components/ui-primitives';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import type { Route } from '@/domain/route';
-import { spacing } from '@/ui/tokens';
+import { spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 
@@ -56,7 +57,8 @@ export default function RouteResultScreen() {
       <FoundationScreen showFoundationNotice={false} title="Maršrutas užbaigtas" description="Darbo dienos rezultatas išsaugotas istorijoje.">
         {error ? <Text style={styles.error}>{error}</Text> : null}
         {route ? (
-          <View style={styles.summary} testID="route-completion-result">
+          <AppCard style={styles.summary} testID="route-completion-result">
+            <StatusBadge label="Užbaigta" tone="success" />
             <Text style={styles.title}>Maršrutas užbaigtas</Text>
             <Text style={styles.meta}>Faktinis kilometražas: {route.actualDistanceKm?.toFixed(1) ?? '—'} km</Text>
             <Text style={styles.meta}>Planuotas kilometražas: {route.estimatedDistanceKm?.toFixed(1) ?? '—'} km</Text>
@@ -80,30 +82,22 @@ export default function RouteResultScreen() {
             <Text style={styles.meta}>Nepavyko pristatyti: {route.completionSummary?.failedStops ?? 0}</Text>
             <Text style={styles.meta}>Pradinis odometras: {route.startOdometer ?? 'neįvestas'}</Text>
             <Text style={styles.meta}>Galutinis odometras: {route.endOdometer ?? 'neįvestas'}</Text>
-          </View>
+          </AppCard>
         ) : null}
         {route ? (
-          <Pressable style={styles.primaryButton} onPress={() => router.replace(`/history/${route.id}` as Href)}>
-            <Text style={styles.primaryText}>Peržiūrėti istoriją</Text>
-          </Pressable>
+          <AppButton label="Peržiūrėti istoriją" onPress={() => router.replace(`/history/${route.id}` as Href)} />
         ) : null}
-        <Pressable style={styles.secondaryButton} onPress={goHome}>
-          <Text style={styles.secondaryText}>Į pradžią</Text>
-        </Pressable>
+        <AppButton label="Į pradžią" onPress={goHome} variant="secondary" />
       </FoundationScreen>
     </>
   );
 }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
-  summary: { padding: spacing.lg, borderRadius: 18, backgroundColor: colors.primarySoft, gap: spacing.sm },
-  title: { color: colors.text, fontSize: 22, fontWeight: '800' },
-  meta: { color: colors.textMuted, fontSize: 16, lineHeight: 22 },
-  primaryButton: { minHeight: 56, borderRadius: 16, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  primaryText: { color: '#fff', fontWeight: '800', fontSize: 16 },
-  secondaryButton: { minHeight: 52, borderRadius: 16, borderWidth: 1, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  secondaryText: { color: colors.primary, fontWeight: '800' },
+  summary: { gap: spacing.sm },
+  title: { ...type.sectionTitle, color: colors.text },
+  meta: { ...type.body, color: colors.textSecondary },
   headerAction: { minWidth: 84, minHeight: 44, justifyContent: 'center' },
-  headerText: { color: colors.primary, fontWeight: '800' },
-  error: { color: colors.danger, fontWeight: '700' },
+  headerText: { ...type.button, color: colors.textInverse },
+  error: { ...type.secondaryStrong, color: colors.danger },
 });
