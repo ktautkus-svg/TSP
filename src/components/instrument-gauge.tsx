@@ -214,8 +214,7 @@ export function InstrumentGauge({
               y2={CENTER - TICK_MINOR_INNER}
               stroke="#98A19A"
               strokeWidth={1.2}
-              rotation={angleFor(tick)}
-              origin={`${CENTER}, ${CENTER}`}
+              transform={`rotate(${angleFor(tick)} ${CENTER} ${CENTER})`}
             />
           ))}
           {majors.map((tick) => (
@@ -228,8 +227,7 @@ export function InstrumentGauge({
               stroke="#FFFFFF"
               strokeWidth={2.8}
               strokeLinecap="round"
-              rotation={angleFor(tick)}
-              origin={`${CENTER}, ${CENTER}`}
+              transform={`rotate(${angleFor(tick)} ${CENTER} ${CENTER})`}
             />
           ))}
 
@@ -268,7 +266,7 @@ export function InstrumentGauge({
             />
           ))}
 
-          <G rotation={needleAngle} origin={`${CENTER}, ${CENTER}`}>
+          <G transform={`rotate(${needleAngle} ${CENTER} ${CENTER})`}>
             <Path
               d={`M 114.8 130 L ${CENTER} ${CENTER - NEEDLE_TIP} L 125.2 130 Z`}
               fill="#000000"
