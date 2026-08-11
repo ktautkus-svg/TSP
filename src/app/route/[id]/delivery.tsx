@@ -45,7 +45,7 @@ import { RouteRepository } from '@/database/repositories/route-repository';
 import { GatewayGeocodingProvider } from '@/infrastructure/routing/providers/gateway-geocoding-provider';
 import { DELIVERY_FAILURE_REASONS, deliveryMatchesFilter, type DeliveryFailureReason } from '@/domain/delivery-failure';
 import type { DeliveryFilter, DeliveryStop, Route } from '@/domain/route';
-import { colors as instrumentColors, fonts, layout, radius, spacing, type } from '@/ui/tokens';
+import { cockpitColors, colors as instrumentColors, fonts, layout, radius, spacing, type } from '@/ui/tokens';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { formatWeightKg } from '@/ui/format-weight';
 import { failedDeliveryLabel, userVisibleStopNote } from '@/ui/route-labels';
@@ -55,6 +55,13 @@ function ScheduleDot({ stop, colors, routeDate }: { stop?: DeliveryStop | null; 
   const color = windowUrgencyColor(stop, routeDate);
   if (!color) return null;
   return <View testID="schedule-dot" style={{ width: 9, height: 9, backgroundColor: colors[color] }} />;
+}
+
+function cockpitStatusColor(color: keyof ColorPalette): string {
+  if (color === 'danger') return cockpitColors.danger;
+  if (color === 'warning') return cockpitColors.warning;
+  if (color === 'success' || color === 'accent' || color === 'primary') return cockpitColors.success;
+  return cockpitColors.routeBlue;
 }
 
 type DeliveryView = 'dashboard' | 'stops';
@@ -72,9 +79,8 @@ export default function DeliveryScreen() {
   const insets = useSafeAreaInsets();
   const { width: viewportWidth } = useWindowDimensions();
   const { id: routeId = '', redirectReason, view } = useLocalSearchParams<{ id: string; redirectReason?: string; view?: string }>();
-  // The route cockpit is a fixed light instrument design: every surface is a
-  // hardcoded light colour, so following the system dark palette would paint
-  // near-white text onto white cards and make the stop list unreadable.
+  // Route execution keeps a stable light palette for forms and stop lists;
+  // only the dashboard itself uses the focused cockpit palette.
   const colors: ColorPalette = instrumentColors;
   const styles = useMemo(() => createStyles(colors), [colors]);
   const repository = useMemo(() => new RouteRepository(db), [db]);
@@ -428,6 +434,7 @@ export default function DeliveryScreen() {
   const canRecalculateRemaining = Boolean(recalculationAnchor && stops.some((stop) => stop.deliveryStatus === 'pending'));
   const nextStop = stops.find((stop) => stop.deliveryStatus === 'pending') ?? null;
   const nextStopWindow = arrivalWindowStatus(nextStop, route?.date);
+  const nextStopStatusColor = cockpitStatusColor(nextStopWindow.color);
   const isWideDashboard = viewportWidth >= 760;
   const gaugeSize = isWideDashboard
     ? 150
@@ -480,7 +487,6 @@ export default function DeliveryScreen() {
               <View style={styles.gaugePanel}>
                 <View style={styles.gaugeRow}>
                   <InstrumentGauge
-                    colors={colors}
                     maximum={progress.totalKnownWeightKg}
                     remaining={progress.remainingKnownWeightKg}
                     size={gaugeSize}
@@ -497,7 +503,6 @@ export default function DeliveryScreen() {
                     <Text style={styles.gaugeCenterUnit}>km</Text>
                   </View>
                   <InstrumentGauge
-                    colors={colors}
                     maximum={progress.totalStops}
                     remaining={progress.remainingStops}
                     size={gaugeSize}
@@ -540,10 +545,10 @@ export default function DeliveryScreen() {
                     </View>
                     <View style={styles.arrivalWindowResult}>
                       <View style={styles.arrivalEtaRow}>
-                        <View style={[styles.arrivalStatusDot, { backgroundColor: colors[nextStopWindow.color], shadowColor: colors[nextStopWindow.color] }]} />
+                        <View style={[styles.arrivalStatusDot, { backgroundColor: nextStopStatusColor, shadowColor: nextStopStatusColor }]} />
                         <Text style={styles.arrivalEta}>{etaLabel(nextStop)}</Text>
                       </View>
-                      <Text style={[styles.arrivalStatusText, { color: colors[nextStopWindow.color] }]}>{nextStopWindow.label}</Text>
+                      <Text style={[styles.arrivalStatusText, { color: nextStopStatusColor }]}>{nextStopWindow.label}</Text>
                     </View>
                   </View>
                   <View style={styles.dashboardStopActions} testID="dashboard-stop-actions">
@@ -886,83 +891,83 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     maxWidth: layout.maxOperationalWidth,
     overflow: 'hidden',
     gap: 0,
-    backgroundColor: colors.background,
+    backgroundColor: cockpitColors.canvas,
   },
-  dashboardGrid: { width: '100%', flexDirection: 'column-reverse', backgroundColor: colors.background },
+  dashboardGrid: { width: '100%', flexDirection: 'column-reverse', backgroundColor: cockpitColors.canvas },
   dashboardGridWide: { flexDirection: 'row-reverse', alignItems: 'stretch', gap: spacing.lg, padding: spacing.lg },
-  instrumentColumn: { width: '100%', overflow: 'hidden', backgroundColor: '#090D0B' },
-  instrumentColumnWide: { flex: 1.15, minWidth: 0, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border },
+  instrumentColumn: { width: '100%', overflow: 'hidden', backgroundColor: cockpitColors.canvas },
+  instrumentColumnWide: { flex: 1.15, minWidth: 0, borderRadius: radius.lg, borderWidth: 1, borderColor: cockpitColors.border, shadowColor: '#000000', shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.22, shadowRadius: 20, elevation: 8 },
   gaugePanel: {
     width: '100%',
-    paddingTop: 1,
+    paddingTop: 10,
     paddingHorizontal: 14,
-    paddingBottom: 4,
-    backgroundColor: '#090D0B',
+    paddingBottom: 12,
+    backgroundColor: cockpitColors.panel,
   },
   gaugeRow: {
     width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 14,
+    gap: 10,
   },
   gaugeCenterStats: {
-    width: 68,
+    width: 74,
     flexShrink: 0,
     minHeight: 108,
     alignSelf: 'center',
-    paddingVertical: 9,
-    paddingHorizontal: 5,
-    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 7,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: '#465049',
-    backgroundColor: '#101512',
+    borderColor: cockpitColors.border,
+    backgroundColor: cockpitColors.panelElevated,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 2,
   },
-  gaugeCenterLabel: { color: '#AEB8B1', fontFamily: fonts.headingSemiBold, fontSize: 8, textAlign: 'center', letterSpacing: 0.3 },
-  gaugeCenterValue: { color: '#FFFFFF', fontFamily: fonts.headingExtraBold, fontSize: 17, lineHeight: 21, textAlign: 'center' },
-  gaugeCenterUnit: { color: '#AEB8B1', fontFamily: fonts.headingSemiBold, fontSize: 9, lineHeight: 11, textAlign: 'center' },
-  gaugeCenterDivider: { width: '100%', height: 1, marginVertical: 5, backgroundColor: '#68716B' },
-  routeMetrics: { flexDirection: 'row', paddingHorizontal: 14, borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+  gaugeCenterLabel: { color: cockpitColors.textMuted, fontFamily: fonts.headingSemiBold, fontSize: 8, textAlign: 'center', letterSpacing: 0.8 },
+  gaugeCenterValue: { color: cockpitColors.text, fontFamily: fonts.heading, fontSize: 18, lineHeight: 22, textAlign: 'center' },
+  gaugeCenterUnit: { color: cockpitColors.textSecondary, fontFamily: fonts.bodyMedium, fontSize: 9, lineHeight: 11, textAlign: 'center' },
+  gaugeCenterDivider: { width: '100%', height: 1, marginVertical: 6, backgroundColor: cockpitColors.metalSoft },
+  routeMetrics: { flexDirection: 'row', paddingHorizontal: 14, borderTopWidth: 1, borderBottomWidth: 1, borderColor: cockpitColors.border, backgroundColor: cockpitColors.panelElevated },
   routeMetricCard: {
     flex: 1,
     minWidth: 0,
     minHeight: 60,
     paddingHorizontal: 6,
-    backgroundColor: colors.surface,
+    backgroundColor: cockpitColors.panelElevated,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 7,
   },
   routeMetricText: { flex: 1, minWidth: 0 },
-  metricIconCircle: { width: 40, height: 40, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.infoSoft },
-  metricIcon: { color: colors.info, fontSize: 18, fontFamily: fonts.headingExtraBold },
-  routeMetricLabel: { ...type.label, color: colors.textMuted },
-  routeMetricValue: { ...type.cardTitle, color: colors.text, flexShrink: 1 },
+  metricIconCircle: { width: 38, height: 38, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: cockpitColors.routeBlueSoft },
+  metricIcon: { color: cockpitColors.routeBlue, fontSize: 18, fontFamily: fonts.headingExtraBold },
+  routeMetricLabel: { ...type.label, color: cockpitColors.textMuted },
+  routeMetricValue: { ...type.cardTitle, color: cockpitColors.text, flexShrink: 1 },
   nextStopCard: {
     minHeight: 0,
     paddingHorizontal: 20,
     paddingTop: 12,
     paddingBottom: 14,
-    backgroundColor: colors.surface,
+    backgroundColor: cockpitColors.panel,
     gap: 12,
   },
-  nextStopCardWide: { flex: 1, minWidth: 0, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.lg, justifyContent: 'center' },
-  dashboardCardLabel: { ...type.label, color: colors.textMuted },
+  nextStopCardWide: { flex: 1, minWidth: 0, borderRadius: radius.lg, borderWidth: 1, borderColor: cockpitColors.border, padding: spacing.lg, justifyContent: 'center', shadowColor: '#000000', shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.18, shadowRadius: 18, elevation: 6 },
+  dashboardCardLabel: { ...type.label, color: cockpitColors.textMuted },
   nextStopHeading: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  stopNumberBadge: { width: 42, height: 42, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.actionRoute },
-  stopNumber: { color: colors.textInverse, fontFamily: fonts.headingExtraBold, fontSize: 18 },
-  nextStopAddress: { flex: 1, minWidth: 0, ...type.cardTitle, color: colors.text },
-  nextStopChevron: { color: colors.textMuted, fontSize: 20, lineHeight: 24 },
-  arrivalWindowPanel: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  arrivalWindowLabel: { ...type.label, color: colors.textMuted },
-  arrivalWindowValue: { ...type.sectionTitle, color: colors.text, marginTop: 4 },
+  stopNumberBadge: { width: 42, height: 42, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: cockpitColors.routeBlueStrong },
+  stopNumber: { color: cockpitColors.text, fontFamily: fonts.heading, fontSize: 18 },
+  nextStopAddress: { flex: 1, minWidth: 0, ...type.cardTitle, color: cockpitColors.text },
+  nextStopChevron: { color: cockpitColors.textMuted, fontSize: 20, lineHeight: 24 },
+  arrivalWindowPanel: { borderTopWidth: 1, borderTopColor: cockpitColors.border, paddingTop: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  arrivalWindowLabel: { ...type.label, color: cockpitColors.textMuted },
+  arrivalWindowValue: { ...type.sectionTitle, color: cockpitColors.text, marginTop: 4 },
   arrivalWindowResult: { flex: 1, minWidth: 0, alignItems: 'flex-end', gap: 4 },
   arrivalEtaRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   arrivalStatusDot: { width: 12, height: 12, borderRadius: 6, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.75, shadowRadius: 7, elevation: 4 },
-  arrivalEta: { ...type.cardTitle, color: colors.text },
+  arrivalEta: { ...type.cardTitle, color: cockpitColors.text },
   arrivalStatusText: { fontFamily: fonts.headingSemiBold, fontSize: 12, textAlign: 'right' },
   dashboardStopActions: { flexDirection: 'row', gap: 8 },
   dashboardActionButton: {
@@ -975,12 +980,12 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     justifyContent: 'center',
     gap: 4,
   },
-  dashboardNavigateButton: { backgroundColor: colors.actionRoute },
-  dashboardDeliveredButton: { backgroundColor: colors.success },
-  dashboardFailedButton: { backgroundColor: colors.danger },
-  dashboardActionIcon: { color: colors.textInverse, fontFamily: fonts.headingExtraBold, fontSize: 26, lineHeight: 28 },
-  dashboardActionText: { ...type.label, color: colors.textInverse },
-  completeRouteButton: { minHeight: 58, borderRadius: radius.md, backgroundColor: colors.success, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
+  dashboardNavigateButton: { backgroundColor: cockpitColors.routeBlueStrong },
+  dashboardDeliveredButton: { backgroundColor: cockpitColors.success },
+  dashboardFailedButton: { backgroundColor: cockpitColors.danger },
+  dashboardActionIcon: { color: cockpitColors.text, fontFamily: fonts.headingExtraBold, fontSize: 26, lineHeight: 28 },
+  dashboardActionText: { ...type.label, color: cockpitColors.text },
+  completeRouteButton: { minHeight: 58, borderRadius: radius.md, backgroundColor: cockpitColors.success, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
   nextStopMeta: { color: colors.textMuted, lineHeight: 20 },
   nextStopEta: { color: colors.accent, fontSize: 16, fontFamily: fonts.heading },
   etaRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },

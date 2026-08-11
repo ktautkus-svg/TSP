@@ -62,6 +62,34 @@ export const colors = {
   brandNavy: '#142832',
 } as const;
 
+/**
+ * Active-route instrument palette.
+ *
+ * This is deliberately separate from the application theme: the driver
+ * dashboard is a focused cockpit surface, while route planning, settings and
+ * stop management remain bright working areas. Blue communicates movement and
+ * navigation; green is kept for successful delivery states only.
+ */
+export const cockpitColors = {
+  canvas: '#080D13',
+  panel: '#0E1620',
+  panelElevated: '#141F2B',
+  panelSoft: '#1A2734',
+  glass: '#101A24',
+  metal: '#758595',
+  metalSoft: '#344351',
+  border: '#2A3947',
+  text: '#F7FAFC',
+  textSecondary: '#AEBBC7',
+  textMuted: '#7F8E9B',
+  routeBlue: '#4DA3D5',
+  routeBlueStrong: '#2379AA',
+  routeBlueSoft: '#17344A',
+  success: '#2F7D58',
+  danger: '#B54A45',
+  warning: '#D9A34A',
+} as const;
+
 export const fonts = {
   mono: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }) as string,
   heading: 'Archivo_700Bold',

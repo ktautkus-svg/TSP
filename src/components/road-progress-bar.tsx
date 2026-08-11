@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Image, StyleSheet, Text, View } from 'react-native';
-import Svg, { Circle, Defs, Ellipse, LinearGradient, Path, RadialGradient, Rect, Stop } from 'react-native-svg';
+import Svg, { Circle, Defs, Ellipse, LinearGradient, RadialGradient, Rect, Stop } from 'react-native-svg';
 import type { RouteWeatherScene } from '@/application/weather/route-weather';
+import { cockpitColors, fonts } from '@/ui/tokens';
 
-const roadScene = require('../../assets/images/route-windshield-day-v1.png');
-const ARC_LENGTH = 470;
+const roadScene = require('../../assets/images/route-windshield-premium-v2.png');
 
 export function RoadProgressBar({
   fraction,
@@ -42,62 +42,39 @@ export function RoadProgressBar({
         <Image resizeMode="cover" source={roadScene} style={styles.roadImage} />
         <TimeOfDayOverlay timeOfDay={weatherScene?.timeOfDay ?? 'day'} />
         <WeatherOverlay condition={weatherScene?.condition ?? 'clear'} />
+        <Svg pointerEvents="none" preserveAspectRatio="none" style={styles.glassOverlay} viewBox="0 0 100 100">
+          <Defs>
+            <LinearGradient id="glassShade" x1="0" y1="0" x2="0" y2="1">
+              <Stop offset="0" stopColor="#07121D" stopOpacity={0.04} />
+              <Stop offset="0.58" stopColor="#07121D" stopOpacity={0.02} />
+              <Stop offset="1" stopColor="#07121D" stopOpacity={0.58} />
+            </LinearGradient>
+          </Defs>
+          <Rect x="0" y="0" width="100" height="100" fill="url(#glassShade)" />
+        </Svg>
         {completed ? (
           <View pointerEvents="none" style={styles.completedMessage} testID="route-completed-windshield-message">
-            <Text style={styles.completedMessageText}>GERO POILSIO!</Text>
+            <Text style={styles.completedMessageText}>MARŠRUTAS BAIGTAS</Text>
           </View>
         ) : null}
-      </View>
-      <View style={styles.instrumentBridge}>
-        <Svg pointerEvents="none" preserveAspectRatio="none" style={styles.arc} viewBox="0 0 430 62">
-          <Path
-            d="M 18 56 Q 215 -10 412 56"
-            fill="none"
-            stroke="#46545D"
-            strokeLinecap="round"
-            strokeWidth={10}
-          />
-          <Path
-            d="M 18 56 Q 215 -10 412 56"
-            fill="none"
-            stroke="#4FA778"
-            strokeDasharray={`${Math.max(1, displayedProgress * ARC_LENGTH)} ${ARC_LENGTH}`}
-            strokeLinecap="round"
-            strokeWidth={10}
-          />
-        </Svg>
-        <Text style={styles.percent}>{Math.round(clamped * 100)}%</Text>
+        <View pointerEvents="none" style={styles.progressHud}>
+          <View style={styles.progressHeading}>
+            <Text style={styles.progressLabel}>MARŠRUTO EIGA</Text>
+            <Text style={styles.percent}>{Math.round(clamped * 100)}%</Text>
+          </View>
+          <View style={styles.progressTrack}>
+            <View style={[styles.progressFill, { width: `${Math.max(0, Math.min(100, displayedProgress * 100))}%` }]} />
+          </View>
+        </View>
       </View>
     </View>
   );
 }
 
 function WeatherOverlay({ condition }: { condition: RouteWeatherScene['condition'] }) {
-  if (condition === 'clear') {
-    return (
-      <Svg pointerEvents="none" style={styles.timeOverlay} viewBox="0 0 100 100" preserveAspectRatio="none">
-        <Defs>
-          <RadialGradient id="sunGlow" cx="50%" cy="50%" r="50%">
-            <Stop offset="0" stopColor="#FFE27A" stopOpacity={0.55} />
-            <Stop offset="0.45" stopColor="#FFC14D" stopOpacity={0.22} />
-            <Stop offset="1" stopColor="#FF9A1A" stopOpacity={0} />
-          </RadialGradient>
-        </Defs>
-        <Circle cx="82" cy="18" r="16" fill="url(#sunGlow)" />
-        <Circle cx="82" cy="18" r="5.5" fill="#FFE9A0" opacity={0.9} />
-      </Svg>
-    );
-  }
+  if (condition === 'clear') return null;
   if (condition === 'fog') return <View pointerEvents="none" style={styles.fogOverlay} />;
-  if (condition === 'cloudy') {
-    return (
-      <View pointerEvents="none" style={styles.cloudOverlay}>
-        <View style={[styles.cloudBlob, { left: '8%', top: '18%', width: 72, height: 28 }]} />
-        <View style={[styles.cloudBlob, { left: '42%', top: '10%', width: 88, height: 34 }]} />
-        <View style={[styles.cloudBlob, { left: '68%', top: '28%', width: 64, height: 24 }]} />
-      </View>
-    );
-  }
+  if (condition === 'cloudy') return <View pointerEvents="none" style={styles.cloudOverlay} />;
   if (condition === 'rain' || condition === 'storm') {
     return (
       <View pointerEvents="none" style={[styles.weatherParticles, condition === 'storm' && styles.stormOverlay]}>
@@ -187,26 +164,29 @@ const styles = StyleSheet.create({
   container: {
     width: '100%',
     overflow: 'hidden',
-    backgroundColor: '#090D0B',
+    backgroundColor: cockpitColors.canvas,
   },
   scene: {
     width: '100%',
-    height: 102,
+    height: 146,
     position: 'relative',
     overflow: 'hidden',
   },
   roadImage: { position: 'absolute', inset: 0, width: '100%', height: '100%' },
   timeOverlay: { position: 'absolute', inset: 0, width: '100%', height: '100%' },
-  cloudOverlay: { position: 'absolute', inset: 0, backgroundColor: 'rgba(75, 87, 94, 0.24)' },
-  cloudBlob: { position: 'absolute', borderRadius: 40, backgroundColor: 'rgba(255,255,255,0.28)' },
+  glassOverlay: { position: 'absolute', inset: 0, width: '100%', height: '100%' },
+  cloudOverlay: { position: 'absolute', inset: 0, backgroundColor: 'rgba(46, 61, 74, 0.22)' },
   fogOverlay: { position: 'absolute', inset: 0, backgroundColor: 'rgba(230, 235, 232, 0.44)' },
   weatherParticles: { position: 'absolute', inset: 0, overflow: 'hidden' },
   stormOverlay: { backgroundColor: 'rgba(16, 25, 36, 0.25)' },
   rainDrop: { position: 'absolute', width: 2, height: 18, borderRadius: 2, backgroundColor: 'rgba(210, 232, 255, 0.75)', transform: [{ rotate: '18deg' }] },
   snowFlake: { position: 'absolute', width: 5, height: 5, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.92)', shadowColor: '#FFFFFF', shadowOpacity: 0.8, shadowRadius: 2 },
-  completedMessage: { position: 'absolute', inset: 0, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(3, 18, 10, 0.2)' },
-  completedMessageText: { color: '#FFFFFF', fontFamily: 'Archivo_800ExtraBold', fontSize: 24, letterSpacing: 1.2, textShadowColor: '#000000', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 5 },
-  instrumentBridge: { height: 48, marginTop: -7, position: 'relative', justifyContent: 'flex-end', backgroundColor: '#090D0B' },
-  arc: { position: 'absolute', left: 0, right: 0, top: 0, width: '100%', height: 62 },
-  percent: { alignSelf: 'center', marginBottom: 1, color: '#FFFFFF', fontFamily: 'Archivo_800ExtraBold', fontSize: 16, textShadowColor: '#000', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 },
+  completedMessage: { position: 'absolute', inset: 0, zIndex: 2, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(7, 15, 23, 0.5)' },
+  completedMessageText: { color: cockpitColors.text, fontFamily: fonts.heading, fontSize: 20, letterSpacing: 1.8, textShadowColor: '#000000', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 5 },
+  progressHud: { position: 'absolute', left: 18, right: 18, bottom: 12, zIndex: 3, gap: 5 },
+  progressHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  progressLabel: { color: cockpitColors.textSecondary, fontFamily: fonts.headingSemiBold, fontSize: 9, letterSpacing: 1.2, textShadowColor: '#000000', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 },
+  progressTrack: { height: 3, overflow: 'hidden', borderRadius: 2, backgroundColor: 'rgba(174, 187, 199, 0.26)' },
+  progressFill: { height: '100%', borderRadius: 2, backgroundColor: cockpitColors.routeBlue },
+  percent: { color: cockpitColors.text, fontFamily: fonts.heading, fontSize: 14, letterSpacing: 0.4, textShadowColor: '#000000', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 },
 });

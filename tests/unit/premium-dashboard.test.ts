@@ -7,53 +7,47 @@ const here = dirname(fileURLToPath(import.meta.url));
 const source = (path: string) => readFileSync(resolve(here, '../../', path), 'utf8');
 
 describe('premium route dashboard', () => {
-  it('renders realistic code-native instrument gauges driven by live values', () => {
+  it('renders restrained code-native instrument gauges driven by live values', () => {
     const gauge = source('src/components/instrument-gauge.tsx');
-    // Clock-face scale: zero at 8 o'clock, full scale at 4 o'clock, and the
-    // 120° wedge between them cut out of the dial to carry the readout.
-    expect(gauge).toContain('const DIAL_MIN_ANGLE = 240');
-    expect(gauge).toContain('const DIAL_SWEEP = 240');
-    expect(gauge).toContain('const WEDGE_PATH');
-    expect(gauge).toContain('d={WEDGE_PATH} fill="#000000"');
-    expect(gauge).toContain('d={FACE_PATH}');
-    // Needle climbs with what has been handed over; the digits count down.
+    // Premium 270-degree cluster: a restrained blue route arc, fine scale and
+    // a slim line needle. There are no decorative wedges or triangle needles.
+    expect(gauge).toContain('const DIAL_START = 225');
+    expect(gauge).toContain('const DIAL_SWEEP = 270');
+    expect(gauge).not.toContain('WEDGE_PATH');
+    expect(gauge).not.toContain('<Path');
     expect(gauge).toContain('const fraction = delivered / safeMaximum');
     expect(gauge).toContain('remaining ?? safeMaximum - delivered');
     expect(gauge).toContain('needleAngle');
-    expect(gauge).toContain('const NEEDLE_TIP = 78');
-    expect(gauge).toContain('fraction >= 0.85');
-    expect(gauge).toContain("stopColor={fraction >= 0.85 ? '#E11D1D' : '#FF6A00'}");
-    expect(gauge).toContain('id="redZone"');
-    expect(gauge).toContain('stopColor="#65B88C"');
-    expect(gauge).not.toContain('LIKO');
+    expect(gauge).toContain('const needleTip = polar(needleAngle, 70)');
+    expect(gauge).not.toContain('redZone');
+    expect(gauge).not.toContain('fraction >= 0.85');
+    expect(gauge).toContain('id="routeProgress"');
+    expect(gauge).toContain('cockpitColors.routeBlue');
+    expect(gauge).toContain('LIKO');
     expect(gauge).toContain('{unit}');
-    expect(gauge).toContain('stroke="url(#bezel)"');
-    expect(gauge).toContain('stroke="url(#progress)"');
+    expect(gauge).toContain('stroke="url(#steelRing)"');
+    expect(gauge).toContain('stroke="url(#routeProgress)"');
     expect(gauge).toContain('useGrouping: false');
-    expect(gauge).toContain('fontFamily={fonts.headingExtraBold}');
+    expect(gauge).toContain('fontFamily={fonts.heading}');
     expect(gauge).toContain('fontSize={readoutFontSize}');
     expect(gauge).toContain('<SvgText');
-    expect(gauge).not.toContain('READOUT_TOP');
-    expect(gauge).not.toContain('isWeightGauge');
-    expect(gauge).not.toContain('index !== 12');
-    expect(gauge).not.toContain('styles.weightValue');
     expect(gauge).not.toContain('<Image');
-    expect(gauge).not.toContain('formattedMaximum');
   });
 
-  it('composes the realistic windshield and code-native steering progress arc', () => {
+  it('composes the premium windshield and restrained HUD progress rail', () => {
     const road = source('src/components/road-progress-bar.tsx');
-    expect(road).toContain('route-windshield-day-v1.png');
+    expect(road).toContain('route-windshield-premium-v2.png');
     expect(road).toContain('resizeMode="cover"');
     expect(road).toContain('Math.round(clamped * 100)');
     expect(road).toContain('Animated.timing');
     expect(road).toContain('<Svg');
-    expect(road).toContain('displayedProgress * ARC_LENGTH');
+    expect(road).toContain('displayedProgress * 100');
     expect(road).toContain('<Image');
     expect(road).not.toContain('<SvgImage');
-    expect(road).not.toContain('PRISTATYMO EIGA');
-    expect(road).toContain('stroke="#4FA778"');
-    expect(road).toContain('GERO POILSIO!');
+    expect(road).toContain('MARŠRUTO EIGA');
+    expect(road).toContain('cockpitColors.routeBlue');
+    expect(road).toContain('MARŠRUTAS BAIGTAS');
+    expect(road).not.toContain('cloudBlob');
     expect(road).toContain('<WeatherOverlay');
     expect(road).toContain('<TimeOfDayOverlay');
     // Night must stay readable through glass: soft indigo, moon, not a blackout.
@@ -70,14 +64,15 @@ describe('premium route dashboard', () => {
     expect(delivery).toContain('<RoadProgressBar');
     expect(delivery.indexOf('<RoadProgressBar')).toBeLessThan(delivery.indexOf('<InstrumentGauge'));
     expect(delivery).toContain('<InstrumentGauge');
-    // Needles climb with delivered totals while the wedge digits show the load
-    // still on board, so both gauges are fed the pair of values.
+    // The arc/needle tracks delivered totals while the clean numeric readout
+    // shows what is still on board.
     expect(delivery).toContain('value={progress.totalKnownWeightKg - progress.remainingKnownWeightKg}');
     expect(delivery).toContain('remaining={progress.remainingKnownWeightKg}');
     expect(delivery).toContain('unit="kg"');
     expect(delivery).toContain('value={progress.totalStops - progress.remainingStops}');
     expect(delivery).toContain('remaining={progress.remainingStops}');
     expect(delivery).toContain('styles.gaugeCenterStats');
+    expect(delivery).toContain('cockpitColors.canvas');
     expect(delivery).toContain('IKI ARTIMIAUSIOS');
     expect(delivery).toContain('NAVIGUOTI');
     expect(delivery).toContain('void navigate(nextStop)');
@@ -99,7 +94,7 @@ describe('premium route dashboard', () => {
     expect(delivery).toContain('minHeight: 48');
     expect(delivery).toContain('routeMain: { flex: 1, minHeight: 0');
     expect(delivery).not.toContain('minHeight: 200');
-    expect(delivery).toContain("gap: 14");
+    expect(delivery).toContain('gap: 14');
     const foundation = source('src/components/foundation-screen.tsx');
     expect(foundation).toContain('edgeScroll: { backgroundColor: colors.surface }');
     expect(delivery).toContain('Įtraukti sustojimą');
@@ -114,7 +109,7 @@ describe('premium route dashboard', () => {
     expect(header).toContain('<TspBrand />');
     expect(brand).toContain("accessibilityLabel={descriptor ? `TSP – ${descriptor}` : 'TSP'}");
     expect(brand).toContain('react-native-svg');
-    expect(brand).toContain("descriptor?: string");
+    expect(brand).toContain('descriptor?: string');
     expect(header).not.toContain('brandName');
     expect(header).not.toContain('tsp-logo-mark.png');
     expect(header).not.toContain('TIKSLUS SIUNTŲ PRISTATYMAS<');

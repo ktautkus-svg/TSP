@@ -3,49 +3,36 @@ import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import Svg, {
   Circle,
   Defs,
-  G,
   Line,
   LinearGradient,
-  Path,
   RadialGradient,
   Stop,
   Text as SvgText,
 } from 'react-native-svg';
 
-import { fonts } from '@/ui/tokens';
-import type { ColorPalette } from '@/ui/theme-palette';
+import { cockpitColors, fonts } from '@/ui/tokens';
 
 type InstrumentGaugeProps = {
-  /** Amount already handed over. Drives the needle and the progress arc. */
+  /** Amount already handed over. Drives the precision needle and progress arc. */
   value: number;
-  /** Amount still on board. Drives the readout inside the cut-out wedge. */
+  /** Amount still on board. This is the primary operational readout. */
   remaining?: number;
   maximum: number;
   unit?: string;
   title: string;
-  colors: ColorPalette;
   size?: number;
 };
 
 const VIEW = 240;
 const CENTER = 120;
-// The face is read like a clock: zero sits at 8 o'clock and full scale at
-// 4 o'clock. The 120° wedge between them is cut out of the dial entirely and
-// carries the readout, so digits can never collide with the scale.
-const DIAL_MIN_ANGLE = 240;
-const DIAL_SWEEP = 240;
-const FACE_RADIUS = 99;
-const ARC_RADIUS = 93;
-const ARC_WIDTH = 8;
-const ARC_LENGTH = 2 * Math.PI * ARC_RADIUS * (DIAL_SWEEP / 360);
-const TICK_OUTER = 86;
-const TICK_MAJOR_INNER = 74;
-const TICK_MINOR_INNER = 80;
-const LABEL_RADIUS = 63;
-// Reaches almost to the progress arc so the tip reads against the dial edge,
-// matching the length the driver sketched over the short stub.
-const NEEDLE_TIP = 78;
-const READOUT_CENTER_Y = 172;
+const DIAL_START = 225;
+const DIAL_SWEEP = 270;
+const FACE_RADIUS = 106;
+const ARC_RADIUS = 91;
+const ARC_WIDTH = 6;
+const CIRCUMFERENCE = 2 * Math.PI * ARC_RADIUS;
+const ARC_LENGTH = CIRCUMFERENCE * (DIAL_SWEEP / 360);
+const TICK_COUNT = 30;
 
 function polar(angle: number, radius: number) {
   const radians = (angle * Math.PI) / 180;
@@ -55,40 +42,9 @@ function polar(angle: number, radius: number) {
   };
 }
 
-function sweepPath(radius: number): string {
-  const from = polar(DIAL_MIN_ANGLE, radius);
-  const to = polar(DIAL_MIN_ANGLE + DIAL_SWEEP, radius);
-  return `M ${from.x.toFixed(2)} ${from.y.toFixed(2)} A ${radius} ${radius} 0 1 1 ${to.x.toFixed(2)} ${to.y.toFixed(2)}`;
-}
-
-const FACE_START = polar(DIAL_MIN_ANGLE, FACE_RADIUS);
-const FACE_END = polar(DIAL_MIN_ANGLE + DIAL_SWEEP, FACE_RADIUS);
-// Pac-man shaped dial: full disc minus the bottom wedge that holds the digits.
-const FACE_PATH = `M ${CENTER} ${CENTER} L ${FACE_START.x.toFixed(2)} ${FACE_START.y.toFixed(2)} A ${FACE_RADIUS} ${FACE_RADIUS} 0 1 1 ${FACE_END.x.toFixed(2)} ${FACE_END.y.toFixed(2)} Z`;
-const WEDGE_PATH = `M ${CENTER} ${CENTER} L ${FACE_END.x.toFixed(2)} ${FACE_END.y.toFixed(2)} A ${FACE_RADIUS} ${FACE_RADIUS} 0 0 1 ${FACE_START.x.toFixed(2)} ${FACE_START.y.toFixed(2)} Z`;
-const TRACK_PATH = sweepPath(ARC_RADIUS);
-const GLASS_PATH = sweepPath(FACE_RADIUS - 6);
-
-/**
- * Picks round tick values (0, 500, 1000 …) while keeping full scale on the real
- * total, so the needle still lands exactly at the end of the arc when the last
- * kilo is delivered.
- */
-function dialTicks(maximum: number) {
-  const rough = maximum / 5;
-  const magnitude = 10 ** Math.floor(Math.log10(rough));
-  const step =
-    [1, 2, 2.5, 5, 10].map((factor) => factor * magnitude).find((candidate) => candidate >= rough) ??
-    magnitude * 10;
-  const majors: number[] = [];
-  for (let tick = 0; tick < maximum - step * 0.3; tick += step) majors.push(tick);
-  majors.push(maximum);
-  const minorStep = step / 4;
-  const minors: number[] = [];
-  for (let tick = minorStep; tick < maximum; tick += minorStep) {
-    if (majors.every((major) => Math.abs(major - tick) > minorStep * 0.3)) minors.push(tick);
-  }
-  return { majors, minors };
+function formatScaleValue(value: number): string {
+  if (value >= 1000) return `${Math.round(value / 100) / 10}k`;
+  return new Intl.NumberFormat('lt-LT', { maximumFractionDigits: value >= 100 ? 0 : 1 }).format(value);
 }
 
 export function InstrumentGauge({
@@ -97,7 +53,6 @@ export function InstrumentGauge({
   maximum,
   unit = '',
   title,
-  colors,
   size: requestedSize,
 }: InstrumentGaugeProps) {
   const { width } = useWindowDimensions();
@@ -109,209 +64,121 @@ export function InstrumentGauge({
   const delivered = Math.max(0, Math.min(safeMaximum, value));
   const stillOnBoard = Math.max(0, remaining ?? safeMaximum - delivered);
   const fraction = delivered / safeMaximum;
-  const needleAngle = DIAL_MIN_ANGLE + DIAL_SWEEP * fraction;
+  const needleAngle = DIAL_START + DIAL_SWEEP * fraction;
+  const needleTip = polar(needleAngle, 70);
+  const scaleStart = polar(DIAL_START, 70);
+  const scaleEnd = polar(DIAL_START + DIAL_SWEEP, 70);
 
-  const { majors, minors } = useMemo(() => dialTicks(safeMaximum), [safeMaximum]);
   const readout = useMemo(() => new Intl.NumberFormat('lt-LT', {
     maximumFractionDigits: stillOnBoard >= 100 ? 0 : 1,
     useGrouping: false,
   }).format(stillOnBoard), [stillOnBoard]);
-
-  const readoutFontSize = readout.length >= 6 ? 26 : readout.length >= 5 ? 31 : readout.length >= 4 ? 37 : 44;
-  const labelFontSize = majors.some((tick) => Math.round(tick).toString().length >= 4) ? 8.5 : 10;
-  const angleFor = (tick: number) => DIAL_MIN_ANGLE + DIAL_SWEEP * (tick / safeMaximum);
+  const readoutFontSize = readout.length >= 6 ? 28 : readout.length >= 5 ? 33 : readout.length >= 4 ? 38 : 44;
 
   return (
-    <View style={styles.wrapper} testID={`instrument-gauge-${title.toLowerCase()}`}>
+    <View
+      accessibilityLabel={`${title}: liko ${readout} ${unit}`.trim()}
+      style={styles.wrapper}
+      testID={`instrument-gauge-${title.toLowerCase()}`}>
       <Text style={styles.title}>{title.toUpperCase()}</Text>
       <View style={[styles.shadow, { width: size, height: size, borderRadius: size / 2 }]}>
         <Svg width={size} height={size} viewBox={`0 0 ${VIEW} ${VIEW}`}>
           <Defs>
-            <RadialGradient id="dial" cx="42%" cy="30%" r="76%">
-              <Stop offset="0" stopColor="#454E48" />
-              <Stop offset="0.55" stopColor="#242B26" />
-              <Stop offset="1" stopColor="#141915" />
+            <RadialGradient id="dialFace" cx="38%" cy="28%" r="78%">
+              <Stop offset="0" stopColor={cockpitColors.panelSoft} />
+              <Stop offset="0.58" stopColor={cockpitColors.panel} />
+              <Stop offset="1" stopColor={cockpitColors.canvas} />
             </RadialGradient>
-            <LinearGradient id="bezel" x1="0" y1="0" x2="1" y2="1">
-              <Stop offset="0" stopColor="#F2F4F1" />
-              <Stop offset="0.22" stopColor="#505752" />
-              <Stop offset="0.48" stopColor="#D7DBD7" />
-              <Stop offset="0.75" stopColor="#252A27" />
-              <Stop offset="1" stopColor="#F6F7F5" />
+            <LinearGradient id="steelRing" x1="0" y1="0" x2="1" y2="1">
+              <Stop offset="0" stopColor="#AAB5BF" />
+              <Stop offset="0.22" stopColor={cockpitColors.metalSoft} />
+              <Stop offset="0.5" stopColor="#667684" />
+              <Stop offset="0.78" stopColor="#25323E" />
+              <Stop offset="1" stopColor="#9AA7B2" />
             </LinearGradient>
-            <LinearGradient id="progress" x1="0" y1="1" x2="1" y2="0">
-              <Stop offset="0" stopColor="#1D5B45" />
-              <Stop offset="0.5" stopColor="#2F8962" />
-              <Stop offset="1" stopColor="#65B88C" />
-            </LinearGradient>
-            <LinearGradient id="needle" x1="0" y1="0" x2="1" y2="0">
-              <Stop offset="0" stopColor={fraction >= 0.85 ? '#7A0B0B' : '#9A2F00'} />
-              <Stop offset="0.45" stopColor={fraction >= 0.85 ? '#E11D1D' : '#FF6A00'} />
-              <Stop offset="1" stopColor={fraction >= 0.85 ? '#FF6B6B' : '#FFD36A'} />
-            </LinearGradient>
-            <LinearGradient id="redZone" x1="0" y1="0" x2="1" y2="0">
-              <Stop offset="0" stopColor="#FF2A2A" stopOpacity={0} />
-              <Stop offset="0.55" stopColor="#FF2A2A" stopOpacity={0.18} />
-              <Stop offset="1" stopColor="#FF2A2A" stopOpacity={0.55} />
+            <LinearGradient id="routeProgress" x1="0" y1="1" x2="1" y2="0">
+              <Stop offset="0" stopColor={cockpitColors.routeBlueStrong} />
+              <Stop offset="1" stopColor={cockpitColors.routeBlue} />
             </LinearGradient>
             <RadialGradient id="hub" cx="38%" cy="32%" r="70%">
-              <Stop offset="0" stopColor="#4B534D" />
-              <Stop offset="1" stopColor="#0A0D0B" />
-            </RadialGradient>
-            <RadialGradient id="wedgeGlow" cx="50%" cy="50%" r="50%">
-              <Stop offset="0" stopColor="#5FAE85" stopOpacity={0.2} />
-              <Stop offset="0.6" stopColor="#5FAE85" stopOpacity={0.05} />
-              <Stop offset="1" stopColor="#5FAE85" stopOpacity={0} />
+              <Stop offset="0" stopColor="#70808D" />
+              <Stop offset="0.5" stopColor="#263440" />
+              <Stop offset="1" stopColor={cockpitColors.canvas} />
             </RadialGradient>
           </Defs>
 
-          <Circle cx={CENTER} cy={CENTER} r={116} fill="#050706" />
-          <Circle cx={CENTER} cy={CENTER} r={111} fill="none" stroke="url(#bezel)" strokeWidth={7} />
-          <Circle cx={CENTER} cy={CENTER} r={104} fill="none" stroke="#050706" strokeWidth={5} />
+          <Circle cx={CENTER} cy={CENTER} r={116} fill={cockpitColors.canvas} />
+          <Circle cx={CENTER} cy={CENTER} r={112} fill="none" stroke="url(#steelRing)" strokeWidth={4} />
+          <Circle cx={CENTER} cy={CENTER} r={FACE_RADIUS} fill="url(#dialFace)" stroke={cockpitColors.border} strokeWidth={1.5} />
+          <Circle cx={CENTER} cy={CENTER} r={FACE_RADIUS - 7} fill="none" stroke="#FFFFFF" strokeOpacity={0.045} strokeWidth={1} />
 
-          <Path d={WEDGE_PATH} fill="#000000" />
-          <Path d={FACE_PATH} fill="url(#dial)" stroke="#C2CBC4" strokeOpacity={0.5} strokeWidth={1.6} />
-          <Path d={GLASS_PATH} fill="none" stroke="#FFFFFF" strokeOpacity={0.07} strokeWidth={9} />
-
-          <Path d={TRACK_PATH} fill="none" stroke="#141A12" strokeWidth={ARC_WIDTH + 1} strokeLinecap="round" />
-          <Path
-            d={TRACK_PATH}
+          <Circle
+            cx={CENTER}
+            cy={CENTER}
+            r={ARC_RADIUS}
             fill="none"
-            stroke="url(#redZone)"
-            strokeWidth={ARC_WIDTH + 2}
+            stroke={cockpitColors.metalSoft}
+            strokeDasharray={`${ARC_LENGTH} ${CIRCUMFERENCE}`}
             strokeLinecap="round"
-            strokeDasharray={`${(ARC_LENGTH * 0.18).toFixed(2)} ${ARC_LENGTH.toFixed(2)}`}
-            strokeDashoffset={(-(ARC_LENGTH * 0.82)).toFixed(2)}
+            strokeWidth={ARC_WIDTH}
+            transform={`rotate(${DIAL_START - 90} ${CENTER} ${CENTER})`}
           />
           {fraction > 0 ? (
-            <>
-              <Path
-                d={TRACK_PATH}
-                fill="none"
-                stroke="#65B88C"
-                strokeOpacity={0.22}
-                strokeWidth={ARC_WIDTH + 5}
-                strokeLinecap="round"
-                strokeDasharray={`${(ARC_LENGTH * fraction).toFixed(2)} ${ARC_LENGTH.toFixed(2)}`}
-              />
-              <Path
-                d={TRACK_PATH}
-                fill="none"
-                stroke="url(#progress)"
-                strokeWidth={ARC_WIDTH}
-                strokeLinecap="round"
-                strokeDasharray={`${(ARC_LENGTH * fraction).toFixed(2)} ${ARC_LENGTH.toFixed(2)}`}
-              />
-            </>
+            <Circle
+              cx={CENTER}
+              cy={CENTER}
+              r={ARC_RADIUS}
+              fill="none"
+              stroke="url(#routeProgress)"
+              strokeDasharray={`${Math.max(1, ARC_LENGTH * fraction)} ${CIRCUMFERENCE}`}
+              strokeLinecap="round"
+              strokeWidth={ARC_WIDTH}
+              transform={`rotate(${DIAL_START - 90} ${CENTER} ${CENTER})`}
+            />
           ) : null}
 
-          {minors.map((tick) => (
-            <Line
-              key={`minor-${tick}`}
-              x1={CENTER}
-              y1={CENTER - TICK_OUTER}
-              x2={CENTER}
-              y2={CENTER - TICK_MINOR_INNER}
-              stroke="#98A19A"
-              strokeWidth={1.2}
-              transform={`rotate(${angleFor(tick)} ${CENTER} ${CENTER})`}
-            />
-          ))}
-          {majors.map((tick) => (
-            <Line
-              key={`major-${tick}`}
-              x1={CENTER}
-              y1={CENTER - TICK_OUTER}
-              x2={CENTER}
-              y2={CENTER - TICK_MAJOR_INNER}
-              stroke="#FFFFFF"
-              strokeWidth={2.8}
-              strokeLinecap="round"
-              transform={`rotate(${angleFor(tick)} ${CENTER} ${CENTER})`}
-            />
-          ))}
-
-          {majors.map((tick, index) => {
-            // The first and last labels sit on the cut edges, so they are lifted
-            // clear of the wedge instead of hugging its accent line.
-            const isEndpoint = index === 0 || index === majors.length - 1;
-            const point = polar(angleFor(tick), isEndpoint ? LABEL_RADIUS - 4 : LABEL_RADIUS);
+          {Array.from({ length: TICK_COUNT + 1 }, (_, index) => {
+            const angle = DIAL_START + (DIAL_SWEEP * index) / TICK_COUNT;
+            const major = index % 5 === 0;
+            const outer = polar(angle, 82);
+            const inner = polar(angle, major ? 72 : 77);
             return (
-              <SvgText
-                key={`label-${tick}`}
-                fill="#FFFFFF"
-                fontFamily={fonts.headingExtraBold}
-                fontSize={labelFontSize + 1.5}
-                fontWeight="900"
-                textAnchor="middle"
-                x={point.x}
-                y={point.y + 3 - (isEndpoint ? 11 : 0)}>
-                {Math.round(tick)}
-              </SvgText>
+              <Line
+                key={index}
+                x1={inner.x}
+                y1={inner.y}
+                x2={outer.x}
+                y2={outer.y}
+                stroke={major ? cockpitColors.text : cockpitColors.metal}
+                strokeOpacity={major ? 0.95 : 0.55}
+                strokeWidth={major ? 2.2 : 1}
+                strokeLinecap="round"
+              />
             );
           })}
 
-          {/* Cut-out wedge: accent edges plus the remaining-quantity readout. */}
-          <Circle cx={CENTER} cy={READOUT_CENTER_Y} r={66} fill="url(#wedgeGlow)" />
-          {[FACE_START, FACE_END].map((edge) => (
-            <Line
-              key={`edge-${edge.x.toFixed(1)}`}
-              x1={CENTER}
-              y1={CENTER}
-              x2={edge.x}
-              y2={edge.y}
-              stroke="#5A8F48"
-              strokeOpacity={0.7}
-              strokeWidth={1.4}
-            />
-          ))}
+          <Line x1={CENTER + 2} y1={CENTER + 3} x2={needleTip.x + 2} y2={needleTip.y + 3} stroke="#000000" strokeOpacity={0.55} strokeWidth={4} strokeLinecap="round" />
+          <Line x1={CENTER} y1={CENTER} x2={needleTip.x} y2={needleTip.y} stroke={cockpitColors.text} strokeWidth={2.2} strokeLinecap="round" />
+          <Circle cx={CENTER} cy={CENTER} r={10} fill="url(#hub)" stroke={cockpitColors.routeBlue} strokeWidth={1.6} />
+          <Circle cx={CENTER - 2.8} cy={CENTER - 3.2} r={2.2} fill="#DDE7EE" opacity={0.48} />
 
-          <G transform={`rotate(${needleAngle} ${CENTER} ${CENTER})`}>
-            <Path
-              d={`M 114.8 130 L ${CENTER} ${CENTER - NEEDLE_TIP} L 125.2 130 Z`}
-              fill="#000000"
-              opacity={0.55}
-              transform="translate(3 3)"
-            />
-            {/* Counterweight stays cool grey so it never reads as the green wedge edge. */}
-            <Path d={`M 113.5 ${CENTER} L ${CENTER} 150 L 126.5 ${CENTER} Z`} fill="#5A6260" />
-            <Path
-              d={`M 114.8 130 L ${CENTER} ${CENTER - NEEDLE_TIP} L 125.2 130 Z`}
-              fill="url(#needle)"
-              stroke={fraction >= 0.85 ? '#FFB0B0' : '#FFE08A'}
-              strokeWidth={1.4}
-            />
-            <Path
-              d={`M ${CENTER - 3.4} ${CENTER - NEEDLE_TIP + 16} L ${CENTER} ${CENTER - NEEDLE_TIP} L ${CENTER + 3.4} ${CENTER - NEEDLE_TIP + 16} Z`}
-              fill={fraction >= 0.85 ? '#FFE0E0' : '#FFF8E0'}
-            />
-          </G>
-          <Circle cx={CENTER} cy={CENTER} r={13} fill="url(#hub)" stroke={fraction >= 0.85 ? '#E24A4A' : '#E0A040'} strokeWidth={2.4} />
-          <Circle cx={CENTER - 3} cy={CENTER - 4} r={3.2} fill="#69726B" opacity={0.75} />
-
-          <SvgText
-            fill="#FFFFFF"
-            fontFamily={fonts.headingExtraBold}
-            fontSize={readoutFontSize}
-            fontWeight="900"
-            textAnchor="middle"
-            x={CENTER}
-            y={READOUT_CENTER_Y + readoutFontSize * 0.35}>
+          <SvgText fill={cockpitColors.textMuted} fontFamily={fonts.headingSemiBold} fontSize={9} letterSpacing={1.2} textAnchor="middle" x={CENTER} y={83}>
+            LIKO
+          </SvgText>
+          <SvgText fill={cockpitColors.text} fontFamily={fonts.heading} fontSize={readoutFontSize} fontWeight="700" textAnchor="middle" x={CENTER} y={130}>
             {readout}
           </SvgText>
           {unit ? (
-            <SvgText
-              fill="#C8D4C4"
-              fontFamily={fonts.heading}
-              fontSize={13}
-              fontWeight="800"
-              letterSpacing={1.2}
-              textAnchor="middle"
-              x={CENTER}
-              y={202}>
+            <SvgText fill={cockpitColors.textSecondary} fontFamily={fonts.bodyMedium} fontSize={12} letterSpacing={0.8} textAnchor="middle" x={CENTER} y={151}>
               {unit}
             </SvgText>
           ) : null}
+          <SvgText fill={cockpitColors.textMuted} fontFamily={fonts.bodyMedium} fontSize={8.5} textAnchor="middle" x={scaleStart.x} y={scaleStart.y + 4}>
+            0
+          </SvgText>
+          <SvgText fill={cockpitColors.textMuted} fontFamily={fonts.bodyMedium} fontSize={8.5} textAnchor="middle" x={scaleEnd.x} y={scaleEnd.y + 4}>
+            {formatScaleValue(maximum)}
+          </SvgText>
         </Svg>
       </View>
     </View>
@@ -319,16 +186,16 @@ export function InstrumentGauge({
 }
 
 const styles = StyleSheet.create({
-  wrapper: { flex: 1, minWidth: 0, maxWidth: '46%', alignItems: 'center' },
-  title: { color: '#E7EBE7', fontFamily: fonts.heading, fontSize: 12, letterSpacing: 0.8, marginBottom: 3 },
+  wrapper: { flex: 1, minWidth: 0, maxWidth: '44%', alignItems: 'center' },
+  title: { color: cockpitColors.textSecondary, fontFamily: fonts.headingSemiBold, fontSize: 11, letterSpacing: 1.4, marginBottom: 5 },
   shadow: {
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#0B0D0C',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.34,
-    shadowRadius: 12,
+    backgroundColor: cockpitColors.canvas,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 9 },
+    shadowOpacity: 0.32,
+    shadowRadius: 14,
     elevation: 10,
   },
 });
