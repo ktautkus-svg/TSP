@@ -38,7 +38,7 @@ function migration(version: number): string {
 }
 function createDb(): { adapter: ExpoLikeDatabase; db: SQLiteDatabase } {
   const adapter = new ExpoLikeDatabase();
-  for (let version = 1; version <= 15; version += 1) adapter.raw.exec(migration(version));
+  for (let version = 1; version <= 16; version += 1) adapter.raw.exec(migration(version));
   return { adapter, db: adapter as unknown as SQLiteDatabase };
 }
 
@@ -92,7 +92,7 @@ describe('employee route assignment offline copy', () => {
     };
     await importAssignmentSnapshot(target.db, assignment, profile.id);
     await importAssignmentSnapshot(target.db, assignment, profile.id);
-    expect(target.adapter.raw.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 15 });
+    expect(target.adapter.raw.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 16 });
     expect(target.adapter.raw.prepare('SELECT count(*) AS count FROM routes').get()).toMatchObject({ count: 1 });
     expect(target.adapter.raw.prepare('SELECT count(*) AS count FROM delivery_stops').get()).toMatchObject({ count: 1 });
     expect(target.adapter.raw.prepare('SELECT employee_id, sync_status FROM route_sync_state').get()).toMatchObject({ employee_id: profile.id, sync_status: 'synced' });

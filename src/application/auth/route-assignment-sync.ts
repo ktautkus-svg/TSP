@@ -8,6 +8,19 @@ import {
 } from '@/infrastructure/auth/employee-session';
 
 const SNAPSHOT_TABLES = ['routes', 'delivery_stops', 'shipment_lines'] as const;
+type WritableTable = typeof SNAPSHOT_TABLES[number] | 'delivery_attempts';
+
+// Local bookkeeping that must never travel inside a snapshot: it describes this
+// device's relationship with the cloud, not the route. `vehicle_id` is stripped
+// because vehicles do not sync yet, so the receiving device's own vehicle rows
+// are the only valid ones (see applyRouteSnapshot for the merge rule that stops
+// this null from erasing a local assignment).
+const DEVICE_LOCAL_ROUTE_COLUMNS = {
+  vehicle_id: null,
+  cloud_synced_at: null,
+  cloud_deleted_at: null,
+  owner_employee_id: null,
+} as const;
 
 export async function exportRouteSnapshot(db: SQLiteDatabase, routeId: string): Promise<RouteSnapshot> {
   const route = await db.getFirstAsync<Record<string, unknown>>('SELECT * FROM routes WHERE id = ?', routeId);
@@ -21,29 +34,71 @@ export async function exportRouteSnapshot(db: SQLiteDatabase, routeId: string): 
     routeId,
   );
   return {
-    route: { ...route, vehicle_id: null, cloud_synced_at: null, cloud_deleted_at: null },
+    route: { ...route, ...DEVICE_LOCAL_ROUTE_COLUMNS },
     stops,
     shipmentLines,
   };
 }
 
 /**
- * Replaces a route's local snapshot (route + stops + shipment lines) in one
- * transaction and stamps the device's own cloud-sync bookkeeping columns —
- * used for applying a snapshot pulled from another device, as opposed to
- * `importAssignmentSnapshot`'s insert-only first download.
+ * Applies a snapshot pulled from another device onto the local route, without
+ * deleting the local route row.
+ *
+ * The route row is updated in place rather than deleted and reinserted, because
+ * a delete is not survivable: `trip_sheet_routes.route_id` is ON DELETE
+ * RESTRICT, so a route that belongs to a trip sheet cannot be deleted at all
+ * (the whole pull used to fail, permanently, once the device had generated a
+ * trip sheet), and everything else hanging off `routes` — route_sync_state,
+ * action_journal, route_order_snapshots, import_sources,
+ * route_creation_commands — cascades away with it.
+ *
+ * Stops and shipment lines are still replaced wholesale, because the cloud copy
+ * is authoritative for them. `delivery_attempts` hang off `delivery_stops` with
+ * ON DELETE CASCADE and are not part of RouteSnapshot yet, so they are carried
+ * across that replacement by hand instead of being destroyed by it.
  */
-export async function applyRouteSnapshot(db: SQLiteDatabase, snapshot: RouteSnapshot, cloudSyncedAt: string): Promise<void> {
+export async function applyRouteSnapshot(
+  db: SQLiteDatabase,
+  snapshot: RouteSnapshot,
+  cloudSyncedAt: string,
+  ownerEmployeeId: string | null = null,
+): Promise<void> {
   validateSnapshot(snapshot);
   const routeId = String(snapshot.route.id ?? '');
   if (!routeId) throw new Error('Maršruto ID nenurodytas.');
   await db.withTransactionAsync(async () => {
+    const existing = await db.getFirstAsync<Record<string, unknown>>('SELECT * FROM routes WHERE id = ?', routeId);
+    const attempts = await db.getAllAsync<Record<string, unknown>>(
+      'SELECT * FROM delivery_attempts WHERE route_id = ?',
+      routeId,
+    );
+    const route = {
+      ...snapshot.route,
+      id: routeId,
+      // An incoming null vehicle means "this snapshot carries no vehicle
+      // information", never "the route has no vehicle": exportRouteSnapshot
+      // always strips it. Keeping the local value is what stops a sync round
+      // trip from erasing the driver's own vehicle assignment.
+      vehicle_id: snapshot.route.vehicle_id ?? existing?.vehicle_id ?? null,
+      // Ownership is decided by the caller from the authenticated session, never
+      // by whatever the sending device happened to have in its own column.
+      owner_employee_id: ownerEmployeeId ?? existing?.owner_employee_id ?? null,
+      cloud_synced_at: cloudSyncedAt,
+      cloud_deleted_at: null,
+    };
+    if (existing) {
+      await updateRow(db, 'routes', routeId, route);
+    } else {
+      await insertRow(db, 'routes', route);
+    }
     await db.runAsync('DELETE FROM shipment_lines WHERE route_id = ?', routeId);
     await db.runAsync('DELETE FROM delivery_stops WHERE route_id = ?', routeId);
-    await db.runAsync('DELETE FROM routes WHERE id = ?', routeId);
-    await insertRow(db, 'routes', { ...snapshot.route, id: routeId, cloud_synced_at: cloudSyncedAt, cloud_deleted_at: null });
     for (const stop of snapshot.stops) await insertRow(db, SNAPSHOT_TABLES[1], stop);
     for (const line of snapshot.shipmentLines) await insertRow(db, SNAPSHOT_TABLES[2], line);
+    const restoredStops = new Set(snapshot.stops.map((stop) => String(stop.id ?? '')));
+    for (const attempt of attempts) {
+      if (restoredStops.has(String(attempt.stop_id ?? ''))) await insertRow(db, 'delivery_attempts', attempt);
+    }
   });
 }
 
@@ -126,15 +181,28 @@ export async function importAssignmentSnapshot(db: SQLiteDatabase, assignment: S
   });
 }
 
-export async function insertRow(db: SQLiteDatabase, table: typeof SNAPSHOT_TABLES[number], row: Record<string, unknown>): Promise<void> {
-  const columns = Object.keys(row);
-  if (columns.length === 0) throw new Error(`Tuščias ${table} įrašas.`);
-  if (columns.some((column) => !/^[a-z][a-z0-9_]*$/.test(column))) throw new Error('Neleistinas duomenų laukas.');
+export async function insertRow(db: SQLiteDatabase, table: WritableTable, row: Record<string, unknown>): Promise<void> {
+  const columns = assertColumns(table, Object.keys(row));
   const placeholders = columns.map(() => '?').join(', ');
   await db.runAsync(
     `INSERT INTO ${table} (${columns.join(', ')}) VALUES (${placeholders})`,
     ...columns.map((column) => row[column] as string | number | null),
   );
+}
+
+async function updateRow(db: SQLiteDatabase, table: WritableTable, id: string, row: Record<string, unknown>): Promise<void> {
+  const columns = assertColumns(table, Object.keys(row).filter((column) => column !== 'id'));
+  await db.runAsync(
+    `UPDATE ${table} SET ${columns.map((column) => `${column} = ?`).join(', ')} WHERE id = ?`,
+    ...columns.map((column) => row[column] as string | number | null),
+    id,
+  );
+}
+
+function assertColumns(table: WritableTable, columns: string[]): string[] {
+  if (columns.length === 0) throw new Error(`Tuščias ${table} įrašas.`);
+  if (columns.some((column) => !/^[a-z][a-z0-9_]*$/.test(column))) throw new Error('Neleistinas duomenų laukas.');
+  return columns;
 }
 
 function validateSnapshot(snapshot: RouteSnapshot): void {

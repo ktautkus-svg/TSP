@@ -4,6 +4,7 @@ import { Stack, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
 import { assignRouteToDriver } from '@/application/auth/route-assignment-sync';
+import { syncRoutesWithCloud } from '@/application/sync/route-cloud-sync';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { employeeApi, type EmployeeProfile, type ServerRouteAssignment } from '@/infrastructure/auth/employee-session';
 import { radius, spacing, type } from '@/ui/tokens';
@@ -39,6 +40,16 @@ export default function DispatcherScreen() {
   const [message, setMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    // Dispatchers create and own routes on this device (the "+ Planuoti
+    // maršrutą" flow below), but the home screen redirects them here before its
+    // sync effect runs, so their own routes never reached the cloud and a
+    // dispatcher planning on a desktop saw nothing on their tablet. Same
+    // protocol as the driver path, just the trigger that was missing.
+    if (online) {
+      await syncRoutesWithCloud(db).catch((reason) => {
+        if (__DEV__) console.warn('ROUTE_CLOUD_SYNC_FAILED', reason);
+      });
+    }
     const localRoutes = await db.getAllAsync<LocalRoute>(
       `SELECT id, date, status, total_stops, total_weight_kg, estimated_distance_km,
               estimated_duration_minutes, start_location_json, end_location_json

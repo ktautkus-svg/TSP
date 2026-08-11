@@ -28,7 +28,7 @@ function migration(version: number): string {
 }
 function createDb(): { adapter: ExpoLikeDatabase; db: SQLiteDatabase } {
   const adapter = new ExpoLikeDatabase();
-  for (let version = 1; version <= 15; version += 1) adapter.raw.exec(migration(version));
+  for (let version = 1; version <= 16; version += 1) adapter.raw.exec(migration(version));
   return { adapter, db: adapter as unknown as SQLiteDatabase };
 }
 
@@ -52,7 +52,13 @@ function insertRoute(adapter: ExpoLikeDatabase, overrides: Partial<{
 const profile = { id: 'employee-1', username: 'vairuotojas', displayName: 'Jonas Jonaitis', role: 'driver' as const, disabled: false };
 
 function stubFetch(handler: (input: RequestInfo | URL, init?: RequestInit) => Response | Promise<Response>) {
-  vi.stubGlobal('fetch', vi.fn(handler));
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    // Every sync pass now confirms the signed-in employee with the server
+    // before deciding what to upload. The handler still runs so offline and
+    // failing stubs keep failing; only its payload is replaced.
+    const response = await handler(input, init);
+    return String(input).includes('/api/auth/me') ? Response.json({ profile }) : response;
+  }));
 }
 
 afterEach(async () => {
@@ -89,13 +95,15 @@ describe('route cloud sync — push (upload)', () => {
     const { adapter, db } = createDb();
     insertRoute(adapter, { id: 'route-synced', updatedAt: '2026-08-11T08:00:00.000Z', cloudSyncedAt: '2026-08-11T08:00:00.000Z' });
 
-    const fetchMock = vi.fn(async () => Response.json({ routes: [], cursor: '2026-08-11T09:00:00.000Z' }));
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => (String(input).includes('/api/auth/me')
+      ? Response.json({ profile })
+      : Response.json({ routes: [], cursor: '2026-08-11T09:00:00.000Z' })));
     vi.stubGlobal('fetch', fetchMock);
 
     await syncRoutesWithCloud(db);
 
-    // Only the pull GET should have been made; nothing was dirty to push.
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // Identity check plus the pull GET; nothing was dirty to push.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('propagates a local soft-delete flag on push', async () => {
@@ -209,8 +217,8 @@ describe('route cloud sync — pull (second device download)', () => {
     const stops = adapter.raw.prepare('SELECT * FROM delivery_stops WHERE route_id = ?').all('route-from-phone');
     expect(stops).toHaveLength(1);
 
-    const cursorRow = adapter.raw.prepare("SELECT value FROM app_preferences WHERE key = 'route_cloud_sync_cursor'").get() as { value: string };
-    expect(cursorRow.value).toBe('2026-08-11T07:00:01.000Z');
+    const cursorRow = adapter.raw.prepare("SELECT cursor FROM sync_cursors WHERE entity = 'routes' AND employee_id = ?").get(profile.id) as { cursor: string };
+    expect(cursorRow.cursor).toBe('2026-08-11T07:00:01.000Z');
   });
 
   it('applies pulling twice without duplicating rows (idempotent apply)', async () => {
@@ -279,7 +287,7 @@ describe('route cloud sync — pull (second device download)', () => {
     expect(historyRoute).toBeTruthy();
   });
 
-  it('marks a pulled soft-deleted route locally without crashing', async () => {
+  it('does not recreate a route this device never had just because a tombstone arrived', async () => {
     await saveEmployeeSession({ profile, expiresAt: '2099-01-01T00:00:00.000Z' });
     const { adapter, db } = createDb();
     const remoteSnapshot = {
@@ -294,7 +302,7 @@ describe('route cloud sync — pull (second device download)', () => {
 
     await syncRoutesWithCloud(db);
     const row = adapter.raw.prepare('SELECT id FROM routes WHERE id = ?').get('route-deleted-remote');
-    expect(row).toBeTruthy();
+    expect(row).toBeUndefined();
   });
 
   it('sends an incremental since= cursor on the second pull instead of refetching everything', async () => {
@@ -302,7 +310,7 @@ describe('route cloud sync — pull (second device download)', () => {
     const { db } = createDb();
     const urls: string[] = [];
     stubFetch(async (url, init) => {
-      urls.push(String(url));
+      if (!String(url).includes('/api/auth/me')) urls.push(String(url));
       if (init?.method === 'POST') return Response.json({ results: [] });
       return Response.json({ routes: [], cursor: '2026-08-11T07:00:01.000Z' });
     });
