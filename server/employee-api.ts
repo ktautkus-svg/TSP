@@ -11,9 +11,15 @@ import {
   type RouteSnapshot,
 } from './employee-auth-store.js';
 import { RouteSyncStore, type RouteSyncPushItem } from './route-sync-store.js';
+import {
+  AccountSyncStore,
+  type AccountSyncEntity,
+  type AccountSyncPushItem,
+} from './account-sync-store.js';
 
 const store = new EmployeeAuthStore();
 const routeSyncStore = new RouteSyncStore();
+const accountSyncStore = new AccountSyncStore();
 const bootstrapNonces = new GatewayNonceRegistry();
 const loginAttempts = new Map<string, number[]>();
 
@@ -134,6 +140,24 @@ export async function handleEmployeeApi(
       return send(response, 200, { results }, requestId);
     }
 
+    if (pathname === '/api/account-sync' && request.method === 'GET') {
+      const parameters = new URL(request.url ?? '', 'http://localhost').searchParams;
+      const since: Partial<Record<AccountSyncEntity, string>> = {};
+      for (const entity of ['saved_location', 'preference'] as const) {
+        const value = parameters.get(`since_${entity}`);
+        if (value) since[entity] = value;
+      }
+      // Owner comes from the authenticated session only — an employee can never
+      // ask for anyone else's saved locations or preferences.
+      const result = await accountSyncStore.pull(profile.id, since);
+      return send(response, 200, result, requestId);
+    }
+    if (pathname === '/api/account-sync' && request.method === 'POST') {
+      const body = parseObject(await readBody(request, 1_000_000));
+      const results = await accountSyncStore.push(profile.id, accountSyncItems(body.items));
+      return send(response, 200, { results }, requestId);
+    }
+
     const downloadedMatch = pathname.match(/^\/api\/assignments\/([^/]+)\/downloaded$/);
     if (downloadedMatch && request.method === 'POST') {
       requireRole(profile, ['driver']);
@@ -173,7 +197,27 @@ function isEmployeePath(pathname: string): boolean {
   return pathname.startsWith('/api/auth/')
     || pathname.startsWith('/api/admin/')
     || pathname.startsWith('/api/assignments')
-    || pathname.startsWith('/api/route-sync');
+    || pathname.startsWith('/api/route-sync')
+    || pathname.startsWith('/api/account-sync');
+}
+
+function accountSyncItems(value: unknown): AccountSyncPushItem[] {
+  if (!Array.isArray(value)) throw new EmployeeApiError('INVALID_REQUEST', 'Trūksta lauko: items.', 400);
+  // Malformed *items* are passed through and rejected individually by the
+  // store; only a malformed envelope fails the whole call.
+  return value.map((item) => {
+    const record = (item && typeof item === 'object' ? item : {}) as {
+      entity?: unknown; localId?: unknown; payload?: unknown; deleted?: unknown;
+    };
+    return {
+      entity: record.entity as AccountSyncEntity,
+      localId: String(record.localId ?? ''),
+      payload: (record.payload && typeof record.payload === 'object' && !Array.isArray(record.payload)
+        ? record.payload
+        : {}) as Record<string, unknown>,
+      deleted: record.deleted === true,
+    };
+  });
 }
 
 function routeSyncItems(value: unknown): RouteSyncPushItem[] {
