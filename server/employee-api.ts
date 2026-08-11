@@ -16,6 +16,7 @@ const store = new EmployeeAuthStore();
 const routeSyncStore = new RouteSyncStore();
 const bootstrapNonces = new GatewayNonceRegistry();
 const loginAttempts = new Map<string, number[]>();
+const initialAdminPin = process.env.TSP_INITIAL_ADMIN_PIN?.trim() || '12345';
 
 export async function handleEmployeeApi(
   request: IncomingMessage,
@@ -33,12 +34,16 @@ export async function handleEmployeeApi(
       const rawBody = await readBody(request, 64_000);
       verifyBootstrapSignature(request, rawBody);
       const body = parseObject(rawBody);
+      const pin = stringField(body, 'pin');
+      if (pin !== initialAdminPin) {
+        throw new EmployeeApiError('INVALID_INITIAL_PIN', 'Neteisingas pradinis administratoriaus PIN.', 400);
+      }
       const profile = await store.bootstrapAdmin({
         username: stringField(body, 'username'),
         displayName: stringField(body, 'displayName'),
-        pin: stringField(body, 'pin'),
+        pin,
       });
-      const session = await store.login(profile.username, stringField(body, 'pin'));
+      const session = await store.login(profile.username, pin);
       return send(response, 201, { profile: session.profile, expiresAt: session.expiresAt }, requestId, {
         'set-cookie': sessionCookie(session.token),
       });
