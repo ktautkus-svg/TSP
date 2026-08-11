@@ -2,6 +2,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 
 import { TspBrand } from '@/components/tsp-brand';
+import { CloudSyncStatus } from '@/components/cloud-sync-status';
 import { colors, spacing } from '@/ui/tokens';
 
 export function BrandHeader({ onMenuPress }: { onMenuPress?: () => void } = {}) {
@@ -11,6 +12,7 @@ export function BrandHeader({ onMenuPress }: { onMenuPress?: () => void } = {}) 
         <TspBrand />
       </View>
       <View style={styles.headerActions}>
+        <CloudSyncStatus compact />
         <View style={styles.notification}>
           <Svg width={22} height={22} viewBox="0 0 24 24">
             <Path d="M6 9a6 6 0 0 1 12 0v4l2 3H4l2-3V9Z" fill="none" stroke="#FFFFFF" strokeWidth={1.8} strokeLinejoin="round" />

@@ -38,10 +38,12 @@ import {
 import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
+import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 
 export default function RouteReviewScreen() {
   const router = useRouter();
   const db = useSQLiteContext();
+  const { requestSync, revision: syncRevision } = useRouteCloudSync();
   const { id: routeId = '' } = useLocalSearchParams<{ id: string }>();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -102,6 +104,10 @@ export default function RouteReviewScreen() {
   useFocusEffect(useCallback(() => {
     void reload();
   }, [reload]));
+
+  useEffect(() => {
+    if (syncRevision > 0) void reload();
+  }, [reload, syncRevision]);
 
   const geocodeAll = async () => {
     if (!route || running) return;
@@ -173,6 +179,7 @@ export default function RouteReviewScreen() {
         }
       }
       await reload();
+      void requestSync('mutation');
     } catch (reason) {
       await handleDraftActionError(reason);
     } finally {
@@ -203,6 +210,7 @@ export default function RouteReviewScreen() {
       if (await redirectStalePlanningScreen()) return;
       await confirmStop(stop.id, stop.originalAddress, stop.geocodingQuery ?? stop.originalAddress, selected);
       await reload();
+      void requestSync('mutation');
     } catch (reason) {
       await handleDraftActionError(reason);
     }
@@ -227,6 +235,7 @@ export default function RouteReviewScreen() {
     );
       setCandidates((current) => ({ ...current, start: [] }));
       await reload();
+      void requestSync('mutation');
     } catch (reason) {
       await handleDraftActionError(reason);
     }
@@ -247,6 +256,7 @@ export default function RouteReviewScreen() {
     );
       setCandidates((current) => ({ ...current, end: [] }));
       await reload();
+      void requestSync('mutation');
     } catch (reason) {
       await handleDraftActionError(reason);
     }
@@ -258,6 +268,7 @@ export default function RouteReviewScreen() {
         if (await redirectStalePlanningScreen()) return;
         await new UpdateDraftStop(db).execute(routeId, stop.id, patch);
         await reload();
+        void requestSync('mutation');
       } catch (reason) {
         await handleDraftActionError(reason);
       }
@@ -276,6 +287,7 @@ export default function RouteReviewScreen() {
           if (await redirectStalePlanningScreen()) return;
           await new DeleteDraftStop(db).execute(routeId, stop.id);
           await reload();
+          void requestSync('mutation');
         } catch (reason) {
           await handleDraftActionError(reason);
         }
@@ -293,6 +305,7 @@ export default function RouteReviewScreen() {
       if (await redirectStalePlanningScreen()) return;
       await new ReorderDraftStops(db).execute(routeId, ordered.map((stop) => stop.id));
       await reload();
+      void requestSync('mutation');
     } catch (reason) {
       await handleDraftActionError(reason);
     }
@@ -303,6 +316,7 @@ export default function RouteReviewScreen() {
       if (await redirectStalePlanningScreen()) return;
       await new SetStopPriority(db).execute(routeId, stop.id, priorityFirst);
       await reload();
+      void requestSync('mutation');
     } catch (reason) {
       await handleDraftActionError(reason);
     }
@@ -341,6 +355,7 @@ export default function RouteReviewScreen() {
     ]);
       setNewAddress('');
       await reload();
+      void requestSync('mutation');
     } catch (reason) {
       await handleDraftActionError(reason);
     }

@@ -420,6 +420,7 @@ export class SetStopPriority extends RouteCommandBase {
         stopId,
         routeId,
       );
+      await this.db.runAsync('UPDATE routes SET updated_at = ? WHERE id = ?', now, routeId);
       await this.audit(
         routeId,
         'draft_stop_priority_set',
@@ -457,7 +458,9 @@ export class ReorderDraftStops extends RouteCommandBase {
       throw new RouteCommandError('INVALID_STOP', 'Naujoje eilėje turi būti visi ir tik šio maršruto taškai.');
     }
     await this.db.withTransactionAsync(async () => {
-      await rewriteOriginalOrder(this.db, routeId, orderedStopIds);
+      const now = this.clock();
+      await rewriteOriginalOrder(this.db, routeId, orderedStopIds, now);
+      await this.db.runAsync('UPDATE routes SET updated_at = ? WHERE id = ?', now, routeId);
       await this.db.runAsync(
         `INSERT INTO route_order_snapshots (
           id, route_id, kind, ordered_stop_ids_json, created_at
@@ -465,7 +468,7 @@ export class ReorderDraftStops extends RouteCommandBase {
         this.idFactory('snapshot'),
         routeId,
         JSON.stringify(orderedStopIds),
-        this.clock(),
+        now,
       );
       await this.audit(routeId, 'draft_stops_reordered', existing, orderedStopIds);
     });
@@ -858,6 +861,7 @@ async function rewriteOriginalOrder(
   db: SQLiteDatabase,
   routeId: string,
   orderedStopIds: string[],
+  now = new Date().toISOString(),
 ): Promise<void> {
   await db.runAsync(
     'UPDATE delivery_stops SET original_order = original_order + 1000000, active_order = NULL WHERE route_id = ?',
@@ -869,7 +873,7 @@ async function rewriteOriginalOrder(
        WHERE route_id = ? AND id = ?`,
       index + 1,
       index + 1,
-      new Date().toISOString(),
+      now,
       routeId,
       stopId,
     );

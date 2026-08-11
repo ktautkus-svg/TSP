@@ -28,10 +28,12 @@ import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { Alert } from '@/ui/alert';
+import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 
 export default function RouteAlternativesScreen() {
   const router = useRouter();
   const db = useSQLiteContext();
+  const { requestSync, revision: syncRevision } = useRouteCloudSync();
   const { id: routeId = '' } = useLocalSearchParams<{ id: string }>();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -110,6 +112,17 @@ export default function RouteAlternativesScreen() {
     return () => { active = false; };
   }, [repository, routeId, router]));
 
+  useEffect(() => {
+    if (syncRevision === 0) return;
+    void repository.getById(routeId).then((current) => {
+      if (!current || current.status === 'draft' || selfCancelled.current) return;
+      const destination = resolveRoute(current);
+      router.replace({ pathname: destination.pathname, params: destination.params } as Href);
+    }).catch((reason) => {
+      if (__DEV__) console.warn('ALTERNATIVES_SYNC_GUARD_FAILED', reason);
+    });
+  }, [repository, routeId, router, syncRevision]);
+
   const defaultCandidate = result?.recommended ?? result?.diagnosticCandidate ?? labeledAlternatives[0]?.candidate ?? result?.candidates[0];
   const candidates = labeledAlternatives.length > 0
     ? labeledAlternatives.map((item) => item.candidate)
@@ -156,6 +169,7 @@ export default function RouteAlternativesScreen() {
         return;
       }
       await new SaveSelectedRouteCandidate(db).execute(routeId, result.requestId, selectedId);
+      void requestSync('mutation');
       router.replace({ pathname: '/route/[id]/loading', params: { id: routeId } });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Maršruto išsaugoti nepavyko.');
@@ -286,6 +300,7 @@ export default function RouteAlternativesScreen() {
       };
       await new SQLiteRoutingAuditRepository(db).saveOptimizationRun(routeId, request, manualResult);
       await new SaveSelectedRouteCandidate(db).execute(routeId, manualResult.requestId, manualCandidate.id);
+      void requestSync('mutation');
       router.replace({ pathname: '/route/[id]/loading', params: { id: routeId } });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Rankinės sekos išsaugoti nepavyko.');
@@ -308,7 +323,10 @@ export default function RouteAlternativesScreen() {
             setCancelling(true);
             selfCancelled.current = true;
             void new CancelDraftRoute(db).execute(routeId)
-              .then(() => router.replace('/import' as Href))
+              .then(() => {
+                void requestSync('mutation');
+                router.replace('/import' as Href);
+              })
               .catch((reason) => {
                 selfCancelled.current = false;
                 setError(reason instanceof Error ? reason.message : 'Maršruto atšaukti nepavyko.');
