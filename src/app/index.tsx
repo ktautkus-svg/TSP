@@ -7,6 +7,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { resolveRoute } from '@/application/routes/route-navigation';
 import { ExportPilotRouteDiagnostic } from '@/application/routes/pilot-route-export';
 import { GetRouteProgress, type RouteProgress } from '@/application/routes/route-workday';
+import { AccountMenuSheet } from '@/components/account-menu-sheet';
 import { BrandHeader } from '@/components/brand-header';
 import { ScreenContainer } from '@/components/screen-container';
 import { AppButton, AppCard } from '@/components/ui-primitives';
@@ -32,6 +33,7 @@ export default function HomeScreen() {
   const [active, setActive] = useState<Route | null>(null);
   const [progress, setProgress] = useState<RouteProgress | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const initialRestoreHandled = useRef(initialActiveRouteRestoreHandled);
 
   const exportActiveDiagnostic = async () => {
@@ -83,7 +85,8 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <BrandHeader />
+      <BrandHeader onMenuPress={() => setAccountMenuOpen(true)} />
+      <AccountMenuSheet visible={accountMenuOpen} onClose={() => setAccountMenuOpen(false)} />
       <ScreenContainer>
         <ScrollView contentContainerStyle={styles.content}>
           {active ? (

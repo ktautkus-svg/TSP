@@ -33,6 +33,8 @@ import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { Alert } from '@/ui/alert';
 import { useLocalAccess } from '@/application/auth/local-access-context';
+import { roleLabel, sessionStateLabel } from '@/application/auth/employee-permissions';
+import { StatusBadge } from '@/components/ui-primitives';
 
 const appVersion = Constants.expoConfig?.version ?? '1.0.0';
 
@@ -61,7 +63,7 @@ type SettingsSection = 'account' | 'appearance' | 'navigation' | 'gateway' | 'da
 export default function SettingsScreen() {
   const router = useRouter();
   const db = useSQLiteContext();
-  const { profile, logout } = useLocalAccess();
+  const { profile, online, logout } = useLocalAccess();
   const { colors, preference, setPreference } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const navigationPreference = useMemo(() => new NavigationPreference(db), [db]);
@@ -160,6 +162,17 @@ export default function SettingsScreen() {
     );
   }
 
+  function confirmSwitchAccount() {
+    Alert.alert(
+      'Keisti paskyrą?',
+      'Būsite atjungti nuo šios paskyros, kad galėtumėte prisijungti kitu darbuotojo vardu.',
+      [
+        { text: 'Atšaukti', style: 'cancel' },
+        { text: 'Keisti paskyrą', style: 'destructive', onPress: () => { void logout(); } },
+      ],
+    );
+  }
+
   async function exportBackup() {
     if (busy) return;
     setBusy(true);
@@ -247,6 +260,11 @@ export default function SettingsScreen() {
           {openSection === 'account' ? (
             <View style={styles.advancedContent} testID="account-settings-content">
               <Text style={styles.meta}>Prisijungta kaip @{profile.username}</Text>
+              <View style={styles.badgeRow}>
+                <StatusBadge label={roleLabel(profile.role)} tone="neutral" />
+                <StatusBadge label={sessionStateLabel(online).label} tone={sessionStateLabel(online).tone} />
+              </View>
+              <Pressable style={styles.secondaryButton} onPress={confirmSwitchAccount} testID="switch-account-button"><Text style={styles.secondaryText}>Keisti paskyrą</Text></Pressable>
               <Pressable style={styles.logoutButton} onPress={confirmLogout} testID="logout-button"><Text style={styles.logoutText}>Atsijungti</Text></Pressable>
             </View>
           ) : null}
@@ -395,6 +413,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   sectionTitle: { ...type.sectionTitle, color: colors.text },
   title: { ...type.cardTitle, color: colors.text },
   meta: { ...type.body, color: colors.textMuted, marginTop: spacing.xs },
+  badgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   ok: { ...type.secondaryStrong, color: colors.success },
   warning: { ...type.secondaryStrong, color: colors.warning },
   chevron: { color: colors.info, fontSize: 32 },
