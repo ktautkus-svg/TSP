@@ -1,15 +1,15 @@
 {
   "id": "/",
-  "name": "TSP – Tikslus siuntų pristatymas",
+  "name": "TSP – Maršrutai ir pristatymai",
   "short_name": "TSP",
-  "description": "Tikslus siuntų maršruto planavimas ir pristatymo vykdymas.",
+  "description": "Maršrutų planavimas ir pristatymų vykdymas.",
   "lang": "lt",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#F6F7F9",
-  "theme_color": "#0E766E",
+  "background_color": "#F3F6F8",
+  "theme_color": "#142832",
   "icons": [
     {
       "src": "/pwa-icon-192.png",
