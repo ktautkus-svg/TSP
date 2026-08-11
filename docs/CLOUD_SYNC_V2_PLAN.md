@@ -1207,3 +1207,80 @@ recorded here.
   `sync` callback is typed `() => Promise<unknown>`. Routes held back because
   they belong to another account, or rejected as unsyncable, are therefore
   invisible in the UI. Worth wiring into `CloudSyncStatus` in a follow-up.
+
+---
+
+## 17. Phase 1 implementation record
+
+Phase 1 shipped on `agent/claude-sync-v2-phase1` as three commits, moving the
+schema to v17. Scope: `saved_locations` and two allowlisted `app_preferences`
+keys. Vehicles, fuel entries, trip sheets and `location_preferences` were not
+touched — they remain phases 2–5.
+
+### 17.1 What was built, and where it differs from §5/§6
+
+| Design | Shipped | Note |
+|---|---|---|
+| `/api/account-sync` GET/POST, own store | as designed | `server/account-sync-store.ts`, wired into `employee-api.ts` behind existing session auth |
+| Composite doc ids `${employeeId}--${localId}` | as designed | ownership enforced by the key itself, plus a stored `ownerEmployeeId` check |
+| `saved_locations` cloud columns | as designed | plus `owner_employee_id` |
+| `app_preferences.sync_scope` | as designed | plus `owner_employee_id`, `cloud_synced_at` |
+| per-entity cursors | as designed | reuses `sync_cursors` from v16, keyed by (entity, employee_id) |
+| — | **`sync_accounts` claim boundary reused** | §3.1 did not say how ownership of pre-existing rows is decided; phase 0's rule is reused verbatim rather than inventing a second one |
+| — | **cursor = newest record returned** | not the server clock, correcting §14.5's mistake by construction |
+
+`saved_locations` deliberately keeps `kind` as its primary key. Re-keying to
+`(owner, kind)` would have forced `SavedLocationRepository` and
+`ResolveRouteLocations` to become account-aware, and breaking route planning was
+explicitly out of bounds. Ownership rides alongside instead.
+
+### 17.2 The consequence of that decision, stated plainly
+
+Because the table is a device-level singleton, **on a shared device the arriving
+account's cloud copy replaces the local row** (and takes ownership of it), and a
+second account cannot create saved locations of its own on that device — it can
+only receive its own from the cloud. This is the safe direction: no data is ever
+uploaded into the wrong account, nothing is deleted, and planning keeps working
+throughout. The limitation only exists on a genuinely shared device; on the
+one-driver-one-device reality this app is built for, it is invisible.
+
+A first account that edits saved locations and never syncs before handing the
+device over could have those edits replaced by the second account's cloud copy.
+Same assumption phase 0 already makes for routes.
+
+### 17.3 Preference allowlist
+
+`src/application/sync/account-preference-allowlist.ts` — two gates:
+
+- **Allowed:** `last_route_end_kind`, `last_planning_mode`. Nothing else.
+- **Never, whatever the list says:** `local_access_*` (offline PIN credential),
+  `pwa_*` (installation diagnostics), plus `theme_preference`,
+  `default_navigation_provider`, sync cursors — device-specific by product
+  decision, not by accident.
+
+Enforced in four places: the schema (`sync_scope` defaults to `'device'`), the
+client push filter, the client pull filter, and the server's own independent
+copy. A test asserts the client and server lists cannot drift apart.
+
+### 17.4 Verification
+
+`npm run typecheck`, `npm test` (**656/656**), `npm run gateway:test` (52/52),
+`npm run pwa:test` (8/8 + clean bundle scan), `npm run validate:schema` (v17, 32
+tables), `npm run pwa:build` — all green.
+
+15 new tests cover: first upload, clean-device download, the full new-device
+acceptance scenario including `ResolveRouteLocations` resolving a warehouse on
+device B, two-device round trip, account isolation, account switch, allowlist
+enforcement, security-preference exclusion (asserting the PIN hash never appears
+in any payload), deletion propagation, offline then reconnect, repeated-sync
+idempotency, legacy migration, and per-account cursors.
+
+### 17.5 Remaining risks
+
+- Not yet validated on two physical devices.
+- The shared-device singleton behaviour in §17.2.
+- `saved_locations` has no delete UI; `markSavedLocationDeletedForCloud` is
+  tested but unwired, ready for whenever one appears.
+- Account data rides in the same coordinator pass as routes, so a failing route
+  sync surfaces as one combined status. Acceptable, but a per-channel status
+  would be more precise if account sync ever grows.

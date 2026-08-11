@@ -41,11 +41,15 @@ export class RouteEndPreference {
     return row?.value === 'home' ? 'home' : 'warehouse';
   }
 
+  // `sync_scope` is written explicitly rather than relying on the v17 migration
+  // having seen this row: a preference recreated after the migration would
+  // otherwise fall back to the device-local default and silently stop following
+  // the account.
   async save(value: PreferredRouteEnd, now = new Date().toISOString()): Promise<void> {
     await this.db.runAsync(
-      `INSERT INTO app_preferences (key, value, updated_at)
-       VALUES ('last_route_end_kind', ?, ?)
-       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+      `INSERT INTO app_preferences (key, value, updated_at, sync_scope)
+       VALUES ('last_route_end_kind', ?, ?, 'account')
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at, sync_scope = 'account'`,
       value,
       now,
     );
@@ -66,9 +70,9 @@ export class PlanningModePreference {
 
   async save(value: PlanningMode, now = new Date().toISOString()): Promise<void> {
     await this.db.runAsync(
-      `INSERT INTO app_preferences (key, value, updated_at)
-       VALUES ('last_planning_mode', ?, ?)
-       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+      `INSERT INTO app_preferences (key, value, updated_at, sync_scope)
+       VALUES ('last_planning_mode', ?, ?, 'account')
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at, sync_scope = 'account'`,
       value,
       now,
     );

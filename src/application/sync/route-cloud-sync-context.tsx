@@ -3,6 +3,7 @@ import { AppState, Platform } from 'react-native';
 import { useSQLiteContext } from 'expo-sqlite';
 
 import { syncRoutesWithCloud } from '@/application/sync/route-cloud-sync';
+import { syncAccountDataWithCloud } from '@/application/sync/account-cloud-sync';
 import {
   RouteCloudSyncCoordinator,
   type RouteCloudSyncState,
@@ -28,7 +29,7 @@ export function RouteCloudSyncProvider({ children }: { children: ReactNode }) {
   const db = useSQLiteContext();
   const [state, setState] = useState<RouteCloudSyncState>(initialState);
   const coordinator = useMemo(() => new RouteCloudSyncCoordinator({
-    sync: () => syncRoutesWithCloud(db),
+    sync: () => syncEverything(db),
     initialOnline: !browserIsOffline(),
     onStateChange: setState,
   }), [db]);
@@ -75,6 +76,30 @@ export function useRouteCloudSync(): RouteCloudSyncContextValue {
   const value = useContext(RouteCloudSyncContext);
   if (!value) throw new Error('Cloud Sync būsena nepasiekiama.');
   return value;
+}
+
+/**
+ * One pass covers both channels, so every existing trigger — startup,
+ * foreground, focus, reconnect, mutation — carries account data too, with no
+ * extra scheduler and no polling. Routes go first: they are the operational
+ * priority, and account data is small enough that its round trip never delays
+ * anything the driver is waiting on.
+ *
+ * The counts are summed so the status badge reports unresolved account items
+ * exactly as it already reports unresolved routes.
+ */
+async function syncEverything(db: Parameters<typeof syncRoutesWithCloud>[0]) {
+  const routes = await syncRoutesWithCloud(db);
+  const account = await syncAccountDataWithCloud(db);
+  return {
+    ...routes,
+    pushed: routes.pushed + account.pushed,
+    pulled: routes.pulled + account.pulled,
+    conflicts: routes.conflicts + account.conflicts,
+    deleted: routes.deleted + account.deleted,
+    rejected: routes.rejected + account.rejected,
+    foreign: routes.foreign + account.foreign,
+  };
 }
 
 function browserIsOffline(): boolean {

@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-export const SCHEMA_VERSION = 16;
+export const SCHEMA_VERSION = 17;
 
 const migrationV1 = `
 PRAGMA journal_mode = WAL;
@@ -1015,6 +1015,40 @@ PRAGMA user_version = 16;
 COMMIT;
 `;
 
+// v17 is Cloud Sync v2 phase 1: the account-scoped data that has to follow the
+// person rather than the device — saved locations and a small allowlist of
+// portable preferences.
+//
+// Additive only. `saved_locations` keeps `kind` as its primary key, so
+// SavedLocationRepository and ResolveRouteLocations keep reading the device's
+// active warehouse/home exactly as before; ownership rides alongside instead of
+// re-keying the table.
+//
+// `app_preferences.sync_scope` defaults to 'device', which is the security
+// property that matters: a preference key added in the future stays local
+// unless somebody deliberately opts it in. Only the two portable planning
+// defaults are opted in here — never `local_access_*`, theme, navigation
+// provider or PWA diagnostics.
+const migrationV17 = `
+BEGIN IMMEDIATE;
+
+ALTER TABLE saved_locations ADD COLUMN owner_employee_id TEXT;
+ALTER TABLE saved_locations ADD COLUMN cloud_synced_at TEXT;
+ALTER TABLE saved_locations ADD COLUMN cloud_deleted_at TEXT;
+
+ALTER TABLE app_preferences ADD COLUMN sync_scope TEXT NOT NULL DEFAULT 'device'
+  CHECK (sync_scope IN ('device','account'));
+ALTER TABLE app_preferences ADD COLUMN owner_employee_id TEXT;
+ALTER TABLE app_preferences ADD COLUMN cloud_synced_at TEXT;
+
+UPDATE app_preferences
+SET sync_scope = 'account'
+WHERE key IN ('last_route_end_kind', 'last_planning_mode');
+
+PRAGMA user_version = 17;
+COMMIT;
+`;
+
 export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
   await db.execAsync('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
 
@@ -1104,5 +1138,10 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
 
   if (currentVersion < 16) {
     await db.execAsync(migrationV16);
+    currentVersion = 16;
+  }
+
+  if (currentVersion < 17) {
+    await db.execAsync(migrationV17);
   }
 }
