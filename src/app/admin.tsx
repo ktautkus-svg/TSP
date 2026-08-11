@@ -10,6 +10,7 @@ import {
   DRIVER_PERMISSION_KEYS,
   DRIVER_PERMISSION_LABELS,
   normalizeDriverPermissions,
+  roleLabel,
   type DriverPermissionKey,
 } from '@/application/auth/employee-permissions';
 import { FoundationScreen } from '@/components/foundation-screen';
@@ -231,10 +232,6 @@ export default function AdminScreen() {
       </FoundationScreen>
     </>
   );
-}
-
-function roleLabel(role: EmployeeRole): string {
-  return ({ admin: 'Administratorius', dispatcher: 'Dispečeris', driver: 'Vairuotojas' })[role];
 }
 
 function Metric({ label, value, styles }: { label: string; value: number | undefined; styles: ReturnType<typeof createStyles> }) {

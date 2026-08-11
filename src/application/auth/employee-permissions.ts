@@ -1,3 +1,24 @@
+import type { EmployeeRole } from '@/infrastructure/auth/employee-session';
+
+export const EMPLOYEE_ROLE_LABELS: Record<EmployeeRole, string> = {
+  admin: 'Administratorius',
+  dispatcher: 'Dispečeris',
+  driver: 'Vairuotojas',
+};
+
+export function roleLabel(role: EmployeeRole): string {
+  return EMPLOYEE_ROLE_LABELS[role];
+}
+
+export type SessionStateTone = 'success' | 'warning';
+
+/** `online` reflects whether the session was last verified against the server, not just cached locally. */
+export function sessionStateLabel(online: boolean): { label: string; tone: SessionStateTone } {
+  return online
+    ? { label: 'Prisijungta prie serverio', tone: 'success' }
+    : { label: 'Vietinis režimas (neprisijungus)', tone: 'warning' };
+}
+
 export const DRIVER_PERMISSION_KEYS = [
   'canReorderAssignedRoute',
   'canCreateRoutes',

@@ -122,6 +122,8 @@ export function LocalAccessGate({ children }: { children: ReactNode }) {
     setUnlocked(false);
     setProfile(null);
     setOnline(false);
+    setUsername('');
+    setDisplayName('');
     setPin('');
     setConfirmPin('');
   };
