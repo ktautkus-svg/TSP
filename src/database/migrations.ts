@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-export const SCHEMA_VERSION = 14;
+export const SCHEMA_VERSION = 15;
 
 const migrationV1 = `
 PRAGMA journal_mode = WAL;
@@ -947,6 +947,21 @@ PRAGMA user_version = 14;
 COMMIT;
 `;
 
+// v15 adds cross-device cloud sync bookkeeping to routes. `cloud_synced_at`
+// is deliberately left NULL for every pre-existing row: the sync engine
+// treats `cloud_synced_at IS NULL OR updated_at > cloud_synced_at` as "needs
+// upload", so every route created before this migration is automatically
+// picked up on the first sync — no separate migration flag or step needed.
+const migrationV15 = `
+BEGIN IMMEDIATE;
+
+ALTER TABLE routes ADD COLUMN cloud_synced_at TEXT;
+ALTER TABLE routes ADD COLUMN cloud_deleted_at TEXT;
+
+PRAGMA user_version = 15;
+COMMIT;
+`;
+
 export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
   await db.execAsync('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
 
@@ -1026,5 +1041,10 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
 
   if (currentVersion < 14) {
     await db.execAsync(migrationV14);
+    currentVersion = 14;
+  }
+
+  if (currentVersion < 15) {
+    await db.execAsync(migrationV15);
   }
 }
