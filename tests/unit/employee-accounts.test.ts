@@ -38,7 +38,7 @@ function migration(version: number): string {
 }
 function createDb(): { adapter: ExpoLikeDatabase; db: SQLiteDatabase } {
   const adapter = new ExpoLikeDatabase();
-  for (let version = 1; version <= 15; version += 1) adapter.raw.exec(migration(version));
+  for (let version = 1; version <= 16; version += 1) adapter.raw.exec(migration(version));
   return { adapter, db: adapter as unknown as SQLiteDatabase };
 }
 
