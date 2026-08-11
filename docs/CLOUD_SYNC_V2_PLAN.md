@@ -1,10 +1,11 @@
 # TSP Cloud Sync v2 — plan for the remaining device-local data
 
-Status: **architecture / audit only.** Nothing in this document has been
-implemented. No route-sync file, sync-engine file, route mutation UI or sync
-trigger was modified while producing it.
+Status: **Phase 0 implemented (schema v16); phases 1–5 still architecture only.**
+See §16 for what shipped and where the implementation deliberately differs from
+the design below.
 
-Scope: schema v15, branch `agent/claude-sync-v2`, audited 2026-08-11.
+Scope: audited at schema v15, branch `agent/claude-sync-v2`, 2026-08-11.
+Phase 0 landed on the same branch and moved the schema to v16.
 
 Companion document: `docs/CLOUD_SYNC_ARCHITECTURE.md` (the v1 design). Where
 this plan disagrees with that document, the disagreement is called out
@@ -647,7 +648,12 @@ and keep the rest index-free.
 
 ## 6. SQLite migration requirements
 
-### 6.1 Schema v16 — phase 0 + 1
+> **Implemented differently — see §16.1.** Phase 0 shipped as schema v16 with
+> `routes.owner_employee_id`, `sync_accounts`, `sync_cursors` and
+> `route_sync_deferrals`. The `saved_locations` and `app_preferences.sync_scope`
+> columns below belong to phase 1 and are not in v16 yet.
+
+### 6.1 Schema v16 — phase 0 + 1 (as originally designed)
 
 ```sql
 -- v16: cloud sync v2 groundwork.
@@ -921,7 +927,7 @@ with real clocks.
 Each phase is one coherent commit series, independently shippable and
 independently revertible.
 
-**Phase 0 — correctness groundwork (blocking, no new entities)**
+**Phase 0 — correctness groundwork (blocking, no new entities) — DONE, see §16**
 1. `applyRouteSnapshot`: replace delete-and-reinsert with an upsert that
    preserves satellite rows (§14.1, §14.2).
 2. Stop nulling `vehicle_id` on export *or* stop writing the null back on
@@ -960,9 +966,11 @@ journals, routing traces, matrix cache, device preferences, `local_access_*`.
 
 ## 14. Defects found in the shipped v1 implementation
 
-Documented, **not fixed** — per the task's instruction and because these files
-belong to concurrent work. Every claim below was verified by reading the code,
-and §14.1–§14.3 additionally by an isolated in-memory SQLite probe (§11.3).
+All ten were **fixed in Phase 0** on this branch (§16), except §14.10, which is
+a product decision rather than a defect. Each subsection keeps the original
+root-cause analysis and now ends with how it was resolved. Every claim below was
+verified by reading the code, and §14.1–§14.3 additionally by an isolated
+in-memory SQLite probe (§11.3); all ten now have regression tests.
 
 ### 14.1 CRITICAL — a route in a trip sheet cannot be pulled; sync dies silently
 
@@ -1109,10 +1117,73 @@ Organization by nature, user in practice today. Ship account-scoped with an
 organization-owned later is a backfill plus a role check rather than a
 re-model. See §3.1.
 
-**Is syncing each of these actually worth the complexity?**
+**Is syncing each of these actually worth the complexity?** (see §16 for what
+Phase 0 changed)
 Saved locations and preferences: yes, decisively — tiny and they unblock
 planning on a second device. Vehicles: yes, mainly as the prerequisite for
 fuel, trip-sheet accuracy and the route↔vehicle link. Delivery attempts: yes,
 nearly free. Trip sheets: no — regenerate. Fuel and location preferences: yes
 eventually, but only alongside the features that write them. Everything else:
 no.
+
+---
+
+## 16. Phase 0 implementation record
+
+Phase 0 shipped on `agent/claude-sync-v2` as seven commits. Nothing from phases
+1–5 was started: no new entity syncs.
+
+### 16.1 Where the implementation differs from §6.1
+
+| Design (§6.1) | Shipped in v16 | Why |
+|---|---|---|
+| `routes.owner_employee_id` | same | — |
+| `sync_cursors(entity, employee_id)` | same | — |
+| device-owner key in `app_preferences` | **`sync_accounts(employee_id, claim_from)`** | A single device-owner key cannot answer *"is this route mine or my colleague's?"* for routes created **after** an account switch. A per-account claim boundary can: the first account to sync claims everything already on the device (the migration path), every later account claims only routes created after it started using the device. Both accounts keep working; neither can upload the other's history. |
+| — | **`route_sync_deferrals`** | §14.5 needs somewhere durable to keep a pull that could not be applied. Rewinding the cursor instead would re-fetch the whole tail on every pass and still lose the route if the blocker outlived the server's retention. |
+| `saved_locations` / `app_preferences.sync_scope` columns | **not in v16** | Phase 1 work; adding unused columns now would be schema churn. |
+
+Two fixes were added that the audit had not identified as separate defects:
+
+- **Pull no longer overwrites newer local work.** v1 applied every pulled
+  snapshot unconditionally, so a stale cloud copy could discard local changes.
+  The apply is now skipped when the local `updated_at` is newer; the local copy
+  is still dirty and wins on the next push, which is the server's own rule.
+- **`markRouteDeletedForCloud` stamps monotonically.** A tombstone stamped with
+  a device clock that lags behind the last sync would never count as dirty and
+  would lose latest-write-wins anyway. The stamp is forced past both
+  `updated_at` and `cloud_synced_at`. Found by a test, not by review.
+
+### 16.2 Defect status
+
+| Defect | Status | Fix |
+|---|---|---|
+| §14.1 route in a trip sheet cannot be pulled | fixed | route row updated in place instead of deleted + reinserted |
+| §14.2 pull-apply destroys satellite rows | fixed | same, plus `delivery_attempts` carried across the stop replacement by hand |
+| §14.3 `vehicle_id` erased by a round trip | fixed | incoming null keeps the local value; incoming value wins |
+| §14.4 cross-account upload | fixed | `owner_employee_id` + claim boundary + identity from `GET /api/auth/me` |
+| §14.5 deferred routes lost | fixed | `route_sync_deferrals`, retried before every pull |
+| §14.6 deletion not implemented | fixed | `markRouteDeletedForCloud`, tombstone push, pull-side purge with an `in_progress` guard |
+| §14.7 one invalid route disables all sync | fixed | per-item validation and per-item transactions server-side; per-route export and a `rejected` outcome client-side |
+| §14.8 dispatchers never sync | fixed | sync pass on the dispatcher workspace refresh |
+| §14.9 device-global cursor | fixed | `sync_cursors` keyed by account |
+| §14.10 no cloud-side one-active-route rule | **open, by design** | product decision; divergence is now at least visible (`deferred` count and a durable deferral row) rather than silent |
+
+### 16.3 Verification
+
+`npm run typecheck`, `npm test` (620/620), `npm run gateway:test` (52/52),
+`npm run validate:schema` (v16, 32 tables), `npm run pwa:build`, `npm run
+pwa:test` (8/8 plus a clean production-bundle secret scan) — all green.
+
+Not verified: two physical devices. Phase 0 changes what happens on a real
+account switch and on a real trip-sheet device, and unit tests cannot prove the
+two-device behaviour that validated v1 in the first place (§11.4).
+
+### 16.4 Integration note
+
+`agent/codex-sync-ux` holds event-driven sync UX for the same feature. The
+overlapping files are `src/application/sync/route-cloud-sync.ts` (this branch
+rewrote its internals; the exported `syncRoutesWithCloud(db)` signature is
+unchanged, and `RouteCloudSyncResult` gained `deleted`, `rejected` and
+`foreign`) and `src/app/dispatcher.tsx` (one added call, isolated in its own
+commit so it can be dropped if that branch adds its own trigger).
