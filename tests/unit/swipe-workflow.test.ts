@@ -7,9 +7,10 @@ const delivery = readFileSync('src/app/route/[id]/delivery.tsx', 'utf8');
 
 describe('daily swipe workflow', () => {
   it('keeps a deliberate horizontal threshold', () => {
-    expect(swipe).toContain('gesture.dx >= 80');
-    expect(swipe).toContain('gesture.dx <= -80');
-    expect(swipe).toContain('Math.abs(gesture.dx) > Math.abs(gesture.dy)');
+    expect(swipe).toContain('gesture.dx >= threshold()');
+    expect(swipe).toContain('gesture.dx <= -threshold()');
+    expect(swipe).toContain('Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.2');
+    expect(swipe).toContain('transform: [{ translateX }]');
   });
 
   it('loads right and marks not-loaded left while retaining visible buttons', () => {

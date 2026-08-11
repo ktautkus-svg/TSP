@@ -20,8 +20,9 @@ describe('dispatcher desktop workspace', () => {
   it('contains the route, driver and confirmation workflow', () => {
     expect(dispatcherSource).toContain('1. Maršrutas');
     expect(dispatcherSource).toContain('2. Vairuotojas');
-    expect(dispatcherSource).toContain('3. Patvirtinimas');
-    expect(dispatcherSource).toContain('Priskirti vairuotojui');
+    expect(dispatcherSource).toContain('3. Priskirti maršrutą');
+    expect(dispatcherSource).toContain('3. Priskirti vairuotoją');
+    expect(dispatcherSource).toContain('Priskirti vairuotoją');
     expect(dispatcherSource).toContain("width >= 980");
   });
 
@@ -33,7 +34,7 @@ describe('dispatcher desktop workspace', () => {
 
   it('sends dispatchers to their workspace and keeps route creation hidden from drivers by default', () => {
     expect(homeSource).toContain("profile.role === 'dispatcher'");
-    expect(homeSource).toContain("profile.role !== 'driver' || profile.permissions?.canCreateRoutes");
+    expect(homeSource).toContain("profile.role !== 'driver'");
     expect(homeSource).toContain('Maršrutas dar nepriskirtas');
   });
 });

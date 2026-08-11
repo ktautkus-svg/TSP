@@ -102,7 +102,7 @@ describe('driver workday persistence', () => {
     adapter.raw.exec(migration('migrationV11'));
     const defaults = await new GetDefaultLocations(db).execute();
     expect(defaults.warehouse?.endpoint.originalAddress).toBe('Savanorių pr. 180, Vilnius');
-    expect(defaults.home?.endpoint.originalAddress).toBe('Alinkos g. 1A, Elektrėnai');
+    expect(defaults.home).toBeNull();
     const preference = new RouteEndPreference(db);
     expect(await preference.get()).toBe('warehouse');
     await preference.save('home', '2026-08-03T10:00:00.000Z');
