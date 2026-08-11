@@ -352,12 +352,12 @@ function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
-function safeId(value: string): string {
+export function safeId(value: string): string {
   if (!/^[a-zA-Z0-9_-]{8,80}$/.test(value)) throw new EmployeeApiError('INVALID_ID', 'Neteisingas identifikatorius.', 400);
   return value;
 }
 
-function validateSnapshot(snapshot: RouteSnapshot): void {
+export function validateSnapshot(snapshot: RouteSnapshot): void {
   if (!snapshot || typeof snapshot !== 'object' || !snapshot.route || !Array.isArray(snapshot.stops) || !Array.isArray(snapshot.shipmentLines)) {
     throw new EmployeeApiError('INVALID_ROUTE_SNAPSHOT', 'Maršruto duomenys nepilni.', 400);
   }

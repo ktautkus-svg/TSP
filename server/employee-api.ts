@@ -10,8 +10,10 @@ import {
   type EmployeeRole,
   type RouteSnapshot,
 } from './employee-auth-store.js';
+import { RouteSyncStore, type RouteSyncPushItem } from './route-sync-store.js';
 
 const store = new EmployeeAuthStore();
+const routeSyncStore = new RouteSyncStore();
 const bootstrapNonces = new GatewayNonceRegistry();
 const loginAttempts = new Map<string, number[]>();
 
@@ -104,6 +106,13 @@ export async function handleEmployeeApi(
         routeSnapshot: body.routeSnapshot as RouteSnapshot,
         createdBy: profile.id,
       });
+      // Best-effort: establishes the driver as the route's cloud-sync owner
+      // so it also participates in general multi-device sync going forward.
+      // Never blocks the assignment response — the one-shot assignment
+      // download remains the primary path for the driver's first device.
+      await routeSyncStore.push(assignment.driverId, [{ routeSnapshot: assignment.routeSnapshot, deleted: false }]).catch((reason) => {
+        process.stderr.write(`${JSON.stringify({ event: 'route_sync_seed_failed', requestId, error: reason instanceof Error ? reason.message : String(reason) })}\n`);
+      });
       return send(response, 201, { assignment }, requestId);
     }
     if (pathname === '/api/admin/assignments' && request.method === 'GET') {
@@ -112,6 +121,17 @@ export async function handleEmployeeApi(
     }
     if (pathname === '/api/assignments' && request.method === 'GET') {
       return send(response, 200, { assignments: await store.listAssignments(profile) }, requestId);
+    }
+
+    if (pathname === '/api/route-sync' && request.method === 'GET') {
+      const since = new URL(request.url ?? '', 'http://localhost').searchParams.get('since');
+      const result = await routeSyncStore.pull(profile.id, since);
+      return send(response, 200, result, requestId);
+    }
+    if (pathname === '/api/route-sync' && request.method === 'POST') {
+      const body = parseObject(await readBody(request, 8_000_000));
+      const results = await routeSyncStore.push(profile.id, routeSyncItems(body.routes));
+      return send(response, 200, { results }, requestId);
     }
 
     const downloadedMatch = pathname.match(/^\/api\/assignments\/([^/]+)\/downloaded$/);
@@ -150,7 +170,24 @@ export async function authenticateApiRequest(request: IncomingMessage): Promise<
 }
 
 function isEmployeePath(pathname: string): boolean {
-  return pathname.startsWith('/api/auth/') || pathname.startsWith('/api/admin/') || pathname.startsWith('/api/assignments');
+  return pathname.startsWith('/api/auth/')
+    || pathname.startsWith('/api/admin/')
+    || pathname.startsWith('/api/assignments')
+    || pathname.startsWith('/api/route-sync');
+}
+
+function routeSyncItems(value: unknown): RouteSyncPushItem[] {
+  if (!Array.isArray(value)) throw new EmployeeApiError('INVALID_REQUEST', 'Trūksta lauko: routes.', 400);
+  return value.map((item) => {
+    if (!item || typeof item !== 'object' || !('routeSnapshot' in item)) {
+      throw new EmployeeApiError('INVALID_ROUTE_SNAPSHOT', 'Maršruto duomenys nepilni.', 400);
+    }
+    const record = item as { routeSnapshot: unknown; deleted?: unknown };
+    return {
+      routeSnapshot: record.routeSnapshot as RouteSnapshot,
+      deleted: record.deleted === true,
+    };
+  });
 }
 
 function requireRole(profile: EmployeeProfile, roles: EmployeeRole[]): void {
