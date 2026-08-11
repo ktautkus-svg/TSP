@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Pressable,
   StyleSheet,
   Text,
@@ -28,6 +27,7 @@ import {
 import { resolveRoute } from '@/application/routes/route-navigation';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { ChevronDownIcon, ChevronRightIcon, TrashIcon } from '@/components/app-icons';
+import { AppButton } from '@/components/ui-primitives';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import { ShipmentLineRepository } from '@/database/repositories/shipment-line-repository';
 import type { DeliveryStop, Route } from '@/domain/route';
@@ -35,7 +35,7 @@ import {
   GatewayGeocodingProvider,
   type GeocodeCandidate,
 } from '@/infrastructure/routing/providers/gateway-geocoding-provider';
-import { spacing } from '@/ui/tokens';
+import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 
@@ -401,12 +401,11 @@ export default function RouteReviewScreen() {
           <Text style={styles.planMetricLabel}>PATVIRTINTA</Text>
         </View>
       </View>
-      <Pressable
+      <AppButton
         disabled={!canCalculate}
-        style={[styles.primaryButton, !canCalculate && { opacity: 0.45 }]}
-        onPress={goToAlternatives}>
-        <Text style={styles.primaryText}>Optimizuoti maršrutą</Text>
-      </Pressable>
+        label="Optimizuoti maršrutą"
+        onPress={goToAlternatives}
+      />
       <View style={styles.card}>
         <Text style={styles.heading}>Startas ir grįžimas</Text>
         <Text style={styles.query}>{route.startLocation?.originalAddress}</Text>
@@ -422,9 +421,7 @@ export default function RouteReviewScreen() {
         ))}
       </View>
 
-      {!allReady ? <Pressable style={styles.primaryButton} onPress={geocodeAll}>
-        {running ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>Patikrinti probleminius adresus</Text>}
-      </Pressable> : null}
+      {!allReady ? <AppButton label="Patikrinti probleminius adresus" loading={running} onPress={geocodeAll} variant="route" /> : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       {allReady ? <Text style={styles.sectionIntro}>Pažymėkite vieną ar kelis prioritetinius taškus (1, 2, 3…). Jie bus apeinami ta eile, bet tarp jų gali įsiterpti kiti taškai, jei geografiškai pakeliui.</Text> : null}
@@ -456,13 +453,12 @@ export default function RouteReviewScreen() {
       </View>
 
       {/* Repeated at the bottom so a long stop list never forces a scroll back up. */}
-      <Pressable
+      <AppButton
         disabled={!canCalculate}
-        style={[styles.primaryButton, !canCalculate && { opacity: 0.45 }]}
+        label="Optimizuoti maršrutą"
         onPress={goToAlternatives}
-        testID="optimize-route-bottom">
-        <Text style={styles.primaryText}>Optimizuoti maršrutą</Text>
-      </Pressable>
+        testID="optimize-route-bottom"
+      />
     </FoundationScreen>
   );
 }
@@ -650,52 +646,50 @@ function extractCityHint(address: string): string | null {
 }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
-  sectionIntro: { color: colors.text, fontSize: 15, lineHeight: 21, fontWeight: '700' },
-  planSummary: { flexDirection: 'row', alignItems: 'stretch', padding: spacing.md, borderRadius: 20, backgroundColor: colors.brandNavy, shadowColor: '#183525', shadowOffset: { width: 0, height: 7 }, shadowOpacity: 0.18, shadowRadius: 16, elevation: 5 },
+  sectionIntro: { ...type.bodyStrong, color: colors.textSecondary },
+  planSummary: { flexDirection: 'row', alignItems: 'stretch', padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceElevated },
   planMetric: { flex: 1, minWidth: 0, alignItems: 'center', justifyContent: 'center', gap: 3, paddingHorizontal: spacing.xs },
-  planMetricValue: { color: '#fff', fontSize: 20, fontWeight: '800', textAlign: 'center' },
-  planMetricLabel: { color: '#CFE0D4', fontSize: 9, fontWeight: '800', letterSpacing: 0.6, textAlign: 'center' },
-  planMetricDivider: { width: 1, backgroundColor: 'rgba(255,255,255,0.22)', marginVertical: 3 },
-  card: { padding: spacing.md, borderRadius: 18, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
+  planMetricValue: { ...type.readout, color: colors.text, textAlign: 'center' },
+  planMetricLabel: { ...type.label, fontSize: 9, lineHeight: 12, color: colors.textMuted, textAlign: 'center' },
+  planMetricDivider: { width: 1, backgroundColor: colors.border, marginVertical: 3 },
+  card: { padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
   compactCard: { paddingVertical: spacing.sm, paddingHorizontal: spacing.md, gap: spacing.xs },
   compactRow: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   compactMain: { flex: 1, minWidth: 0, minHeight: 44, justifyContent: 'center' },
-  compactTitle: { color: colors.text, fontSize: 15, fontWeight: '800' },
-  compactMeta: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
-  statusDot: { width: 10, height: 10, borderRadius: 5 },
+  compactTitle: { ...type.bodyStrong, color: colors.text },
+  compactMeta: { ...type.meta, color: colors.textMuted, marginTop: 2 },
+  statusDot: { width: 10, height: 10, borderRadius: radius.pill },
   statusDotOk: { backgroundColor: colors.success },
   statusDotBad: { backgroundColor: colors.danger },
-  okCard: { borderColor: colors.success, borderWidth: 2 },
-  priorityStar: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background },
-  priorityStarActive: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
+  okCard: { borderColor: colors.border },
+  priorityStar: { width: 42, height: 42, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceSubtle },
+  priorityStarActive: { borderColor: colors.warning, backgroundColor: colors.warningSoft },
   priorityStarText: { color: colors.textMuted, fontSize: 24, lineHeight: 26 },
-  priorityStarTextActive: { color: colors.primary, fontSize: 18, fontWeight: '900' },
+  priorityStarTextActive: { ...type.sectionTitle, color: colors.warning },
   expandButton: { width: 34, height: 42, alignItems: 'center', justifyContent: 'center' },
   expandText: { color: colors.textMuted, fontSize: 27, lineHeight: 30 },
   compactIconButton: { width: 36, height: 42, alignItems: 'center', justifyContent: 'center' },
-  problemCard: { borderColor: colors.danger, borderWidth: 2 },
-  heading: { color: colors.text, fontSize: 17, fontWeight: '800' },
-  query: { color: colors.textMuted },
+  problemCard: { borderColor: colors.danger, borderWidth: 1 },
+  heading: { ...type.sectionTitle, color: colors.text },
+  query: { ...type.body, color: colors.textSecondary },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm },
   twoColumns: { gap: spacing.sm },
-  input: { minHeight: 46, borderRadius: 12, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.md, color: colors.text, backgroundColor: colors.background },
-  auditText: { color: colors.textMuted, fontSize: 12, lineHeight: 17 },
-  ready: { color: colors.primary, fontSize: 12, fontWeight: '800' },
-  warning: { color: colors.warning, fontSize: 12, fontWeight: '800' },
-  error: { color: colors.danger, fontWeight: '700' },
-  primaryButton: { minHeight: 52, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary },
-  primaryText: { color: '#fff', fontWeight: '800' },
-  secondaryButton: { minHeight: 46, borderRadius: 12, borderWidth: 1, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  secondaryText: { color: colors.primary, fontWeight: '800' },
-  candidate: { padding: spacing.sm, borderRadius: 12, borderWidth: 1, borderColor: colors.primary, backgroundColor: colors.primarySoft },
-  candidateText: { color: colors.text, fontWeight: '700' },
-  priorityButton: { minHeight: 44, borderRadius: 10, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.sm },
-  priorityButtonActive: { backgroundColor: colors.primarySoft, borderColor: colors.primary },
-  priorityText: { color: colors.textMuted, fontWeight: '700', fontSize: 13 },
-  priorityTextActive: { color: colors.primary },
+  input: { minHeight: 46, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderStrong, paddingHorizontal: spacing.md, color: colors.text, backgroundColor: colors.surfaceSubtle, ...type.body },
+  auditText: { ...type.meta, color: colors.textMuted },
+  ready: { ...type.meta, color: colors.success },
+  warning: { ...type.meta, color: colors.warning },
+  error: { ...type.secondaryStrong, color: colors.danger },
+  secondaryButton: { minHeight: 46, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
+  secondaryText: { ...type.button, color: colors.textSecondary },
+  candidate: { padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.info, backgroundColor: colors.infoSoft },
+  candidateText: { ...type.secondaryStrong, color: colors.text },
+  priorityButton: { minHeight: 44, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.sm },
+  priorityButtonActive: { backgroundColor: colors.warningSoft, borderColor: colors.warning },
+  priorityText: { ...type.secondaryStrong, color: colors.textMuted },
+  priorityTextActive: { color: colors.warning },
   actions: { flexDirection: 'row', gap: spacing.sm },
-  smallButton: { minWidth: 46, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 10, borderWidth: 1, borderColor: colors.border },
-  deleteButton: { flex: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 10, borderWidth: 1, borderColor: colors.danger },
-  deleteText: { color: colors.danger, fontWeight: '700' },
+  smallButton: { minWidth: 46, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border },
+  deleteButton: { flex: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, borderWidth: 1, borderColor: colors.danger },
+  deleteText: { ...type.button, color: colors.danger },
   disabled: { opacity: 0.45 },
 });

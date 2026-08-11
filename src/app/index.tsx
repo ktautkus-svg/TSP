@@ -9,6 +9,7 @@ import { ExportPilotRouteDiagnostic } from '@/application/routes/pilot-route-exp
 import { GetRouteProgress, type RouteProgress } from '@/application/routes/route-workday';
 import { BrandHeader } from '@/components/brand-header';
 import { ScreenContainer } from '@/components/screen-container';
+import { AppButton, AppCard } from '@/components/ui-primitives';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import type { Route } from '@/domain/route';
 import { fonts, radius, spacing, type } from '@/ui/tokens';
@@ -86,7 +87,7 @@ export default function HomeScreen() {
       <ScreenContainer>
         <ScrollView contentContainerStyle={styles.content}>
           {active ? (
-            <View style={styles.activeCard} testID="active-route-card">
+            <AppCard style={styles.activeCard}>
               <View style={styles.activeHeader}>
                 <View style={styles.activeHeaderText}>
                   <Text style={styles.eyebrow}>AKTYVUS MARŠRUTAS</Text>
@@ -130,31 +131,33 @@ export default function HomeScreen() {
                   {active?.startOdometer === null || active?.startOdometer === undefined ? <Text style={styles.warningText}>Priminimas: įveskite pradinį odometrą</Text> : null}
                 </>
               ) : null}
-              <Pressable style={styles.primaryButton} onPress={() => {
-                const destination = resolveRoute(active);
-                router.push({ pathname: destination.pathname, params: destination.params } as Href);
-              }}>
-                <Text style={styles.primaryButtonText}>{activeRouteAction(active)}</Text>
-              </Pressable>
+              <AppButton
+                label={activeRouteAction(active)}
+                onPress={() => {
+                  const destination = resolveRoute(active);
+                  router.push({ pathname: destination.pathname, params: destination.params } as Href);
+                }}
+                testID="active-route-card"
+              />
               {__DEV__ || process.env.EXPO_PUBLIC_PILOT_MODE === '1' ? (
-                <Pressable
-                  accessibilityRole="button"
+                <AppButton
                   disabled={exporting}
+                  label={exporting ? 'Ruošiama…' : 'Eksportuoti piloto diagnostiką'}
+                  loading={exporting}
                   onPress={() => void exportActiveDiagnostic()}
                   style={styles.pilotExportButton}
                   testID="active-route-pilot-export"
-                >
-                  <Text style={styles.pilotExportText}>{exporting ? 'Ruošiama…' : 'Eksportuoti piloto diagnostiką'}</Text>
-                </Pressable>
+                  variant="secondary"
+                />
               ) : null}
-            </View>
+            </AppCard>
           ) : (
-            <View style={styles.emptyCard}><Text style={styles.activeTitle}>{profile.role === 'driver' ? 'Maršrutas dar nepriskirtas' : 'Aktyvaus maršruto nėra'}</Text><Text style={styles.activeText}>{profile.role === 'driver' ? 'Kai dispečeris priskirs maršrutą, jis automatiškai atsiras šiame įrenginyje.' : 'Importuokite dokumentą arba įveskite adresų sąrašą.'}</Text></View>
+            <AppCard style={styles.emptyCard}><Text style={styles.activeTitle}>{profile.role === 'driver' ? 'Maršrutas dar nepriskirtas' : 'Aktyvaus maršruto nėra'}</Text><Text style={styles.activeText}>{profile.role === 'driver' ? 'Kai dispečeris priskirs maršrutą, jis automatiškai atsiras šiame įrenginyje.' : 'Importuokite dokumentą arba įveskite adresų sąrašą.'}</Text></AppCard>
           )}
           {!active && (profile.role !== 'driver' || profile.permissions?.canCreateRoutes) ? (
             <>
-              <Link href={'/import' as Href} asChild><Pressable style={styles.primaryButton}><Text style={styles.primaryButtonText}>Naujas maršrutas</Text></Pressable></Link>
-              <Link href="/route/new" asChild><Pressable style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>Įvesti adresus rankiniu būdu</Text></Pressable></Link>
+              <AppButton label="Naujas maršrutas" onPress={() => router.push('/import' as Href)} />
+              <AppButton label="Įvesti adresus rankiniu būdu" onPress={() => router.push('/route/new' as Href)} variant="secondary" />
             </>
           ) : null}
           <View style={styles.navigationCard}>
@@ -197,15 +200,15 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   eyebrow: { ...type.label, color: colors.textMuted },
   // One card style, one radius, one hairline border. No shadow: the border is
   // enough separation against a light grey page.
-  activeCard: { gap: spacing.md, padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
-  emptyCard: { gap: spacing.sm, padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  activeCard: { gap: spacing.md },
+  emptyCard: { gap: spacing.sm },
   activeHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing.md },
   activeHeaderText: { flex: 1, minWidth: 0, gap: 2 },
   activeTitle: { ...type.sectionTitle, fontSize: 19, lineHeight: 24, color: colors.text },
   activeText: { ...type.body, color: colors.textMuted },
   progressBadge: { ...type.readout, fontSize: 26, lineHeight: 30, color: colors.primary },
   // Grouping panel, not decoration: it holds three related readouts together.
-  routeSummary: { borderRadius: radius.md, backgroundColor: colors.surfaceMuted, paddingHorizontal: spacing.md, paddingVertical: 2 },
+  routeSummary: { borderRadius: radius.md, backgroundColor: colors.surfaceSubtle, paddingHorizontal: spacing.md, paddingVertical: 2 },
   summaryRow: { minHeight: 56, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
   summaryNumbers: { alignItems: 'flex-end', gap: 1 },
   summaryDivider: { height: 1, backgroundColor: colors.border },
@@ -216,14 +219,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   progressTrack: { height: 8, borderRadius: radius.sm, overflow: 'hidden', backgroundColor: colors.border },
   progressFill: { height: '100%', borderRadius: radius.sm, backgroundColor: colors.accent },
   warningText: { ...type.bodyStrong, color: colors.warning },
-  // Primary: filled brand green, the one dominant action on the screen.
-  primaryButton: { minHeight: 56, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary },
-  primaryButtonText: { ...type.button, fontSize: 16, color: '#FFFFFF' },
-  // Secondary: same shape, neutral surface — clearly the calmer option.
-  secondaryButton: { minHeight: 52, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderStrong },
-  secondaryButtonText: { ...type.button, color: colors.text },
-  pilotExportButton: { minHeight: 44, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
-  pilotExportText: { ...type.secondary, color: colors.textMuted },
+  pilotExportButton: { minHeight: 44 },
   // Tertiary navigation: deliberately quiet so it cannot compete with the
   // primary action above it.
   navigationCard: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs },
