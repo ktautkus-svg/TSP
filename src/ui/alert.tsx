@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Alert as RNAlert, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useTheme } from '@/ui/theme';
-import { spacing } from '@/ui/tokens';
+import { radius, spacing, type } from '@/ui/tokens';
 import type { ColorPalette } from '@/ui/theme-palette';
 
 type AlertButton = {
@@ -101,14 +101,14 @@ export function AlertHost() {
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   backdrop: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg, backgroundColor: 'rgba(15, 23, 42, 0.5)' },
-  sheet: { width: '100%', maxWidth: 420, borderRadius: 18, padding: spacing.lg, gap: spacing.sm, backgroundColor: colors.surface },
-  title: { color: colors.text, fontSize: 18, fontWeight: '800' },
-  message: { color: colors.textMuted, lineHeight: 20 },
+  sheet: { width: '100%', maxWidth: 420, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.sm, backgroundColor: colors.surfaceElevated },
+  title: { ...type.sectionTitle, color: colors.text },
+  message: { ...type.body, color: colors.textSecondary },
   actions: { gap: spacing.sm, marginTop: spacing.sm },
-  button: { minHeight: 48, borderRadius: 12, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md, backgroundColor: colors.primary },
-  buttonText: { color: '#fff', fontWeight: '800' },
+  button: { minHeight: 48, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md, backgroundColor: colors.actionPrimary },
+  buttonText: { ...type.button, color: colors.textInverse },
   cancelButton: { backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border },
   cancelText: { color: colors.text },
   destructiveButton: { backgroundColor: colors.danger },
-  destructiveText: { color: '#fff' },
+  destructiveText: { color: colors.textInverse },
 });

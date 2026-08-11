@@ -108,13 +108,13 @@ describe('premium route dashboard', () => {
     expect(source('src/app/index.tsx')).toContain('<BrandHeader />');
     expect(source('src/app/_layout.tsx')).toContain('backgroundColor: colors.brandNavy');
     const header = source('src/components/brand-header.tsx');
-    // The wordmark lives inside the logo artwork, so the header must not repeat
-    // it as text, and the logo must be the padding-free crop.
-    expect(header).toContain('tsp-logo-mark.png');
-    expect(header).toContain('resizeMode="contain"');
-    expect(header).toContain('accessibilityLabel="TSP – Tikslus siuntų pristatymas"');
-    expect(header).toContain('LOGO_ASPECT_RATIO');
+    const brand = source('src/components/tsp-brand.tsx');
+    expect(header).toContain('<TspBrand />');
+    expect(brand).toContain("accessibilityLabel={descriptor ? `TSP – ${descriptor}` : 'TSP'}");
+    expect(brand).toContain('react-native-svg');
+    expect(brand).toContain("descriptor?: string");
     expect(header).not.toContain('brandName');
+    expect(header).not.toContain('tsp-logo-mark.png');
     expect(header).not.toContain('TIKSLUS SIUNTŲ PRISTATYMAS<');
     expect(header).not.toContain('>TSP<');
   });

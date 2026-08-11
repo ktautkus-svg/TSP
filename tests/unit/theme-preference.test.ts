@@ -12,10 +12,13 @@ import { darkColors } from '../../src/ui/theme-palette';
 // since it pulls in react-native (Flow syntax vitest/rolldown can't parse in the node test env).
 // tsc already enforces darkColors matches ColorPalette = Record<keyof typeof lightColors, string>.
 const expectedPaletteKeys = [
-  'background', 'surface', 'surfaceMuted', 'text', 'textMuted', 'textSubtle',
-  'border', 'borderStrong', 'primary', 'primaryDark', 'primarySoft',
+  'background', 'surface', 'surfaceElevated', 'surfaceMuted', 'surfaceSubtle',
+  'text', 'textSecondary', 'textMuted', 'textSubtle', 'textDisabled', 'textInverse',
+  'border', 'borderSubtle', 'borderStrong', 'primary', 'primaryDark', 'primarySoft',
   'accent', 'accentSoft', 'accentStrong', 'success',
   'warning', 'warningSoft', 'danger', 'dangerSoft', 'info', 'infoSoft',
+  'actionPrimary', 'actionPrimaryPressed', 'actionRoute', 'actionRoutePressed',
+  'disabledSurface', 'disabledText',
   'brandNavy',
 ];
 

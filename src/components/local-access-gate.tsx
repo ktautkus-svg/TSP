@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSQLiteContext } from 'expo-sqlite';
-import Svg, { Path } from 'react-native-svg';
 
 import { LocalAccessService } from '@/application/auth/local-access';
 import { LocalAccessContext } from '@/application/auth/local-access-context';
@@ -17,6 +16,7 @@ import {
 } from '@/infrastructure/auth/employee-session';
 import { pullAssignedRoutes } from '@/application/auth/route-assignment-sync';
 import { saveGatewayDeviceSecret } from '@/infrastructure/gateway/device-auth';
+import { TspBrand } from '@/components/tsp-brand';
 import { colors, fonts, radius, spacing, type } from '@/ui/tokens';
 
 type GateMode = 'bootstrap' | 'login';
@@ -126,23 +126,13 @@ export function LocalAccessGate({ children }: { children: ReactNode }) {
     setConfirmPin('');
   };
 
-  if (loading) return <View style={styles.screen}><ActivityIndicator color="#87C442" size="large" /></View>;
+  if (loading) return <View style={styles.screen}><ActivityIndicator color={colors.accent} size="large" /></View>;
   if (!unlocked || !profile) {
     const bootstrap = mode === 'bootstrap';
     return (
       <View style={styles.screen} testID={bootstrap ? 'employee-bootstrap-screen' : 'employee-login-screen'}>
         <View style={styles.brand}>
-          <View style={styles.brandMark}>
-            <Svg accessibilityLabel="TSP – Tikslus siuntų pristatymas" width={54} height={38} viewBox="0 0 48 34">
-              <Path d="M2 4h39L34 11H9Z" fill="#FFFFFF" />
-              <Path d="M9 13h25l-7 7H16Z" fill="#FFFFFF" />
-              <Path d="M16 22h12l-6 7Z" fill="#86C440" />
-            </Svg>
-            <View>
-              <Text style={styles.brandName}>TSP</Text>
-              <Text style={styles.brandSubtitle}>TIKSLUS SIUNTŲ PRISTATYMAS</Text>
-            </View>
-          </View>
+          <TspBrand descriptor="Maršrutai ir pristatymai" />
         </View>
         <View style={styles.card}>
           <Text style={styles.title}>{bootstrap ? 'Aktyvuoti administratorių' : 'Darbuotojo prisijungimas'}</Text>
@@ -228,9 +218,6 @@ const styles = StyleSheet.create({
   // the point, since it is the app's front door.
   screen: { flex: 1, backgroundColor: colors.brandNavy, alignItems: 'center', justifyContent: 'center', padding: spacing.lg, gap: spacing.lg },
   brand: { alignItems: 'center', gap: 2 },
-  brandMark: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  brandName: { ...type.pageTitle, fontSize: 30, lineHeight: 34, color: '#FFFFFF' },
-  brandSubtitle: { ...type.label, fontSize: 9, lineHeight: 12, color: 'rgba(255,255,255,0.72)' },
   card: { width: '100%', maxWidth: 420, padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surface, gap: spacing.md },
   title: { ...type.pageTitle, fontSize: 22, lineHeight: 27, color: colors.text },
   helper: { ...type.body, color: colors.textMuted },

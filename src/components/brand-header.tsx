@@ -1,26 +1,14 @@
-import { Image, Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 
+import { TspBrand } from '@/components/tsp-brand';
 import { colors, spacing } from '@/ui/tokens';
-
-// Pre-cropped to its artwork, so it fills the header band instead of floating
-// inside a transparent canvas. The wordmark is part of the logo, which is why
-// the header carries no separate brand text.
-const brandLogo = require('../../assets/images/tsp-logo-mark.png');
-const LOGO_ASPECT_RATIO = 915 / 456;
-// Fills the header band exactly: 12px padding + 48px logo + 12px padding = 72.
-const LOGO_HEIGHT = 48;
 
 export function BrandHeader({ onMenuPress }: { onMenuPress?: () => void } = {}) {
   return (
     <View style={styles.header} testID="brand-header">
       <View style={styles.brandRow}>
-        <Image
-          accessibilityLabel="TSP – Tikslus siuntų pristatymas"
-          resizeMode="contain"
-          source={brandLogo}
-          style={styles.logo}
-        />
+        <TspBrand />
       </View>
       <View style={styles.headerActions}>
         <View style={styles.notification}>
@@ -55,13 +43,6 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   brandRow: { flex: 1, flexDirection: 'row', alignItems: 'center', minWidth: 0, overflow: 'hidden' },
-  logo: {
-    height: LOGO_HEIGHT,
-    width: LOGO_HEIGHT * LOGO_ASPECT_RATIO,
-    maxHeight: LOGO_HEIGHT,
-    maxWidth: '100%',
-    flexShrink: 1,
-  },
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',

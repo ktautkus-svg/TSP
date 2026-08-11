@@ -7,6 +7,7 @@ import { Pressable, Text, View } from 'react-native';
 import {
   useFonts,
   Archivo_400Regular,
+  Archivo_500Medium,
   Archivo_600SemiBold,
   Archivo_700Bold,
   Archivo_800ExtraBold,
@@ -25,7 +26,7 @@ const failureStyles = {
   title: { ...type.pageTitle, fontSize: 21, color: colors.text, marginBottom: 12, textAlign: 'center' } as const,
   body: { ...type.body, color: colors.textMuted, textAlign: 'center', marginBottom: 24 } as const,
   button: { minHeight: 48, backgroundColor: colors.primary, paddingHorizontal: 24, borderRadius: radius.md, justifyContent: 'center', alignItems: 'center' } as const,
-  buttonText: { ...type.button, color: '#FFFFFF' } as const,
+  buttonText: { ...type.button, color: colors.textInverse } as const,
 };
 
 void SplashScreen.preventAutoHideAsync().catch((reason) => {
@@ -50,6 +51,7 @@ export default function RootLayout() {
   const [dbError, setDbError] = useState<Error | null>(null);
   const [fontsLoaded, fontsError] = useFonts({
     Archivo_400Regular,
+    Archivo_500Medium,
     Archivo_600SemiBold,
     Archivo_700Bold,
     Archivo_800ExtraBold,

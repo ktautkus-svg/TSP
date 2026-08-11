@@ -18,11 +18,17 @@ export const colors = {
   // Neutrals
   background: '#F5F6F5',
   surface: '#FFFFFF',
+  surfaceElevated: '#FFFFFF',
   surfaceMuted: '#F0F2F0',
+  surfaceSubtle: '#F8F9F8',
   text: '#17251D',
+  textSecondary: '#46534C',
   textMuted: '#65716A',
   textSubtle: '#8A948D',
+  textDisabled: '#9CA59F',
+  textInverse: '#FFFFFF',
   border: '#DCE2DD',
+  borderSubtle: '#E9EDEA',
   borderStrong: '#C3CCC6',
 
   // Brand green — one dark, one deeper for headers/pressed, one soft wash.
@@ -44,6 +50,15 @@ export const colors = {
   info: '#2F5D8C',
   infoSoft: '#EDF2F8',
 
+  // Interaction roles. These aliases make intent explicit at call sites and
+  // allow the brand and operational actions to evolve independently later.
+  actionPrimary: '#0A5A31',
+  actionPrimaryPressed: '#073F24',
+  actionRoute: '#2F5D8C',
+  actionRoutePressed: '#244A70',
+  disabledSurface: '#E7EAE8',
+  disabledText: '#7D8881',
+
   /** Header/chrome surface. Kept as its own key because it is brand, not action. */
   brandNavy: '#07351E',
 } as const;
@@ -53,6 +68,7 @@ export const fonts = {
   heading: 'Archivo_700Bold',
   headingExtraBold: 'Archivo_800ExtraBold',
   headingSemiBold: 'Archivo_600SemiBold',
+  bodyMedium: 'Archivo_500Medium',
   body: 'Archivo_400Regular',
 } as const;
 
@@ -61,18 +77,19 @@ export const fonts = {
  * inventing a size/weight pair — which is how everything ended up bold.
  */
 export const type = {
-  pageTitle: { fontSize: 26, fontFamily: fonts.headingExtraBold, lineHeight: 32 },
-  sectionTitle: { fontSize: 17, fontFamily: fonts.heading, lineHeight: 22 },
-  cardTitle: { fontSize: 15, fontFamily: fonts.heading, lineHeight: 20 },
+  pageTitle: { fontSize: 26, fontFamily: fonts.heading, lineHeight: 32 },
+  sectionTitle: { fontSize: 17, fontFamily: fonts.headingSemiBold, lineHeight: 22 },
+  cardTitle: { fontSize: 15, fontFamily: fonts.headingSemiBold, lineHeight: 20 },
   body: { fontSize: 15, fontFamily: fonts.body, lineHeight: 21 },
-  bodyStrong: { fontSize: 15, fontFamily: fonts.headingSemiBold, lineHeight: 21 },
+  bodyStrong: { fontSize: 15, fontFamily: fonts.bodyMedium, lineHeight: 21 },
   secondary: { fontSize: 13, fontFamily: fonts.body, lineHeight: 18 },
+  secondaryStrong: { fontSize: 13, fontFamily: fonts.bodyMedium, lineHeight: 18 },
   meta: { fontSize: 12, fontFamily: fonts.body, lineHeight: 16 },
   /** All-caps micro label above a value. */
   label: { fontSize: 11, fontFamily: fonts.headingSemiBold, lineHeight: 14, letterSpacing: 0.5 },
   /** Numeric readouts that should line up in columns. */
-  readout: { fontSize: 20, fontFamily: fonts.headingExtraBold, lineHeight: 25 },
-  button: { fontSize: 15, fontFamily: fonts.heading, lineHeight: 20 },
+  readout: { fontSize: 20, fontFamily: fonts.heading, lineHeight: 25 },
+  button: { fontSize: 15, fontFamily: fonts.headingSemiBold, lineHeight: 20 },
 } as const;
 
 export const spacing = {
