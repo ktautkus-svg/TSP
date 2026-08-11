@@ -186,6 +186,84 @@ describe('E. cross-account upload safety', () => {
   });
 });
 
+describe('G. deferred routes are retried, not lost', () => {
+  const remoteActive = {
+    route: {
+      id: 'route-from-phone', date: '2026-08-11', status: 'planned', total_weight_kg: 480, total_stops: 1,
+      created_at: '2026-08-11T07:00:00.000Z', updated_at: '2026-08-11T07:00:00.000Z',
+    },
+    stops: [{
+      id: 'route-from-phone-stop-1', route_id: 'route-from-phone', original_order: 1,
+      recipient: 'Gavėjas', address: 'Gedimino pr. 9, Vilnius', weight_kg: 480,
+      created_at: '2026-08-11T07:00:00.000Z', updated_at: '2026-08-11T07:00:00.000Z',
+    }],
+    shipmentLines: [],
+  };
+  const remoteItem = { routeSnapshot: remoteActive, deleted: false, serverUpdatedAt: '2026-08-11T07:00:01.000Z' };
+
+  it('applies a deferred route on a later pass, after the cursor has moved past it', async () => {
+    await saveEmployeeSession({ profile: driverA, expiresAt: '2099-01-01T00:00:00.000Z' });
+    const { adapter, db } = createDb();
+    // This device is already working a different route.
+    insertRoute(adapter, { id: 'route-local-active', status: 'in_progress', owner: 'employee-a', cloudSyncedAt: '2026-08-11T08:00:00.000Z' });
+
+    // First pass: the cloud offers the other device's route; it cannot be applied.
+    stubCloud({
+      serverProfile: driverA,
+      pull: (since) => (since ? { routes: [], cursor: '2026-08-11T12:00:00.000Z' } : { routes: [remoteItem], cursor: '2026-08-11T07:00:01.000Z' }),
+    });
+    const first = await syncRoutesWithCloud(db);
+
+    expect(first.deferred).toBe(1);
+    expect(adapter.raw.prepare('SELECT id FROM routes WHERE id = ?').get('route-from-phone')).toBeUndefined();
+    const deferral = adapter.raw.prepare('SELECT employee_id, attempts FROM route_sync_deferrals WHERE route_id = ?').get('route-from-phone') as { employee_id: string; attempts: number };
+    expect(deferral).toMatchObject({ employee_id: 'employee-a', attempts: 1 });
+
+    // The blocker finishes. The server has nothing new to offer any more — the
+    // cursor is already past the deferred route.
+    adapter.raw.prepare("UPDATE routes SET status = 'completed', completed_at = ? WHERE id = ?").run('2026-08-11T11:00:00.000Z', 'route-local-active');
+    const second = await syncRoutesWithCloud(db);
+
+    expect(second.pulled).toBe(1);
+    const applied = adapter.raw.prepare('SELECT status, total_weight_kg FROM routes WHERE id = ?').get('route-from-phone') as { status: string; total_weight_kg: number };
+    expect(applied).toMatchObject({ status: 'planned', total_weight_kg: 480 });
+    expect(adapter.raw.prepare('SELECT route_id FROM route_sync_deferrals').all()).toEqual([]);
+  });
+
+  it('keeps deferring while the blocker is still there, counting attempts', async () => {
+    await saveEmployeeSession({ profile: driverA, expiresAt: '2099-01-01T00:00:00.000Z' });
+    const { adapter, db } = createDb();
+    insertRoute(adapter, { id: 'route-local-active', status: 'in_progress', owner: 'employee-a', cloudSyncedAt: '2026-08-11T08:00:00.000Z' });
+    stubCloud({
+      serverProfile: driverA,
+      pull: (since) => (since ? { routes: [], cursor: '2026-08-11T12:00:00.000Z' } : { routes: [remoteItem], cursor: '2026-08-11T07:00:01.000Z' }),
+    });
+
+    await syncRoutesWithCloud(db);
+    const second = await syncRoutesWithCloud(db);
+
+    expect(second.deferred).toBe(1);
+    const deferral = adapter.raw.prepare('SELECT attempts FROM route_sync_deferrals WHERE route_id = ?').get('route-from-phone') as { attempts: number };
+    expect(deferral.attempts).toBe(2);
+  });
+
+  it('never lets an older cloud copy overwrite newer local work', async () => {
+    await saveEmployeeSession({ profile: driverA, expiresAt: '2099-01-01T00:00:00.000Z' });
+    const { adapter, db } = createDb();
+    insertRoute(adapter, {
+      id: 'route-from-phone', status: 'in_progress', owner: 'employee-a',
+      createdAt: '2026-08-11T07:00:00.000Z', updatedAt: '2026-08-11T10:00:00.000Z',
+      cloudSyncedAt: '2026-08-11T07:00:00.000Z',
+    });
+    stubCloud({ serverProfile: driverA, pull: { routes: [remoteItem], cursor: '2026-08-11T12:00:00.000Z' } });
+
+    await syncRoutesWithCloud(db);
+
+    const route = adapter.raw.prepare('SELECT status, updated_at FROM routes WHERE id = ?').get('route-from-phone') as { status: string; updated_at: string };
+    expect(route).toMatchObject({ status: 'in_progress', updated_at: '2026-08-11T10:00:00.000Z' });
+  });
+});
+
 describe('F. per-account sync cursor', () => {
   it('keeps a separate cursor per employee so one account cannot suppress the other', async () => {
     const { adapter, db } = createDb();

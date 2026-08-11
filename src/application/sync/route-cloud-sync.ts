@@ -133,34 +133,134 @@ async function pushDirtyRoutes(db: SQLiteDatabase, employeeId: string): Promise<
 }
 
 async function pullRemoteRoutes(db: SQLiteDatabase, employeeId: string): Promise<{ pulled: number; deferred: number }> {
+  // Anything postponed by an earlier pass is retried first, so a freed slot is
+  // used by the oldest waiting route rather than by whatever the cursor happens
+  // to return this time.
+  const retried = await retryDeferredRoutes(db, employeeId);
+  let pulled = retried.applied;
+  let deferred = retried.deferred;
+
   const cursor = await getSyncCursor(db, employeeId);
   const response = await employeeApi<{ routes: RouteSyncPulledRoute[]; cursor: string }>(
     `/api/route-sync${cursor ? `?since=${encodeURIComponent(cursor)}` : ''}`,
   );
 
-  let pulled = 0;
-  let deferred = 0;
   for (const pulledRoute of response.routes) {
-    const routeId = String(pulledRoute.routeSnapshot.route.id ?? '');
-    if (!routeId) continue;
-    const existing = await db.getFirstAsync<{ id: string }>('SELECT id FROM routes WHERE id = ?', routeId);
-    const incomingStatus = String(pulledRoute.routeSnapshot.route.status ?? '');
-    if (!existing && NON_TERMINAL_STATUSES.includes(incomingStatus)) {
-      const active = await db.getFirstAsync<{ id: string }>(
-        "SELECT id FROM routes WHERE status NOT IN ('completed','cancelled') LIMIT 1",
-      );
-      if (active) {
-        deferred += 1;
-        continue;
-      }
-    }
-    const cloudSyncedAt = String(pulledRoute.routeSnapshot.route.updated_at ?? pulledRoute.serverUpdatedAt);
-    await applyRouteSnapshot(db, pulledRoute.routeSnapshot, cloudSyncedAt, employeeId);
-    pulled += 1;
+    const outcome = await applyPulledRoute(db, employeeId, pulledRoute);
+    if (outcome === 'applied') pulled += 1;
+    else if (outcome === 'deferred') deferred += 1;
   }
 
   await setSyncCursor(db, employeeId, response.cursor);
   return { pulled, deferred };
+}
+
+type PullOutcome = 'applied' | 'deferred' | 'skipped';
+
+/**
+ * Applies one pulled route, or records it for a later pass.
+ *
+ * A route that cannot be applied *right now* is never simply dropped: the
+ * cursor advances past it in the same pass, so the server would never offer it
+ * again and the route would be lost until some other device happened to touch
+ * it. It is stored in `route_sync_deferrals` instead and retried on every
+ * subsequent sync until it lands.
+ */
+async function applyPulledRoute(db: SQLiteDatabase, employeeId: string, pulledRoute: RouteSyncPulledRoute): Promise<PullOutcome> {
+  const routeId = String(pulledRoute.routeSnapshot?.route?.id ?? '');
+  if (!routeId) return 'skipped';
+
+  const existing = await db.getFirstAsync<{ id: string; status: string; updated_at: string }>(
+    'SELECT id, status, updated_at FROM routes WHERE id = ?',
+    routeId,
+  );
+  const incomingUpdatedAt = String(pulledRoute.routeSnapshot.route.updated_at ?? '');
+
+  // The local copy is newer: it wins by the same latest-write-wins rule the
+  // server applies, and it is still dirty, so the next push carries it up.
+  // Applying the older cloud copy here would silently discard local work.
+  if (existing && incomingUpdatedAt && String(existing.updated_at) > incomingUpdatedAt) {
+    await clearDeferral(db, employeeId, routeId);
+    return 'skipped';
+  }
+
+  const incomingStatus = String(pulledRoute.routeSnapshot.route.status ?? '');
+  if (!existing && NON_TERMINAL_STATUSES.includes(incomingStatus)) {
+    const active = await db.getFirstAsync<{ id: string }>(
+      "SELECT id FROM routes WHERE status NOT IN ('completed','cancelled') LIMIT 1",
+    );
+    if (active) {
+      // This device already has a different active route: applying the incoming
+      // one would violate the one-active-route-per-device invariant.
+      await deferRoute(db, employeeId, pulledRoute, 'ACTIVE_ROUTE_EXISTS');
+      return 'deferred';
+    }
+  }
+
+  const cloudSyncedAt = String(pulledRoute.routeSnapshot.route.updated_at ?? pulledRoute.serverUpdatedAt);
+  try {
+    await applyRouteSnapshot(db, pulledRoute.routeSnapshot, cloudSyncedAt, employeeId);
+  } catch (reason) {
+    // One unapplicable route must never abort the pass and strand every other
+    // route behind it, and must never be forgotten either.
+    await deferRoute(db, employeeId, pulledRoute, reason instanceof Error ? reason.message : String(reason));
+    return 'deferred';
+  }
+  await clearDeferral(db, employeeId, routeId);
+  return 'applied';
+}
+
+async function retryDeferredRoutes(db: SQLiteDatabase, employeeId: string): Promise<{ applied: number; deferred: number }> {
+  const rows = await db.getAllAsync<{ route_id: string; snapshot_json: string; deleted: number; server_updated_at: string }>(
+    `SELECT route_id, snapshot_json, deleted, server_updated_at FROM route_sync_deferrals
+     WHERE employee_id = ? ORDER BY server_updated_at, route_id`,
+    employeeId,
+  );
+  let applied = 0;
+  let deferred = 0;
+  for (const row of rows) {
+    let pulledRoute: RouteSyncPulledRoute;
+    try {
+      pulledRoute = {
+        routeSnapshot: JSON.parse(row.snapshot_json) as RouteSnapshot,
+        deleted: row.deleted === 1,
+        serverUpdatedAt: row.server_updated_at,
+      };
+    } catch {
+      // An unreadable deferral can never become applicable; drop it rather than
+      // retrying forever.
+      await clearDeferral(db, employeeId, row.route_id);
+      continue;
+    }
+    const outcome = await applyPulledRoute(db, employeeId, pulledRoute);
+    if (outcome === 'applied') applied += 1;
+    else if (outcome === 'deferred') deferred += 1;
+  }
+  return { applied, deferred };
+}
+
+async function deferRoute(db: SQLiteDatabase, employeeId: string, pulledRoute: RouteSyncPulledRoute, reason: string): Promise<void> {
+  const routeId = String(pulledRoute.routeSnapshot?.route?.id ?? '');
+  if (!routeId) return;
+  const now = new Date().toISOString();
+  await db.runAsync(
+    `INSERT INTO route_sync_deferrals
+       (route_id, employee_id, snapshot_json, deleted, server_updated_at, attempts, last_reason, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)
+     ON CONFLICT(route_id, employee_id) DO UPDATE SET
+       snapshot_json = excluded.snapshot_json,
+       deleted = excluded.deleted,
+       server_updated_at = excluded.server_updated_at,
+       attempts = route_sync_deferrals.attempts + 1,
+       last_reason = excluded.last_reason,
+       updated_at = excluded.updated_at`,
+    routeId, employeeId, JSON.stringify(pulledRoute.routeSnapshot), pulledRoute.deleted ? 1 : 0,
+    pulledRoute.serverUpdatedAt, reason, now, now,
+  );
+}
+
+async function clearDeferral(db: SQLiteDatabase, employeeId: string, routeId: string): Promise<void> {
+  await db.runAsync('DELETE FROM route_sync_deferrals WHERE route_id = ? AND employee_id = ?', routeId, employeeId);
 }
 
 /**
