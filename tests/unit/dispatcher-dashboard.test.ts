@@ -50,6 +50,14 @@ describe('driver permissions', () => {
     expect(permissions.canCancelRoute).toBe(false);
   });
 
+  it('syncs the dispatcher own routes to the cloud, since the home screen redirects them away before its sync runs', () => {
+    // Dispatchers create routes here ("+ Planuoti maršrutą"), so they own local
+    // routes and need the same cloud sync the driver home screen performs.
+    expect(dispatcherSource).toContain("import { syncRoutesWithCloud } from '@/application/sync/route-cloud-sync'");
+    expect(dispatcherSource).toContain('await syncRoutesWithCloud(db)');
+    expect(homeSource).toContain("if (profile.role === 'dispatcher')");
+  });
+
   it('renders administrator permission switches and enforces the route actions in driver screens', () => {
     expect(adminSource).toContain('DRIVER_PERMISSION_KEYS.map');
     expect(adminSource).toContain('Vairuotojo leidimai');
