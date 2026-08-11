@@ -11,15 +11,15 @@ export default function RootHtml({ children }: PropsWithChildren) {
           name="viewport"
           content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
         />
-        <meta name="theme-color" content="#0E766E" />
+        <meta name="theme-color" content="#142832" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <meta name="apple-mobile-web-app-title" content="TSP" />
-        <meta name="application-name" content="TSP – Tikslus siuntų pristatymas" />
+        <meta name="application-name" content="TSP – Maršrutai ir pristatymai" />
         <meta
           name="description"
-          content="Tikslus siuntų maršruto planavimas ir pristatymo vykdymas."
+          content="Maršrutų planavimas ir pristatymų vykdymas."
         />
         <link rel="manifest" href="/manifest.webmanifest" />
         <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
@@ -31,7 +31,7 @@ export default function RootHtml({ children }: PropsWithChildren) {
         />
         <ScrollViewStyleReset />
         <style dangerouslySetInnerHTML={{ __html: `
-          html, body, #root { width: 100vw; min-width: 0; min-height: 100%; max-width: 100vw; background: #F6F7F9; overflow-x: hidden; }
+          html, body, #root { width: 100vw; min-width: 0; min-height: 100%; max-width: 100vw; background: #F3F6F8; overflow-x: hidden; }
           html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
           html, body { overscroll-behavior-x: none; }
           body { margin: 0; touch-action: pan-y; }

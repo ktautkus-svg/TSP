@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 48" role="img" aria-labelledby="title">
+  <title id="title">TSP route mark</title>
+  <path fill="#17232D" d="M4 6h54L48 16H14z"/>
+  <path fill="#276C98" d="M14 20h34L38 30H24z"/>
+  <path fill="#218052" d="M24 34h14l-7 8z"/>
+</svg>
