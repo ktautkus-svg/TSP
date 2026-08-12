@@ -105,6 +105,28 @@ export async function handleEmployeeApi(
       });
       return send(response, 201, { user }, requestId);
     }
+    if (pathname === '/api/admin/vehicles' && request.method === 'GET') {
+      requireRole(profile, ['admin', 'dispatcher']);
+      return send(response, 200, { vehicles: await store.listVehicles() }, requestId);
+    }
+    if (pathname === '/api/admin/vehicles' && request.method === 'POST') {
+      requireRole(profile, ['admin']);
+      const body = parseObject(await readBody(request, 64_000));
+      const vehicle = await store.createVehicle({
+        registrationNumber: stringField(body, 'registrationNumber'),
+        model: stringField(body, 'model'),
+        maximumPayloadKg: numberField(body, 'maximumPayloadKg'),
+      });
+      return send(response, 201, { vehicle }, requestId);
+    }
+    const vehicleMatch = pathname.match(/^\/api\/admin\/vehicles\/([^/]+)$/);
+    if (vehicleMatch && request.method === 'PATCH') {
+      requireRole(profile, ['admin']);
+      const body = parseObject(await readBody(request, 64_000));
+      const assignedDriverId = body.assignedDriverId === null ? null : stringField(body, 'assignedDriverId');
+      const vehicle = await store.assignVehicle(vehicleMatch[1], assignedDriverId);
+      return send(response, 200, { vehicle }, requestId);
+    }
     const userMatch = pathname.match(/^\/api\/admin\/users\/([^/]+)$/);
     if (userMatch && request.method === 'PATCH') {
       requireRole(profile, ['admin']);
@@ -293,6 +315,12 @@ function stringField(body: Record<string, unknown>, name: string): string {
 function optionalString(body: Record<string, unknown>, name: string): string | undefined {
   const value = body[name];
   return typeof value === 'string' ? value : undefined;
+}
+
+function numberField(body: Record<string, unknown>, name: string): number {
+  const value = body[name];
+  if (typeof value !== 'number') throw new EmployeeApiError('INVALID_REQUEST', `Trūksta skaitinio lauko: ${name}.`, 400);
+  return value;
 }
 
 function header(request: IncomingMessage, name: string): string | undefined {

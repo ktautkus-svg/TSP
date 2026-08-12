@@ -19,6 +19,7 @@ import {
   loginEmployee,
   type EmployeeProfile,
   type EmployeeRole,
+  type ServerFleetVehicle,
   type ServerRouteAssignment,
 } from '@/infrastructure/auth/employee-session';
 import { radius, spacing, type } from '@/ui/tokens';
@@ -38,6 +39,7 @@ export default function AdminScreen() {
   const [counts, setCounts] = useState<Counts | null>(null);
   const [users, setUsers] = useState<EmployeeProfile[]>([]);
   const [assignments, setAssignments] = useState<ServerRouteAssignment[]>([]);
+  const [vehicles, setVehicles] = useState<ServerFleetVehicle[]>([]);
   const [routes, setRoutes] = useState<RouteChoice[]>([]);
   const [newName, setNewName] = useState('');
   const [newUsername, setNewUsername] = useState('');
@@ -45,6 +47,11 @@ export default function AdminScreen() {
   const [newRole, setNewRole] = useState<EmployeeRole>('driver');
   const [selectedDriverId, setSelectedDriverId] = useState('');
   const [selectedRouteId, setSelectedRouteId] = useState('');
+  const [newVehicleNumber, setNewVehicleNumber] = useState('');
+  const [newVehicleModel, setNewVehicleModel] = useState('');
+  const [newVehiclePayload, setNewVehiclePayload] = useState('');
+  const [selectedVehicleId, setSelectedVehicleId] = useState('');
+  const [selectedVehicleDriverId, setSelectedVehicleDriverId] = useState('');
   const [currentPin, setCurrentPin] = useState('');
   const [nextPin, setNextPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
@@ -67,12 +74,14 @@ export default function AdminScreen() {
     });
     setRoutes(localRoutes);
     if (profile.role === 'admin' && online) {
-      const [userResponse, assignmentResponse] = await Promise.all([
+      const [userResponse, assignmentResponse, vehicleResponse] = await Promise.all([
         employeeApi<{ users: EmployeeProfile[] }>('/api/admin/users'),
         employeeApi<{ assignments: ServerRouteAssignment[] }>('/api/admin/assignments'),
+        employeeApi<{ vehicles: ServerFleetVehicle[] }>('/api/admin/vehicles'),
       ]);
       setUsers(userResponse.users);
       setAssignments(assignmentResponse.assignments);
+      setVehicles(vehicleResponse.vehicles);
     }
   }, [db, online, profile.role]);
 
@@ -120,6 +129,30 @@ export default function AdminScreen() {
     await assignRouteToDriver(db, selectedRouteId, selectedDriverId);
     setSelectedDriverId(''); setSelectedRouteId('');
     setMessage('Maršrutas priskirtas vairuotojui. Jis bus parsiųstas prisijungus telefone.');
+    await load();
+  });
+
+  const createVehicle = () => run(async () => {
+    const maximumPayloadKg = Number(newVehiclePayload.replace(',', '.'));
+    if (!newVehicleNumber.trim() || !newVehicleModel.trim() || !Number.isFinite(maximumPayloadKg)) {
+      throw new Error('Įveskite automobilio numerį, modelį ir maksimalų krovinio svorį.');
+    }
+    await employeeApi('/api/admin/vehicles', {
+      method: 'POST',
+      body: JSON.stringify({ registrationNumber: newVehicleNumber, model: newVehicleModel, maximumPayloadKg }),
+    });
+    setNewVehicleNumber(''); setNewVehicleModel(''); setNewVehiclePayload('');
+    setMessage('Automobilis įtrauktas į parką.');
+    await load();
+  });
+
+  const assignVehicle = () => run(async () => {
+    if (!selectedVehicleId) throw new Error('Pasirinkite automobilį.');
+    await employeeApi(`/api/admin/vehicles/${encodeURIComponent(selectedVehicleId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ assignedDriverId: selectedVehicleDriverId || null }),
+    });
+    setMessage(selectedVehicleDriverId ? 'Automobilis priskirtas vairuotojui.' : 'Automobilio priskyrimas panaikintas.');
     await load();
   });
 
@@ -215,6 +248,50 @@ export default function AdminScreen() {
             </Pressable>
             {assignments.length ? <Text style={styles.meta}>Serverio priskyrimų: {assignments.length}</Text> : null}
           </View>
+
+          <View style={styles.card} testID="fleet-vehicle-management">
+            <Text style={styles.title}>Automobilių parkas</Text>
+            <Text style={styles.meta}>Maksimalus svoris rodo leistiną krovinio svorį. Miestas automobiliams nesaugomas.</Text>
+            <View style={styles.vehicleList}>
+              {vehicles.map((vehicle) => {
+                const driver = users.find((item) => item.id === vehicle.assignedDriverId);
+                return <Pressable key={vehicle.id} onPress={() => {
+                  setSelectedVehicleId(vehicle.id);
+                  setSelectedVehicleDriverId(vehicle.assignedDriverId ?? '');
+                }} style={[styles.selection, selectedVehicleId === vehicle.id && styles.selectionActive]}>
+                  <View style={styles.listRowCompact}>
+                    <View style={styles.listContent}>
+                      <Text style={styles.listTitle}>{vehicle.registrationNumber} · {vehicle.model}</Text>
+                      <Text style={styles.meta}>{vehicle.maximumPayloadKg} kg · {driver ? driver.displayName : 'Nepriskirtas'}</Text>
+                    </View>
+                  </View>
+                </Pressable>;
+              })}
+            </View>
+
+            <Text style={styles.sectionLabel}>Pridėti automobilį</Text>
+            {input(newVehicleNumber, (value) => setNewVehicleNumber(value.toUpperCase().replace(/\s/g, '').slice(0, 12)), 'Valstybinis numeris')}
+            {input(newVehicleModel, setNewVehicleModel, 'Modelis')}
+            <TextInput value={newVehiclePayload} onChangeText={(value) => setNewVehiclePayload(value.replace(/[^\d.,]/g, '').slice(0, 8))}
+              keyboardType="decimal-pad" placeholder="Maksimalus krovinio svoris, kg" placeholderTextColor={colors.textMuted} style={styles.input} />
+            <Pressable disabled={busy || !online} style={[styles.secondaryButton, (busy || !online) && styles.disabled]} onPress={() => void createVehicle()}>
+              <Text style={styles.secondaryText}>Pridėti automobilį</Text>
+            </Pressable>
+
+            <Text style={styles.sectionLabel}>Priskirti pasirinktą automobilį</Text>
+            <View style={styles.choiceColumn}>
+              <Pressable onPress={() => setSelectedVehicleDriverId('')} style={[styles.selection, selectedVehicleDriverId === '' && styles.selectionActive]}>
+                <Text style={styles.listTitle}>Nepriskirtas</Text>
+              </Pressable>
+              {users.filter((item) => item.role === 'driver' && !item.disabled).map((driver) =>
+                <Pressable key={driver.id} onPress={() => setSelectedVehicleDriverId(driver.id)} style={[styles.selection, selectedVehicleDriverId === driver.id && styles.selectionActive]}>
+                  <Text style={styles.listTitle}>{driver.displayName}</Text><Text style={styles.meta}>@{driver.username}</Text>
+                </Pressable>)}
+            </View>
+            <Pressable disabled={busy || !online || !selectedVehicleId} style={[styles.primaryButton, (busy || !online || !selectedVehicleId) && styles.disabled]} onPress={() => void assignVehicle()}>
+              <Text style={styles.primaryText}>Patvirtinti priskyrimą</Text>
+            </Pressable>
+          </View>
         </> : <View style={styles.card}><Text style={styles.title}>Administratoriaus teisės reikalingos</Text><Text style={styles.meta}>Darbuotojų valdymą mato tik administratorius.</Text></View>}
 
         <View style={styles.card}>
@@ -265,6 +342,8 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   choiceText: { ...type.secondaryStrong, color: colors.text },
   choiceTextActive: { color: colors.textInverse },
   listRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border },
+  listRowCompact: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  vehicleList: { gap: spacing.xs },
   employeeBlock: { gap: spacing.sm, paddingBottom: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border },
   listContent: { flex: 1, minWidth: 0 },
   listTitle: { ...type.cardTitle, color: colors.text },

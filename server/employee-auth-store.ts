@@ -43,6 +43,16 @@ export type RouteAssignment = {
   updatedAt: string;
 };
 
+export type FleetVehicle = {
+  id: string;
+  registrationNumber: string;
+  model: string;
+  maximumPayloadKg: number;
+  assignedDriverId: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type RouteSnapshot = {
   route: Record<string, unknown>;
   stops: Array<Record<string, unknown>>;
@@ -66,6 +76,7 @@ export class EmployeeAuthStore {
   private readonly usernames = this.db.collection('tsp_usernames');
   private readonly sessions = this.db.collection('tsp_sessions');
   private readonly assignments = this.db.collection('tsp_assignments');
+  private readonly vehicles = this.db.collection('tsp_vehicles');
 
   async hasUsers(): Promise<boolean> {
     return !(await this.users.limit(1).get()).empty;
@@ -180,6 +191,73 @@ export class EmployeeAuthStore {
     return snapshot.docs
       .map((doc) => publicProfile(doc.data() as StoredUser))
       .sort((a, b) => a.displayName.localeCompare(b.displayName, 'lt'));
+  }
+
+  async listVehicles(): Promise<FleetVehicle[]> {
+    const snapshot = await this.vehicles.get();
+    return snapshot.docs
+      .map((document) => document.data() as FleetVehicle)
+      .sort((left, right) => left.registrationNumber.localeCompare(right.registrationNumber, 'lt'));
+  }
+
+  async createVehicle(input: {
+    registrationNumber: string;
+    model: string;
+    maximumPayloadKg: number;
+  }): Promise<FleetVehicle> {
+    const registrationNumber = validateRegistrationNumber(input.registrationNumber);
+    const model = validateVehicleModel(input.model);
+    const maximumPayloadKg = validateMaximumPayload(input.maximumPayloadKg);
+    const reference = this.vehicles.doc(registrationNumber);
+    const now = new Date().toISOString();
+    const vehicle: FleetVehicle = {
+      id: registrationNumber,
+      registrationNumber,
+      model,
+      maximumPayloadKg,
+      assignedDriverId: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await this.db.runTransaction(async (transaction) => {
+      if ((await transaction.get(reference)).exists) {
+        throw new EmployeeApiError('VEHICLE_EXISTS', 'Automobilis tokiu numeriu jau sukurtas.', 409);
+      }
+      transaction.create(reference, vehicle);
+    });
+    return vehicle;
+  }
+
+  async assignVehicle(vehicleIdInput: string, driverIdInput: string | null): Promise<FleetVehicle> {
+    const vehicleId = validateVehicleId(vehicleIdInput);
+    const driverId = driverIdInput === null ? null : safeId(driverIdInput);
+    const vehicleRef = this.vehicles.doc(vehicleId);
+    let updated: FleetVehicle | null = null;
+
+    await this.db.runTransaction(async (transaction) => {
+      const vehicleDocument = await transaction.get(vehicleRef);
+      const current = vehicleDocument.data() as FleetVehicle | undefined;
+      if (!current) throw new EmployeeApiError('VEHICLE_NOT_FOUND', 'Automobilis nerastas.', 404);
+
+      let previousAssignmentDocs: Array<{ id: string; ref: FirebaseFirestore.DocumentReference }> = [];
+      if (driverId) {
+        const driverDocument = await transaction.get(this.users.doc(driverId));
+        const driver = driverDocument.data() as StoredUser | undefined;
+        if (!driver || driver.disabled || driver.role !== 'driver') {
+          throw new EmployeeApiError('DRIVER_NOT_FOUND', 'Aktyvus vairuotojas nerastas.', 404);
+        }
+        previousAssignmentDocs = (await transaction.get(this.vehicles.where('assignedDriverId', '==', driverId))).docs;
+      }
+
+      const updatedAt = new Date().toISOString();
+      previousAssignmentDocs.forEach((document) => {
+        if (document.id !== vehicleId) transaction.update(document.ref, { assignedDriverId: null, updatedAt });
+      });
+      transaction.update(vehicleRef, { assignedDriverId: driverId, updatedAt });
+      updated = { ...current, assignedDriverId: driverId, updatedAt };
+    });
+
+    return updated!;
   }
 
   async createUser(input: { username: string; displayName: string; pin: string; role: EmployeeRole }): Promise<EmployeeProfile> {
@@ -396,6 +474,33 @@ function validateDisplayName(value: string): string {
 
 function validatePin(pin: string): void {
   if (!/^\d{4,8}$/.test(pin)) throw new EmployeeApiError('INVALID_PIN', 'Serverio PIN turi būti 4–8 skaitmenų.', 400);
+}
+
+function validateRegistrationNumber(value: string): string {
+  const normalized = value.trim().toUpperCase().replace(/\s+/g, '');
+  if (!/^[A-Z0-9-]{3,12}$/.test(normalized)) {
+    throw new EmployeeApiError('INVALID_REGISTRATION_NUMBER', 'Neteisingas automobilio valstybinis numeris.', 400);
+  }
+  return normalized;
+}
+
+function validateVehicleId(value: string): string {
+  return validateRegistrationNumber(decodeURIComponent(value));
+}
+
+function validateVehicleModel(value: string): string {
+  const normalized = value.trim().replace(/\s+/g, ' ');
+  if (normalized.length < 2 || normalized.length > 80) {
+    throw new EmployeeApiError('INVALID_VEHICLE_MODEL', 'Automobilio modelis turi būti 2–80 simbolių.', 400);
+  }
+  return normalized;
+}
+
+function validateMaximumPayload(value: number): number {
+  if (!Number.isFinite(value) || value <= 0 || value > 100_000) {
+    throw new EmployeeApiError('INVALID_MAXIMUM_PAYLOAD', 'Maksimalus krovinio svoris turi būti teigiamas skaičius.', 400);
+  }
+  return Math.round(value);
 }
 
 function hashToken(token: string): string {

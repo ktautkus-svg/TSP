@@ -30,6 +30,16 @@ export type ServerRouteAssignment = {
   updatedAt: string;
 };
 
+export type ServerFleetVehicle = {
+  id: string;
+  registrationNumber: string;
+  model: string;
+  maximumPayloadKg: number;
+  assignedDriverId: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type RouteSnapshot = {
   route: Record<string, unknown>;
   stops: Array<Record<string, unknown>>;

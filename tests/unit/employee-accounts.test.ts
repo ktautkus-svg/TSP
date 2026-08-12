@@ -33,6 +33,7 @@ const accessGateSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.
 const settingsSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../src/app/settings/index.tsx'), 'utf8');
 const employeeApiSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../server/employee-api.ts'), 'utf8');
 const employeeStoreSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../server/employee-auth-store.ts'), 'utf8');
+const adminSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../src/app/admin.tsx'), 'utf8');
 function migration(version: number): string {
   const match = migrationSource.match(new RegExp(`const migrationV${version} = \`([\\s\\S]*?)\`;`));
   if (!match) throw new Error(`Missing migration V${version}`);
@@ -65,6 +66,16 @@ describe('employee server session', () => {
     expect(accessGateSource).toContain('setUnlocked(Boolean(cachedSession))');
     expect(accessGateSource).toContain('await logoutEmployee()');
     expect(settingsSource).toContain('testID="logout-button"');
+  });
+
+  it('keeps the central fleet on the server and exposes admin create and assignment controls', () => {
+    expect(employeeApiSource).toContain("pathname === '/api/admin/vehicles'");
+    expect(employeeApiSource).toContain("pathname.match(/^\\/api\\/admin\\/vehicles\\/([^/]+)$/)");
+    expect(employeeStoreSource).toContain("collection('tsp_vehicles')");
+    expect(employeeStoreSource).toContain("where('assignedDriverId', '==', driverId)");
+    expect(adminSource).toContain('testID="fleet-vehicle-management"');
+    expect(adminSource).toContain('Miestas automobiliams nesaugomas');
+    expect(adminSource).toContain('Patvirtinti priskyrimą');
   });
 
   it('stores a successful login and includes the secure same-origin session cookie in employee API calls', async () => {
