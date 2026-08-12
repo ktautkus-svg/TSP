@@ -77,7 +77,7 @@ export default function QualityControlScreen() {
         </View>
         <View style={[styles.livePanel, mobile && styles.livePanelMobile]}>
           <View style={[styles.liveDot, !online && styles.liveDotOffline]} />
-          <View style={styles.flex}><Text style={styles.liveLabel}>{online ? 'DUOMENYS ATNAUJINAMI' : 'RYŠIO NĖRA'}</Text><Text style={styles.refreshTime}>Atnaujinta {formatClock(lastRefreshedAt)}</Text></View>
+          <View style={styles.flex}><Text style={styles.liveLabel}>{online ? (mobile ? 'RYŠYS GERAS' : 'DUOMENYS ATNAUJINAMI') : 'RYŠIO NĖRA'}</Text><Text style={styles.refreshTime}>Atnaujinta {formatClock(lastRefreshedAt)}</Text></View>
           <Pressable disabled={busy} onPress={() => void load(true)} style={({ pressed }) => [styles.refreshButton, pressed && styles.refreshPressed, busy && styles.disabled]} testID="quality-refresh">
             {busy ? <ActivityIndicator color={colors.info} /> : <Text style={styles.refreshText}>Atnaujinti</Text>}
           </Pressable>
@@ -146,7 +146,7 @@ function SummaryMetric({ label, value, tone, compact, styles }: { label: string;
 function vehicleLabel(route: QualityRouteMonitor): string { return route.vehicle ? `${route.vehicle.registrationNumber} · ${route.vehicle.model}` : 'Automobilis nepriskirtas'; }
 function initials(name: string): string { return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join(''); }
 function statusLabel(status: QualityRouteMonitor['status']): string { return ({ assigned: 'Priskirtas', downloaded: 'Paruoštas', in_progress: 'Kelyje', completed: 'Baigtas', cancelled: 'Atšauktas' } as Record<string, string>)[status] ?? status; }
-function formatDate(value: string): string { const date = new Date(`${value}T12:00:00`); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('lt-LT', { weekday: 'short', month: 'short', day: 'numeric' }).format(date); }
+function formatDate(value: string): string { const date = new Date(`${value}T12:00:00`); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('lt-LT', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(date); }
 function formatClock(value: string | null): string { if (!value) return '—'; const date = new Date(value); return Number.isNaN(date.getTime()) ? '—' : new Intl.DateTimeFormat('lt-LT', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(date); }
 function formatRelative(value: string): string { const seconds = Math.max(0, Math.floor((Date.now() - Date.parse(value)) / 1000)); if (seconds < 45) return 'ką tik'; if (seconds < 3600) return `prieš ${Math.floor(seconds / 60)} min.`; return formatClock(value); }
 function localDateKey(date: Date): string { const year = date.getFullYear(); const month = String(date.getMonth() + 1).padStart(2, '0'); const day = String(date.getDate()).padStart(2, '0'); return `${year}-${month}-${day}`; }
