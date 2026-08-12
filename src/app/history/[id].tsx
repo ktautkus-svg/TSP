@@ -97,7 +97,7 @@ export default function RouteHistoryDetailScreen() {
     <Stack.Screen options={{
       gestureEnabled: false,
       headerBackVisible: false,
-      headerLeft: () => <Pressable onPress={goHistory} style={styles.headerAction}><Text style={styles.headerText}>← Istorija</Text></Pressable>,
+      headerLeft: () => <Pressable onPress={goHistory} style={styles.headerAction}><Text style={styles.headerText}>← Maršrutai</Text></Pressable>,
     }} />
     <View style={styles.screen}>
     <FoundationScreen showFoundationNotice={false} title={route ? `Maršrutas ${route.date}` : 'Maršruto istorija'} description="Užbaigto maršruto istorija yra tik skaitoma.">
@@ -168,10 +168,10 @@ export default function RouteHistoryDetailScreen() {
         </Pressable>
       ) : null}
       </> : null}
-      <Pressable style={styles.historyButton} onPress={goHistory}><Text style={styles.historyText}>← Istorija</Text></Pressable>
+      <Pressable style={styles.historyButton} onPress={goHistory}><Text style={styles.historyText}>← Maršrutai</Text></Pressable>
       <Pressable style={styles.homeButton} onPress={goHome}><Text style={styles.homeText}>Į pradžią</Text></Pressable>
     </FoundationScreen>
-    <RouteBottomTabs active="history" onDashboard={goActiveDashboard} onStops={goActiveStops} onHistory={goHistory} />
+    <RouteBottomTabs active="routes" onDashboard={goActiveDashboard} onStops={goActiveStops} onRoutes={goHistory} />
     </View>
     </>
   );

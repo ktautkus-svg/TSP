@@ -9,6 +9,8 @@ import { ExportPilotRouteDiagnostic } from '@/application/routes/pilot-route-exp
 import { GetRouteProgress, type RouteProgress } from '@/application/routes/route-workday';
 import { AccountMenuSheet } from '@/components/account-menu-sheet';
 import { BrandHeader } from '@/components/brand-header';
+import { DriverAppTabs } from '@/components/driver-app-tabs';
+import { RouteListCard } from '@/components/route-list-card';
 import { ScreenContainer } from '@/components/screen-container';
 import { AppButton, AppCard } from '@/components/ui-primitives';
 import { RouteRepository } from '@/database/repositories/route-repository';
@@ -17,6 +19,7 @@ import { fonts, radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { formatWeightKg } from '@/ui/format-weight';
+import { groupRouteNumbers, routeNumberLabel } from '@/ui/route-numbers';
 import { Alert } from '@/ui/alert';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { pullAssignedRoutes, pushCompletedRouteAssignmentProgress, pushRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
@@ -82,7 +85,7 @@ export default function HomeScreen() {
         );
         setRouteNumbers(groupRouteNumbers(numberRows));
         setProgress(nextProgress);
-        if (profile.role !== 'driver' && !initialRestoreHandled.current && route?.status === 'in_progress') {
+        if (!initialRestoreHandled.current && route?.status === 'in_progress') {
           initialRestoreHandled.current = true;
           initialActiveRouteRestoreHandled = true;
           const destination = resolveRoute(route);
@@ -134,30 +137,23 @@ export default function HomeScreen() {
                   <Text style={styles.activeTitle}>Maršrutas dar nepriskirtas</Text>
                   <Text style={styles.activeText}>Kai administratorius priskirs maršrutą, jis automatiškai atsiras šiame įrenginyje.</Text>
                 </AppCard>
-              ) : driverRoutes.map((route) => (
-                <AppCard key={route.id} style={styles.driverRouteCard} testID={`driver-route-${route.id}`}>
-                  <View style={styles.routeCardHeader}>
-                    <View style={styles.activeHeaderText}>
-                      <Text style={styles.eyebrow}>{formatRouteDate(route.date)}</Text>
-                      <Text style={styles.activeTitle}>{routeNumbers[route.id] || shortRouteId(route.id)}</Text>
-                    </View>
-                    <Text style={styles.routeStatus}>{operationalStatus(route)}</Text>
-                  </View>
-                  <View style={styles.driverRouteMetrics}>
-                    <RouteMetric label="Svoris" value={`${formatWeightKg(route.totalWeightKg)} kg`} styles={styles} />
-                    <RouteMetric label="Taškai" value={String(route.totalStops)} styles={styles} />
-                    <RouteMetric label="Atstumas" value={`${formatMetric(route.estimatedDistanceKm)} km`} styles={styles} />
-                  </View>
-                  <AppButton
-                    disabled={hasDifferentWorkingRoute(driverRoutes, route)}
-                    label={hasDifferentWorkingRoute(driverRoutes, route) ? 'Pirma užbaikite aktyvų maršrutą' : route.status === 'in_progress' ? 'Tęsti maršrutą' : 'Pradėti maršrutą'}
-                    onPress={() => {
-                      const destination = resolveRoute(route);
-                      router.push({ pathname: destination.pathname, params: destination.params } as Href);
-                    }}
-                  />
-                </AppCard>
-              ))}
+              ) : driverRoutes.map((route) => <RouteListCard
+                actionLabel={hasDifferentWorkingRoute(driverRoutes, route) ? 'Pirma užbaikite aktyvų maršrutą' : route.status === 'in_progress' ? 'Tęsti maršrutą' : 'Pradėti maršrutą'}
+                dateLabel={formatRouteDate(route.date)}
+                disabled={hasDifferentWorkingRoute(driverRoutes, route)}
+                distanceLabel={`${formatMetric(route.estimatedDistanceKm)} km`}
+                key={route.id}
+                numberLabel={routeNumberLabel(route.id, routeNumbers)}
+                onPress={() => {
+                  const destination = resolveRoute(route);
+                  router.push({ pathname: destination.pathname, params: destination.params } as Href);
+                }}
+                statusLabel={operationalStatus(route)}
+                statusTone={route.status === 'in_progress' ? 'active' : 'planned'}
+                stopsLabel={String(route.totalStops)}
+                testID={`driver-route-${route.id}`}
+                weightLabel={`${formatWeightKg(route.totalWeightKg)} kg`}
+              />)}
             </View>
           ) : active ? (
             <AppCard style={styles.activeCard} testID="active-route-card">
@@ -232,13 +228,14 @@ export default function HomeScreen() {
               <AppButton label="Įvesti adresus rankiniu būdu" onPress={() => router.push('/route/new' as Href)} variant="secondary" />
             </>
           ) : null}
-          <View style={styles.navigationCard}>
+          {profile.role !== 'driver' ? <View style={styles.navigationCard}>
             {profile.role === 'admin' ? <Link href={'/dispatcher' as Href} asChild><Pressable style={styles.navigationButton}><Text style={styles.historyLink}>Dispečeris</Text></Pressable></Link> : null}
-            <Link href="/history" asChild><Pressable style={styles.navigationButton}><Text style={styles.historyLink}>Istorija</Text></Pressable></Link>
+            <Link href="/history" asChild><Pressable style={styles.navigationButton}><Text style={styles.historyLink}>Maršrutai</Text></Pressable></Link>
             <Link href={'/settings' as Href} asChild><Pressable style={styles.navigationButton}><Text style={styles.historyLink}>Nustatymai</Text></Pressable></Link>
-          </View>
+          </View> : null}
         </ScrollView>
       </ScreenContainer>
+      {profile.role === 'driver' ? <DriverAppTabs active="now" /> : null}
     </SafeAreaView>
   );
 }
@@ -266,24 +263,6 @@ function formatMetric(value: number | null | undefined): string {
   return new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(value);
 }
 
-function groupRouteNumbers(rows: Array<{ route_id: string; order_number: string | null }>): Record<string, string> {
-  const grouped = new Map<string, Set<string>>();
-  for (const row of rows) {
-    const value = row.order_number?.trim();
-    if (!value) continue;
-    const normalized = /^R/i.test(value) ? value.toUpperCase() : `R${value}`;
-    const values = grouped.get(row.route_id) ?? new Set<string>();
-    values.add(normalized);
-    grouped.set(row.route_id, values);
-  }
-  return Object.fromEntries([...grouped].map(([routeId, values]) => [routeId, [...values].join(', ')]));
-}
-
-function shortRouteId(routeId: string): string {
-  const suffix = routeId.match(/(\d{1,4})$/)?.[1];
-  return suffix ? `R${suffix}` : `Maršrutas ${routeId.slice(-6).toUpperCase()}`;
-}
-
 function formatRouteDate(value: string): string {
   const date = new Date(`${value}T12:00:00`);
   return Number.isNaN(date.getTime())
@@ -303,22 +282,11 @@ function hasDifferentWorkingRoute(routes: Route[], candidate: Route): boolean {
     && routes.some((route) => route.id !== candidate.id && ['loading', 'loaded', 'in_progress'].includes(route.status));
 }
 
-function RouteMetric({ label, value, styles }: { label: string; value: string; styles: ReturnType<typeof createStyles> }) {
-  return <View style={styles.driverMetric}><Text numberOfLines={1} style={styles.driverMetricValue}>{value}</Text><Text style={styles.driverMetricLabel}>{label}</Text></View>;
-}
-
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background },
   content: { flexGrow: 1, paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: 96, gap: spacing.md },
   driverRouteList: { gap: spacing.md },
   listHeading: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: spacing.md },
-  driverRouteCard: { gap: spacing.md },
-  routeCardHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing.md },
-  routeStatus: { ...type.meta, color: colors.info, backgroundColor: colors.infoSoft, borderRadius: radius.pill, overflow: 'hidden', paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
-  driverRouteMetrics: { flexDirection: 'row', borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
-  driverMetric: { flex: 1, minWidth: 0, minHeight: 58, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.xs, backgroundColor: colors.surfaceSubtle, borderRightWidth: 1, borderRightColor: colors.border },
-  driverMetricValue: { ...type.bodyStrong, color: colors.text, textAlign: 'center' },
-  driverMetricLabel: { ...type.meta, color: colors.textMuted, textAlign: 'center' },
   eyebrow: { ...type.label, color: colors.textMuted },
   // One card style, one radius, one hairline border. No shadow: the border is
   // enough separation against a light grey page.

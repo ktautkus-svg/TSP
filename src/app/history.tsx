@@ -3,106 +3,136 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Stack, useFocusEffect, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
-import { FoundationScreen } from '@/components/foundation-screen';
-import { RouteBottomTabs } from '@/components/route-bottom-tabs';
 import { resolveRoute } from '@/application/routes/route-navigation';
+import { FoundationScreen } from '@/components/foundation-screen';
+import { DriverAppTabs } from '@/components/driver-app-tabs';
+import { RouteListCard } from '@/components/route-list-card';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import type { Route } from '@/domain/route';
+import { formatWeightKg } from '@/ui/format-weight';
 import { formatLithuanianDate, routeStatusLabel } from '@/ui/history-labels';
+import { groupRouteNumbers, routeNumberLabel, type RouteNumberRow } from '@/ui/route-numbers';
 import { fonts, radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
-import { formatWeightKg } from '@/ui/format-weight';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 
-export default function HistoryScreen() {
+export default function RoutesScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
   const { profile } = useLocalAccess();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const repository = useMemo(() => new RouteRepository(db), [db]);
-  const [routes, setRoutes] = useState<Route[]>([]);
-  const [activeRoute, setActiveRoute] = useState<Route | null>(null);
+  const [operationalRoutes, setOperationalRoutes] = useState<Route[]>([]);
+  const [historyRoutes, setHistoryRoutes] = useState<Route[]>([]);
+  const [routeNumbers, setRouteNumbers] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
 
   useFocusEffect(useCallback(() => {
     let mounted = true;
     const owner = profile.role === 'driver' ? profile.id : null;
-    void Promise.all([repository.listHistory(50, owner), repository.listOperational(owner)]).then(([history, operational]) => {
+    void Promise.all([
+      repository.listOperational(owner),
+      repository.listHistory(50, owner),
+      db.getAllAsync<RouteNumberRow>(`SELECT route_id, order_number FROM delivery_stops WHERE order_number IS NOT NULL AND TRIM(order_number) <> ''`),
+    ]).then(([operational, history, numberRows]) => {
       if (!mounted) return;
-      setRoutes(history);
-      setActiveRoute(operational[0] ?? null);
+      setOperationalRoutes(operational);
+      setHistoryRoutes(history);
+      setRouteNumbers(groupRouteNumbers(numberRows));
       setError(null);
     }).catch((reason) => {
-      if (__DEV__) console.warn('ROUTE_HISTORY_LOAD_FAILED', reason);
-      if (mounted) setError(reason instanceof Error ? reason.message : 'Istorijos atkurti nepavyko.');
+      if (__DEV__) console.warn('ROUTES_LOAD_FAILED', reason);
+      if (mounted) setError(reason instanceof Error ? reason.message : 'Maršrutų atkurti nepavyko.');
     });
     return () => { mounted = false; };
-  }, [profile.id, profile.role, repository]));
+  }, [db, profile.id, profile.role, repository]));
 
   const goHome = () => router.replace('/' as Href);
-  const goActiveDashboard = () => {
-    if (!activeRoute) return goHome();
-    const destination = resolveRoute(activeRoute);
-    router.replace({ pathname: destination.pathname, params: destination.params } as Href);
-  };
-  const goActiveStops = () => {
-    if (!activeRoute) return goHome();
-    if (activeRoute.status === 'in_progress') {
-      router.replace({ pathname: '/route/[id]/delivery', params: { id: activeRoute.id, view: 'stops' } } as unknown as Href);
-      return;
-    }
-    goActiveDashboard();
+  const openOperationalRoute = (route: Route) => {
+    const destination = resolveRoute(route);
+    router.push({ pathname: destination.pathname, params: destination.params } as Href);
   };
 
   return (
     <>
-    <Stack.Screen options={{
-      gestureEnabled: false,
-      headerBackVisible: false,
-      headerLeft: () => <Pressable onPress={goHome} style={styles.headerAction}><Text style={styles.headerText}>← Pradžia</Text></Pressable>,
-      headerRight: () => null,
-    }} />
-    <View style={styles.screen}>
-    <FoundationScreen showFoundationNotice={false} title="Maršrutų istorija" description="Užbaigti ir atšaukti maršrutai. Užbaigti duomenys yra tik skaitomi.">
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-      {routes.length === 0 ? <View style={styles.empty}><Text style={styles.title}>Istorija tuščia</Text><Text style={styles.meta}>Užbaigti maršrutai atsiras čia.</Text></View> : null}
-      {routes.map((route) => {
-        const summary = route.completionSummary;
-        return (
-          <Pressable key={route.id} testID={`history-route-${route.id}`} style={styles.card} onPress={() => router.push(`/history/${route.id}` as Href)}>
-            <View style={[styles.statusStripe, route.status === 'completed' ? styles.statusStripeCompleted : styles.statusStripeCancelled]} />
-            <View style={styles.cardBody}>
-              <Text style={styles.title}>{formatLithuanianDate(route.date)} · {routeStatusLabel(route.status)}</Text>
-              <Text style={styles.meta}>Taškai: {route.totalStops} · sėkmingi {summary?.deliveredStops ?? 0} · nepavykę {summary?.failedStops ?? 0}</Text>
-              <Text style={styles.meta}>Žinomas svoris: {formatWeightKg(route.totalWeightKg)} kg</Text>
-              <Text style={styles.meta}>Planuota: {route.estimatedDistanceKm?.toFixed(1) ?? '—'} km · faktinė: {route.actualDistanceKm?.toFixed(1) ?? '—'} km</Text>
+      <Stack.Screen options={{
+        gestureEnabled: false,
+        headerBackVisible: false,
+        headerLeft: () => <Pressable accessibilityLabel="Grįžti į skydelį" accessibilityRole="button" onPress={goHome} style={styles.headerAction}><Text style={styles.headerText}>← Skydelis</Text></Pressable>,
+        headerRight: () => null,
+      }} />
+      <View style={styles.screen}>
+        <FoundationScreen showFoundationNotice={false} title="Maršrutai" description="Aktyvūs, būsimi ir ankstesni jūsų maršrutai vienoje vietoje.">
+          {error ? <Text style={styles.error}>{error}</Text> : null}
+
+          {operationalRoutes.length > 0 ? <Text style={styles.sectionLabel}>DABAR IR TOLIAU</Text> : null}
+          {operationalRoutes.map((route) => <RouteListCard
+            actionLabel={route.status === 'in_progress' ? 'Tęsti maršrutą' : 'Peržiūrėti'}
+            dateLabel={formatLithuanianDate(route.date)}
+            distanceLabel={`${route.estimatedDistanceKm?.toFixed(1) ?? '—'} km`}
+            key={route.id}
+            numberLabel={routeNumberLabel(route.id, routeNumbers)}
+            onPress={() => openOperationalRoute(route)}
+            statusLabel={operationalRouteLabel(route)}
+            statusTone={route.status === 'in_progress' ? 'active' : 'planned'}
+            stopsLabel={String(route.totalStops)}
+            testID={`operational-route-${route.id}`}
+            weightLabel={`${formatWeightKg(route.totalWeightKg)} kg`}
+          />)}
+
+          {historyRoutes.length > 0 ? <Text style={styles.sectionLabel}>ANKSTESNI</Text> : null}
+          {historyRoutes.map((route) => {
+            return (
+              <RouteListCard
+                actionLabel="Peržiūrėti rezultatą"
+                dateLabel={formatLithuanianDate(route.date)}
+                distanceLabel={`${(route.actualDistanceKm ?? route.estimatedDistanceKm)?.toFixed(1) ?? '—'} km`}
+                key={route.id}
+                numberLabel={routeNumberLabel(route.id, routeNumbers)}
+                onPress={() => router.push(`/history/${route.id}` as Href)}
+                statusLabel={routeStatusLabel(route.status)}
+                statusTone={route.status === 'completed' ? 'completed' : 'cancelled'}
+                stopsLabel={String(route.totalStops)}
+                testID={`history-route-${route.id}`}
+                weightLabel={`${formatWeightKg(route.totalWeightKg)} kg`}
+              />
+            );
+          })}
+
+          {operationalRoutes.length === 0 && historyRoutes.length === 0 ? (
+            <View style={styles.empty}>
+              <Text style={styles.title}>Maršrutų dar nėra</Text>
+              <Text style={styles.meta}>Priskirti, suplanuoti ir užbaigti maršrutai atsiras čia.</Text>
             </View>
-          </Pressable>
-        );
-      })}
-      <Pressable style={styles.homeButton} onPress={goHome}><Text style={styles.homeText}>Į pradžią</Text></Pressable>
-    </FoundationScreen>
-    <RouteBottomTabs active="history" onDashboard={goActiveDashboard} onStops={goActiveStops} onHistory={() => undefined} />
-    </View>
+          ) : null}
+
+          <Pressable accessibilityLabel="Grįžti į skydelį" accessibilityRole="button" style={styles.homeButton} onPress={goHome}><Text style={styles.homeText}>Į skydelį</Text></Pressable>
+        </FoundationScreen>
+        {profile.role === 'driver' ? <DriverAppTabs active="routes" /> : null}
+      </View>
     </>
   );
 }
 
+function operationalRouteLabel(route: Route): string {
+  if (route.status === 'in_progress') return 'Vykdomas';
+  if (route.status === 'loaded') return 'Paruoštas';
+  if (route.status === 'loading') return 'Kraunamas';
+  if (route.status === 'planned') return 'Suplanuotas';
+  return 'Ruošiamas';
+}
+
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   screen: { flex: 1, alignSelf: 'center', width: '100%', maxWidth: 430, backgroundColor: colors.background },
-  empty: { padding: spacing.lg, borderWidth: 1, borderRadius: radius.lg, borderColor: colors.border, backgroundColor: colors.surface },
-  card: { flexDirection: 'row', overflow: 'hidden', borderWidth: 1, borderRadius: radius.md, borderColor: colors.border, backgroundColor: colors.surface },
-  statusStripe: { width: 6 },
-  statusStripeCompleted: { backgroundColor: colors.accent },
-  statusStripeCancelled: { backgroundColor: colors.border },
-  cardBody: { flex: 1, padding: spacing.md, gap: spacing.xs },
+  empty: { padding: spacing.lg, borderWidth: 1, borderRadius: radius.lg, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.xs },
+  sectionLabel: { ...type.label, color: colors.textMuted, marginTop: spacing.sm },
   title: { ...type.sectionTitle, color: colors.text },
   meta: { ...type.secondary, color: colors.textMuted },
   homeButton: { minHeight: 52, borderWidth: 1, borderRadius: radius.md, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
   homeText: { ...type.button, color: colors.textSecondary },
-  headerAction: { minWidth: 84, minHeight: 44, justifyContent: 'center' },
+  headerAction: { minWidth: 96, minHeight: 44, justifyContent: 'center' },
   headerText: { color: colors.textInverse, fontFamily: fonts.heading },
   error: { color: colors.danger, fontFamily: fonts.headingSemiBold },
 });

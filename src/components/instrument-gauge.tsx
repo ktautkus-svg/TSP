@@ -13,19 +13,20 @@ import Svg, {
 } from 'react-native-svg';
 
 import { fonts } from '@/ui/tokens';
-import type { ColorPalette } from '@/ui/theme-palette';
+import { stitchCockpitTheme } from '@/theme';
 
-type InstrumentGaugeProps = {
+export interface InstrumentGaugeProps {
   /** Amount already handed over. Drives the needle and the progress arc. */
-  value: number;
+  readonly value: number;
   /** Amount still on board. Drives the readout inside the cut-out wedge. */
-  remaining?: number;
-  maximum: number;
-  unit?: string;
-  title: string;
-  colors: ColorPalette;
-  size?: number;
-};
+  readonly remaining?: number;
+  readonly maximum: number;
+  readonly unit?: string;
+  readonly title: string;
+  readonly size?: number;
+}
+
+const cockpit = stitchCockpitTheme.colors;
 
 const VIEW = 240;
 const CENTER = 120;
@@ -97,7 +98,6 @@ export function InstrumentGauge({
   maximum,
   unit = '',
   title,
-  colors,
   size: requestedSize,
 }: InstrumentGaugeProps) {
   const { width } = useWindowDimensions();
@@ -128,52 +128,52 @@ export function InstrumentGauge({
         <Svg width={size} height={size} viewBox={`0 0 ${VIEW} ${VIEW}`}>
           <Defs>
             <RadialGradient id="dial" cx="42%" cy="30%" r="76%">
-              <Stop offset="0" stopColor="#454E48" />
-              <Stop offset="0.55" stopColor="#242B26" />
-              <Stop offset="1" stopColor="#141915" />
+              <Stop offset="0" stopColor={cockpit.surface} />
+              <Stop offset="0.58" stopColor={cockpit.metalLight} />
+              <Stop offset="1" stopColor={cockpit.surfaceContainerHigh} />
             </RadialGradient>
             <LinearGradient id="bezel" x1="0" y1="0" x2="1" y2="1">
-              <Stop offset="0" stopColor="#F2F4F1" />
-              <Stop offset="0.22" stopColor="#505752" />
-              <Stop offset="0.48" stopColor="#D7DBD7" />
-              <Stop offset="0.75" stopColor="#252A27" />
-              <Stop offset="1" stopColor="#F6F7F5" />
+              <Stop offset="0" stopColor={cockpit.white} />
+              <Stop offset="0.22" stopColor={cockpit.metalMid} />
+              <Stop offset="0.48" stopColor={cockpit.metalLight} />
+              <Stop offset="0.75" stopColor={cockpit.metalDark} />
+              <Stop offset="1" stopColor={cockpit.white} />
             </LinearGradient>
             <LinearGradient id="progress" x1="0" y1="1" x2="1" y2="0">
-              <Stop offset="0" stopColor="#1F5A18" />
-              <Stop offset="0.45" stopColor="#4FA82A" />
-              <Stop offset="1" stopColor="#D4FF6E" />
+              <Stop offset="0" stopColor={cockpit.primaryDark} />
+              <Stop offset="0.45" stopColor={cockpit.primary} />
+              <Stop offset="1" stopColor={cockpit.routeBright} />
             </LinearGradient>
             <LinearGradient id="needle" x1="0" y1="0" x2="1" y2="0">
-              <Stop offset="0" stopColor={fraction >= 0.85 ? '#7A0B0B' : '#9A2F00'} />
-              <Stop offset="0.45" stopColor={fraction >= 0.85 ? '#E11D1D' : '#FF6A00'} />
-              <Stop offset="1" stopColor={fraction >= 0.85 ? '#FF6B6B' : '#FFD36A'} />
+              <Stop offset="0" stopColor={fraction >= 0.85 ? cockpit.error : cockpit.primaryDark} />
+              <Stop offset="0.45" stopColor={fraction >= 0.85 ? cockpit.error : cockpit.primary} />
+              <Stop offset="1" stopColor={fraction >= 0.85 ? cockpit.errorSoft : cockpit.routeBright} />
             </LinearGradient>
             <LinearGradient id="redZone" x1="0" y1="0" x2="1" y2="0">
-              <Stop offset="0" stopColor="#FF2A2A" stopOpacity={0} />
-              <Stop offset="0.55" stopColor="#FF2A2A" stopOpacity={0.18} />
-              <Stop offset="1" stopColor="#FF2A2A" stopOpacity={0.55} />
+              <Stop offset="0" stopColor={cockpit.error} stopOpacity={0} />
+              <Stop offset="0.55" stopColor={cockpit.error} stopOpacity={0.18} />
+              <Stop offset="1" stopColor={cockpit.error} stopOpacity={0.55} />
             </LinearGradient>
             <RadialGradient id="hub" cx="38%" cy="32%" r="70%">
-              <Stop offset="0" stopColor="#4B534D" />
-              <Stop offset="1" stopColor="#0A0D0B" />
+              <Stop offset="0" stopColor={cockpit.metalLight} />
+              <Stop offset="1" stopColor={cockpit.metalDark} />
             </RadialGradient>
             <RadialGradient id="wedgeGlow" cx="50%" cy="50%" r="50%">
-              <Stop offset="0" stopColor="#78C43C" stopOpacity={0.22} />
-              <Stop offset="0.6" stopColor="#78C43C" stopOpacity={0.06} />
-              <Stop offset="1" stopColor="#78C43C" stopOpacity={0} />
+              <Stop offset="0" stopColor={cockpit.primaryDim} stopOpacity={0.38} />
+              <Stop offset="0.6" stopColor={cockpit.primarySoft} stopOpacity={0.18} />
+              <Stop offset="1" stopColor={cockpit.surface} stopOpacity={0} />
             </RadialGradient>
           </Defs>
 
-          <Circle cx={CENTER} cy={CENTER} r={116} fill="#050706" />
+          <Circle cx={CENTER} cy={CENTER} r={116} fill={cockpit.surfaceDim} />
           <Circle cx={CENTER} cy={CENTER} r={111} fill="none" stroke="url(#bezel)" strokeWidth={7} />
-          <Circle cx={CENTER} cy={CENTER} r={104} fill="none" stroke="#050706" strokeWidth={5} />
+          <Circle cx={CENTER} cy={CENTER} r={104} fill="none" stroke={cockpit.metalDark} strokeWidth={4} />
 
-          <Path d={WEDGE_PATH} fill="#000000" />
-          <Path d={FACE_PATH} fill="url(#dial)" stroke="#C2CBC4" strokeOpacity={0.5} strokeWidth={1.6} />
-          <Path d={GLASS_PATH} fill="none" stroke="#FFFFFF" strokeOpacity={0.07} strokeWidth={9} />
+          <Path d={WEDGE_PATH} fill={cockpit.surfaceMuted} />
+          <Path d={FACE_PATH} fill="url(#dial)" stroke={cockpit.outlineVariant} strokeOpacity={0.9} strokeWidth={1.6} />
+          <Path d={GLASS_PATH} fill="none" stroke={cockpit.white} strokeOpacity={0.72} strokeWidth={9} />
 
-          <Path d={TRACK_PATH} fill="none" stroke="#141A12" strokeWidth={ARC_WIDTH + 1} strokeLinecap="round" />
+          <Path d={TRACK_PATH} fill="none" stroke={cockpit.surfaceDim} strokeWidth={ARC_WIDTH + 1} strokeLinecap="round" />
           <Path
             d={TRACK_PATH}
             fill="none"
@@ -188,8 +188,8 @@ export function InstrumentGauge({
               <Path
                 d={TRACK_PATH}
                 fill="none"
-                stroke="#D4FF6E"
-                strokeOpacity={0.22}
+                stroke={cockpit.primaryDim}
+                strokeOpacity={0.42}
                 strokeWidth={ARC_WIDTH + 5}
                 strokeLinecap="round"
                 strokeDasharray={`${(ARC_LENGTH * fraction).toFixed(2)} ${ARC_LENGTH.toFixed(2)}`}
@@ -212,7 +212,7 @@ export function InstrumentGauge({
               y1={CENTER - TICK_OUTER}
               x2={CENTER}
               y2={CENTER - TICK_MINOR_INNER}
-              stroke="#98A19A"
+              stroke={cockpit.outline}
               strokeWidth={1.2}
               transform={`rotate(${angleFor(tick)} ${CENTER} ${CENTER})`}
             />
@@ -224,7 +224,7 @@ export function InstrumentGauge({
               y1={CENTER - TICK_OUTER}
               x2={CENTER}
               y2={CENTER - TICK_MAJOR_INNER}
-              stroke="#FFFFFF"
+              stroke={cockpit.onSurface}
               strokeWidth={2.8}
               strokeLinecap="round"
               transform={`rotate(${angleFor(tick)} ${CENTER} ${CENTER})`}
@@ -239,7 +239,7 @@ export function InstrumentGauge({
             return (
               <SvgText
                 key={`label-${tick}`}
-                fill="#FFFFFF"
+                fill={cockpit.onSurface}
                 fontFamily={fonts.headingExtraBold}
                 fontSize={labelFontSize + 1.5}
                 fontWeight="900"
@@ -260,7 +260,7 @@ export function InstrumentGauge({
               y1={CENTER}
               x2={edge.x}
               y2={edge.y}
-              stroke="#5A8F48"
+              stroke={cockpit.primary}
               strokeOpacity={0.7}
               strokeWidth={1.4}
             />
@@ -269,28 +269,28 @@ export function InstrumentGauge({
           <G transform={`rotate(${needleAngle} ${CENTER} ${CENTER})`}>
             <Path
               d={`M 114.8 130 L ${CENTER} ${CENTER - NEEDLE_TIP} L 125.2 130 Z`}
-              fill="#000000"
+              fill={cockpit.shadow}
               opacity={0.55}
               transform="translate(3 3)"
             />
             {/* Counterweight stays cool grey so it never reads as the green wedge edge. */}
-            <Path d={`M 113.5 ${CENTER} L ${CENTER} 150 L 126.5 ${CENTER} Z`} fill="#5A6260" />
+            <Path d={`M 113.5 ${CENTER} L ${CENTER} 150 L 126.5 ${CENTER} Z`} fill={cockpit.metalDark} />
             <Path
               d={`M 114.8 130 L ${CENTER} ${CENTER - NEEDLE_TIP} L 125.2 130 Z`}
               fill="url(#needle)"
-              stroke={fraction >= 0.85 ? '#FFB0B0' : '#FFE08A'}
+              stroke={fraction >= 0.85 ? cockpit.errorSoft : cockpit.primarySoft}
               strokeWidth={1.4}
             />
             <Path
               d={`M ${CENTER - 3.4} ${CENTER - NEEDLE_TIP + 16} L ${CENTER} ${CENTER - NEEDLE_TIP} L ${CENTER + 3.4} ${CENTER - NEEDLE_TIP + 16} Z`}
-              fill={fraction >= 0.85 ? '#FFE0E0' : '#FFF8E0'}
+              fill={fraction >= 0.85 ? cockpit.errorSoft : cockpit.white}
             />
           </G>
-          <Circle cx={CENTER} cy={CENTER} r={13} fill="url(#hub)" stroke={fraction >= 0.85 ? '#E24A4A' : '#E0A040'} strokeWidth={2.4} />
-          <Circle cx={CENTER - 3} cy={CENTER - 4} r={3.2} fill="#69726B" opacity={0.75} />
+          <Circle cx={CENTER} cy={CENTER} r={13} fill="url(#hub)" stroke={fraction >= 0.85 ? cockpit.error : cockpit.primary} strokeWidth={2.4} />
+          <Circle cx={CENTER - 3} cy={CENTER - 4} r={3.2} fill={cockpit.metalMid} opacity={0.75} />
 
           <SvgText
-            fill="#FFFFFF"
+            fill={cockpit.onSurface}
             fontFamily={fonts.headingExtraBold}
             fontSize={readoutFontSize}
             fontWeight="900"
@@ -301,7 +301,7 @@ export function InstrumentGauge({
           </SvgText>
           {unit ? (
             <SvgText
-              fill="#C8D4C4"
+              fill={cockpit.onSurfaceVariant}
               fontFamily={fonts.heading}
               fontSize={13}
               fontWeight="800"
@@ -320,12 +320,12 @@ export function InstrumentGauge({
 
 const styles = StyleSheet.create({
   wrapper: { flex: 1, minWidth: 0, maxWidth: '46%', alignItems: 'center' },
-  title: { color: '#E7EBE7', fontFamily: fonts.heading, fontSize: 12, letterSpacing: 0.8, marginBottom: 3 },
+  title: { color: cockpit.onSurface, fontFamily: fonts.heading, fontSize: 12, letterSpacing: 0.8, marginBottom: 3 },
   shadow: {
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#0B0D0C',
-    shadowColor: '#000',
+    backgroundColor: cockpit.surfaceDim,
+    shadowColor: cockpit.shadow,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.34,
     shadowRadius: 12,

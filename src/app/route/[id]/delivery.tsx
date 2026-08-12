@@ -50,6 +50,7 @@ import { GatewayGeocodingProvider } from '@/infrastructure/routing/providers/gat
 import { DELIVERY_FAILURE_REASONS, deliveryMatchesFilter, type DeliveryFailureReason } from '@/domain/delivery-failure';
 import type { DeliveryFilter, DeliveryStop, Route, RouteEndpoint } from '@/domain/route';
 import { colors as instrumentColors, fonts, radius, spacing, type } from '@/ui/tokens';
+import { stitchCockpitTheme } from '@/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { formatWeightKg } from '@/ui/format-weight';
 import { failedDeliveryLabel, userVisibleStopNote } from '@/ui/route-labels';
@@ -69,7 +70,7 @@ function recalcTimestamp(stop: DeliveryStop): string | null {
 }
 
 export default function DeliveryScreen() {
-  const { profile } = useLocalAccess();
+  const { profile, online } = useLocalAccess();
   const { requestSync, revision: syncRevision } = useRouteCloudSync();
   const db = useSQLiteContext();
   const router = useRouter();
@@ -152,16 +153,23 @@ export default function DeliveryScreen() {
     }
   }, [db, repository, routeId, router]);
 
+  const publishProgress = useCallback(async () => {
+    if (!online || profile.role !== 'driver') return;
+    await pushRouteAssignmentProgress(db, routeId).catch((reason) => {
+      if (__DEV__) console.warn('LIVE_PROGRESS_SYNC_FAILED', reason);
+    });
+  }, [db, online, profile.role, routeId]);
+
   useEffect(() => {
-    const timer = setInterval(() => { void load(); }, 60_000);
+    const timer = setInterval(() => { void load().then(publishProgress); }, 30_000);
     return () => clearInterval(timer);
-  }, [load]);
+  }, [load, publishProgress]);
 
   useEffect(() => {
     setActiveView(view === 'stops' ? 'stops' : 'dashboard');
   }, [view]);
 
-  useFocusEffect(useCallback(() => { void load(); }, [load]));
+  useFocusEffect(useCallback(() => { void load().then(publishProgress); }, [load, publishProgress]));
 
   useEffect(() => {
     if (syncRevision > 0) void load();
@@ -182,6 +190,7 @@ export default function DeliveryScreen() {
       setExpandedStopId(null);
       await load();
       void requestSync('mutation');
+      void publishProgress();
     } catch (reason) {
       Alert.alert('Nepavyko pažymėti', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
     } finally {
@@ -205,6 +214,7 @@ export default function DeliveryScreen() {
       setExpandedStopId(null);
       await load();
       void requestSync('mutation');
+      void publishProgress();
       Alert.alert('Pristatymas pažymėtas kaip nepavykęs', 'Taškas pašalintas iš likusių pristatymų. Esama seka nepakeista.');
     } catch (reason) {
       Alert.alert('Nepavyko išsaugoti', reason instanceof Error ? reason.message : 'Patikrinkite komentarą.');
@@ -230,6 +240,7 @@ export default function DeliveryScreen() {
       setRecalculation(null);
       await load();
       void requestSync('mutation');
+      void publishProgress();
     } catch (reason) {
       Alert.alert('Sekos pakeisti nepavyko', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
     }
@@ -266,6 +277,7 @@ export default function DeliveryScreen() {
       setShowAddStop(false);
       await load();
       void requestSync('mutation');
+      void publishProgress();
       // Anchor recalculation on the most recently completed stop, so the new
       // stop gets positioned "according to the route" (per closest-to-current
       // travel cost) rather than just appended at the end.
@@ -290,6 +302,7 @@ export default function DeliveryScreen() {
       await new UndoRouteAction(db).execute(undo.id);
       await load();
       void requestSync('mutation');
+      void publishProgress();
     } catch (reason) {
       Alert.alert('Veiksmo atšaukti nepavyko', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
     }
@@ -336,6 +349,7 @@ export default function DeliveryScreen() {
       await new StartRouteReturn(db).execute(routeId, kind, endpoint);
       await load();
       void requestSync('mutation');
+      void publishProgress();
       await navigateToEndpoint(endpoint);
     } catch (reason) {
       Alert.alert('Grįžimo pradėti nepavyko', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
@@ -353,6 +367,7 @@ export default function DeliveryScreen() {
       await load();
       setShowFinish(true);
       void requestSync('mutation');
+      void publishProgress();
     } catch (reason) {
       Alert.alert('Atvykimo patvirtinti nepavyko', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
     } finally {
@@ -365,6 +380,7 @@ export default function DeliveryScreen() {
       await new SaveStartOdometer(db).execute(routeId, parseOdometer(startOdometer));
       await load();
       void requestSync('mutation');
+      void publishProgress();
     } catch (reason) {
       Alert.alert('Neteisingas odometras', reason instanceof Error ? reason.message : 'Patikrinkite reikšmę.');
     }
@@ -437,6 +453,7 @@ export default function DeliveryScreen() {
       setShowFinish(true);
       await load();
       void requestSync('mutation');
+      void publishProgress();
     } catch (reason) {
       Alert.alert('Užbaigimo pradėti nepavyko', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
     } finally {
@@ -536,29 +553,28 @@ export default function DeliveryScreen() {
               <View style={styles.gaugePanel}>
                 <View style={styles.gaugeRow}>
                   <InstrumentGauge
-                    colors={colors}
-                    maximum={progress.totalStops}
-                    remaining={progress.remainingStops}
+                    maximum={progress.totalKnownWeightKg}
+                    remaining={progress.remainingKnownWeightKg}
                     size={gaugeSize}
-                    title="Progresas"
-                    unit={`${progress.totalStops - progress.remainingStops}/${progress.totalStops} · ${progress.deliveryPercent}%`}
-                    value={progress.totalStops - progress.remainingStops}
+                    title="Svoris"
+                    unit="kg"
+                    value={Math.max(0, progress.totalKnownWeightKg - progress.remainingKnownWeightKg)}
                   />
                   <View style={styles.gaugeCenterStats}>
                     <Text style={styles.gaugeCenterLabel}>LAIKAS</Text>
                     <Text numberOfLines={1} style={styles.gaugeCenterValue}>{elapsedLabel(route?.startedAt ?? null)}</Text>
                     <View style={styles.gaugeCenterDivider} />
-                    <Text style={styles.gaugeCenterLabel}>BŪSENA</Text>
-                    <Text numberOfLines={2} style={styles.gaugeCenterUnit}>{operationalRouteStatus(route)}</Text>
+                    <Text style={styles.gaugeCenterLabel}>LIKĘ KM</Text>
+                    <Text numberOfLines={1} style={styles.gaugeCenterValue}>{formatMetric(progress.preliminaryRemainingDistanceKm)}</Text>
+                    <Text style={styles.gaugeCenterUnit}>km</Text>
                   </View>
                   <InstrumentGauge
-                    colors={colors}
-                    maximum={route?.estimatedDistanceKm ?? progress.preliminaryRemainingDistanceKm ?? 1}
-                    remaining={progress.preliminaryRemainingDistanceKm ?? 0}
+                    maximum={progress.totalStops}
+                    remaining={progress.remainingStops}
                     size={gaugeSize}
-                    title="Likęs kelias"
-                    unit="km"
-                    value={Math.max(0, (route?.estimatedDistanceKm ?? progress.preliminaryRemainingDistanceKm ?? 0) - (progress.preliminaryRemainingDistanceKm ?? 0))}
+                    title="Taškai"
+                    unit="tšk."
+                    value={progress.totalStops - progress.remainingStops}
                   />
                 </View>
               </View>
@@ -601,7 +617,7 @@ export default function DeliveryScreen() {
                     </View>
                   </View>
                   <View style={styles.dashboardStopActions} testID="dashboard-stop-actions">
-                    <Pressable style={[styles.dashboardActionButton, styles.dashboardNavigateButton]} onPress={() => { void navigate(nextStop); }}>
+                    <Pressable accessibilityLabel="Naviguoti į kitą stotelę" accessibilityRole="button" style={[styles.dashboardActionButton, styles.dashboardNavigateButton]} onPress={() => { void navigate(nextStop); }}>
                       <NavigateIcon size={28} />
                       <Text numberOfLines={1} style={styles.dashboardActionText}>NAVIGUOTI</Text>
                     </Pressable>
@@ -652,6 +668,8 @@ export default function DeliveryScreen() {
                     </View>
                   ) : (
                     <Pressable
+                      accessibilityLabel="Pažymėti kitą stotelę atlikta"
+                      accessibilityRole="button"
                       disabled={busy}
                       onPress={() => { void beginFinish(); }}
                       style={[styles.completeRouteButton, busy && styles.disabled]}
@@ -690,8 +708,10 @@ export default function DeliveryScreen() {
                 ))}
               </View>
               {canRecalculateRemaining ? (
-                <Pressable
-                  disabled={busy}
+                    <Pressable
+                      accessibilityLabel="Pažymėti kitą stotelę neatlikta"
+                      accessibilityRole="button"
+                      disabled={busy}
                   testID="recalculate-remaining-route"
                   style={[styles.recalculateButton, busy && styles.disabled]}
                   onPress={() => { if (recalculationAnchor) void proposeRecalculation(recalculationAnchor.id); }}>
@@ -714,7 +734,9 @@ export default function DeliveryScreen() {
         return (
           <SwipeActionCard key={stop.id} onSwipeRight={() => { void delivered(stop.id); }} onSwipeLeft={() => beginFailed(stop.id)} style={[styles.card, stop.deliveryStatus === 'delivered' && styles.deliveredCard, stop.deliveryStatus === 'failed' && styles.failedCard]}>
             <Pressable
+              accessibilityLabel={`${statusLabel(stop)}, ${stop.normalizedAddress ?? stop.originalAddress}`}
               accessibilityRole="button"
+              accessibilityState={{ expanded }}
               onPress={() => setExpandedStopId(expanded ? null : stop.id)}
               style={styles.cardHeader}>
               <ScheduleDot stop={stop} colors={colors} routeDate={route?.date} />
@@ -726,7 +748,7 @@ export default function DeliveryScreen() {
               <Text style={styles.chevron}>{expanded ? '▾' : '▸'}</Text>
             </Pressable>
             {expanded ? (
-              <>
+              <View style={styles.cardDetails}>
                 <View style={styles.etaRow}>
                   <ScheduleDot stop={stop} colors={colors} routeDate={route?.date} />
                   <Text style={styles.eta}>{etaLabel(stop)}</Text>
@@ -740,11 +762,11 @@ export default function DeliveryScreen() {
                   <Text style={styles.failure}>{failedDeliveryLabel(stop.failureReason, stop.failureComment)}</Text>
                 ) : null}
                 <View style={styles.actions}>
-                  <Pressable style={styles.navigateButton} onPress={() => { void navigate(stop); }}><Text style={styles.buttonText}>Navigacija</Text></Pressable>
-                  <Pressable style={styles.deliverButton} onPress={() => { void delivered(stop.id); }}><Text style={styles.buttonText}>Pristatyta</Text></Pressable>
-                  <Pressable style={styles.failButton} onPress={() => beginFailed(stop.id)}><Text style={styles.buttonText}>Nepavyko</Text></Pressable>
+                  <Pressable accessibilityLabel="Naviguoti į stotelę" accessibilityRole="button" style={styles.navigateButton} onPress={() => { void navigate(stop); }}><Text style={styles.buttonText}>NAVIGUOTI</Text></Pressable>
+                  <Pressable accessibilityLabel="Pažymėti atlikta" accessibilityRole="button" style={styles.deliverButton} onPress={() => { void delivered(stop.id); }}><Text style={styles.buttonText}>ATLIKTA</Text></Pressable>
+                  <Pressable accessibilityLabel="Pažymėti neatlikta" accessibilityRole="button" style={styles.failButton} onPress={() => beginFailed(stop.id)}><Text style={styles.buttonText}>NEATLIKTA</Text></Pressable>
                 </View>
-              </>
+              </View>
             ) : null}
           </SwipeActionCard>
         );
@@ -757,7 +779,7 @@ export default function DeliveryScreen() {
       <RouteBottomTabs
         active={activeView}
         onDashboard={() => setActiveView('dashboard')}
-        onHistory={() => router.push('/history' as Href)}
+        onRoutes={() => router.push('/history' as Href)}
         onStops={() => setActiveView('stops')}
       />
     </View>
@@ -927,12 +949,9 @@ function elapsedLabel(startedAt: string | null): string {
   return `${hours}:${String(minutes).padStart(2, '0')}`;
 }
 
-function operationalRouteStatus(route: Route | null): string {
-  if (!route) return 'Aktyvus';
-  if (route.returnArrivedAt) return 'Odometras';
-  if (route.returnStartedAt) return route.returnDestinationKind === 'home' ? 'Namo' : 'Sandėlis';
-  if (route.remainingStops === 0) return 'Pristatyta';
-  return 'Aktyvus';
+function formatMetric(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '—';
+  return new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(value);
 }
 
 function filterLabel(filter: DeliveryFilter): string {
@@ -982,7 +1001,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     paddingTop: 1,
     paddingHorizontal: 14,
     paddingBottom: 4,
-    backgroundColor: '#090D0B',
+    backgroundColor: stitchCockpitTheme.colors.surface,
   },
   gaugeRow: {
     width: '100%',
@@ -1000,16 +1019,16 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     paddingHorizontal: 5,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#465049',
-    backgroundColor: '#101512',
+    borderColor: stitchCockpitTheme.colors.outlineVariant,
+    backgroundColor: stitchCockpitTheme.colors.surfaceMuted,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 2,
   },
-  gaugeCenterLabel: { color: '#AEB8B1', fontFamily: fonts.headingSemiBold, fontSize: 8, textAlign: 'center', letterSpacing: 0.3 },
-  gaugeCenterValue: { color: '#FFFFFF', fontFamily: fonts.headingExtraBold, fontSize: 17, lineHeight: 21, textAlign: 'center' },
-  gaugeCenterUnit: { color: '#AEB8B1', fontFamily: fonts.headingSemiBold, fontSize: 9, lineHeight: 11, textAlign: 'center' },
-  gaugeCenterDivider: { width: '100%', height: 1, marginVertical: 5, backgroundColor: '#68716B' },
+  gaugeCenterLabel: { color: stitchCockpitTheme.colors.onSurfaceVariant, fontFamily: fonts.headingSemiBold, fontSize: 8, textAlign: 'center', letterSpacing: 0.3 },
+  gaugeCenterValue: { color: stitchCockpitTheme.colors.onSurface, fontFamily: fonts.headingExtraBold, fontSize: 17, lineHeight: 21, textAlign: 'center' },
+  gaugeCenterUnit: { color: stitchCockpitTheme.colors.onSurfaceVariant, fontFamily: fonts.headingSemiBold, fontSize: 9, lineHeight: 11, textAlign: 'center' },
+  gaugeCenterDivider: { width: '100%', height: 1, marginVertical: 5, backgroundColor: stitchCockpitTheme.colors.outlineVariant },
   routeMetrics: { flexDirection: 'row', paddingHorizontal: 14, borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
   routeMetricCard: {
     flex: 1,
@@ -1098,12 +1117,13 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   card: { padding: 0, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: 0 },
   deliveredCard: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
   failedCard: { borderColor: colors.danger, backgroundColor: colors.dangerSoft },
-  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 44 },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 68, padding: spacing.md },
+  cardDetails: { paddingHorizontal: spacing.md, paddingBottom: spacing.md, borderTopWidth: 1, borderTopColor: colors.borderSubtle, gap: spacing.xs },
   cardHeaderText: { flex: 1, minWidth: 0 },
   chevron: { color: colors.textMuted, fontSize: 16, fontFamily: fonts.heading },
-  order: { color: colors.accent, fontFamily: fonts.headingSemiBold },
+  order: { color: colors.info, fontFamily: fonts.headingSemiBold },
   address: { color: colors.text, fontSize: 17, fontFamily: fonts.heading },
-  weight: { color: colors.text, fontSize: 16, fontFamily: fonts.headingSemiBold },
+  weight: { color: colors.textMuted, fontSize: 13, fontFamily: fonts.headingSemiBold },
   eta: { color: colors.accent, fontSize: 17, fontFamily: fonts.heading },
   schedule: { color: colors.text, fontFamily: fonts.headingSemiBold },
   informational: { color: colors.textMuted, opacity: 0.7, lineHeight: 20 },

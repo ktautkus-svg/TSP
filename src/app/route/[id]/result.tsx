@@ -5,7 +5,8 @@ import { useSQLiteContext } from 'expo-sqlite';
 
 import { resolveRoute } from '@/application/routes/route-navigation';
 import { FoundationScreen } from '@/components/foundation-screen';
-import { AppButton, AppCard, StatusBadge } from '@/components/ui-primitives';
+import { AppButton } from '@/components/ui-primitives';
+import { RouteResultSummary } from '@/components/route-result-summary';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import type { Route } from '@/domain/route';
 import { spacing, type } from '@/ui/tokens';
@@ -57,35 +58,20 @@ export default function RouteResultScreen() {
       <FoundationScreen showFoundationNotice={false} title="Maršrutas užbaigtas" description="Darbo dienos rezultatas išsaugotas istorijoje.">
         {error ? <Text style={styles.error}>{error}</Text> : null}
         {route ? (
-          <AppCard style={styles.summary} testID="route-completion-result">
-            <StatusBadge label="Užbaigta" tone="success" />
-            <Text style={styles.title}>Maršrutas užbaigtas</Text>
-            <Text style={styles.meta}>Faktinis kilometražas: {route.actualDistanceKm?.toFixed(1) ?? '—'} km</Text>
-            <Text style={styles.meta}>Planuotas kilometražas: {route.estimatedDistanceKm?.toFixed(1) ?? '—'} km</Text>
-            <Text style={styles.meta}>
-              Nuokrypis km: {route.completionSummary?.distanceDeviationKm == null
-                ? '—'
-                : `${route.completionSummary.distanceDeviationKm > 0 ? '+' : ''}${route.completionSummary.distanceDeviationKm.toFixed(1)} km`}
-            </Text>
-            <Text style={styles.meta}>Laiku: {route.completionSummary?.onTimeStops ?? 0}</Text>
-            <Text style={styles.meta}>Vėlavo: {route.completionSummary?.lateStops ?? 0}</Text>
-            <Text style={styles.meta}>
-              Trukmė: planuota {route.completionSummary?.plannedDurationMinutes ?? route.estimatedDurationMinutes ?? '—'} min ·
-              faktinė {route.completionSummary?.actualDurationMinutes ?? '—'} min
-            </Text>
-            <Text style={styles.meta}>
-              Nuokrypis laiku: {route.completionSummary?.durationDeviationMinutes == null
-                ? '—'
-                : `${route.completionSummary.durationDeviationMinutes > 0 ? '+' : ''}${route.completionSummary.durationDeviationMinutes} min`}
-            </Text>
-            <Text style={styles.meta}>Pristatyta: {route.completionSummary?.deliveredStops ?? 0}</Text>
-            <Text style={styles.meta}>Nepavyko pristatyti: {route.completionSummary?.failedStops ?? 0}</Text>
-            <Text style={styles.meta}>Pradinis odometras: {route.startOdometer ?? 'neįvestas'}</Text>
-            <Text style={styles.meta}>Galutinis odometras: {route.endOdometer ?? 'neįvestas'}</Text>
-          </AppCard>
+          <RouteResultSummary
+            actualDistance={`${route.actualDistanceKm?.toFixed(1) ?? '—'} km`}
+            deliveredStops={route.completionSummary?.deliveredStops ?? 0}
+            distanceDeviation={formatSigned(route.completionSummary?.distanceDeviationKm, 'km', 1)}
+            duration={formatMinutes(route.completionSummary?.actualDurationMinutes)}
+            durationDeviation={formatSigned(route.completionSummary?.durationDeviationMinutes, 'min')}
+            endOdometer={route.endOdometer == null ? 'neįvestas' : String(route.endOdometer)}
+            failedStops={route.completionSummary?.failedStops ?? 0}
+            plannedDistance={`${route.estimatedDistanceKm?.toFixed(1) ?? '—'} km`}
+            startOdometer={route.startOdometer == null ? 'neįvestas' : String(route.startOdometer)}
+          />
         ) : null}
         {route ? (
-          <AppButton label="Peržiūrėti istoriją" onPress={() => router.replace(`/history/${route.id}` as Href)} />
+          <AppButton label="Peržiūrėti maršrutą" onPress={() => router.replace(`/history/${route.id}` as Href)} />
         ) : null}
         <AppButton label="Į pradžią" onPress={goHome} variant="secondary" />
       </FoundationScreen>
@@ -94,10 +80,19 @@ export default function RouteResultScreen() {
 }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
-  summary: { gap: spacing.sm },
-  title: { ...type.sectionTitle, color: colors.text },
-  meta: { ...type.body, color: colors.textSecondary },
   headerAction: { minWidth: 84, minHeight: 44, justifyContent: 'center' },
   headerText: { ...type.button, color: colors.textInverse },
   error: { ...type.secondaryStrong, color: colors.danger },
 });
+
+function formatMinutes(value: number | null | undefined): string {
+  if (value === null || value === undefined) return '—';
+  const hours = Math.floor(value / 60);
+  const minutes = Math.round(value % 60);
+  return hours > 0 ? `${hours} val. ${minutes} min.` : `${minutes} min.`;
+}
+
+function formatSigned(value: number | null | undefined, unit: string, digits = 0): string {
+  if (value === null || value === undefined) return '—';
+  return `${value > 0 ? '+' : ''}${value.toFixed(digits)} ${unit}`;
+}

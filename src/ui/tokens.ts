@@ -61,6 +61,10 @@ export const colors = {
 
   /** Header/chrome surface. Kept as its own key because it is brand, not action. */
   brandNavy: '#07351E',
+  /** TSP wordmark-only colors; they do not define the operational UI palette. */
+  brandWordmarkBlue: '#123A63',
+  brandWordmarkGreen: '#32B44A',
+  brandWordmarkGreenLight: '#75D65F',
 } as const;
 
 export const fonts = {

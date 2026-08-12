@@ -150,8 +150,8 @@ export default function RootLayout() {
               <Stack.Screen name="route/[id]/loading" options={{ title: 'Krovimasis' }} />
               <Stack.Screen name="route/[id]/delivery" options={{ title: 'Pristatymai' }} />
               <Stack.Screen name="route/[id]/result" options={{ title: 'Maršruto rezultatas' }} />
-              <Stack.Screen name="history" options={{ title: 'Maršrutų istorija' }} />
-              <Stack.Screen name="history/[id]" options={{ title: 'Maršruto istorija' }} />
+              <Stack.Screen name="history" options={{ title: 'Maršrutai' }} />
+              <Stack.Screen name="history/[id]" options={{ title: 'Maršruto rezultatas' }} />
               <Stack.Screen name="settings/index" options={{ title: 'Nustatymai' }} />
               <Stack.Screen name="settings/locations" options={{ title: 'Numatytosios vietos' }} />
               <Stack.Screen name="statistics" options={{ title: 'Statistika' }} />

@@ -3,18 +3,18 @@ import Svg, { Circle, Path } from 'react-native-svg';
 
 import { colors, fonts } from '@/ui/tokens';
 
-export type RouteBottomTab = 'dashboard' | 'stops' | 'history';
+export type RouteBottomTab = 'dashboard' | 'stops' | 'routes';
 
 export function RouteBottomTabs(props: {
   active: RouteBottomTab;
   onDashboard: () => void;
   onStops: () => void;
-  onHistory: () => void;
+  onRoutes: () => void;
 }) {
   const tabs = [
     { key: 'dashboard', label: 'SKYDELIS', onPress: props.onDashboard },
     { key: 'stops', label: 'STOTELĖS', onPress: props.onStops },
-    { key: 'history', label: 'ISTORIJA', onPress: props.onHistory },
+    { key: 'routes', label: 'MARŠRUTAI', onPress: props.onRoutes },
   ] as const;
 
   return (
@@ -23,7 +23,9 @@ export function RouteBottomTabs(props: {
         const active = props.active === tab.key;
         return (
           <Pressable
+            accessibilityLabel={tab.label.toLocaleLowerCase('lt-LT')}
             accessibilityRole="button"
+            accessibilityState={{ selected: active }}
             key={tab.key}
             onPress={tab.onPress}
             style={[styles.tabItem, active && styles.tabItemActive]}>

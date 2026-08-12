@@ -132,15 +132,13 @@ export function LocalAccessGate({ children }: { children: ReactNode }) {
   if (!unlocked || !profile) {
     const bootstrap = mode === 'bootstrap';
     return (
-      <View style={styles.screen} testID={bootstrap ? 'employee-bootstrap-screen' : 'employee-login-screen'}>
+      <View style={[styles.screen, bootstrap && styles.bootstrapScreen]} testID={bootstrap ? 'employee-bootstrap-screen' : 'employee-login-screen'}>
         <View style={styles.brand}>
-          <TspBrand descriptor="Maršrutai ir pristatymai" />
+          <TspBrand hero inverse={bootstrap} />
         </View>
-        <View style={styles.card}>
-          <Text style={styles.title}>{bootstrap ? 'Aktyvuoti administratorių' : 'Darbuotojo prisijungimas'}</Text>
-          <Text style={styles.helper}>{bootstrap
-            ? 'Aktyvuokite administratoriaus paskyrą „Sensejus“. Pradinį 4–8 skaitmenų PIN vėliau galėsite pakeisti nustatymuose.'
-            : 'Prisijunkite darbdavio suteiktu vardu ir PIN. Aktyvus maršrutas vėliau veiks ir be interneto.'}</Text>
+        <View style={[styles.card, bootstrap && styles.bootstrapCard]}>
+          <Text style={[styles.title, !bootstrap && styles.loginTitle]}>{bootstrap ? 'Aktyvuoti administratorių' : 'Prisijungti'}</Text>
+          {bootstrap ? <Text style={styles.helper}>Aktyvuokite administratoriaus paskyrą „Sensejus“. Pradinį 4–8 skaitmenų PIN vėliau galėsite pakeisti nustatymuose.</Text> : null}
           {bootstrap ? <TextInput
             value={displayName}
             onChangeText={setDisplayName}
@@ -149,26 +147,32 @@ export function LocalAccessGate({ children }: { children: ReactNode }) {
             style={styles.input}
             testID="employee-display-name"
           /> : null}
-          <TextInput
-            value={username}
-            onChangeText={setUsername}
-            autoCapitalize="none"
-            autoCorrect={false}
-            placeholder="Prisijungimo vardas"
-            placeholderTextColor="#708078"
-            style={styles.input}
-            testID="login-username"
-          />
-          <TextInput
-            value={pin}
-            onChangeText={(value) => setPin(value.replace(/\D/g, '').slice(0, 8))}
-            keyboardType="number-pad"
-            secureTextEntry
-            placeholder="4–8 skaitmenų PIN"
-            placeholderTextColor="#708078"
-            style={styles.input}
-            testID="login-pin"
-          />
+          <View style={styles.field}>
+            <Text style={styles.label}>PRISIJUNGIMO VARDAS</Text>
+            <TextInput
+              value={username}
+              onChangeText={setUsername}
+              autoCapitalize="none"
+              autoCorrect={false}
+              placeholder="Vartotojo vardas"
+              placeholderTextColor={colors.textSubtle}
+              style={styles.input}
+              testID="login-username"
+            />
+          </View>
+          <View style={styles.field}>
+            <Text style={styles.label}>PIN KODAS</Text>
+            <TextInput
+              value={pin}
+              onChangeText={(value) => setPin(value.replace(/\D/g, '').slice(0, 8))}
+              keyboardType="number-pad"
+              secureTextEntry
+              placeholder="•••••"
+              placeholderTextColor={colors.textSubtle}
+              style={styles.input}
+              testID="login-pin"
+            />
+          </View>
           {bootstrap ? <TextInput
             value={confirmPin}
             onChangeText={(value) => setConfirmPin(value.replace(/\D/g, '').slice(0, 8))}
@@ -195,10 +199,9 @@ export function LocalAccessGate({ children }: { children: ReactNode }) {
           </> : null}
           {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
           <Pressable disabled={busy} onPress={() => void submit()} style={[styles.button, busy && styles.disabled]} testID="login-submit">
-            {busy ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.buttonText}>{bootstrap ? 'Aktyvuoti ir tęsti' : 'Prisijungti'}</Text>}
+            {busy ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.buttonText}>{bootstrap ? 'Aktyvuoti ir tęsti' : 'Prisijungti'}</Text>}
           </Pressable>
         </View>
-        {!bootstrap ? <Text style={styles.deviceNote}>Prisijungimas saugomas šiame įrenginyje. Darbo duomenys lieka SQLite.</Text> : null}
       </View>
     );
   }
@@ -216,17 +219,19 @@ export function LocalAccessGate({ children }: { children: ReactNode }) {
 }
 
 const styles = StyleSheet.create({
-  // Brand-green sign-in backdrop: the one screen where a full colour field is
-  // the point, since it is the app's front door.
-  screen: { flex: 1, backgroundColor: colors.brandNavy, alignItems: 'center', justifyContent: 'center', padding: spacing.lg, gap: spacing.lg },
+  screen: { flex: 1, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', padding: spacing.lg, gap: spacing.xl },
+  bootstrapScreen: { backgroundColor: colors.brandNavy },
   brand: { alignItems: 'center', gap: 2 },
-  card: { width: '100%', maxWidth: 420, padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surface, gap: spacing.md },
+  card: { width: '100%', maxWidth: 420, paddingHorizontal: spacing.lg, paddingVertical: spacing.md, borderRadius: radius.lg, backgroundColor: colors.surface, gap: spacing.md },
+  bootstrapCard: { padding: spacing.lg },
   title: { ...type.pageTitle, fontSize: 22, lineHeight: 27, color: colors.text },
+  loginTitle: { textAlign: 'center', marginBottom: spacing.sm },
   helper: { ...type.body, color: colors.textMuted },
+  field: { gap: spacing.sm },
+  label: { ...type.label, color: colors.textSecondary },
   input: { minHeight: 52, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radius.md, paddingHorizontal: spacing.md, color: colors.text, backgroundColor: colors.surface, fontSize: 16, fontFamily: fonts.body },
   button: { minHeight: 54, borderRadius: radius.md, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  buttonText: { ...type.button, fontSize: 16, color: '#FFFFFF' },
+  buttonText: { ...type.button, fontSize: 16, color: colors.textInverse },
   error: { ...type.secondary, fontFamily: fonts.headingSemiBold, color: colors.danger },
   disabled: { opacity: 0.55 },
-  deviceNote: { ...type.meta, color: 'rgba(255,255,255,0.6)', textAlign: 'center' },
 });

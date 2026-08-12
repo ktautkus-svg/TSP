@@ -1,0 +1,61 @@
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useRouter, type Href } from 'expo-router';
+import Svg, { Circle, Path } from 'react-native-svg';
+
+import { colors, fonts } from '@/ui/tokens';
+
+export type DriverAppTab = 'now' | 'routes' | 'statistics' | 'settings';
+
+export interface DriverAppTabsProps {
+  readonly active: DriverAppTab;
+}
+
+const tabs: ReadonlyArray<{ key: DriverAppTab; label: string; href: Href }> = [
+  { key: 'now', label: 'DABAR', href: '/' },
+  { key: 'routes', label: 'MARŠRUTAI', href: '/history' },
+  { key: 'statistics', label: 'STATISTIKA', href: '/statistics' },
+  { key: 'settings', label: 'NUSTATYMAI', href: '/settings' },
+];
+
+export function DriverAppTabs({ active }: DriverAppTabsProps) {
+  const router = useRouter();
+  return (
+    <View style={styles.tabBar} testID="driver-app-tabs">
+      {tabs.map((tab) => {
+        const selected = active === tab.key;
+        return (
+          <Pressable
+            accessibilityLabel={tab.label.toLocaleLowerCase('lt-LT')}
+            accessibilityRole="button"
+            accessibilityState={{ selected }}
+            key={tab.key}
+            onPress={() => { if (!selected) router.replace(tab.href); }}
+            style={[styles.tab, selected && styles.tabActive]}>
+            <TabIcon active={selected} tab={tab.key} />
+            <Text numberOfLines={1} style={[styles.label, selected && styles.labelActive]}>{tab.label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+function TabIcon({ active, tab }: { readonly active: boolean; readonly tab: DriverAppTab }) {
+  const color = active ? colors.primary : colors.textMuted;
+  return (
+    <Svg accessibilityLabel="" height={22} viewBox="0 0 24 24" width={22}>
+      {tab === 'now' ? <Path d="M4 12 12 5l8 7v8h-5v-5H9v5H4Z" fill="none" stroke={color} strokeLinejoin="round" strokeWidth={1.9} /> : null}
+      {tab === 'routes' ? <Path d="M6 4v4m0 0a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm0 0v8m0 0v4m0-4c7 0 5-8 12-8m0 0a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm0 0v12" fill="none" stroke={color} strokeLinecap="round" strokeWidth={1.8} /> : null}
+      {tab === 'statistics' ? <Path d="M5 20v-6h3v6Zm6 0V5h3v15Zm6 0V10h3v10Z" fill={color} /> : null}
+      {tab === 'settings' ? <><Circle cx={12} cy={12} fill="none" r={3.2} stroke={color} strokeWidth={1.8} /><Path d="m12 3 1.2 2.2 2.5.6 2.2-1.1 1.4 1.4-1.1 2.2.6 2.5L21 12l-2.2 1.2-.6 2.5 1.1 2.2-1.4 1.4-2.2-1.1-2.5.6L12 21l-1.2-2.2-2.5-.6-2.2 1.1-1.4-1.4 1.1-2.2-.6-2.5L3 12l2.2-1.2.6-2.5-1.1-2.2 1.4-1.4 2.2 1.1 2.5-.6Z" fill="none" stroke={color} strokeLinejoin="round" strokeWidth={1.3} /></> : null}
+    </Svg>
+  );
+}
+
+const styles = StyleSheet.create({
+  tabBar: { alignSelf: 'center', width: '100%', maxWidth: 430, minHeight: 58, flexShrink: 0, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surface, flexDirection: 'row' },
+  tab: { flex: 1, minWidth: 0, alignItems: 'center', justifyContent: 'center', gap: 2, borderTopWidth: 2, borderTopColor: 'transparent', paddingHorizontal: 2 },
+  tabActive: { borderTopColor: colors.primary },
+  label: { color: colors.textMuted, fontFamily: fonts.headingSemiBold, fontSize: 8, letterSpacing: 0.2 },
+  labelActive: { color: colors.primary },
+});

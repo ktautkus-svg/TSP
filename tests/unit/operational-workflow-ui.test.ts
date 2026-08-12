@@ -11,6 +11,7 @@ describe('driver operational UI', () => {
     const home = read('src/app/index.tsx');
     const layout = read('src/app/_layout.tsx');
     expect(home).toContain('driver-route-list');
+    expect(home).toContain("!initialRestoreHandled.current && route?.status === 'in_progress'");
     expect(home).toContain('listOperational');
     expect(home).toContain('Pirma užbaikite aktyvų maršrutą');
     expect(layout).toContain('RoleAccessBoundary');

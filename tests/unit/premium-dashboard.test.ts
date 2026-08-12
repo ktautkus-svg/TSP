@@ -14,7 +14,7 @@ describe('premium route dashboard', () => {
     expect(gauge).toContain('const DIAL_MIN_ANGLE = 240');
     expect(gauge).toContain('const DIAL_SWEEP = 240');
     expect(gauge).toContain('const WEDGE_PATH');
-    expect(gauge).toContain('d={WEDGE_PATH} fill="#000000"');
+    expect(gauge).toContain('d={WEDGE_PATH} fill={cockpit.surfaceMuted}');
     expect(gauge).toContain('d={FACE_PATH}');
     // Needle climbs with what has been handed over; the digits count down.
     expect(gauge).toContain('const fraction = delivered / safeMaximum');
@@ -22,13 +22,14 @@ describe('premium route dashboard', () => {
     expect(gauge).toContain('needleAngle');
     expect(gauge).toContain('const NEEDLE_TIP = 78');
     expect(gauge).toContain('fraction >= 0.85');
-    expect(gauge).toContain("stopColor={fraction >= 0.85 ? '#E11D1D' : '#FF6A00'}");
+    expect(gauge).toContain('stopColor={fraction >= 0.85 ? cockpit.error : cockpit.primary}');
     expect(gauge).toContain('id="redZone"');
-    expect(gauge).toContain('stopColor="#D4FF6E"');
+    expect(gauge).toContain('stopColor={cockpit.routeBright}');
     expect(gauge).not.toContain('LIKO');
     expect(gauge).toContain('{unit}');
     expect(gauge).toContain('stroke="url(#bezel)"');
     expect(gauge).toContain('stroke="url(#progress)"');
+    expect(gauge).toContain("import { stitchCockpitTheme } from '@/theme'");
     expect(gauge).toContain('useGrouping: false');
     expect(gauge).toContain('fontFamily={fonts.headingExtraBold}');
     expect(gauge).toContain('fontSize={readoutFontSize}');
@@ -43,7 +44,15 @@ describe('premium route dashboard', () => {
 
   it('composes the realistic windshield and code-native steering progress arc', () => {
     const road = source('src/components/road-progress-bar.tsx');
-    expect(road).toContain('route-windshield-day-v1.png');
+    expect(road).toContain('route-scenes/clear-morning.png');
+    expect(road).toContain('route-scenes/clear-midday.png');
+    expect(road).toContain('route-scenes/clear-afternoon.png');
+    expect(road).toContain('route-scenes/clear-evening.png');
+    expect(road).toContain('route-scenes/clear-night.png');
+    expect(road).toContain('route-scenes/rain.png');
+    expect(road).toContain('route-scenes/snow.png');
+    expect(road).toContain('route-scenes/fog.png');
+    expect(road).toContain('route-scenes/storm.png');
     expect(road).toContain('resizeMode="cover"');
     expect(road).toContain('Math.round(clamped * 100)');
     expect(road).toContain('Animated.timing');
@@ -52,15 +61,13 @@ describe('premium route dashboard', () => {
     expect(road).toContain('<Image');
     expect(road).not.toContain('<SvgImage');
     expect(road).not.toContain('PRISTATYMO EIGA');
-    expect(road).toContain('stroke="#83D13D"');
+    expect(road).toContain('stroke="url(#steeringProgress)"');
     expect(road).toContain('GERO POILSIO!');
-    expect(road).toContain('<WeatherOverlay');
-    expect(road).toContain('<TimeOfDayOverlay');
-    // Night stays readable through glass without decorative celestial objects.
-    expect(road).toContain("timeOfDay === 'night'");
+    expect(road).toContain("scene?.timeOfDay === 'night'");
+    expect(road).not.toContain('<WeatherOverlay');
+    expect(road).not.toContain('<TimeOfDayOverlay');
+    // Each state uses an exterior road image; no decorative celestial objects.
     expect(road).not.toContain('moonGlow');
-    expect(road).toContain('opacity: 0.52');
-    expect(road).not.toContain('opacity: 0.93');
   });
 
   it('matches the compact continuous dashboard while preserving route actions', () => {
@@ -70,14 +77,17 @@ describe('premium route dashboard', () => {
     expect(delivery).toContain('<RoadProgressBar');
     expect(delivery.indexOf('<RoadProgressBar')).toBeLessThan(delivery.indexOf('<InstrumentGauge'));
     expect(delivery).toContain('<InstrumentGauge');
-    // The instruments expose live operational values: delivery progress and
-    // remaining route distance, never invented vehicle telemetry.
-    expect(delivery).toContain('title="Progresas"');
-    expect(delivery).toContain('value={progress.totalStops - progress.remainingStops}');
+    // The instruments expose the two values agreed for the cockpit: remaining
+    // cargo weight and remaining stops. Time and kilometres stay between them.
+    expect(delivery).toContain('title="Svoris"');
+    expect(delivery).toContain('maximum={progress.totalKnownWeightKg}');
+    expect(delivery).toContain('remaining={progress.remainingKnownWeightKg}');
+    expect(delivery).toContain('value={Math.max(0, progress.totalKnownWeightKg - progress.remainingKnownWeightKg)}');
+    expect(delivery).toContain('title="Taškai"');
+    expect(delivery).toContain('maximum={progress.totalStops}');
     expect(delivery).toContain('remaining={progress.remainingStops}');
-    expect(delivery).toContain('title="Likęs kelias"');
-    expect(delivery).toContain('remaining={progress.preliminaryRemainingDistanceKm ?? 0}');
-    expect(delivery).toContain('unit="km"');
+    expect(delivery).toContain('LIKĘ KM');
+    expect(delivery).toContain('formatMetric(progress.preliminaryRemainingDistanceKm)');
     expect(delivery).toContain('styles.gaugeCenterStats');
     expect(delivery).toContain('IKI ARTIMIAUSIOS');
     expect(delivery).toContain('NAVIGUOTI');
@@ -118,5 +128,23 @@ describe('premium route dashboard', () => {
     expect(header).not.toContain('tsp-logo-mark.png');
     expect(header).not.toContain('TIKSLUS SIUNTŲ PRISTATYMAS<');
     expect(header).not.toContain('>TSP<');
+  });
+
+  it('keeps sign-in focused and uses the transparent vector TSP wordmark', () => {
+    const gate = source('src/components/local-access-gate.tsx');
+    const brand = source('src/components/tsp-brand.tsx');
+    expect(gate).toContain('<TspBrand hero inverse={bootstrap} />');
+    expect(gate).toContain('PRISIJUNGIMO VARDAS');
+    expect(gate).toContain('PIN KODAS');
+    expect(gate).toContain("bootstrap ? 'Aktyvuoti ir tęsti' : 'Prisijungti'");
+    expect(gate).not.toContain('Darbuotojo prisijungimas');
+    expect(gate).not.toContain('Darbo duomenys lieka SQLite');
+    expect(brand).toContain('hero?: boolean');
+    expect(brand).toContain('viewBox="0 0 124 52"');
+    expect(brand).toContain('<Path');
+    expect(brand).not.toContain('<Image');
+    const svg = source('assets/brand/tsp-wordmark-color.svg');
+    expect(svg).toContain('viewBox="0 0 124 52"');
+    expect(svg).not.toContain('<rect');
   });
 });

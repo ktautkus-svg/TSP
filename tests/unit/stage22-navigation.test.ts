@@ -12,7 +12,7 @@ describe('stage 2.2 deterministic navigation', () => {
     const result = source('src/app/route/[id]/result.tsx');
     expect(delivery).toContain("pathname: '/route/[id]/result'");
     expect(result).toContain('Maršrutas užbaigtas');
-    expect(result).toContain('Peržiūrėti istoriją');
+    expect(result).toContain('Peržiūrėti maršrutą');
     expect(result).toContain('Į pradžią');
     expect(result).toContain('gestureEnabled: false');
     expect(result).toContain('headerBackVisible: false');
@@ -23,7 +23,7 @@ describe('stage 2.2 deterministic navigation', () => {
     const detail = source('src/app/history/[id].tsx');
     expect(detail).toContain("router.replace('/history' as Href)");
     expect(detail).toContain("router.replace('/' as Href)");
-    expect(detail).toContain('← Istorija');
+    expect(detail).toContain('← Maršrutai');
     expect(detail).toContain('Į pradžią');
     expect(detail).toContain("!['completed', 'cancelled'].includes(persisted.route.status)");
     expect(detail).toContain('resolveRoute(persisted.route)');
@@ -32,15 +32,18 @@ describe('stage 2.2 deterministic navigation', () => {
     expect(detail).toContain('<RouteBottomTabs');
   });
 
-  it('provides a deterministic history-list exit and a clear empty state', () => {
+  it('combines operational and historical routes with deterministic exits', () => {
     const history = source('src/app/history.tsx');
     expect(history).toContain("router.replace('/' as Href)");
-    expect(history).toContain('← Pradžia');
-    expect(history).toContain('Istorija tuščia');
+    expect(history).toContain('← Skydelis');
+    expect(history).toContain('DABAR IR TOLIAU');
+    expect(history).toContain('ANKSTESNI');
+    expect(history).toContain('repository.listOperational(owner)');
+    expect(history).toContain('repository.listHistory(50, owner)');
+    expect(history).toContain('Maršrutų dar nėra');
     expect(history).toContain('gestureEnabled: false');
     expect(history).not.toContain('router.back(');
-    expect(history).toContain('<RouteBottomTabs');
-    expect(history).toContain("view: 'stops'");
+    expect(history).toContain('<DriverAppTabs active="routes"');
   });
 
   it('keeps technical audit data collapsed by default', () => {
@@ -55,8 +58,20 @@ describe('stage 2.2 deterministic navigation', () => {
     const dashboard = source('src/app/index.tsx');
     expect(dashboard).toContain('Naujas maršrutas');
     expect(dashboard).toContain('activeRouteAction(active)');
-    expect(dashboard).toContain('Istorija');
+    expect(dashboard).toContain('Maršrutai');
     expect(dashboard).toContain('Nustatymai');
+    expect(dashboard).toContain('<DriverAppTabs active="now"');
+  });
+
+  it('keeps the four driver destinations consistent across global screens', () => {
+    const tabs = source('src/components/driver-app-tabs.tsx');
+    expect(tabs).toContain("label: 'DABAR'");
+    expect(tabs).toContain("label: 'MARŠRUTAI'");
+    expect(tabs).toContain("label: 'STATISTIKA'");
+    expect(tabs).toContain("label: 'NUSTATYMAI'");
+    expect(source('src/app/history.tsx')).toContain('<DriverAppTabs active="routes"');
+    expect(source('src/app/statistics.tsx')).toContain('<DriverAppTabs active="statistics"');
+    expect(source('src/app/settings/index.tsx')).toContain('<DriverAppTabs active="settings"');
   });
 
   it('gives every non-Dashboard stack screen a visible global Home action', () => {

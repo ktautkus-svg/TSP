@@ -4,6 +4,7 @@ import { Stack, useFocusEffect, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
 import { FoundationScreen } from '@/components/foundation-screen';
+import { DriverAppTabs } from '@/components/driver-app-tabs';
 import { StatBarChart } from '@/components/stat-bar-chart';
 import { StatisticsRepository } from '@/database/repositories/statistics-repository';
 import type { StatisticsPeriodTotals, StatisticsSnapshot } from '@/domain/statistics';
@@ -70,10 +71,11 @@ export default function StatisticsScreen() {
       headerLeft: () => <Pressable onPress={goHome} style={styles.headerAction}><Text style={styles.headerText}>← Pradžia</Text></Pressable>,
       headerRight: () => null,
     }} />
-    <FoundationScreen
-      showFoundationNotice={false}
-      title="Statistika"
-      description="Paskutinių 12 mėnesių užbaigti ir atšaukti maršrutai.">
+    <View style={styles.screen}>
+      <FoundationScreen
+        showFoundationNotice={false}
+        title="Statistika"
+        description="Paskutinių 12 mėnesių užbaigti ir atšaukti maršrutai.">
       {profile.role === 'admin' && drivers.length > 0 ? (
         <View style={styles.driverFilters} testID="statistics-driver-filter">
           <Pressable onPress={() => setSelectedDriverId('all')} style={[styles.driverFilter, selectedDriverId === 'all' && styles.driverFilterActive]}><Text style={[styles.driverFilterText, selectedDriverId === 'all' && styles.driverFilterTextActive]}>Visi vairuotojai</Text></Pressable>
@@ -172,7 +174,9 @@ export default function StatisticsScreen() {
         </View>
       ) : null}
       <Pressable style={styles.homeButton} onPress={goHome}><Text style={styles.homeText}>Į pradžią</Text></Pressable>
-    </FoundationScreen>
+      </FoundationScreen>
+      {profile.role === 'driver' ? <DriverAppTabs active="statistics" /> : null}
+    </View>
     </>
   );
 }
@@ -270,6 +274,7 @@ function shortMonthLabel(monthKey: string): string {
 }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
+  screen: { flex: 1, alignSelf: 'center', width: '100%', maxWidth: 900, backgroundColor: colors.background },
   driverFilters: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   driverFilter: { minHeight: 44, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
   driverFilterActive: { borderColor: colors.info, backgroundColor: colors.infoSoft },

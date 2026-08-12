@@ -19,7 +19,7 @@ const expectedPaletteKeys = [
   'warning', 'warningSoft', 'danger', 'dangerSoft', 'info', 'infoSoft',
   'actionPrimary', 'actionPrimaryPressed', 'actionRoute', 'actionRoutePressed',
   'disabledSurface', 'disabledText',
-  'brandNavy',
+  'brandNavy', 'brandWordmarkBlue', 'brandWordmarkGreen', 'brandWordmarkGreenLight',
 ];
 
 class ExpoLikeDatabase {

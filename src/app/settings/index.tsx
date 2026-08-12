@@ -17,6 +17,7 @@ import {
 } from '@/application/settings/navigation-preference';
 import type { ThemeMode } from '@/application/settings/theme-preference';
 import { FoundationScreen } from '@/components/foundation-screen';
+import { DriverAppTabs } from '@/components/driver-app-tabs';
 import {
   clearGatewayDeviceSecret,
   getGatewayDeviceSecret,
@@ -248,6 +249,7 @@ export default function SettingsScreen() {
         headerLeft: () => <Pressable onPress={goHome} style={styles.headerAction}><Text style={styles.headerText}>← Pradžios meniu</Text></Pressable>,
         headerRight: () => null,
       }} />
+      <View style={styles.screen}>
       <FoundationScreen showFoundationNotice={false} title="Nustatymai" description="Vietos, navigacija ir programos parinktys.">
         <View style={styles.section} testID="account-settings-section">
           <Pressable accessibilityRole="button" accessibilityState={{ expanded: openSection === 'account' }} onPress={() => toggleSection('account')} style={styles.advancedToggle}>
@@ -402,11 +404,14 @@ export default function SettingsScreen() {
         {message ? <Text accessibilityRole="alert" style={styles.message}>{message}</Text> : null}
         <Pressable style={styles.homeButton} onPress={goHome}><Text style={styles.homeText}>Į pradžią</Text></Pressable>
       </FoundationScreen>
+      {profile.role === 'driver' ? <DriverAppTabs active="settings" /> : null}
+      </View>
     </>
   );
 }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
+  screen: { flex: 1, alignSelf: 'center', width: '100%', maxWidth: 900, backgroundColor: colors.background },
   flex: { flex: 1, minWidth: 0 },
   card: { minHeight: 72, padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   section: { gap: spacing.sm, padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
