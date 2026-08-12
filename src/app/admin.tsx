@@ -201,7 +201,7 @@ export default function AdminScreen() {
             {input(newName, setNewName, 'Vardas ir pavardė')}
             {input(newUsername, setNewUsername, 'Prisijungimo vardas')}
             {input(newPin, (value) => setNewPin(value.replace(/\D/g, '').slice(0, 8)), '4–8 skaitmenų pradinis PIN', true)}
-            <View style={styles.choiceRow}>{(['driver', 'dispatcher'] as EmployeeRole[]).map((role) =>
+            <View style={styles.choiceRow}>{(['driver', 'dispatcher', 'quality'] as EmployeeRole[]).map((role) =>
               <Pressable key={role} onPress={() => setNewRole(role)} style={[styles.choice, newRole === role && styles.choiceActive]}>
                 <Text style={[styles.choiceText, newRole === role && styles.choiceTextActive]}>{roleLabel(role)}</Text>
               </Pressable>)}</View>

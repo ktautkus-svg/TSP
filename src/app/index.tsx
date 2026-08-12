@@ -64,6 +64,10 @@ export default function HomeScreen() {
       router.replace('/dispatcher' as Href);
       return () => undefined;
     }
+    if (profile.role === 'quality') {
+      router.replace('/quality-control' as Href);
+      return () => undefined;
+    }
     let mounted = true;
     void (async () => {
       try {

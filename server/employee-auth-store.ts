@@ -1,7 +1,7 @@
 import { pbkdf2Sync, randomBytes, randomUUID, timingSafeEqual, createHash } from 'node:crypto';
 import { Firestore } from '@google-cloud/firestore';
 
-export const EMPLOYEE_ROLES = ['admin', 'dispatcher', 'driver'] as const;
+export const EMPLOYEE_ROLES = ['admin', 'dispatcher', 'driver', 'quality'] as const;
 export type EmployeeRole = (typeof EMPLOYEE_ROLES)[number];
 
 export type EmployeeProfile = {
@@ -78,6 +78,28 @@ export type ServerTripSheet = {
   deliveredWeightKg: number;
   startAddress: string;
   endAddress: string;
+};
+
+export type QualityRouteMonitor = {
+  id: string;
+  routeId: string;
+  date: string;
+  routeNumbers: string[];
+  status: RouteAssignment['status'];
+  driverId: string;
+  driverName: string;
+  vehicle: FleetVehicleSnapshot | null;
+  totalStops: number;
+  deliveredStops: number;
+  failedStops: number;
+  remainingStops: number;
+  progressPercent: number;
+  totalWeightKg: number;
+  remainingWeightKg: number;
+  nextStop: { sequence: number; recipient: string; address: string; routeNumber: string | null } | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  updatedAt: string;
 };
 
 export type RouteSnapshot = {
@@ -392,6 +414,19 @@ export class EmployeeAuthStore {
       .sort((left, right) => (right.completedAt ?? right.date).localeCompare(left.completedAt ?? left.date));
   }
 
+  async listQualityRoutes(): Promise<QualityRouteMonitor[]> {
+    const snapshot = await this.assignments.get();
+    const assignments = snapshot.docs.map((document) => document.data() as RouteAssignment);
+    const vehicles = await this.listVehicles();
+    const currentVehicles = new Map(
+      vehicles.filter((vehicle) => vehicle.assignedDriverId).map((vehicle) => [vehicle.assignedDriverId!, vehicleSnapshot(vehicle)]),
+    );
+    return assignments
+      .filter((assignment) => assignment.status !== 'cancelled')
+      .map((assignment) => buildQualityRouteMonitor(assignment, assignment.vehicle ?? currentVehicles.get(assignment.driverId) ?? null))
+      .sort((left, right) => qualityStatusRank(left.status) - qualityStatusRank(right.status) || right.updatedAt.localeCompare(left.updatedAt));
+  }
+
   async updateAssignmentProgress(profile: EmployeeProfile, assignmentId: string, snapshot: RouteSnapshot): Promise<RouteAssignment> {
     validateSnapshot(snapshot);
     const reference = this.assignments.doc(safeId(assignmentId));
@@ -570,6 +605,66 @@ export function buildServerTripSheet(assignment: RouteAssignment, vehicle: Fleet
     startAddress: locationAddress(route.start_location_json, 'Pradžia'),
     endAddress: locationAddress(route.end_location_json, 'Pabaiga'),
   };
+}
+
+export function buildQualityRouteMonitor(assignment: RouteAssignment, vehicle: FleetVehicleSnapshot | null): QualityRouteMonitor {
+  const route = assignment.routeSnapshot.route;
+  const stops = [...assignment.routeSnapshot.stops].sort((left, right) => stopSequence(left) - stopSequence(right));
+  const deliveredStops = stops.filter((stop) => stop.delivery_status === 'delivered').length;
+  const failedStops = stops.filter((stop) => stop.delivery_status === 'failed').length;
+  const totalStops = finiteNumber(route.total_stops, stops.length);
+  const remainingStops = Math.max(0, finiteNumber(route.remaining_stops, totalStops - deliveredStops - failedStops));
+  const nextIndex = stops.findIndex((stop) => !['delivered', 'failed'].includes(String(stop.delivery_status ?? 'pending')));
+  const next = nextIndex >= 0 ? stops[nextIndex] : null;
+  const routeNumbers = [...new Set(stops
+    .map((stop) => optionalText(stop.order_number))
+    .filter((value): value is string => Boolean(value))
+    .map(normalizeRouteNumber))];
+  return {
+    id: assignment.id,
+    routeId: assignment.routeId,
+    date: optionalText(route.date) ?? assignment.assignedAt.slice(0, 10),
+    routeNumbers,
+    status: assignment.status,
+    driverId: assignment.driverId,
+    driverName: assignment.driverName,
+    vehicle,
+    totalStops,
+    deliveredStops,
+    failedStops,
+    remainingStops,
+    progressPercent: totalStops > 0 ? Math.round(((totalStops - remainingStops) / totalStops) * 100) : 0,
+    totalWeightKg: finiteNumber(route.total_weight_kg, 0),
+    remainingWeightKg: finiteNumber(route.remaining_weight_kg, 0),
+    nextStop: next ? {
+      sequence: nextIndex + 1,
+      recipient: optionalText(next.recipient) ?? 'Gavėjas nenurodytas',
+      address: stopAddress(next),
+      routeNumber: optionalText(next.order_number) ? normalizeRouteNumber(optionalText(next.order_number)!) : null,
+    } : null,
+    startedAt: optionalText(route.started_at),
+    completedAt: optionalText(route.completed_at),
+    updatedAt: assignment.updatedAt,
+  };
+}
+
+function stopSequence(stop: Record<string, unknown>): number {
+  return finiteNumber(stop.active_order, finiteNumber(stop.optimized_order, finiteNumber(stop.original_order, Number.MAX_SAFE_INTEGER)));
+}
+
+function stopAddress(stop: Record<string, unknown>): string {
+  return optionalText(stop.normalized_address)
+    ?? optionalText(stop.address)
+    ?? optionalText(stop.original_address)
+    ?? 'Adresas nenurodytas';
+}
+
+function normalizeRouteNumber(value: string): string {
+  return /^R/i.test(value) ? value.toUpperCase() : `R${value}`;
+}
+
+function qualityStatusRank(status: RouteAssignment['status']): number {
+  return ({ in_progress: 0, downloaded: 1, assigned: 2, completed: 3, cancelled: 4 } as Record<RouteAssignment['status'], number>)[status];
 }
 
 function optionalText(value: unknown): string | null {

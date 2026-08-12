@@ -1,7 +1,7 @@
 import { createGatewayAuthorizationHeaders } from '@/infrastructure/gateway/device-auth';
 import type { DriverPermissions } from '@/application/auth/employee-permissions';
 
-export const EMPLOYEE_ROLES = ['admin', 'dispatcher', 'driver'] as const;
+export const EMPLOYEE_ROLES = ['admin', 'dispatcher', 'driver', 'quality'] as const;
 export type EmployeeRole = (typeof EMPLOYEE_ROLES)[number];
 
 export type EmployeeProfile = {
@@ -65,6 +65,28 @@ export type ServerTripSheet = {
   deliveredWeightKg: number;
   startAddress: string;
   endAddress: string;
+};
+
+export type QualityRouteMonitor = {
+  id: string;
+  routeId: string;
+  date: string;
+  routeNumbers: string[];
+  status: ServerRouteAssignment['status'];
+  driverId: string;
+  driverName: string;
+  vehicle: ServerFleetVehicleSnapshot | null;
+  totalStops: number;
+  deliveredStops: number;
+  failedStops: number;
+  remainingStops: number;
+  progressPercent: number;
+  totalWeightKg: number;
+  remainingWeightKg: number;
+  nextStop: { sequence: number; recipient: string; address: string; routeNumber: string | null } | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  updatedAt: string;
 };
 
 export type RouteSnapshot = {

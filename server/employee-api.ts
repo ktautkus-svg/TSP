@@ -164,18 +164,26 @@ export async function handleEmployeeApi(
       return send(response, 200, { assignments: await store.listAssignments(profile) }, requestId);
     }
     if (pathname === '/api/assignments' && request.method === 'GET') {
+      requireRole(profile, ['driver']);
       return send(response, 200, { assignments: await store.listAssignments(profile) }, requestId);
     }
     if (pathname === '/api/trip-sheets' && request.method === 'GET') {
+      requireRole(profile, ['admin', 'dispatcher', 'driver']);
       return send(response, 200, { tripSheets: await store.listTripSheets(profile) }, requestId);
+    }
+    if (pathname === '/api/quality/routes' && request.method === 'GET') {
+      requireRole(profile, ['quality', 'admin', 'dispatcher']);
+      return send(response, 200, { routes: await store.listQualityRoutes(), serverTime: new Date().toISOString() }, requestId);
     }
 
     if (pathname === '/api/route-sync' && request.method === 'GET') {
+      requireRole(profile, ['admin', 'dispatcher', 'driver']);
       const since = new URL(request.url ?? '', 'http://localhost').searchParams.get('since');
       const result = await routeSyncStore.pull(profile.id, since);
       return send(response, 200, result, requestId);
     }
     if (pathname === '/api/route-sync' && request.method === 'POST') {
+      requireRole(profile, ['admin', 'dispatcher', 'driver']);
       const body = parseObject(await readBody(request, 8_000_000));
       const results = await routeSyncStore.push(profile.id, routeSyncItems(body.routes));
       return send(response, 200, { results }, requestId);
@@ -189,6 +197,7 @@ export async function handleEmployeeApi(
     }
     const progressMatch = pathname.match(/^\/api\/assignments\/([^/]+)\/progress$/);
     if (progressMatch && request.method === 'PUT') {
+      requireRole(profile, ['admin', 'dispatcher', 'driver']);
       const body = parseObject(await readBody(request, 8_000_000));
       const assignment = await store.updateAssignmentProgress(
         profile,
@@ -221,6 +230,7 @@ function isEmployeePath(pathname: string): boolean {
     || pathname.startsWith('/api/admin/')
     || pathname.startsWith('/api/assignments')
     || pathname.startsWith('/api/trip-sheets')
+    || pathname.startsWith('/api/quality/')
     || pathname.startsWith('/api/route-sync');
 }
 

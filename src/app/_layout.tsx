@@ -32,7 +32,8 @@ function RoleAccessBoundary({ children }: { children: ReactNode }) {
     || pathname.startsWith('/import')
     || pathname === '/route/new'
     || /\/route\/[^/]+\/(review|alternatives)$/.test(pathname);
-  const blocked = profile.role === 'driver' && adminOnly;
+  const qualityAllowed = pathname === '/' || pathname === '/quality-control';
+  const blocked = (profile.role === 'driver' && adminOnly) || (profile.role === 'quality' && !qualityAllowed);
   useEffect(() => {
     if (blocked) router.replace('/' as Href);
   }, [blocked, router]);
@@ -160,6 +161,7 @@ export default function RootLayout() {
               <Stack.Screen name="vehicle" options={{ title: 'Transporto priemonė' }} />
               <Stack.Screen name="admin" options={{ title: 'Administratoriaus panelė' }} />
               <Stack.Screen name="dispatcher" options={{ title: 'Dispečerio skydelis' }} />
+              <Stack.Screen name="quality-control" options={{ title: 'Kokybės kontrolė' }} />
             </Stack>
             </RoleAccessBoundary>
           </RouteCloudSyncProvider>

@@ -65,8 +65,8 @@ export function AccountMenuSheet({ visible, onClose }: { visible: boolean; onClo
           </View>
 
           <View style={styles.actions}>
-            <AppButton label="Kelionės lapai" variant="secondary" onPress={openTripSheets} testID="account-menu-trip-sheets" />
-            <AppButton label="Nustatymai" variant="secondary" onPress={openSettings} testID="account-menu-settings" />
+            {profile.role !== 'quality' ? <AppButton label="Kelionės lapai" variant="secondary" onPress={openTripSheets} testID="account-menu-trip-sheets" /> : null}
+            {profile.role !== 'quality' ? <AppButton label="Nustatymai" variant="secondary" onPress={openSettings} testID="account-menu-settings" /> : null}
             <AppButton label="Keisti paskyrą" variant="secondary" onPress={confirmSwitchAccount} testID="account-menu-switch" />
             <AppButton label="Atsijungti" variant="danger" onPress={confirmLogout} testID="account-menu-logout" />
           </View>

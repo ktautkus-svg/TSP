@@ -4,6 +4,7 @@ export const EMPLOYEE_ROLE_LABELS: Record<EmployeeRole, string> = {
   admin: 'Administratorius',
   dispatcher: 'Dispečeris',
   driver: 'Vairuotojas',
+  quality: 'Kokybės kontrolė',
 };
 
 export function roleLabel(role: EmployeeRole): string {
