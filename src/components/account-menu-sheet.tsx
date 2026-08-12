@@ -23,6 +23,11 @@ export function AccountMenuSheet({ visible, onClose }: { visible: boolean; onClo
     router.push('/settings' as Href);
   }
 
+  function openTripSheets() {
+    onClose();
+    router.push('/trip-sheet' as Href);
+  }
+
   function confirmSwitchAccount() {
     Alert.alert(
       'Keisti paskyrą?',
@@ -60,6 +65,7 @@ export function AccountMenuSheet({ visible, onClose }: { visible: boolean; onClo
           </View>
 
           <View style={styles.actions}>
+            <AppButton label="Kelionės lapai" variant="secondary" onPress={openTripSheets} testID="account-menu-trip-sheets" />
             <AppButton label="Nustatymai" variant="secondary" onPress={openSettings} testID="account-menu-settings" />
             <AppButton label="Keisti paskyrą" variant="secondary" onPress={confirmSwitchAccount} testID="account-menu-switch" />
             <AppButton label="Atsijungti" variant="danger" onPress={confirmLogout} testID="account-menu-logout" />

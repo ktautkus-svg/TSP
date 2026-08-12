@@ -1,130 +1,167 @@
 import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
-import { useFocusEffect, useRouter, type Href } from 'expo-router';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Stack, useFocusEffect, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
+import { useLocalAccess } from '@/application/auth/local-access-context';
+import { pushCompletedRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { TripSheetRepository, type TripSheetWithRoutes } from '@/database/repositories/trip-sheet-repository';
+import { employeeApi, type ServerTripSheet } from '@/infrastructure/auth/employee-session';
 import { formatWeightKg } from '@/ui/format-weight';
 import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 
+type DisplayTripSheet = ServerTripSheet & { source: 'server' | 'local' };
+
 export default function TripSheetScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
+  const { profile, online } = useLocalAccess();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const repository = useMemo(() => new TripSheetRepository(db), [db]);
-  const [sheets, setSheets] = useState<TripSheetWithRoutes[]>([]);
+  const [sheets, setSheets] = useState<DisplayTripSheet[]>([]);
+  const [selectedDriverId, setSelectedDriverId] = useState('all');
   const [busy, setBusy] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setBusy(true);
-    try { setSheets(await repository.list()); }
-    catch (error) { setMessage(error instanceof Error ? error.message : 'Kelionės lapų atkurti nepavyko.'); }
-    finally { setBusy(false); }
-  }, [repository]);
+    try {
+      if (online) {
+        if (profile.role === 'driver') await pushCompletedRouteAssignmentProgress(db);
+        const response = await employeeApi<{ tripSheets: ServerTripSheet[] }>('/api/trip-sheets');
+        setSheets(response.tripSheets.map((sheet) => ({ ...sheet, source: 'server' })));
+      } else {
+        setSheets((await repository.list()).map(localSheet));
+        setMessage('Rodomi šiame įrenginyje išsaugoti kelionės lapai. Prisijungus bus rodomi serverio duomenys.');
+      }
+    } catch (error) {
+      const local = await repository.list().catch(() => []);
+      setSheets(local.map(localSheet));
+      setMessage(error instanceof Error ? error.message : 'Kelionės lapų atkurti nepavyko.');
+    } finally {
+      setBusy(false);
+    }
+  }, [db, online, profile.role, repository]);
 
   useFocusEffect(useCallback(() => { void load(); }, [load]));
 
-  const sync = async () => {
+  const syncLocal = async () => {
     if (busy) return;
     setBusy(true);
     setMessage(null);
     try {
-      const next = await repository.syncAllCompletedDates();
-      setSheets(next);
-      setMessage(next.length ? 'Kelionės lapai atnaujinti pagal užbaigtus maršrutus.' : 'Užbaigtų maršrutų dar nėra.');
+      await repository.syncAllCompletedDates();
+      await load();
+      setMessage('Kelionės lapai atnaujinti.');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Kelionės lapo atnaujinti nepavyko.');
-    } finally {
       setBusy(false);
     }
   };
 
+  const drivers = useMemo(() => [...new Map(sheets.map((sheet) => [sheet.driverId, sheet.driverName])).entries()], [sheets]);
+  const visible = profile.role === 'driver' || selectedDriverId === 'all'
+    ? sheets
+    : sheets.filter((sheet) => sheet.driverId === selectedDriverId);
+  const print = () => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') window.print();
+    else setMessage('PDF arba spausdinimą atidarykite interneto naršyklėje.');
+  };
+  const goHome = () => router.replace('/' as Href);
+
   return (
-    <FoundationScreen
-      showFoundationNotice={false}
-      title="Kelionės lapai"
-      description="Faktiniai dienos duomenys sudaromi iš užbaigtų maršrutų ir odometro rodmenų.">
-      <Pressable style={styles.primaryButton} disabled={busy} onPress={() => { void sync(); }} testID="sync-trip-sheets">
-        {busy ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.primaryText}>Atnaujinti iš užbaigtų maršrutų</Text>}
-      </Pressable>
-      <Pressable style={styles.secondaryButton} onPress={() => router.push('/vehicle' as Href)}>
-        <Text style={styles.secondaryText}>Transporto priemonė</Text>
-      </Pressable>
-      {message ? <Text style={styles.message}>{message}</Text> : null}
-      {!busy && sheets.length === 0 ? (
-        <View style={styles.empty}>
-          <Text style={styles.cardTitle}>Kelionės lapų dar nėra</Text>
-          <Text style={styles.meta}>Užbaikite bent vieną maršrutą ir paspauskite atnaujinimo mygtuką.</Text>
+    <>
+      <Stack.Screen options={{
+        gestureEnabled: false, headerBackVisible: false,
+        headerLeft: () => <Pressable onPress={goHome} style={styles.headerAction}><Text style={styles.headerText}>← Pradžia</Text></Pressable>,
+        headerRight: () => null,
+      }} />
+      <FoundationScreen showFoundationNotice={false} title="Kelionės lapai" description={profile.role === 'driver'
+        ? 'Jūsų užbaigtų maršrutų faktiniai darbo duomenys.'
+        : 'Visų vairuotojų užbaigti maršrutai, odometrai ir automobiliai.'}>
+        <View style={styles.actionRow}>
+          <Pressable style={styles.primaryButton} disabled={busy} onPress={() => { void load(); }} testID="refresh-trip-sheets">
+            {busy ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.primaryText}>Atnaujinti</Text>}
+          </Pressable>
+          <Pressable style={styles.secondaryButton} onPress={print} testID="print-trip-sheets"><Text style={styles.secondaryText}>Spausdinti / PDF</Text></Pressable>
         </View>
-      ) : null}
-      {sheets.map((sheet) => (
-        <View key={sheet.id} style={styles.card} testID={`trip-sheet-${sheet.date}`}>
-          <View style={styles.titleRow}>
-            <View style={styles.flex}>
-              <Text style={styles.cardTitle}>{formatDate(sheet.date)}</Text>
-              <Text style={styles.meta}>{sheet.vehicleName} · {sheet.routeIds.length} maršrutas(-ai)</Text>
-            </View>
-            <Text style={styles.distance}>{formatDistance(sheet.actualDistanceKm ?? sheet.plannedDistanceKm)}</Text>
-          </View>
-          <View style={styles.metrics}>
-            <Metric styles={styles} label="ODOMETRAS" value={formatOdometers(sheet.startOdometer, sheet.endOdometer)} />
-            <Metric styles={styles} label="PRISTATYTA" value={`${sheet.totalStops} tšk. · ${formatWeightKg(sheet.totalDeliveredWeightKg)} kg`} />
-            <Metric styles={styles} label="LAIKAS" value={formatDuration(sheet.actualDurationMinutes)} />
-          </View>
-          <Text style={styles.routeLine}>{sheet.startLocation.address ?? sheet.startLocation.label}</Text>
-          <Text style={styles.routeLine}>→ {sheet.endLocation.address ?? sheet.endLocation.label}</Text>
-        </View>
-      ))}
-    </FoundationScreen>
+        {!online ? <Pressable style={styles.secondaryButton} disabled={busy} onPress={() => { void syncLocal(); }} testID="sync-trip-sheets"><Text style={styles.secondaryText}>Atnaujinti iš įrenginio maršrutų</Text></Pressable> : null}
+        {profile.role !== 'driver' && drivers.length > 1 ? <View style={styles.filters} testID="trip-sheet-driver-filter">
+          <Filter label="Visi vairuotojai" active={selectedDriverId === 'all'} onPress={() => setSelectedDriverId('all')} styles={styles} />
+          {drivers.map(([id, name]) => <Filter key={id} label={name} active={selectedDriverId === id} onPress={() => setSelectedDriverId(id)} styles={styles} />)}
+        </View> : null}
+        {message ? <Text accessibilityRole="alert" style={styles.message}>{message}</Text> : null}
+        {!busy && visible.length === 0 ? <View style={styles.empty}><Text style={styles.cardTitle}>Kelionės lapų dar nėra</Text><Text style={styles.meta}>Lapas atsiras automatiškai vairuotojui užbaigus priskirtą maršrutą ir įvedus galutinį odometrą.</Text></View> : null}
+        {visible.map((sheet) => <TripSheetCard key={sheet.id} sheet={sheet} styles={styles} />)}
+      </FoundationScreen>
+    </>
   );
 }
 
-function Metric({ styles, label, value }: { styles: ReturnType<typeof createStyles>; label: string; value: string }) {
+function TripSheetCard({ sheet, styles }: { sheet: DisplayTripSheet; styles: ReturnType<typeof createStyles> }) {
+  const distance = sheet.actualDistanceKm ?? (sheet.startOdometer !== null && sheet.endOdometer !== null ? sheet.endOdometer - sheet.startOdometer : sheet.plannedDistanceKm);
+  return <View style={styles.sheet} testID={`trip-sheet-${sheet.id}`}>
+    <View style={styles.sheetHeader}>
+      <View style={styles.flex}><Text style={styles.date}>{formatDate(sheet.date)}</Text><Text style={styles.driver}>{sheet.driverName}</Text></View>
+      <View style={styles.routeBadge}><Text style={styles.routeBadgeText}>{sheet.routeNumbers.join(', ') || 'MARŠRUTAS'}</Text></View>
+    </View>
+    <View style={styles.vehicleBar}>
+      <Text style={styles.vehicleNumber}>{sheet.vehicle?.registrationNumber ?? 'Automobilis nepriskirtas'}</Text>
+      {sheet.vehicle ? <Text style={styles.meta}>{sheet.vehicle.model} · iki {formatWeightKg(sheet.vehicle.maximumPayloadKg)} kg</Text> : null}
+    </View>
+    <View style={styles.metrics}>
+      <Metric label="ODOMETRAS" value={`${formatNumber(sheet.startOdometer)} → ${formatNumber(sheet.endOdometer)}`} styles={styles} />
+      <Metric label="NUVAŽIUOTA" value={distance === null ? '—' : `${formatNumber(distance)} km`} styles={styles} />
+      <Metric label="DARBO LAIKAS" value={formatDuration(sheet.durationMinutes)} styles={styles} />
+      <Metric label="TAŠKAI" value={`${sheet.deliveredStops} / ${sheet.totalStops}`} styles={styles} />
+      <Metric label="PRISTATYTA" value={`${formatWeightKg(sheet.deliveredWeightKg)} kg`} styles={styles} />
+      <Metric label="PLANUOTA" value={`${formatWeightKg(sheet.totalWeightKg)} kg`} styles={styles} />
+    </View>
+    <View style={styles.routeBlock}><Text style={styles.routeLabel}>PRADŽIA · {formatTime(sheet.startedAt)}</Text><Text style={styles.routeAddress}>{sheet.startAddress}</Text></View>
+    <View style={styles.routeBlock}><Text style={styles.routeLabel}>PABAIGA · {formatTime(sheet.completedAt)}</Text><Text style={styles.routeAddress}>{sheet.endAddress}</Text></View>
+  </View>;
+}
+
+function Filter({ label, active, onPress, styles }: { label: string; active: boolean; onPress: () => void; styles: ReturnType<typeof createStyles> }) {
+  return <Pressable onPress={onPress} style={[styles.filter, active && styles.filterActive]}><Text style={[styles.filterText, active && styles.filterTextActive]}>{label}</Text></Pressable>;
+}
+
+function Metric({ label, value, styles }: { label: string; value: string; styles: ReturnType<typeof createStyles> }) {
   return <View style={styles.metric}><Text style={styles.metricLabel}>{label}</Text><Text style={styles.metricValue}>{value}</Text></View>;
 }
 
-function formatDate(value: string): string {
-  const parsed = new Date(`${value}T12:00:00`);
-  return Number.isNaN(parsed.getTime()) ? value : new Intl.DateTimeFormat('lt-LT', { dateStyle: 'long' }).format(parsed);
+function localSheet(sheet: TripSheetWithRoutes): DisplayTripSheet {
+  return {
+    id: sheet.id, assignmentId: sheet.id, routeId: sheet.routeIds[0] ?? sheet.id, routeNumbers: [], date: sheet.date,
+    driverId: 'local', driverName: 'Šio įrenginio vairuotojas', vehicle: { id: sheet.vehicleId, registrationNumber: sheet.vehicleName, model: sheet.vehicleName, maximumPayloadKg: 0 },
+    startOdometer: sheet.startOdometer, endOdometer: sheet.endOdometer, actualDistanceKm: sheet.actualDistanceKm,
+    plannedDistanceKm: sheet.plannedDistanceKm, startedAt: sheet.actualStartAt, completedAt: sheet.completedAt,
+    durationMinutes: sheet.actualDurationMinutes, totalStops: sheet.totalStops, deliveredStops: sheet.totalStops,
+    totalWeightKg: sheet.totalDeliveredWeightKg, deliveredWeightKg: sheet.totalDeliveredWeightKg,
+    startAddress: sheet.startLocation.address ?? sheet.startLocation.label, endAddress: sheet.endLocation.address ?? sheet.endLocation.label, source: 'local',
+  };
 }
 
-function formatDistance(value: number | null): string {
-  return value === null ? '—' : `${new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(value)} km`;
-}
-
-function formatOdometers(start: number | null, end: number | null): string {
-  if (start === null && end === null) return 'Nenurodyta';
-  return `${start ?? '—'} → ${end ?? '—'}`;
-}
-
-function formatDuration(minutes: number | null): string {
-  if (minutes === null) return '—';
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  return hours ? `${hours} val. ${rest} min.` : `${rest} min.`;
-}
+function formatDate(value: string): string { const date = new Date(`${value}T12:00:00`); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('lt-LT', { dateStyle: 'long' }).format(date); }
+function formatNumber(value: number | null): string { return value === null ? '—' : new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(value); }
+function formatDuration(minutes: number | null): string { if (minutes === null) return '—'; const hours = Math.floor(minutes / 60); const rest = minutes % 60; return hours ? `${hours} val. ${rest} min.` : `${rest} min.`; }
+function formatTime(value: string | null): string { if (!value) return '—'; const date = new Date(value); return Number.isNaN(date.getTime()) ? '—' : new Intl.DateTimeFormat('lt-LT', { hour: '2-digit', minute: '2-digit' }).format(date); }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
-  primaryButton: { minHeight: 54, borderRadius: radius.md, backgroundColor: colors.actionPrimary, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
-  primaryText: { ...type.button, color: colors.textInverse, fontSize: 16 },
-  secondaryButton: { minHeight: 48, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
-  secondaryText: { ...type.button, color: colors.textSecondary },
-  message: { color: colors.textMuted, lineHeight: 20 },
-  empty: { padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surface, gap: spacing.xs },
-  card: { padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
-  titleRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing.sm },
-  flex: { flex: 1, minWidth: 0 },
-  cardTitle: { ...type.sectionTitle, color: colors.text },
-  meta: { ...type.secondary, color: colors.textMuted },
-  distance: { ...type.readout, color: colors.info },
-  metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  metric: { minWidth: 120, flexGrow: 1, padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.infoSoft, gap: 3 },
-  metricLabel: { ...type.label, color: colors.textMuted },
-  metricValue: { ...type.bodyStrong, color: colors.text },
-  routeLine: { color: colors.text, fontSize: 14, lineHeight: 20 },
+  headerAction: { minWidth: 120, minHeight: 48, justifyContent: 'center' }, headerText: { ...type.button, color: colors.textInverse },
+  actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  primaryButton: { flexGrow: 1, minWidth: 150, minHeight: 52, borderRadius: radius.md, backgroundColor: colors.actionPrimary, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md }, primaryText: { ...type.button, color: colors.textInverse },
+  secondaryButton: { flexGrow: 1, minWidth: 150, minHeight: 52, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md }, secondaryText: { ...type.button, color: colors.textSecondary },
+  filters: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }, filter: { minHeight: 44, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.md, justifyContent: 'center' }, filterActive: { backgroundColor: colors.info, borderColor: colors.info }, filterText: { ...type.secondaryStrong, color: colors.text }, filterTextActive: { color: colors.textInverse },
+  message: { ...type.secondary, color: colors.textMuted }, empty: { padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surface, gap: spacing.xs },
+  sheet: { padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, gap: spacing.md },
+  sheetHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md }, flex: { flex: 1, minWidth: 0 }, date: { ...type.sectionTitle, color: colors.text }, driver: { ...type.bodyStrong, color: colors.info, marginTop: 2 },
+  routeBadge: { borderRadius: radius.sm, backgroundColor: colors.infoSoft, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }, routeBadgeText: { ...type.label, color: colors.info },
+  vehicleBar: { padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceMuted, gap: 2 }, vehicleNumber: { ...type.readout, color: colors.text },
+  metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }, metric: { flexGrow: 1, minWidth: 115, padding: spacing.sm, borderRadius: radius.sm, backgroundColor: colors.surfaceSubtle, borderWidth: 1, borderColor: colors.borderSubtle, gap: 2 }, metricLabel: { ...type.label, color: colors.textMuted }, metricValue: { ...type.bodyStrong, color: colors.text },
+  routeBlock: { borderLeftWidth: 3, borderLeftColor: colors.info, paddingLeft: spacing.sm, gap: 2 }, routeLabel: { ...type.label, color: colors.textMuted }, routeAddress: { ...type.body, color: colors.text }, cardTitle: { ...type.sectionTitle, color: colors.text }, meta: { ...type.secondary, color: colors.textMuted },
 });

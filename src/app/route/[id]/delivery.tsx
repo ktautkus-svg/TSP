@@ -4,6 +4,7 @@ import { Stack, useFocusEffect, useLocalSearchParams, useRouter, type Href } fro
 import { useSQLiteContext } from 'expo-sqlite';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalAccess } from '@/application/auth/local-access-context';
+import { pushRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 
 import { Alert } from '@/ui/alert';
@@ -378,6 +379,9 @@ export default function DeliveryScreen() {
         endOdometer: parseOdometer(endOdometer),
         confirmUnfinished,
         confirmLargeDifference,
+      });
+      await pushRouteAssignmentProgress(db, routeId).catch((reason) => {
+        if (__DEV__) console.warn('TRIP_SHEET_SYNC_FAILED', reason);
       });
       void requestSync('mutation');
       router.replace({ pathname: '/route/[id]/result', params: { id: routeId } } as unknown as Href);

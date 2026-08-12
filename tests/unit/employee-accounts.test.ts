@@ -34,6 +34,8 @@ const settingsSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.ur
 const employeeApiSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../server/employee-api.ts'), 'utf8');
 const employeeStoreSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../server/employee-auth-store.ts'), 'utf8');
 const adminSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../src/app/admin.tsx'), 'utf8');
+const tripSheetSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../src/app/trip-sheet.tsx'), 'utf8');
+const deliverySource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../src/app/route/[id]/delivery.tsx'), 'utf8');
 function migration(version: number): string {
   const match = migrationSource.match(new RegExp(`const migrationV${version} = \`([\\s\\S]*?)\`;`));
   if (!match) throw new Error(`Missing migration V${version}`);
@@ -76,6 +78,15 @@ describe('employee server session', () => {
     expect(adminSource).toContain('testID="fleet-vehicle-management"');
     expect(adminSource).toContain('Miestas automobiliams nesaugomas');
     expect(adminSource).toContain('Patvirtinti priskyrimą');
+  });
+
+  it('publishes completed driver routes as role-scoped trip sheets', () => {
+    expect(employeeApiSource).toContain("pathname === '/api/trip-sheets'");
+    expect(employeeStoreSource).toContain('async listTripSheets');
+    expect(employeeStoreSource).toContain("assignment.status === 'completed'");
+    expect(tripSheetSource).toContain("employeeApi<{ tripSheets: ServerTripSheet[] }>('/api/trip-sheets')");
+    expect(tripSheetSource).toContain('Spausdinti / PDF');
+    expect(deliverySource).toContain('await pushRouteAssignmentProgress(db, routeId)');
   });
 
   it('stores a successful login and includes the secure same-origin session cookie in employee API calls', async () => {

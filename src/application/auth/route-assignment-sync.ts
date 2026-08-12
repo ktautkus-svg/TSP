@@ -141,6 +141,21 @@ export async function pushRouteAssignmentProgress(db: SQLiteDatabase, routeId: s
   return true;
 }
 
+export async function pushCompletedRouteAssignmentProgress(db: SQLiteDatabase): Promise<number> {
+  const routes = await db.getAllAsync<{ route_id: string }>(
+    `SELECT route_sync_state.route_id
+     FROM route_sync_state
+     JOIN routes ON routes.id = route_sync_state.route_id
+     WHERE routes.status = 'completed'
+     ORDER BY routes.completed_at, routes.id`,
+  );
+  let synced = 0;
+  for (const route of routes) {
+    if (await pushRouteAssignmentProgress(db, route.route_id)) synced += 1;
+  }
+  return synced;
+}
+
 export async function assignRouteToDriver(db: SQLiteDatabase, routeId: string, driverId: string): Promise<ServerRouteAssignment> {
   const routeSnapshot = await exportRouteSnapshot(db, routeId);
   const response = await employeeApi<{ assignment: ServerRouteAssignment }>('/api/admin/assignments', {

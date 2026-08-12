@@ -166,6 +166,9 @@ export async function handleEmployeeApi(
     if (pathname === '/api/assignments' && request.method === 'GET') {
       return send(response, 200, { assignments: await store.listAssignments(profile) }, requestId);
     }
+    if (pathname === '/api/trip-sheets' && request.method === 'GET') {
+      return send(response, 200, { tripSheets: await store.listTripSheets(profile) }, requestId);
+    }
 
     if (pathname === '/api/route-sync' && request.method === 'GET') {
       const since = new URL(request.url ?? '', 'http://localhost').searchParams.get('since');
@@ -217,6 +220,7 @@ function isEmployeePath(pathname: string): boolean {
   return pathname.startsWith('/api/auth/')
     || pathname.startsWith('/api/admin/')
     || pathname.startsWith('/api/assignments')
+    || pathname.startsWith('/api/trip-sheets')
     || pathname.startsWith('/api/route-sync');
 }
 

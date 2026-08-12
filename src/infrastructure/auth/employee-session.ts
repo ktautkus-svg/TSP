@@ -28,6 +28,7 @@ export type ServerRouteAssignment = {
   progress: Record<string, unknown> | null;
   assignedAt: string;
   updatedAt: string;
+  vehicle?: ServerFleetVehicleSnapshot | null;
 };
 
 export type ServerFleetVehicle = {
@@ -38,6 +39,32 @@ export type ServerFleetVehicle = {
   assignedDriverId: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type ServerFleetVehicleSnapshot = Pick<ServerFleetVehicle, 'id' | 'registrationNumber' | 'model' | 'maximumPayloadKg'>;
+
+export type ServerTripSheet = {
+  id: string;
+  assignmentId: string;
+  routeId: string;
+  routeNumbers: string[];
+  date: string;
+  driverId: string;
+  driverName: string;
+  vehicle: ServerFleetVehicleSnapshot | null;
+  startOdometer: number | null;
+  endOdometer: number | null;
+  actualDistanceKm: number | null;
+  plannedDistanceKm: number | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  durationMinutes: number | null;
+  totalStops: number;
+  deliveredStops: number;
+  totalWeightKg: number;
+  deliveredWeightKg: number;
+  startAddress: string;
+  endAddress: string;
 };
 
 export type RouteSnapshot = {

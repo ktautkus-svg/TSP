@@ -41,6 +41,7 @@ export type RouteAssignment = {
   createdBy: string;
   assignedAt: string;
   updatedAt: string;
+  vehicle: FleetVehicleSnapshot | null;
 };
 
 export type FleetVehicle = {
@@ -51,6 +52,32 @@ export type FleetVehicle = {
   assignedDriverId: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type FleetVehicleSnapshot = Pick<FleetVehicle, 'id' | 'registrationNumber' | 'model' | 'maximumPayloadKg'>;
+
+export type ServerTripSheet = {
+  id: string;
+  assignmentId: string;
+  routeId: string;
+  routeNumbers: string[];
+  date: string;
+  driverId: string;
+  driverName: string;
+  vehicle: FleetVehicleSnapshot | null;
+  startOdometer: number | null;
+  endOdometer: number | null;
+  actualDistanceKm: number | null;
+  plannedDistanceKm: number | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  durationMinutes: number | null;
+  totalStops: number;
+  deliveredStops: number;
+  totalWeightKg: number;
+  deliveredWeightKg: number;
+  startAddress: string;
+  endAddress: string;
 };
 
 export type RouteSnapshot = {
@@ -327,6 +354,7 @@ export class EmployeeAuthStore {
       throw new EmployeeApiError('ROUTE_ALREADY_ASSIGNED', 'Šis maršrutas vairuotojui jau priskirtas.', 409);
     }
     const now = new Date().toISOString();
+    const vehicle = await this.findAssignedVehicleSnapshot(driver.id);
     const assignment: RouteAssignment = {
       id: randomUUID(),
       routeId,
@@ -338,6 +366,7 @@ export class EmployeeAuthStore {
       createdBy: input.createdBy,
       assignedAt: now,
       updatedAt: now,
+      vehicle,
     };
     await this.assignments.doc(assignment.id).create(assignment);
     return assignment;
@@ -350,6 +379,17 @@ export class EmployeeAuthStore {
     return snapshot.docs
       .map((doc) => doc.data() as RouteAssignment)
       .sort((a, b) => b.assignedAt.localeCompare(a.assignedAt));
+  }
+
+  async listTripSheets(profile: EmployeeProfile): Promise<ServerTripSheet[]> {
+    const assignments = (await this.listAssignments(profile)).filter((assignment) => assignment.status === 'completed');
+    const vehicles = await this.listVehicles();
+    const currentVehicles = new Map(
+      vehicles.filter((vehicle) => vehicle.assignedDriverId).map((vehicle) => [vehicle.assignedDriverId!, vehicleSnapshot(vehicle)]),
+    );
+    return assignments
+      .map((assignment) => buildServerTripSheet(assignment, assignment.vehicle ?? currentVehicles.get(assignment.driverId) ?? null))
+      .sort((left, right) => (right.completedAt ?? right.date).localeCompare(left.completedAt ?? left.date));
   }
 
   async updateAssignmentProgress(profile: EmployeeProfile, assignmentId: string, snapshot: RouteSnapshot): Promise<RouteAssignment> {
@@ -377,8 +417,11 @@ export class EmployeeAuthStore {
       remainingWeightKg: Number(snapshot.route.remaining_weight_kg ?? 0),
       lastSyncedAt: updatedAt,
     };
-    await reference.update({ status, routeSnapshot: snapshot, progress, updatedAt });
-    return { ...assignment, status, routeSnapshot: snapshot, progress, updatedAt };
+    const vehicle = routeStatus === 'completed'
+      ? assignment.vehicle ?? await this.findAssignedVehicleSnapshot(assignment.driverId)
+      : assignment.vehicle ?? null;
+    await reference.update({ status, routeSnapshot: snapshot, progress, updatedAt, vehicle });
+    return { ...assignment, status, routeSnapshot: snapshot, progress, updatedAt, vehicle };
   }
 
   async markAssignmentDownloaded(profile: EmployeeProfile, assignmentId: string): Promise<void> {
@@ -391,6 +434,12 @@ export class EmployeeAuthStore {
     if (assignment.status === 'assigned') {
       await reference.update({ status: 'downloaded', updatedAt: new Date().toISOString() });
     }
+  }
+
+  private async findAssignedVehicleSnapshot(driverId: string): Promise<FleetVehicleSnapshot | null> {
+    const snapshot = await this.vehicles.where('assignedDriverId', '==', driverId).limit(1).get();
+    const vehicle = snapshot.docs[0]?.data() as FleetVehicle | undefined;
+    return vehicle ? vehicleSnapshot(vehicle) : null;
   }
 }
 
@@ -474,6 +523,80 @@ function validateDisplayName(value: string): string {
 
 function validatePin(pin: string): void {
   if (!/^\d{4,8}$/.test(pin)) throw new EmployeeApiError('INVALID_PIN', 'Serverio PIN turi būti 4–8 skaitmenų.', 400);
+}
+
+function vehicleSnapshot(vehicle: FleetVehicle): FleetVehicleSnapshot {
+  return {
+    id: vehicle.id,
+    registrationNumber: vehicle.registrationNumber,
+    model: vehicle.model,
+    maximumPayloadKg: vehicle.maximumPayloadKg,
+  };
+}
+
+export function buildServerTripSheet(assignment: RouteAssignment, vehicle: FleetVehicleSnapshot | null): ServerTripSheet {
+  const route = assignment.routeSnapshot.route;
+  const stops = assignment.routeSnapshot.stops;
+  const startedAt = optionalText(route.started_at);
+  const completedAt = optionalText(route.completed_at);
+  const durationMinutes = startedAt && completedAt
+    ? Math.max(0, Math.round((Date.parse(completedAt) - Date.parse(startedAt)) / 60_000))
+    : nullableNumber(route.actual_duration_minutes);
+  const deliveredStops = stops.filter((stop) => stop.delivery_status === 'delivered');
+  const routeNumbers = [...new Set(stops
+    .map((stop) => optionalText(stop.order_number))
+    .filter((value): value is string => Boolean(value))
+    .map((value) => /^R/i.test(value) ? value.toUpperCase() : `R${value}`))];
+  return {
+    id: `trip-sheet-${assignment.id}`,
+    assignmentId: assignment.id,
+    routeId: assignment.routeId,
+    routeNumbers,
+    date: optionalText(route.date) ?? assignment.assignedAt.slice(0, 10),
+    driverId: assignment.driverId,
+    driverName: assignment.driverName,
+    vehicle,
+    startOdometer: nullableNumber(route.start_odometer),
+    endOdometer: nullableNumber(route.end_odometer),
+    actualDistanceKm: nullableNumber(route.actual_distance_km),
+    plannedDistanceKm: nullableNumber(route.estimated_distance_km),
+    startedAt,
+    completedAt,
+    durationMinutes: Number.isFinite(durationMinutes) ? durationMinutes : null,
+    totalStops: finiteNumber(route.total_stops, stops.length),
+    deliveredStops: deliveredStops.length,
+    totalWeightKg: finiteNumber(route.total_weight_kg, 0),
+    deliveredWeightKg: deliveredStops.reduce((sum, stop) => sum + finiteNumber(stop.weight_kg, 0), 0),
+    startAddress: locationAddress(route.start_location_json, 'Pradžia'),
+    endAddress: locationAddress(route.end_location_json, 'Pabaiga'),
+  };
+}
+
+function optionalText(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function nullableNumber(value: unknown): number | null {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return value !== null && value !== '' && Number.isFinite(parsed) ? parsed : null;
+}
+
+function finiteNumber(value: unknown, fallback: number): number {
+  return nullableNumber(value) ?? fallback;
+}
+
+function locationAddress(value: unknown, fallback: string): string {
+  if (typeof value !== 'string') return fallback;
+  try {
+    const location = JSON.parse(value) as Record<string, unknown>;
+    return optionalText(location.normalizedAddress)
+      ?? optionalText(location.originalAddress)
+      ?? optionalText(location.address)
+      ?? optionalText(location.label)
+      ?? fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 function validateRegistrationNumber(value: string): string {
