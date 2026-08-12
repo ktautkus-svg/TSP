@@ -2,7 +2,8 @@ import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-na
 import { useRouter, type Href } from 'expo-router';
 import Svg, { Circle, Path } from 'react-native-svg';
 
-import { colors, fonts } from '@/ui/tokens';
+import { stitchTheme } from '@/theme';
+import { fonts, radius } from '@/ui/tokens';
 
 export type DriverAppTab = 'now' | 'routes' | 'statistics' | 'settings';
 
@@ -11,10 +12,10 @@ export interface DriverAppTabsProps {
 }
 
 const tabs: ReadonlyArray<{ key: DriverAppTab; label: string; href: Href }> = [
-  { key: 'now', label: 'DABAR', href: '/' },
-  { key: 'routes', label: 'MARŠRUTAI', href: '/history' },
-  { key: 'statistics', label: 'STATISTIKA', href: '/statistics' },
-  { key: 'settings', label: 'NUSTATYMAI', href: '/settings' },
+  { key: 'now', label: 'Dabar', href: '/' },
+  { key: 'routes', label: 'Maršrutai', href: '/history' },
+  { key: 'statistics', label: 'Statistika', href: '/statistics' },
+  { key: 'settings', label: 'Nustatymai', href: '/settings' },
 ];
 
 export function DriverAppTabs({ active }: DriverAppTabsProps) {
@@ -43,7 +44,7 @@ export function DriverAppTabs({ active }: DriverAppTabsProps) {
 }
 
 function TabIcon({ active, tab }: { readonly active: boolean; readonly tab: DriverAppTab }) {
-  const color = active ? colors.primary : colors.textMuted;
+  const color = active ? palette.surface : palette.muted;
   return (
     <Svg accessibilityLabel="" height={22} viewBox="0 0 24 24" width={22}>
       {tab === 'now' ? <Path d="M4 12 12 5l8 7v8h-5v-5H9v5H4Z" fill="none" stroke={color} strokeLinejoin="round" strokeWidth={1.9} /> : null}
@@ -54,10 +55,12 @@ function TabIcon({ active, tab }: { readonly active: boolean; readonly tab: Driv
   );
 }
 
+const palette = stitchTheme.driverNow;
+
 const styles = StyleSheet.create({
-  tabBar: { alignSelf: 'center', width: '100%', minHeight: 58, flexShrink: 0, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surface, flexDirection: 'row' },
-  tab: { flex: 1, minWidth: 0, alignItems: 'center', justifyContent: 'center', gap: 2, borderTopWidth: 2, borderTopColor: 'transparent', paddingHorizontal: 2 },
-  tabActive: { borderTopColor: colors.primary },
-  label: { color: colors.textMuted, fontFamily: fonts.headingSemiBold, fontSize: 8, letterSpacing: 0.2 },
-  labelActive: { color: colors.primary },
+  tabBar: { alignSelf: 'center', width: '100%', minHeight: 64, flexShrink: 0, borderTopWidth: 1, borderTopColor: palette.border, backgroundColor: palette.surface, flexDirection: 'row', paddingHorizontal: 4, paddingVertical: 4 },
+  tab: { flex: 1, minWidth: 0, alignItems: 'center', justifyContent: 'center', gap: 2, paddingHorizontal: 2, borderRadius: radius.md },
+  tabActive: { backgroundColor: palette.routeBlue },
+  label: { color: palette.muted, fontFamily: fonts.headingSemiBold, fontSize: 9, letterSpacing: 0.1 },
+  labelActive: { color: palette.surface },
 });

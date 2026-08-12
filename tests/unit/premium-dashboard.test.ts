@@ -116,14 +116,14 @@ describe('premium route dashboard', () => {
   });
 
   it('uses the branded shell on the dashboard and route screens', () => {
-    expect(source('src/app/index.tsx')).toContain('<BrandHeader onMenuPress={() => setAccountMenuOpen(true)} />');
+    expect(source('src/app/index.tsx')).toContain('variant="driver"');
     expect(source('src/app/_layout.tsx')).toContain('backgroundColor: colors.brandNavy');
     const header = source('src/components/brand-header.tsx');
     const brand = source('src/components/tsp-brand.tsx');
-    expect(header).toContain('<TspBrand />');
+    expect(header).toContain('<TspBrand inverse={!driver} />');
     expect(brand).toContain("accessibilityLabel={descriptor ? `TSP – ${descriptor}` : 'TSP'}");
-    expect(brand).toContain('react-native-svg');
-    expect(brand).toContain("descriptor?: string");
+    expect(brand).toContain('tsp-wordmark-red-blue.png');
+    expect(brand).toContain('readonly descriptor?: string');
     expect(header).not.toContain('brandName');
     expect(header).not.toContain('tsp-logo-mark.png');
     expect(header).not.toContain('TIKSLUS SIUNTŲ PRISTATYMAS<');
@@ -136,15 +136,11 @@ describe('premium route dashboard', () => {
     expect(gate).toContain('<TspBrand hero inverse={bootstrap} />');
     expect(gate).toContain('PRISIJUNGIMO VARDAS');
     expect(gate).toContain('PIN KODAS');
-    expect(gate).toContain("bootstrap ? 'Aktyvuoti ir tęsti' : 'Prisijungti'");
+    expect(gate).toContain("bootstrap ? 'Aktyvuoti ir tęsti' : 'PRISIJUNGTI →'");
     expect(gate).not.toContain('Darbuotojo prisijungimas');
     expect(gate).not.toContain('Darbo duomenys lieka SQLite');
-    expect(brand).toContain('hero?: boolean');
-    expect(brand).toContain('viewBox="0 0 124 52"');
-    expect(brand).toContain('<Path');
-    expect(brand).not.toContain('<Image');
-    const svg = source('assets/brand/tsp-wordmark-color.svg');
-    expect(svg).toContain('viewBox="0 0 124 52"');
-    expect(svg).not.toContain('<rect');
+    expect(brand).toContain('readonly hero?: boolean');
+    expect(brand).toContain('<Image');
+    expect(brand).toContain('tsp-wordmark-red-blue.png');
   });
 });

@@ -39,8 +39,8 @@
       "startUrl": "/",
       "display": "standalone",
       "orientation": "portrait",
-      "themeColor": "#0E766E",
-      "backgroundColor": "#F6F7F9"
+      "themeColor": "#15174C",
+      "backgroundColor": "#FBF9F8"
     },
     "plugins": [
       [
@@ -71,9 +71,9 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
+          "backgroundColor": "#FBF9F8",
+          "image": "./assets/brand/tsp-wordmark-red-blue.png",
+          "imageWidth": 206
         }
       ],
       "expo-font"

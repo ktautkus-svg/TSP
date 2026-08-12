@@ -10,16 +10,17 @@ import { spacing } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 
-type RouteMapViewProps = {
-  startLocation: RoutingLocation;
-  orderedStops: RoutingLocation[];
-  endLocation: RoutingLocation;
-  encodedPolyline?: string;
-  totalDistanceKm?: number;
-  totalDurationMinutes?: number;
-  allowStraightLineFallback?: boolean;
-  polylineError?: string | null;
-};
+export interface RouteMapViewProps {
+  readonly startLocation: RoutingLocation;
+  readonly orderedStops: RoutingLocation[];
+  readonly endLocation: RoutingLocation;
+  readonly encodedPolyline?: string;
+  readonly totalDistanceKm?: number;
+  readonly totalDurationMinutes?: number;
+  readonly allowStraightLineFallback?: boolean;
+  readonly compact?: boolean;
+  readonly polylineError?: string | null;
+}
 
 function pinIcon(color: string, label: string): L.DivIcon {
   return L.divIcon({
@@ -69,12 +70,13 @@ export function RouteMapView({
   totalDistanceKm,
   totalDurationMinutes,
   allowStraightLineFallback = false,
+  compact = false,
   polylineError,
 }: RouteMapViewProps) {
   const { colors } = useTheme();
   const { width } = useWindowDimensions();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const mapHeight = width >= 1024 ? 540 : width >= 720 ? 430 : 330;
+  const mapHeight = compact ? 190 : width >= 1024 ? 540 : width >= 720 ? 430 : 330;
   const routePoints = useMemo(() => (
     encodedPolyline
       ? decodePolyline(encodedPolyline)
@@ -95,15 +97,15 @@ export function RouteMapView({
   const endIcon = useMemo(() => pinIcon('#EF4444', 'G'), []);
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
+    <View style={[styles.container, compact && styles.compactContainer]}>
+      {!compact ? <View style={styles.header}>
         <Text style={styles.title}>Maršruto žemėlapis</Text>
         {totalDistanceKm !== undefined && totalDurationMinutes !== undefined ? (
           <Text style={styles.badge}>
             {totalDistanceKm.toFixed(1)} km · {Math.round(totalDurationMinutes)} min
           </Text>
         ) : null}
-      </View>
+      </View> : null}
 
       <View style={[styles.canvasContainer, { height: mapHeight }]} testID="route-map-canvas">
         <MapContainer
@@ -131,7 +133,7 @@ export function RouteMapView({
         </MapContainer>
       </View>
 
-      {polylineError || (!encodedPolyline && !allowStraightLineFallback) ? (
+      {!compact && (polylineError || (!encodedPolyline && !allowStraightLineFallback)) ? (
         <Text style={styles.pending}>Maršruto linija dar kraunama. Taškai jau rodomi žemėlapyje.</Text>
       ) : null}
     </View>
@@ -147,6 +149,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     padding: spacing.md,
     gap: spacing.sm,
   },
+  compactContainer: { borderWidth: 0, borderRadius: 0, padding: 0, gap: 0 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   title: { color: colors.text, fontSize: 16, fontWeight: '800' },
   badge: {

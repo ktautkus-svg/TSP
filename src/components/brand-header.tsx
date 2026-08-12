@@ -5,21 +5,26 @@ import { TspBrand } from '@/components/tsp-brand';
 import { CloudSyncStatus } from '@/components/cloud-sync-status';
 import { colors, spacing } from '@/ui/tokens';
 
+export interface BrandHeaderProps {
+  readonly onMenuPress?: () => void;
+  readonly showSyncStatus?: boolean;
+  readonly showNotifications?: boolean;
+  readonly variant?: 'default' | 'driver';
+}
+
 export function BrandHeader({
   onMenuPress,
   showSyncStatus = true,
   showNotifications = true,
-}: {
-  onMenuPress?: () => void;
-  showSyncStatus?: boolean;
-  showNotifications?: boolean;
-} = {}) {
+  variant = 'default',
+}: BrandHeaderProps = {}) {
+  const driver = variant === 'driver';
   return (
-    <View style={styles.header} testID="brand-header">
-      <View style={styles.brandRow}>
-        <TspBrand />
+    <View style={[styles.header, driver && styles.driverHeader]} testID="brand-header">
+      <View style={[styles.brandRow, driver && styles.driverBrandRow]}>
+        <TspBrand inverse={!driver} />
       </View>
-      <View style={styles.headerActions}>
+      {!driver ? <View style={styles.headerActions}>
         {showSyncStatus ? <CloudSyncStatus compact /> : null}
         {showNotifications ? <View style={styles.notification}>
           <Svg width={22} height={22} viewBox="0 0 24 24">
@@ -28,14 +33,14 @@ export function BrandHeader({
           </Svg>
           <View style={styles.notificationDot} />
         </View> : null}
-        <Pressable accessibilityLabel="Atidaryti meniu" onPress={onMenuPress} style={styles.profileButton}>
+        {onMenuPress ? <Pressable accessibilityLabel="Atidaryti meniu" onPress={onMenuPress} style={styles.profileButton}>
           <Svg width={34} height={34} viewBox="0 0 34 34">
             <Circle cx={17} cy={17} fill="#E9EFE9" r={16} stroke="rgba(255,255,255,0.65)" />
             <Circle cx={17} cy={12} fill="#31523D" r={5} />
             <Path d="M8 28c1.5-6 5-9 9-9s7.5 3 9 9" fill="#31523D" />
           </Svg>
-        </Pressable>
-      </View>
+        </Pressable> : null}
+      </View> : null}
     </View>
   );
 }
@@ -52,7 +57,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: spacing.md,
   },
+  driverHeader: { minHeight: 58, paddingVertical: 4, backgroundColor: colors.surface, justifyContent: 'center' },
   brandRow: { flex: 1, flexDirection: 'row', alignItems: 'center', minWidth: 0, overflow: 'hidden' },
+  driverBrandRow: { flex: 0, justifyContent: 'center' },
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',

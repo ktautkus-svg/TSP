@@ -16,16 +16,17 @@ import { spacing } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 
-type RouteMapViewProps = {
-  startLocation: RoutingLocation;
-  orderedStops: RoutingLocation[];
-  endLocation: RoutingLocation;
-  encodedPolyline?: string;
-  totalDistanceKm?: number;
-  totalDurationMinutes?: number;
-  allowStraightLineFallback?: boolean;
-  polylineError?: string | null;
-};
+export interface RouteMapViewProps {
+  readonly startLocation: RoutingLocation;
+  readonly orderedStops: RoutingLocation[];
+  readonly endLocation: RoutingLocation;
+  readonly encodedPolyline?: string;
+  readonly totalDistanceKm?: number;
+  readonly totalDurationMinutes?: number;
+  readonly allowStraightLineFallback?: boolean;
+  readonly compact?: boolean;
+  readonly polylineError?: string | null;
+}
 
 const WIDTH = 320;
 const HEIGHT = 200;
@@ -39,6 +40,7 @@ export function RouteMapView({
   totalDistanceKm,
   totalDurationMinutes,
   allowStraightLineFallback = false,
+  compact = false,
   polylineError,
 }: RouteMapViewProps) {
   const { colors } = useTheme();
@@ -78,17 +80,17 @@ export function RouteMapView({
     .join(' ');
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
+    <View style={[styles.container, compact && styles.compactContainer]}>
+      {!compact ? <View style={styles.header}>
         <Text style={styles.title}>Maršruto schema</Text>
         {totalDistanceKm !== undefined && totalDurationMinutes !== undefined ? (
           <Text style={styles.badge}>
             {totalDistanceKm.toFixed(1)} km · {Math.round(totalDurationMinutes)} min
           </Text>
         ) : null}
-      </View>
+      </View> : null}
 
-      <View style={styles.canvasContainer}>
+      <View style={[styles.canvasContainer, compact && styles.compactCanvas]}>
         <Svg width="100%" height="100%" viewBox={`0 0 ${WIDTH} ${HEIGHT}`}>
           <Defs>
             <LinearGradient id="routeGradient" x1="0" y1="0" x2="1" y2="1">
@@ -124,7 +126,7 @@ export function RouteMapView({
         </Svg>
       </View>
 
-      {polylineError ? (
+      {!compact && polylineError ? (
         <Text style={styles.error}>Kelio linijos gauti nepavyko: {polylineError}</Text>
       ) : !encodedPolyline && !allowStraightLineFallback ? (
         <Text style={styles.pending}>Tikroji kelio linija dar negauta.</Text>
@@ -134,13 +136,13 @@ export function RouteMapView({
 
       {/* Full per-stop address list lives in the candidate card's own "Rodyti
           eiliškumą" toggle — repeating it here just made the map noisy. */}
-      <View style={styles.legend}>
+      {!compact ? <View style={styles.legend}>
         <Legend styles={styles} color="#10B981" text={`Startas: ${startLocation.label}`} />
         {orderedStops.length > 0 ? (
           <Legend styles={styles} color="#2563EB" text={`${orderedStops.length} ${orderedStops.length === 1 ? 'sustojimas' : 'sustojimai'} (numeriai žemėlapyje)`} />
         ) : null}
         <Legend styles={styles} color="#EF4444" text={`Grįžimas: ${endLocation.label}`} />
-      </View>
+      </View> : null}
     </View>
   );
 }
@@ -181,6 +183,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     padding: spacing.md,
     gap: spacing.sm,
   },
+  compactContainer: { borderWidth: 0, borderRadius: 0, padding: 0, gap: 0 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   title: { color: colors.text, fontSize: 16, fontWeight: '800' },
   badge: {
@@ -202,6 +205,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
+  compactCanvas: { minHeight: 190, height: 190, borderWidth: 0, borderRadius: 0 },
   error: { color: colors.danger, fontSize: 13, lineHeight: 18 },
   pending: { color: colors.textMuted, fontSize: 13 },
   synthetic: { color: colors.warning, fontSize: 13 },

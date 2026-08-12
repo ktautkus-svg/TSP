@@ -65,10 +65,10 @@ describe('stage 2.2 deterministic navigation', () => {
 
   it('keeps the four driver destinations consistent across global screens', () => {
     const tabs = source('src/components/driver-app-tabs.tsx');
-    expect(tabs).toContain("label: 'DABAR'");
-    expect(tabs).toContain("label: 'MARŠRUTAI'");
-    expect(tabs).toContain("label: 'STATISTIKA'");
-    expect(tabs).toContain("label: 'NUSTATYMAI'");
+    expect(tabs).toContain("label: 'Dabar'");
+    expect(tabs).toContain("label: 'Maršrutai'");
+    expect(tabs).toContain("label: 'Statistika'");
+    expect(tabs).toContain("label: 'Nustatymai'");
     expect(source('src/app/history.tsx')).toContain('<DriverAppTabs active="routes"');
     expect(source('src/app/statistics.tsx')).toContain('<DriverAppTabs active="statistics"');
     expect(source('src/app/settings/index.tsx')).toContain('<DriverAppTabs active="settings"');

@@ -10,10 +10,10 @@ describe('driver operational UI', () => {
   it('lists every assigned route with operational summaries and role protection', () => {
     const home = read('src/app/index.tsx');
     const layout = read('src/app/_layout.tsx');
-    expect(home).toContain('driver-route-list');
-    expect(home).toContain("!initialRestoreHandled.current && route?.status === 'in_progress'");
+    expect(home).toContain('<DriverNowDashboard');
+    expect(read('src/components/driver-now-dashboard.tsx')).toContain('driver-now-dashboard');
     expect(home).toContain('listOperational');
-    expect(home).toContain('Pirma užbaikite aktyvų maršrutą');
+    expect(read('src/data/driver-ui.ts')).toContain('Artimiausi sustojimai');
     expect(layout).toContain('RoleAccessBoundary');
     expect(layout).toContain("profile.role === 'driver' && adminOnly");
   });

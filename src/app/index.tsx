@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Constants from 'expo-constants';
-import { Pressable, SafeAreaView, ScrollView, Share, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Pressable, SafeAreaView, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { Link, useFocusEffect, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
@@ -9,12 +9,13 @@ import { ExportPilotRouteDiagnostic } from '@/application/routes/pilot-route-exp
 import { GetRouteProgress, type RouteProgress } from '@/application/routes/route-workday';
 import { AccountMenuSheet } from '@/components/account-menu-sheet';
 import { BrandHeader } from '@/components/brand-header';
+import { DriverNowDashboard } from '@/components/driver-now-dashboard';
 import { DriverAppTabs } from '@/components/driver-app-tabs';
-import { RouteListCard } from '@/components/route-list-card';
 import { ScreenContainer } from '@/components/screen-container';
 import { AppButton, AppCard } from '@/components/ui-primitives';
 import { RouteRepository } from '@/database/repositories/route-repository';
-import type { Route } from '@/domain/route';
+import type { DeliveryStop, Route } from '@/domain/route';
+import { stitchTheme } from '@/theme';
 import { fonts, radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
@@ -25,25 +26,20 @@ import { useLocalAccess } from '@/application/auth/local-access-context';
 import { pullAssignedRoutes, pushCompletedRouteAssignmentProgress, pushRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 
-let initialActiveRouteRestoreHandled = false;
-
 export default function HomeScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
   const { profile, online } = useLocalAccess();
   const { requestSync, revision: syncRevision } = useRouteCloudSync();
   const { colors } = useTheme();
-  const { width } = useWindowDimensions();
-  const wideLayout = width >= 720;
   const styles = useMemo(() => createStyles(colors), [colors]);
   const repository = useMemo(() => new RouteRepository(db), [db]);
   const [active, setActive] = useState<Route | null>(null);
-  const [driverRoutes, setDriverRoutes] = useState<Route[]>([]);
+  const [activeStops, setActiveStops] = useState<DeliveryStop[]>([]);
   const [routeNumbers, setRouteNumbers] = useState<Record<string, string>>({});
   const [progress, setProgress] = useState<RouteProgress | null>(null);
   const [exporting, setExporting] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
-  const initialRestoreHandled = useRef(initialActiveRouteRestoreHandled);
 
   const exportActiveDiagnostic = async () => {
     if (!active || !active.id || exporting) return;
@@ -81,25 +77,17 @@ export default function HomeScreen() {
         const operational = await repository.listOperational(profile.role === 'driver' ? profile.id : null);
         const route = operational[0] ?? null;
         const nextProgress = route ? await new GetRouteProgress(db).execute(route.id) : null;
+        const nextStops = route ? await repository.getStops(route.id) : [];
         if (online && route) void pushRouteAssignmentProgress(db, route.id).catch(() => undefined);
         if (!mounted) return;
         setActive(route);
-        setDriverRoutes(operational);
         const numberRows = await db.getAllAsync<{ route_id: string; order_number: string | null }>(
           `SELECT route_id, order_number FROM delivery_stops
            WHERE order_number IS NOT NULL AND TRIM(order_number) <> ''`,
         );
         setRouteNumbers(groupRouteNumbers(numberRows));
         setProgress(nextProgress);
-        if (!initialRestoreHandled.current && route?.status === 'in_progress') {
-          initialRestoreHandled.current = true;
-          initialActiveRouteRestoreHandled = true;
-          const destination = resolveRoute(route);
-          router.replace({ pathname: destination.pathname, params: destination.params } as Href);
-        } else {
-          initialRestoreHandled.current = true;
-          initialActiveRouteRestoreHandled = true;
-        }
+        setActiveStops(nextStops);
       } catch (error) {
         if (__DEV__) console.warn('ACTIVE_ROUTE_RESTORE_FAILED', error);
       }
@@ -115,10 +103,11 @@ export default function HomeScreen() {
       const operational = await repository.listOperational(profile.role === 'driver' ? profile.id : null);
       const route = operational[0] ?? null;
       const nextProgress = route ? await new GetRouteProgress(db).execute(route.id) : null;
+      const nextStops = route ? await repository.getStops(route.id) : [];
       if (mounted) {
         setActive(route);
-        setDriverRoutes(operational);
         setProgress(nextProgress);
+        setActiveStops(nextStops);
       }
     })().catch((reason) => {
       if (__DEV__) console.warn('ACTIVE_ROUTE_SYNC_REFRESH_FAILED', reason);
@@ -128,40 +117,32 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <BrandHeader onMenuPress={() => setAccountMenuOpen(true)} />
+      {profile.role === 'driver'
+        ? <BrandHeader showNotifications={false} showSyncStatus={false} variant="driver" />
+        : <BrandHeader onMenuPress={() => setAccountMenuOpen(true)} />}
       <AccountMenuSheet visible={accountMenuOpen} onClose={() => setAccountMenuOpen(false)} />
       <ScreenContainer>
-        <ScrollView contentContainerStyle={styles.content}>
-          {profile.role === 'driver' ? (
-            <View style={[styles.driverRouteList, wideLayout && styles.driverRouteListWide]} testID="driver-route-list">
-              <View style={styles.listHeading}>
-                <Text style={styles.activeTitle}>Mano maršrutai</Text>
-                <Text style={styles.activeText}>{driverRoutes.length} suplanuota</Text>
-              </View>
-              {driverRoutes.length === 0 ? (
-                <AppCard style={styles.emptyCard}>
-                  <Text style={styles.activeTitle}>Maršrutas dar nepriskirtas</Text>
-                  <Text style={styles.activeText}>Kai administratorius priskirs maršrutą, jis automatiškai atsiras šiame įrenginyje.</Text>
-                </AppCard>
-              ) : driverRoutes.map((route) => <RouteListCard
-                actionLabel={hasDifferentWorkingRoute(driverRoutes, route) ? 'Pirma užbaikite aktyvų maršrutą' : route.status === 'in_progress' ? 'Tęsti maršrutą' : 'Pradėti maršrutą'}
-                dateLabel={formatRouteDate(route.date)}
-                disabled={hasDifferentWorkingRoute(driverRoutes, route)}
-                distanceLabel={`${formatMetric(route.estimatedDistanceKm)} km`}
-                key={route.id}
-                numberLabel={routeNumberLabel(route.id, routeNumbers)}
-                onPress={() => {
-                  const destination = resolveRoute(route);
-                  router.push({ pathname: destination.pathname, params: destination.params } as Href);
-                }}
-                statusLabel={operationalStatus(route)}
-                statusTone={route.status === 'in_progress' ? 'active' : 'planned'}
-                style={wideLayout ? styles.driverRouteCardWide : undefined}
-                stopsLabel={String(route.totalStops)}
-                testID={`driver-route-${route.id}`}
-                weightLabel={`${formatWeightKg(route.totalWeightKg)} kg`}
-              />)}
-            </View>
+        <ScrollView contentContainerStyle={[styles.content, profile.role === 'driver' && styles.driverContent]}>
+          {profile.role === 'driver' ? active && progress ? (
+            <DriverNowDashboard
+              onContinue={() => {
+                const destination = resolveRoute(active);
+                router.push({ pathname: destination.pathname, params: destination.params } as Href);
+              }}
+              onOpenMap={() => {
+                const destination = resolveRoute(active);
+                router.push({ pathname: destination.pathname, params: destination.params } as Href);
+              }}
+              progress={progress}
+              route={active}
+              routeLabel={routeNumberLabel(active.id, routeNumbers)}
+              stops={activeStops}
+            />
+          ) : (
+            <AppCard style={styles.emptyCard}>
+              <Text style={styles.activeTitle}>Maršrutas dar nepriskirtas</Text>
+              <Text style={styles.activeText}>Kai administratorius priskirs maršrutą, jis automatiškai atsiras šiame įrenginyje.</Text>
+            </AppCard>
           ) : active ? (
             <AppCard style={styles.activeCard} testID="active-route-card">
               <View style={styles.activeHeader}>
@@ -270,32 +251,10 @@ function formatMetric(value: number | null | undefined): string {
   return new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(value);
 }
 
-function formatRouteDate(value: string): string {
-  const date = new Date(`${value}T12:00:00`);
-  return Number.isNaN(date.getTime())
-    ? value
-    : new Intl.DateTimeFormat('lt-LT', { weekday: 'short', month: 'short', day: 'numeric' }).format(date);
-}
-
-function operationalStatus(route: Route): string {
-  if (route.returnArrivedAt) return 'Laukiama odometro';
-  if (route.returnStartedAt) return route.returnDestinationKind === 'home' ? 'Grįžtama namo' : 'Grįžtama į sandėlį';
-  if (route.remainingStops === 0 && route.status === 'in_progress') return 'Pristatymai užbaigti';
-  return ({ draft: 'Ruošiamas', planned: 'Suplanuotas', loading: 'Kraunamas', loaded: 'Paruoštas', in_progress: 'Aktyvus' } as Record<string, string>)[route.status] ?? route.status;
-}
-
-function hasDifferentWorkingRoute(routes: Route[], candidate: Route): boolean {
-  return !['loading', 'loaded', 'in_progress'].includes(candidate.status)
-    && routes.some((route) => route.id !== candidate.id && ['loading', 'loaded', 'in_progress'].includes(route.status));
-}
-
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background },
   content: { flexGrow: 1, paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: 96, gap: spacing.md },
-  driverRouteList: { gap: spacing.md },
-  driverRouteListWide: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'stretch' },
-  driverRouteCardWide: { flexGrow: 1, flexBasis: 340, minWidth: 0, maxWidth: 430 },
-  listHeading: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: spacing.md },
+  driverContent: { paddingTop: spacing.sm, backgroundColor: stitchTheme.driverNow.background },
   eyebrow: { ...type.label, color: colors.textMuted },
   // One card style, one radius, one hairline border. No shadow: the border is
   // enough separation against a light grey page.
