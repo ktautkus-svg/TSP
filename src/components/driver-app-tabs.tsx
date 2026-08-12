@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import Svg, { Circle, Path } from 'react-native-svg';
 
@@ -19,8 +19,10 @@ const tabs: ReadonlyArray<{ key: DriverAppTab; label: string; href: Href }> = [
 
 export function DriverAppTabs({ active }: DriverAppTabsProps) {
   const router = useRouter();
+  const { width } = useWindowDimensions();
+  const barWidth = width >= 1100 ? 900 : width >= 720 ? 720 : 430;
   return (
-    <View style={styles.tabBar} testID="driver-app-tabs">
+    <View style={[styles.tabBar, { maxWidth: barWidth }]} testID="driver-app-tabs">
       {tabs.map((tab) => {
         const selected = active === tab.key;
         return (
@@ -53,7 +55,7 @@ function TabIcon({ active, tab }: { readonly active: boolean; readonly tab: Driv
 }
 
 const styles = StyleSheet.create({
-  tabBar: { alignSelf: 'center', width: '100%', maxWidth: 430, minHeight: 58, flexShrink: 0, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surface, flexDirection: 'row' },
+  tabBar: { alignSelf: 'center', width: '100%', minHeight: 58, flexShrink: 0, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surface, flexDirection: 'row' },
   tab: { flex: 1, minWidth: 0, alignItems: 'center', justifyContent: 'center', gap: 2, borderTopWidth: 2, borderTopColor: 'transparent', paddingHorizontal: 2 },
   tabActive: { borderTopColor: colors.primary },
   label: { color: colors.textMuted, fontFamily: fonts.headingSemiBold, fontSize: 8, letterSpacing: 0.2 },

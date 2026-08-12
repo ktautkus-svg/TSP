@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { Stack, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
@@ -34,7 +34,10 @@ export default function AdminScreen() {
   const db = useSQLiteContext();
   const { username, profile, online, logout } = useLocalAccess();
   const { colors } = useTheme();
+  const { width } = useWindowDimensions();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const desktop = width >= 1100;
+  const tablet = width >= 720;
   const localAccess = useMemo(() => new LocalAccessService(db), [db]);
   const [counts, setCounts] = useState<Counts | null>(null);
   const [users, setUsers] = useState<EmployeeProfile[]>([]);
@@ -45,6 +48,10 @@ export default function AdminScreen() {
   const [newUsername, setNewUsername] = useState('');
   const [newPin, setNewPin] = useState('');
   const [newRole, setNewRole] = useState<EmployeeRole>('driver');
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
+  const [editEmployeeName, setEditEmployeeName] = useState('');
+  const [editEmployeeRole, setEditEmployeeRole] = useState<EmployeeRole>('driver');
+  const [editEmployeePin, setEditEmployeePin] = useState('');
   const [selectedDriverId, setSelectedDriverId] = useState('');
   const [selectedRouteId, setSelectedRouteId] = useState('');
   const [newVehicleNumber, setNewVehicleNumber] = useState('');
@@ -52,6 +59,9 @@ export default function AdminScreen() {
   const [newVehiclePayload, setNewVehiclePayload] = useState('');
   const [selectedVehicleId, setSelectedVehicleId] = useState('');
   const [selectedVehicleDriverId, setSelectedVehicleDriverId] = useState('');
+  const [editVehicleNumber, setEditVehicleNumber] = useState('');
+  const [editVehicleModel, setEditVehicleModel] = useState('');
+  const [editVehiclePayload, setEditVehiclePayload] = useState('');
   const [currentPin, setCurrentPin] = useState('');
   const [nextPin, setNextPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
@@ -132,6 +142,28 @@ export default function AdminScreen() {
     await load();
   });
 
+  const selectEmployee = (employee: EmployeeProfile) => {
+    setSelectedEmployeeId(employee.id);
+    setEditEmployeeName(employee.displayName);
+    setEditEmployeeRole(employee.role);
+    setEditEmployeePin('');
+  };
+
+  const saveEmployee = () => run(async () => {
+    if (!selectedEmployeeId) throw new Error('Pasirinkite darbuotoją.');
+    const patch: Record<string, unknown> = {
+      displayName: editEmployeeName,
+      role: editEmployeeRole,
+    };
+    if (editEmployeePin.trim()) patch.pin = editEmployeePin;
+    await employeeApi(`/api/admin/users/${encodeURIComponent(selectedEmployeeId)}`, {
+      method: 'PATCH', body: JSON.stringify(patch),
+    });
+    setEditEmployeePin('');
+    setMessage('Darbuotojo duomenys atnaujinti.');
+    await load();
+  });
+
   const createVehicle = () => run(async () => {
     const maximumPayloadKg = Number(newVehiclePayload.replace(',', '.'));
     if (!newVehicleNumber.trim() || !newVehicleModel.trim() || !Number.isFinite(maximumPayloadKg)) {
@@ -153,6 +185,34 @@ export default function AdminScreen() {
       body: JSON.stringify({ assignedDriverId: selectedVehicleDriverId || null }),
     });
     setMessage(selectedVehicleDriverId ? 'Automobilis priskirtas vairuotojui.' : 'Automobilio priskyrimas panaikintas.');
+    await load();
+  });
+
+  const selectVehicle = (vehicle: ServerFleetVehicle) => {
+    setSelectedVehicleId(vehicle.id);
+    setSelectedVehicleDriverId(vehicle.assignedDriverId ?? '');
+    setEditVehicleNumber(vehicle.registrationNumber);
+    setEditVehicleModel(vehicle.model);
+    setEditVehiclePayload(String(vehicle.maximumPayloadKg));
+  };
+
+  const saveVehicle = () => run(async () => {
+    if (!selectedVehicleId) throw new Error('Pasirinkite automobilį.');
+    const maximumPayloadKg = Number(editVehiclePayload.replace(',', '.'));
+    if (!editVehicleNumber.trim() || !editVehicleModel.trim() || !Number.isFinite(maximumPayloadKg)) {
+      throw new Error('Įveskite automobilio numerį, modelį ir maksimalų krovinio svorį.');
+    }
+    const response = await employeeApi<{ vehicle: ServerFleetVehicle }>(`/api/admin/vehicles/${encodeURIComponent(selectedVehicleId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        registrationNumber: editVehicleNumber,
+        model: editVehicleModel,
+        maximumPayloadKg,
+      }),
+    });
+    setSelectedVehicleId(response.vehicle.id);
+    setEditVehicleNumber(response.vehicle.registrationNumber);
+    setMessage('Automobilio duomenys atnaujinti.');
     await load();
   });
 
@@ -181,7 +241,7 @@ export default function AdminScreen() {
         headerLeft: () => <Pressable onPress={goHome} style={styles.headerAction}><Text style={styles.headerText}>← Pradžios meniu</Text></Pressable>,
         headerRight: () => null,
       }} />
-      <FoundationScreen showFoundationNotice={false} title="Administratoriaus panelė" description="Darbuotojai, rolės ir maršrutų priskyrimai.">
+      <FoundationScreen contentMaxWidth={desktop ? 1440 : tablet ? 980 : undefined} showFoundationNotice={false} title="Administratoriaus panelė" description="Darbuotojai, automobiliai ir maršrutų priskyrimai.">
         <View style={styles.card} testID="admin-account-summary">
           <Text style={styles.title}>{profile.displayName}</Text>
           <Text style={styles.username}>@{username} · {roleLabel(profile.role)}</Text>
@@ -195,7 +255,8 @@ export default function AdminScreen() {
           <Metric label="Taškai" value={counts?.stops} styles={styles} />
         </View>
 
-        {profile.role === 'admin' ? <>
+        {profile.role === 'admin' ? <View style={[styles.workspace, desktop && styles.workspaceDesktop]}>
+          <View style={styles.column}>
           <View style={styles.card} testID="employee-create-form">
             <Text style={styles.title}>Naujas darbuotojas</Text>
             {input(newName, setNewName, 'Vardas ir pavardė')}
@@ -215,7 +276,10 @@ export default function AdminScreen() {
             {users.map((employee) => <View key={employee.id} style={styles.employeeBlock}>
               <View style={styles.listRow}>
                 <View style={styles.listContent}><Text style={styles.listTitle}>{employee.displayName}</Text><Text style={styles.meta}>@{employee.username} · {roleLabel(employee.role)}{employee.disabled ? ' · Išjungta' : ''}</Text></View>
-                {employee.id !== profile.id ? <Pressable onPress={() => void toggleEmployee(employee)} style={styles.smallButton}><Text style={styles.smallButtonText}>{employee.disabled ? 'Įjungti' : 'Išjungti'}</Text></Pressable> : null}
+                <View style={styles.rowActions}>
+                  <Pressable accessibilityLabel={`Redaguoti ${employee.displayName}`} accessibilityRole="button" onPress={() => selectEmployee(employee)} style={styles.smallButton}><Text style={styles.smallButtonText}>Redaguoti</Text></Pressable>
+                  {employee.id !== profile.id ? <Pressable accessibilityLabel={`${employee.disabled ? 'Įjungti' : 'Išjungti'} ${employee.displayName}`} accessibilityRole="button" onPress={() => void toggleEmployee(employee)} style={styles.smallButton}><Text style={styles.smallButtonText}>{employee.disabled ? 'Įjungti' : 'Išjungti'}</Text></Pressable> : null}
+                </View>
               </View>
               {employee.role === 'driver' ? <View style={styles.permissions}>
                 <Text style={styles.sectionLabel}>Vairuotojo leidimai</Text>
@@ -229,8 +293,23 @@ export default function AdminScreen() {
                 })}
               </View> : null}
             </View>)}
+            {selectedEmployeeId ? <View style={styles.editor} testID="employee-edit-form">
+              <View style={styles.editorHeading}>
+                <View style={styles.listContent}><Text style={styles.title}>Redaguoti darbuotoją</Text><Text style={styles.meta}>Prisijungimo vardas nekeičiamas. Tuščias PIN paliks dabartinį.</Text></View>
+                <Pressable accessibilityLabel="Uždaryti darbuotojo redagavimą" accessibilityRole="button" onPress={() => setSelectedEmployeeId('')} style={styles.closeButton}><Text style={styles.closeButtonText}>×</Text></Pressable>
+              </View>
+              {input(editEmployeeName, setEditEmployeeName, 'Vardas ir pavardė')}
+              <View style={styles.choiceRow}>{(['driver', 'dispatcher', 'quality'] as EmployeeRole[]).map((role) =>
+                <Pressable accessibilityLabel={`Rolė ${roleLabel(role)}`} accessibilityRole="radio" accessibilityState={{ checked: editEmployeeRole === role }} key={role} onPress={() => setEditEmployeeRole(role)} style={[styles.choice, editEmployeeRole === role && styles.choiceActive]}>
+                  <Text style={[styles.choiceText, editEmployeeRole === role && styles.choiceTextActive]}>{roleLabel(role)}</Text>
+                </Pressable>)}</View>
+              {input(editEmployeePin, (value) => setEditEmployeePin(value.replace(/\D/g, '').slice(0, 8)), 'Naujas PIN (nebūtina)', true)}
+              <Pressable accessibilityLabel="Išsaugoti darbuotojo pakeitimus" accessibilityRole="button" disabled={busy || !online} onPress={() => void saveEmployee()} style={[styles.primaryButton, (busy || !online) && styles.disabled]}><Text style={styles.primaryText}>Išsaugoti darbuotoją</Text></Pressable>
+            </View> : null}
           </View>
 
+          </View>
+          <View style={styles.column}>
           <View style={styles.card} testID="route-assignment-form">
             <Text style={styles.title}>Priskirti maršrutą vairuotojui</Text>
             <Text style={styles.sectionLabel}>1. Vairuotojas</Text>
@@ -255,10 +334,7 @@ export default function AdminScreen() {
             <View style={styles.vehicleList}>
               {vehicles.map((vehicle) => {
                 const driver = users.find((item) => item.id === vehicle.assignedDriverId);
-                return <Pressable key={vehicle.id} onPress={() => {
-                  setSelectedVehicleId(vehicle.id);
-                  setSelectedVehicleDriverId(vehicle.assignedDriverId ?? '');
-                }} style={[styles.selection, selectedVehicleId === vehicle.id && styles.selectionActive]}>
+                return <Pressable accessibilityLabel={`Redaguoti automobilį ${vehicle.registrationNumber}`} accessibilityRole="button" key={vehicle.id} onPress={() => selectVehicle(vehicle)} style={[styles.selection, selectedVehicleId === vehicle.id && styles.selectionActive]}>
                   <View style={styles.listRowCompact}>
                     <View style={styles.listContent}>
                       <Text style={styles.listTitle}>{vehicle.registrationNumber} · {vehicle.model}</Text>
@@ -268,6 +344,18 @@ export default function AdminScreen() {
                 </Pressable>;
               })}
             </View>
+
+            {selectedVehicleId ? <View style={styles.editor} testID="vehicle-edit-form">
+              <View style={styles.editorHeading}>
+                <View style={styles.listContent}><Text style={styles.title}>Redaguoti automobilį</Text><Text style={styles.meta}>Numeris, modelis ir maksimali krovinio masė.</Text></View>
+                <Pressable accessibilityLabel="Uždaryti automobilio redagavimą" accessibilityRole="button" onPress={() => setSelectedVehicleId('')} style={styles.closeButton}><Text style={styles.closeButtonText}>×</Text></Pressable>
+              </View>
+              {input(editVehicleNumber, (value) => setEditVehicleNumber(value.toUpperCase().replace(/\s/g, '').slice(0, 12)), 'Valstybinis numeris')}
+              {input(editVehicleModel, setEditVehicleModel, 'Modelis')}
+              <TextInput accessibilityLabel="Maksimalus krovinio svoris" value={editVehiclePayload} onChangeText={(value) => setEditVehiclePayload(value.replace(/[^\d.,]/g, '').slice(0, 8))}
+                keyboardType="decimal-pad" placeholder="Maksimalus krovinio svoris, kg" placeholderTextColor={colors.textMuted} style={styles.input} />
+              <Pressable accessibilityLabel="Išsaugoti automobilio pakeitimus" accessibilityRole="button" disabled={busy || !online} style={[styles.primaryButton, (busy || !online) && styles.disabled]} onPress={() => void saveVehicle()}><Text style={styles.primaryText}>Išsaugoti automobilį</Text></Pressable>
+            </View> : null}
 
             <Text style={styles.sectionLabel}>Pridėti automobilį</Text>
             {input(newVehicleNumber, (value) => setNewVehicleNumber(value.toUpperCase().replace(/\s/g, '').slice(0, 12)), 'Valstybinis numeris')}
@@ -292,7 +380,8 @@ export default function AdminScreen() {
               <Text style={styles.primaryText}>Patvirtinti priskyrimą</Text>
             </Pressable>
           </View>
-        </> : <View style={styles.card}><Text style={styles.title}>Administratoriaus teisės reikalingos</Text><Text style={styles.meta}>Darbuotojų valdymą mato tik administratorius.</Text></View>}
+          </View>
+        </View> : <View style={styles.card}><Text style={styles.title}>Administratoriaus teisės reikalingos</Text><Text style={styles.meta}>Darbuotojų valdymą mato tik administratorius.</Text></View>}
 
         <View style={styles.card}>
           <Text style={styles.title}>Keisti savo PIN</Text>
@@ -316,12 +405,15 @@ function Metric({ label, value, styles }: { label: string; value: number | undef
 }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
-  card: { padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
+  workspace: { gap: spacing.lg },
+  workspaceDesktop: { flexDirection: 'row', alignItems: 'flex-start' },
+  column: { flex: 1, minWidth: 0, gap: spacing.lg },
+  card: { padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
   title: { ...type.sectionTitle, color: colors.text },
   username: { ...type.sectionTitle, color: colors.info },
   meta: { ...type.secondary, color: colors.textMuted },
   metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  metric: { minWidth: '46%', flexGrow: 1, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.infoSoft, alignItems: 'center' },
+  metric: { minWidth: 150, flexBasis: 150, flexGrow: 1, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.infoSoft, alignItems: 'center' },
   metricValue: { ...type.readout, color: colors.info },
   metricLabel: { ...type.secondaryStrong, color: colors.textMuted },
   input: { minHeight: 50, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, paddingHorizontal: spacing.md, backgroundColor: colors.surfaceSubtle, color: colors.text, ...type.body },
@@ -346,6 +438,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   vehicleList: { gap: spacing.xs },
   employeeBlock: { gap: spacing.sm, paddingBottom: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border },
   listContent: { flex: 1, minWidth: 0 },
+  rowActions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: spacing.xs },
   listTitle: { ...type.cardTitle, color: colors.text },
   smallButton: { minHeight: 42, paddingHorizontal: spacing.md, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, justifyContent: 'center' },
   smallButtonText: { ...type.secondaryStrong, color: colors.text },
@@ -361,4 +454,8 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   switchTrackOn: { backgroundColor: colors.success },
   switchThumb: { width: 20, height: 20, borderRadius: radius.pill, backgroundColor: colors.textInverse },
   switchThumbOn: { alignSelf: 'flex-end' },
+  editor: { marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.info, backgroundColor: colors.infoSoft, gap: spacing.sm },
+  editorHeading: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
+  closeButton: { width: 44, height: 44, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface },
+  closeButtonText: { ...type.sectionTitle, color: colors.textSecondary, fontSize: 24 },
 });

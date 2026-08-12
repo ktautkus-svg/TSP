@@ -123,8 +123,19 @@ export async function handleEmployeeApi(
     if (vehicleMatch && request.method === 'PATCH') {
       requireRole(profile, ['admin']);
       const body = parseObject(await readBody(request, 64_000));
-      const assignedDriverId = body.assignedDriverId === null ? null : stringField(body, 'assignedDriverId');
-      const vehicle = await store.assignVehicle(vehicleMatch[1], assignedDriverId);
+      const hasVehicleFields = body.registrationNumber !== undefined || body.model !== undefined || body.maximumPayloadKg !== undefined;
+      let vehicle = hasVehicleFields
+        ? await store.updateVehicle(vehicleMatch[1], {
+          registrationNumber: optionalString(body, 'registrationNumber'),
+          model: optionalString(body, 'model'),
+          maximumPayloadKg: body.maximumPayloadKg === undefined ? undefined : numberField(body, 'maximumPayloadKg'),
+        })
+        : null;
+      if (body.assignedDriverId !== undefined) {
+        const assignedDriverId = body.assignedDriverId === null ? null : stringField(body, 'assignedDriverId');
+        vehicle = await store.assignVehicle(vehicle?.id ?? vehicleMatch[1], assignedDriverId);
+      }
+      if (!vehicle) throw new EmployeeApiError('EMPTY_UPDATE', 'Nenurodyti automobilio pakeitimai.', 400);
       return send(response, 200, { vehicle }, requestId);
     }
     const userMatch = pathname.match(/^\/api\/admin\/users\/([^/]+)$/);

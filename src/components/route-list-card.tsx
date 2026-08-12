@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
@@ -14,6 +14,7 @@ export interface RouteListCardProps {
   readonly onPress: () => void;
   readonly statusLabel: string;
   readonly statusTone: 'active' | 'planned' | 'completed' | 'cancelled';
+  readonly style?: StyleProp<ViewStyle>;
   readonly stopsLabel: string;
   readonly testID?: string;
   readonly weightLabel: string;
@@ -30,7 +31,7 @@ export function RouteListCard(props: RouteListCardProps) {
       accessibilityState={{ disabled: props.disabled }}
       disabled={props.disabled}
       onPress={props.onPress}
-      style={({ pressed }) => [styles.card, active && styles.cardActive, props.disabled && styles.disabled, pressed && styles.pressed]}
+      style={({ pressed }) => [styles.card, props.style, active && styles.cardActive, props.disabled && styles.disabled, pressed && styles.pressed]}
       testID={props.testID}>
       <View style={styles.heading}>
         <View style={styles.identity}>

@@ -14,14 +14,15 @@ import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { ScreenContainer } from './screen-container';
 
-type FoundationScreenProps = {
-  title: string;
-  description: string;
-  children?: ReactNode;
-  showFoundationNotice?: boolean;
-  showHeading?: boolean;
-  edgeToEdge?: boolean;
-};
+export interface FoundationScreenProps {
+  readonly title: string;
+  readonly description: string;
+  readonly children?: ReactNode;
+  readonly showFoundationNotice?: boolean;
+  readonly showHeading?: boolean;
+  readonly edgeToEdge?: boolean;
+  readonly contentMaxWidth?: number;
+}
 
 export function FoundationScreen({
   title,
@@ -30,6 +31,7 @@ export function FoundationScreen({
   showFoundationNotice = true,
   showHeading = true,
   edgeToEdge = false,
+  contentMaxWidth,
 }: FoundationScreenProps) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -39,7 +41,7 @@ export function FoundationScreen({
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.flex}
       >
-        <ScreenContainer>
+        <ScreenContainer maxWidth={contentMaxWidth}>
           <ScrollView
             automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
             contentContainerStyle={[styles.content, edgeToEdge && styles.edgeContent]}

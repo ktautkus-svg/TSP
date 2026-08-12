@@ -309,6 +309,53 @@ export class EmployeeAuthStore {
     return updated!;
   }
 
+  async updateVehicle(vehicleIdInput: string, input: {
+    registrationNumber?: string;
+    model?: string;
+    maximumPayloadKg?: number;
+  }): Promise<FleetVehicle> {
+    const vehicleId = validateVehicleId(vehicleIdInput);
+    const currentRef = this.vehicles.doc(vehicleId);
+    let updated: FleetVehicle | null = null;
+
+    await this.db.runTransaction(async (transaction) => {
+      const document = await transaction.get(currentRef);
+      const current = document.data() as FleetVehicle | undefined;
+      if (!current) throw new EmployeeApiError('VEHICLE_NOT_FOUND', 'Automobilis nerastas.', 404);
+
+      const registrationNumber = input.registrationNumber === undefined
+        ? current.registrationNumber
+        : validateRegistrationNumber(input.registrationNumber);
+      const model = input.model === undefined ? current.model : validateVehicleModel(input.model);
+      const maximumPayloadKg = input.maximumPayloadKg === undefined
+        ? current.maximumPayloadKg
+        : validateMaximumPayload(input.maximumPayloadKg);
+      const updatedAt = new Date().toISOString();
+      updated = {
+        ...current,
+        id: registrationNumber,
+        registrationNumber,
+        model,
+        maximumPayloadKg,
+        updatedAt,
+      };
+
+      if (registrationNumber === vehicleId) {
+        transaction.update(currentRef, updated);
+        return;
+      }
+
+      const nextRef = this.vehicles.doc(registrationNumber);
+      if ((await transaction.get(nextRef)).exists) {
+        throw new EmployeeApiError('VEHICLE_EXISTS', 'Automobilis tokiu numeriu jau sukurtas.', 409);
+      }
+      transaction.create(nextRef, updated);
+      transaction.delete(currentRef);
+    });
+
+    return updated!;
+  }
+
   async createUser(input: { username: string; displayName: string; pin: string; role: EmployeeRole }): Promise<EmployeeProfile> {
     const username = validateUsername(input.username);
     const displayName = validateDisplayName(input.displayName);

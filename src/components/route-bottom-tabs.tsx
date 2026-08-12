@@ -1,16 +1,20 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 
 import { colors, fonts } from '@/ui/tokens';
 
 export type RouteBottomTab = 'dashboard' | 'stops' | 'routes';
 
-export function RouteBottomTabs(props: {
-  active: RouteBottomTab;
-  onDashboard: () => void;
-  onStops: () => void;
-  onRoutes: () => void;
-}) {
+export interface RouteBottomTabsProps {
+  readonly active: RouteBottomTab;
+  readonly onDashboard: () => void;
+  readonly onStops: () => void;
+  readonly onRoutes: () => void;
+}
+
+export function RouteBottomTabs(props: RouteBottomTabsProps) {
+  const { width } = useWindowDimensions();
+  const barWidth = width >= 1100 ? 1120 : width >= 720 ? 760 : 430;
   const tabs = [
     { key: 'dashboard', label: 'SKYDELIS', onPress: props.onDashboard },
     { key: 'stops', label: 'STOTELĖS', onPress: props.onStops },
@@ -18,7 +22,7 @@ export function RouteBottomTabs(props: {
   ] as const;
 
   return (
-    <View style={styles.tabBar} testID="route-bottom-tabs">
+    <View style={[styles.tabBar, { maxWidth: barWidth }]} testID="route-bottom-tabs">
       {tabs.map((tab) => {
         const active = props.active === tab.key;
         return (
@@ -56,7 +60,6 @@ const styles = StyleSheet.create({
   tabBar: {
     alignSelf: 'center',
     width: '100%',
-    maxWidth: 430,
     minHeight: 52,
     flexShrink: 0,
     paddingBottom: 2,

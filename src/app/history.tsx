@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Stack, useFocusEffect, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
@@ -22,6 +22,9 @@ export default function RoutesScreen() {
   const router = useRouter();
   const { profile } = useLocalAccess();
   const { colors } = useTheme();
+  const { width } = useWindowDimensions();
+  const wideLayout = width >= 720;
+  const contentWidth = width >= 1100 ? 980 : wideLayout ? 720 : 430;
   const styles = useMemo(() => createStyles(colors), [colors]);
   const repository = useMemo(() => new RouteRepository(db), [db]);
   const [operationalRoutes, setOperationalRoutes] = useState<Route[]>([]);
@@ -63,11 +66,12 @@ export default function RoutesScreen() {
         headerLeft: () => <Pressable accessibilityLabel="Grįžti į skydelį" accessibilityRole="button" onPress={goHome} style={styles.headerAction}><Text style={styles.headerText}>← Skydelis</Text></Pressable>,
         headerRight: () => null,
       }} />
-      <View style={styles.screen}>
-        <FoundationScreen showFoundationNotice={false} title="Maršrutai" description="Aktyvūs, būsimi ir ankstesni jūsų maršrutai vienoje vietoje.">
+      <View style={[styles.screen, { maxWidth: contentWidth }]}>
+        <FoundationScreen contentMaxWidth={contentWidth} showFoundationNotice={false} title="Maršrutai" description="Aktyvūs, būsimi ir ankstesni jūsų maršrutai vienoje vietoje.">
           {error ? <Text style={styles.error}>{error}</Text> : null}
 
           {operationalRoutes.length > 0 ? <Text style={styles.sectionLabel}>DABAR IR TOLIAU</Text> : null}
+          <View style={[styles.routeGrid, wideLayout && styles.routeGridWide]}>
           {operationalRoutes.map((route) => <RouteListCard
             actionLabel={route.status === 'in_progress' ? 'Tęsti maršrutą' : 'Peržiūrėti'}
             dateLabel={formatLithuanianDate(route.date)}
@@ -77,12 +81,15 @@ export default function RoutesScreen() {
             onPress={() => openOperationalRoute(route)}
             statusLabel={operationalRouteLabel(route)}
             statusTone={route.status === 'in_progress' ? 'active' : 'planned'}
+            style={wideLayout ? styles.routeCardWide : undefined}
             stopsLabel={String(route.totalStops)}
             testID={`operational-route-${route.id}`}
             weightLabel={`${formatWeightKg(route.totalWeightKg)} kg`}
           />)}
+          </View>
 
           {historyRoutes.length > 0 ? <Text style={styles.sectionLabel}>ANKSTESNI</Text> : null}
+          <View style={[styles.routeGrid, wideLayout && styles.routeGridWide]}>
           {historyRoutes.map((route) => {
             return (
               <RouteListCard
@@ -94,12 +101,14 @@ export default function RoutesScreen() {
                 onPress={() => router.push(`/history/${route.id}` as Href)}
                 statusLabel={routeStatusLabel(route.status)}
                 statusTone={route.status === 'completed' ? 'completed' : 'cancelled'}
+                style={wideLayout ? styles.routeCardWide : undefined}
                 stopsLabel={String(route.totalStops)}
                 testID={`history-route-${route.id}`}
                 weightLabel={`${formatWeightKg(route.totalWeightKg)} kg`}
               />
             );
           })}
+          </View>
 
           {operationalRoutes.length === 0 && historyRoutes.length === 0 ? (
             <View style={styles.empty}>
@@ -125,7 +134,10 @@ function operationalRouteLabel(route: Route): string {
 }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
-  screen: { flex: 1, alignSelf: 'center', width: '100%', maxWidth: 430, backgroundColor: colors.background },
+  screen: { flex: 1, alignSelf: 'center', width: '100%', backgroundColor: colors.background },
+  routeGrid: { gap: spacing.md },
+  routeGridWide: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'stretch' },
+  routeCardWide: { flexGrow: 1, flexBasis: 320, minWidth: 0, maxWidth: 470 },
   empty: { padding: spacing.lg, borderWidth: 1, borderRadius: radius.lg, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.xs },
   sectionLabel: { ...type.label, color: colors.textMuted, marginTop: spacing.sm },
   title: { ...type.sectionTitle, color: colors.text },

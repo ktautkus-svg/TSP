@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Constants from 'expo-constants';
-import { Pressable, SafeAreaView, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { Pressable, SafeAreaView, ScrollView, Share, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Link, useFocusEffect, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
@@ -33,6 +33,8 @@ export default function HomeScreen() {
   const { profile, online } = useLocalAccess();
   const { requestSync, revision: syncRevision } = useRouteCloudSync();
   const { colors } = useTheme();
+  const { width } = useWindowDimensions();
+  const wideLayout = width >= 720;
   const styles = useMemo(() => createStyles(colors), [colors]);
   const repository = useMemo(() => new RouteRepository(db), [db]);
   const [active, setActive] = useState<Route | null>(null);
@@ -131,7 +133,7 @@ export default function HomeScreen() {
       <ScreenContainer>
         <ScrollView contentContainerStyle={styles.content}>
           {profile.role === 'driver' ? (
-            <View style={styles.driverRouteList} testID="driver-route-list">
+            <View style={[styles.driverRouteList, wideLayout && styles.driverRouteListWide]} testID="driver-route-list">
               <View style={styles.listHeading}>
                 <Text style={styles.activeTitle}>Mano maršrutai</Text>
                 <Text style={styles.activeText}>{driverRoutes.length} suplanuota</Text>
@@ -154,6 +156,7 @@ export default function HomeScreen() {
                 }}
                 statusLabel={operationalStatus(route)}
                 statusTone={route.status === 'in_progress' ? 'active' : 'planned'}
+                style={wideLayout ? styles.driverRouteCardWide : undefined}
                 stopsLabel={String(route.totalStops)}
                 testID={`driver-route-${route.id}`}
                 weightLabel={`${formatWeightKg(route.totalWeightKg)} kg`}
@@ -290,6 +293,8 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background },
   content: { flexGrow: 1, paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: 96, gap: spacing.md },
   driverRouteList: { gap: spacing.md },
+  driverRouteListWide: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'stretch' },
+  driverRouteCardWide: { flexGrow: 1, flexBasis: 340, minWidth: 0, maxWidth: 430 },
   listHeading: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: spacing.md },
   eyebrow: { ...type.label, color: colors.textMuted },
   // One card style, one radius, one hairline border. No shadow: the border is

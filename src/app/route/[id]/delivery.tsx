@@ -506,7 +506,8 @@ export default function DeliveryScreen() {
   const canRecalculateRemaining = Boolean(recalculationAnchor && stops.some((stop) => stop.deliveryStatus === 'pending'));
   const nextStop = stops.find((stop) => stop.deliveryStatus === 'pending') ?? null;
   const nextStopWindow = arrivalWindowStatus(nextStop, route?.date);
-  const gaugeSize = Math.min(152, Math.max(104, (Math.min(viewportWidth, 430) - 124) / 2));
+  const wideLayout = viewportWidth >= 720;
+  const gaugeSize = wideLayout ? 160 : Math.min(152, Math.max(104, (Math.min(viewportWidth, 430) - 124) / 2));
 
   const stopRoute = () => {
     if (busy) return;
@@ -534,15 +535,16 @@ export default function DeliveryScreen() {
   return (
     <>
     <Stack.Screen options={{ gestureEnabled: false, headerBackVisible: false, headerShown: false }} />
-    <View style={styles.routeApp}>
+    <View style={[styles.routeApp, wideLayout && styles.routeAppWide]}>
       <BrandHeader onMenuPress={() => setMenuOpen(true)} />
       <View style={styles.routeMain}>
       <FoundationScreen edgeToEdge showFoundationNotice={false} showHeading={false} title="Pristatymai" description="">
-        <View style={styles.routeContent}>
+        <View style={[styles.routeContent, wideLayout && styles.routeContentWide]}>
           {redirectReason ? <Text style={styles.notice}>Maršrutas jau pradėtas. Grąžinome į vykdomą maršrutą.</Text> : null}
           {error ? <Text style={styles.error}>{error}</Text> : null}
           {activeView === 'dashboard' && progress ? (
-            <View style={styles.dashboard} testID="route-dashboard">
+            <View style={[styles.dashboard, wideLayout && styles.dashboardWide]} testID="route-dashboard">
+              <View style={[styles.dashboardPrimary, wideLayout && styles.dashboardPrimaryWide]}>
               <RoadProgressBar
                 fraction={progress.totalStops > 0
                   ? (progress.totalStops - progress.remainingStops) / progress.totalStops
@@ -594,6 +596,8 @@ export default function DeliveryScreen() {
                   </View>
                 </View>
               </View>
+              </View>
+              <View style={[styles.dashboardSecondary, wideLayout && styles.dashboardSecondaryWide]}>
               {nextStop ? (
                 <View style={styles.nextStopCard} testID="dashboard-next-stop">
                   <Text style={styles.dashboardCardLabel}>KITA STOTELĖ</Text>
@@ -686,6 +690,7 @@ export default function DeliveryScreen() {
                   <Pressable style={styles.secondaryButton} onPress={saveLateStartOdometer}><Text style={styles.secondaryText}>Įvesti dabar</Text></Pressable>
                 </View>
               ) : null}
+              </View>
             </View>
           ) : null}
           {activeView === 'stops' ? (
@@ -977,14 +982,16 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     width: '100%',
     maxWidth: 430,
     overflow: 'hidden',
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#111814',
+    backgroundColor: colors.surface,
+    shadowColor: colors.text,
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.12,
     shadowRadius: 18,
   },
+  routeAppWide: { maxWidth: 1120 },
   routeMain: { flex: 1, minHeight: 0, minWidth: 0, width: '100%' },
   routeContent: { flexGrow: 1, alignSelf: 'center', minWidth: 0, width: '100%', maxWidth: 430, overflow: 'hidden', gap: 0 },
+  routeContentWide: { maxWidth: 1120, padding: spacing.lg },
   stopsView: { width: '100%', padding: spacing.md, gap: spacing.md, backgroundColor: colors.background },
   dashboard: {
     flexGrow: 1,
@@ -994,8 +1001,13 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     maxWidth: 430,
     overflow: 'hidden',
     gap: 0,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.surface,
   },
+  dashboardWide: { maxWidth: 1120, flexDirection: 'row', alignItems: 'flex-start', gap: spacing.lg, backgroundColor: colors.background },
+  dashboardPrimary: { width: '100%' },
+  dashboardPrimaryWide: { flex: 1.08, minWidth: 0, overflow: 'hidden', borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+  dashboardSecondary: { width: '100%' },
+  dashboardSecondaryWide: { flex: 0.92, minWidth: 320, gap: spacing.md },
   gaugePanel: {
     width: '100%',
     paddingTop: 1,
