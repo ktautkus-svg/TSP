@@ -170,7 +170,7 @@ export function InstrumentGauge({
           <Circle cx={CENTER} cy={CENTER} r={104} fill="none" stroke={cockpit.metalDark} strokeWidth={4} />
 
           <Path d={WEDGE_PATH} fill={cockpit.surfaceMuted} />
-          <Path d={FACE_PATH} fill="url(#dial)" stroke={cockpit.outlineVariant} strokeOpacity={0.9} strokeWidth={1.6} />
+          <Path d={FACE_PATH} fill="url(#dial)" />
           <Path d={GLASS_PATH} fill="none" stroke={cockpit.white} strokeOpacity={0.72} strokeWidth={9} />
 
           <Path d={TRACK_PATH} fill="none" stroke={cockpit.surfaceDim} strokeWidth={ARC_WIDTH + 1} strokeLinecap="round" />
@@ -231,11 +231,11 @@ export function InstrumentGauge({
             />
           ))}
 
-          {majors.map((tick, index) => {
-            // The first and last labels sit on the cut edges, so they are lifted
-            // clear of the wedge instead of hugging its accent line.
-            const isEndpoint = index === 0 || index === majors.length - 1;
-            const point = polar(angleFor(tick), isEndpoint ? LABEL_RADIUS - 4 : LABEL_RADIUS);
+          {majors.slice(0, -1).map((tick, index) => {
+            // Full scale is already displayed as the large central readout. Do
+            // not repeat it beside the cut-out where it competes with that value.
+            const isStart = index === 0;
+            const point = polar(angleFor(tick), isStart ? LABEL_RADIUS - 4 : LABEL_RADIUS);
             return (
               <SvgText
                 key={`label-${tick}`}
@@ -245,26 +245,14 @@ export function InstrumentGauge({
                 fontWeight="900"
                 textAnchor="middle"
                 x={point.x}
-                y={point.y + 3 - (isEndpoint ? 11 : 0)}>
+                y={point.y + 3 - (isStart ? 11 : 0)}>
                 {Math.round(tick)}
               </SvgText>
             );
           })}
 
-          {/* Cut-out wedge: accent edges plus the remaining-quantity readout. */}
+          {/* Borderless cut-out wedge keeps the needle visually continuous. */}
           <Circle cx={CENTER} cy={READOUT_CENTER_Y} r={66} fill="url(#wedgeGlow)" />
-          {[FACE_START, FACE_END].map((edge) => (
-            <Line
-              key={`edge-${edge.x.toFixed(1)}`}
-              x1={CENTER}
-              y1={CENTER}
-              x2={edge.x}
-              y2={edge.y}
-              stroke={cockpit.primary}
-              strokeOpacity={0.7}
-              strokeWidth={1.4}
-            />
-          ))}
 
           <G transform={`rotate(${needleAngle} ${CENTER} ${CENTER})`}>
             <Path

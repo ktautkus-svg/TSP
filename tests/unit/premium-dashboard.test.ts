@@ -34,6 +34,9 @@ describe('premium route dashboard', () => {
     expect(gauge).toContain('fontFamily={fonts.headingExtraBold}');
     expect(gauge).toContain('fontSize={readoutFontSize}');
     expect(gauge).toContain('<SvgText');
+    expect(gauge).toContain('majors.slice(0, -1).map');
+    expect(gauge).not.toContain('[FACE_START, FACE_END].map');
+    expect(gauge).toContain('d={FACE_PATH} fill="url(#dial)" />');
     expect(gauge).not.toContain('READOUT_TOP');
     expect(gauge).not.toContain('isWeightGauge');
     expect(gauge).not.toContain('index !== 12');
