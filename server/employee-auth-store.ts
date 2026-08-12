@@ -80,6 +80,20 @@ export type ServerTripSheet = {
   endAddress: string;
 };
 
+export type QualityStopMonitor = {
+  sequence: number;
+  recipient: string;
+  address: string;
+  routeNumber: string | null;
+  status: 'pending' | 'delivered' | 'failed';
+  weightKg: number;
+  deliveryTimeFrom: string | null;
+  deliveryTimeTo: string | null;
+  plannedArrivalAt: string | null;
+  deliveredAt: string | null;
+  failedAt: string | null;
+};
+
 export type QualityRouteMonitor = {
   id: string;
   routeId: string;
@@ -96,7 +110,8 @@ export type QualityRouteMonitor = {
   progressPercent: number;
   totalWeightKg: number;
   remainingWeightKg: number;
-  nextStop: { sequence: number; recipient: string; address: string; routeNumber: string | null } | null;
+  nextStop: QualityStopMonitor | null;
+  stops: QualityStopMonitor[];
   startedAt: string | null;
   completedAt: string | null;
   updatedAt: string;
@@ -667,12 +682,29 @@ export function buildQualityRouteMonitor(assignment: RouteAssignment, vehicle: F
   const routeNumbers = [...new Set(shipmentLines
     .map((line) => normalizeRegionCode(line.route_code))
     .filter((value): value is string => Boolean(value)))];
-  const nextRegion = next
-    ? shipmentLines
-      .filter((line) => optionalText(line.delivery_stop_id) === optionalText(next.id))
-      .map((line) => normalizeRegionCode(line.route_code))
-      .find((value): value is string => Boolean(value)) ?? null
-    : null;
+  const stopRegions = new Map<string, string>();
+  for (const line of shipmentLines) {
+    const stopId = optionalText(line.delivery_stop_id);
+    const region = normalizeRegionCode(line.route_code);
+    if (stopId && region && !stopRegions.has(stopId)) stopRegions.set(stopId, region);
+  }
+  const monitorStops: QualityStopMonitor[] = stops.map((stop, index) => {
+    const rawStatus = optionalText(stop.delivery_status);
+    const status: QualityStopMonitor['status'] = rawStatus === 'delivered' || rawStatus === 'failed' ? rawStatus : 'pending';
+    return {
+      sequence: index + 1,
+      recipient: optionalText(stop.recipient) ?? 'Gavėjas nenurodytas',
+      address: stopAddress(stop),
+      routeNumber: stopRegions.get(optionalText(stop.id) ?? '') ?? null,
+      status,
+      weightKg: finiteNumber(stop.weight_kg, 0),
+      deliveryTimeFrom: optionalText(stop.delivery_time_from),
+      deliveryTimeTo: optionalText(stop.delivery_time_to),
+      plannedArrivalAt: optionalText(stop.latest_estimated_arrival_at) ?? optionalText(stop.planned_arrival_at),
+      deliveredAt: optionalText(stop.delivered_at),
+      failedAt: optionalText(stop.failed_at),
+    };
+  });
   return {
     id: assignment.id,
     routeId: assignment.routeId,
@@ -689,12 +721,8 @@ export function buildQualityRouteMonitor(assignment: RouteAssignment, vehicle: F
     progressPercent: totalStops > 0 ? Math.round(((totalStops - remainingStops) / totalStops) * 100) : 0,
     totalWeightKg: finiteNumber(route.total_weight_kg, 0),
     remainingWeightKg: finiteNumber(route.remaining_weight_kg, 0),
-    nextStop: next ? {
-      sequence: nextIndex + 1,
-      recipient: optionalText(next.recipient) ?? 'Gavėjas nenurodytas',
-      address: stopAddress(next),
-      routeNumber: nextRegion,
-    } : null,
+    nextStop: next ? monitorStops[nextIndex] : null,
+    stops: monitorStops,
     startedAt: optionalText(route.started_at),
     completedAt: optionalText(route.completed_at),
     updatedAt: assignment.updatedAt,

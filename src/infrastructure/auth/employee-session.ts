@@ -67,6 +67,20 @@ export type ServerTripSheet = {
   endAddress: string;
 };
 
+export type QualityStopMonitor = {
+  sequence: number;
+  recipient: string;
+  address: string;
+  routeNumber: string | null;
+  status: 'pending' | 'delivered' | 'failed';
+  weightKg: number;
+  deliveryTimeFrom: string | null;
+  deliveryTimeTo: string | null;
+  plannedArrivalAt: string | null;
+  deliveredAt: string | null;
+  failedAt: string | null;
+};
+
 export type QualityRouteMonitor = {
   id: string;
   routeId: string;
@@ -83,7 +97,8 @@ export type QualityRouteMonitor = {
   progressPercent: number;
   totalWeightKg: number;
   remainingWeightKg: number;
-  nextStop: { sequence: number; recipient: string; address: string; routeNumber: string | null } | null;
+  nextStop: QualityStopMonitor | null;
+  stops: QualityStopMonitor[];
   startedAt: string | null;
   completedAt: string | null;
   updatedAt: string;

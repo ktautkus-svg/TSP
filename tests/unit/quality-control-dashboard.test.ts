@@ -23,6 +23,10 @@ function assignment(): RouteAssignment {
     normalized_address: index === 7 ? 'Vytauto Didžiojo g. 58, Kelmė' : `Gatvė ${index + 1}`,
     delivery_status: index < 7 ? 'delivered' : 'pending',
     weight_kg: 100,
+    delivery_time_from: '08:00',
+    delivery_time_to: '09:00',
+    planned_arrival_at: `2026-08-12T08:${String(index).padStart(2, '0')}:00.000Z`,
+    delivered_at: index < 7 ? `2026-08-12T08:${String(index + 5).padStart(2, '0')}:00.000Z` : null,
   }));
   const shipmentLines = stops.flatMap((stop, index) => [
     { delivery_stop_id: stop.id, route_code: index === 7 ? 'H01' : 'R12', order_number: `RS60928${index}` },
@@ -42,9 +46,10 @@ describe('quality control dashboard', () => {
     expect(route).toMatchObject({
       driverName: 'Vadimas', deliveredStops: 7, remainingStops: 3, progressPercent: 70,
       routeNumbers: ['R12', 'H01'],
-      nextStop: { sequence: 8, recipient: 'Klientas Kelmė', address: 'Vytauto Didžiojo g. 58, Kelmė', routeNumber: 'H01' },
+      nextStop: { sequence: 8, recipient: 'Klientas Kelmė', address: 'Vytauto Didžiojo g. 58, Kelmė', routeNumber: 'H01', deliveryTimeFrom: '08:00', deliveryTimeTo: '09:00' },
       vehicle: { registrationNumber: 'LRI744', model: 'Renault Master' },
     });
+    expect(route.stops[0]).toMatchObject({ sequence: 1, status: 'delivered', deliveredAt: '2026-08-12T08:05:00.000Z' });
   });
 
   it('exposes a dedicated read-only endpoint and isolates the quality role in navigation', () => {
@@ -64,11 +69,13 @@ describe('quality control dashboard', () => {
     expect(dashboardSource).toContain('Duomenys vėluoja');
   });
 
-  it('keeps the mobile overview compact, shows region codes and hides driver-only sync state', () => {
+  it('uses bottom status filters, expandable routes and hides driver-only sync state', () => {
     expect(dashboardSource).toContain('qualityControlColors as colors');
-    expect(dashboardSource).toContain('styles.metricCompact');
+    expect(dashboardSource).toContain('function StatusFilter');
+    expect(dashboardSource).toContain('accessibilityState={{ expanded }}');
+    expect(dashboardSource).toContain('Rodyti taškus ir laikus');
     expect(dashboardSource).toContain('styles.routeCardMobile');
-    expect(dashboardSource).toContain('Regionas ${route.nextStop.routeNumber}');
+    expect(dashboardSource).toContain('Regionas ${stop.routeNumber}');
     expect(dashboardSource).not.toContain('Užsakymo Nr.');
     expect(brandHeaderSource).toContain('showSyncStatus = true');
     expect(syncContextSource).toContain("profile.role === 'quality'");
@@ -81,5 +88,15 @@ describe('quality control dashboard', () => {
     expect(paletteSource).toContain("primary: '#15174C'");
     expect(paletteSource).toContain("brandWordmarkBlue: '#174A88'");
     expect(paletteSource).toContain("qualityBrandRed = '#A73835'");
+  });
+
+  it('uses the real TSP mark and classifies delivery timing without changing route logic', () => {
+    expect(dashboardSource).toContain('<TspBrand compact inverse={false} />');
+    expect(dashboardSource).toContain('KOKYBĖS KONTROLĖ');
+    expect(dashboardSource).not.toContain('Maršrutai gyvai');
+    expect(dashboardSource).toContain('MINOR_DELAY_MINUTES = 45');
+    expect(dashboardSource).toContain('Per anksti');
+    expect(dashboardSource).toContain('Pavėlavo');
+    expect(dashboardSource).toContain('Vėlavo ${delay} min.');
   });
 });
