@@ -12,6 +12,7 @@ const deliverySource = readFileSync(resolve(root, 'src/app/route/[id]/delivery.t
 const layoutSource = readFileSync(resolve(root, 'src/app/_layout.tsx'), 'utf8');
 const brandHeaderSource = readFileSync(resolve(root, 'src/components/brand-header.tsx'), 'utf8');
 const syncContextSource = readFileSync(resolve(root, 'src/application/sync/route-cloud-sync-context.tsx'), 'utf8');
+const paletteSource = readFileSync(resolve(root, 'src/ui/quality-control-palette.ts'), 'utf8');
 
 function assignment(): RouteAssignment {
   const stops = Array.from({ length: 10 }, (_, index) => ({
@@ -64,12 +65,21 @@ describe('quality control dashboard', () => {
   });
 
   it('keeps the mobile overview compact, shows region codes and hides driver-only sync state', () => {
-    expect(dashboardSource).toContain('showSyncStatus={false}');
+    expect(dashboardSource).toContain('qualityControlColors as colors');
     expect(dashboardSource).toContain('styles.metricCompact');
     expect(dashboardSource).toContain('styles.routeCardMobile');
     expect(dashboardSource).toContain('Regionas ${route.nextStop.routeNumber}');
     expect(dashboardSource).not.toContain('Užsakymo Nr.');
     expect(brandHeaderSource).toContain('showSyncStatus = true');
     expect(syncContextSource).toContain("profile.role === 'quality'");
+  });
+
+  it('matches the current red and blue TSP identity instead of the old green dark theme', () => {
+    expect(dashboardSource).not.toContain('useTheme');
+    expect(dashboardSource).toContain('qualityBrandRed');
+    expect(paletteSource).toContain("background: '#FBF9F8'");
+    expect(paletteSource).toContain("primary: '#15174C'");
+    expect(paletteSource).toContain("brandWordmarkBlue: '#174A88'");
+    expect(paletteSource).toContain("qualityBrandRed = '#A73835'");
   });
 });

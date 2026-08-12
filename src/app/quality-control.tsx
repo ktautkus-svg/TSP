@@ -4,12 +4,11 @@ import { Stack, useRouter, type Href } from 'expo-router';
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { AccountMenuSheet } from '@/components/account-menu-sheet';
-import { BrandHeader } from '@/components/brand-header';
 import { employeeApi, type QualityRouteMonitor } from '@/infrastructure/auth/employee-session';
 import { formatWeightKg } from '@/ui/format-weight';
 import { fonts, radius, spacing, type } from '@/ui/tokens';
-import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
+import { qualityBrandRed, qualityControlColors as colors } from '@/ui/quality-control-palette';
 
 const REFRESH_INTERVAL_MS = 15_000;
 const STALE_AFTER_MS = 120_000;
@@ -18,8 +17,7 @@ export default function QualityControlScreen() {
   const router = useRouter();
   const { profile, online } = useLocalAccess();
   const { width } = useWindowDimensions();
-  const { colors } = useTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const styles = useMemo(() => createStyles(colors), []);
   const [routes, setRoutes] = useState<QualityRouteMonitor[]>([]);
   const [lastRefreshedAt, setLastRefreshedAt] = useState<string | null>(null);
   const [busy, setBusy] = useState(true);
@@ -66,7 +64,12 @@ export default function QualityControlScreen() {
 
   return <SafeAreaView style={styles.safeArea}>
     <Stack.Screen options={{ headerShown: false }} />
-    <BrandHeader onMenuPress={() => setAccountMenuOpen(true)} showNotifications={false} showSyncStatus={false} />
+    <View style={styles.header}>
+      <View accessibilityLabel="TSP" style={styles.brandWordmark}><Text style={styles.brandBlue}>T</Text><Text style={styles.brandRed}>S</Text><Text style={styles.brandBlue}>P</Text></View>
+      <Pressable accessibilityLabel="Atidaryti paskyros meniu" accessibilityRole="button" onPress={() => setAccountMenuOpen(true)} style={({ pressed }) => [styles.accountButton, pressed && styles.accountButtonPressed]}>
+        <Text style={styles.accountInitials}>{initials(profile.displayName)}</Text>
+      </Pressable>
+    </View>
     <AccountMenuSheet visible={accountMenuOpen} onClose={() => setAccountMenuOpen(false)} />
     <ScrollView contentContainerStyle={[styles.page, mobile && styles.pageMobile]}>
       <View style={[styles.topbar, mobile && styles.topbarMobile]}>
@@ -153,9 +156,13 @@ function formatRelative(value: string): string { const seconds = Math.max(0, Mat
 function localDateKey(date: Date): string { const year = date.getFullYear(); const month = String(date.getMonth() + 1).padStart(2, '0'); const day = String(date.getDate()).padStart(2, '0'); return `${year}-${month}-${day}`; }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: colors.background }, page: { width: '100%', maxWidth: 1440, alignSelf: 'center', padding: spacing.xl, paddingBottom: 80, gap: spacing.xl }, pageMobile: { padding: spacing.md, paddingBottom: 48, gap: spacing.md },
+  safeArea: { flex: 1, backgroundColor: colors.background },
+  header: { minHeight: 68, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border, borderTopWidth: 3, borderTopColor: qualityBrandRed, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  brandWordmark: { flexDirection: 'row', alignItems: 'center' }, brandBlue: { fontFamily: fonts.headingExtraBold, fontSize: 33, lineHeight: 38, color: colors.brandWordmarkBlue, letterSpacing: -2 }, brandRed: { fontFamily: fonts.headingExtraBold, fontSize: 33, lineHeight: 38, color: qualityBrandRed, letterSpacing: -2 },
+  accountButton: { width: 44, height: 44, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary }, accountButtonPressed: { backgroundColor: colors.primaryDark, transform: [{ scale: 0.96 }] }, accountInitials: { ...type.secondaryStrong, color: colors.textInverse },
+  page: { width: '100%', maxWidth: 1440, alignSelf: 'center', padding: spacing.xl, paddingBottom: 80, gap: spacing.xl }, pageMobile: { padding: spacing.md, paddingBottom: 48, gap: spacing.md },
   topbar: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: spacing.lg }, heading: { flex: 1, minWidth: 280, gap: 3 },
-  topbarMobile: { gap: spacing.sm }, headingMobile: { minWidth: 0, width: '100%' }, eyebrow: { ...type.label, color: colors.info }, pageTitle: { ...type.pageTitle, color: colors.text, fontSize: 34, lineHeight: 40 }, subtitle: { ...type.body, color: colors.textMuted },
+  topbarMobile: { gap: spacing.sm }, headingMobile: { minWidth: 0, width: '100%' }, eyebrow: { ...type.label, color: qualityBrandRed }, pageTitle: { ...type.pageTitle, color: colors.primary, fontSize: 34, lineHeight: 40 }, subtitle: { ...type.body, color: colors.textMuted },
   livePanel: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingLeft: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
   livePanelMobile: { width: '100%', minHeight: 48 },
   liveDot: { width: 9, height: 9, borderRadius: radius.pill, backgroundColor: colors.success }, liveDotOffline: { backgroundColor: colors.danger }, liveLabel: { ...type.label, color: colors.text }, refreshTime: { ...type.meta, color: colors.textMuted },
@@ -165,11 +172,11 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   metricAccentCompact: { left: 0, right: 0, top: 0, bottom: undefined, width: undefined, height: 3 }, metricValue: { fontSize: 32, lineHeight: 38, fontFamily: fonts.heading, color: colors.text }, metricValueCompact: { fontSize: 20, lineHeight: 24 }, metricLabel: { ...type.label, color: colors.textMuted, marginTop: spacing.xs }, metricLabelCompact: { fontSize: 9, lineHeight: 12, marginTop: 1, textTransform: 'uppercase' }, warning: { ...type.bodyStrong, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.warningSoft, color: colors.warning },
   empty: { padding: spacing.xl, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }, emptyTitle: { ...type.sectionTitle, color: colors.text },
   section: { gap: spacing.md }, sectionHeading: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm }, sectionTitle: { ...type.sectionTitle, color: colors.text, fontSize: 20, lineHeight: 26 }, count: { minWidth: 30, textAlign: 'center', paddingVertical: 4, borderRadius: radius.pill, overflow: 'hidden', backgroundColor: colors.infoSoft, ...type.secondaryStrong, color: colors.info },
-  routeGrid: { gap: spacing.md }, routeGridDesktop: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'stretch' }, routeCard: { padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, gap: spacing.md }, routeCardMobile: { padding: spacing.md, gap: spacing.sm }, routeCardDesktop: { width: '48.9%', flexGrow: 1, maxWidth: '50%' }, routeCardCompleted: { borderColor: colors.border },
+  routeGrid: { gap: spacing.md }, routeGridDesktop: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'stretch' }, routeCard: { padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.md, shadowColor: colors.primary, shadowOpacity: 0.07, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 2 }, routeCardMobile: { padding: spacing.md, gap: spacing.sm }, routeCardDesktop: { width: '48.9%', flexGrow: 1, maxWidth: '50%' }, routeCardCompleted: { borderColor: colors.border },
   cardHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing.md }, identity: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }, avatar: { width: 44, height: 44, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.infoSoft }, avatarText: { ...type.bodyStrong, color: colors.info }, flex: { flex: 1, minWidth: 0 }, driverName: { ...type.sectionTitle, color: colors.text }, vehicle: { ...type.secondary, color: colors.textMuted, marginTop: 2 },
   status: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.pill }, statusActive: { backgroundColor: colors.infoSoft }, statusWaiting: { backgroundColor: colors.warningSoft }, statusCompleted: { backgroundColor: colors.accentSoft }, statusText: { ...type.label }, statusTextActive: { color: colors.info }, statusTextWaiting: { color: colors.warning }, statusTextCompleted: { color: colors.success },
   routeMeta: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm }, regionCode: { ...type.bodyStrong, color: colors.info }, routeNumber: { ...type.secondary, color: colors.textMuted, marginTop: 2 }, muted: { ...type.secondary, color: colors.textMuted },
-  progressHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' }, progressValue: { ...type.bodyStrong, color: colors.text }, percent: { ...type.readout, color: colors.info }, progressTrack: { height: 10, borderRadius: radius.pill, overflow: 'hidden', backgroundColor: colors.surfaceMuted }, progressFill: { height: '100%', borderRadius: radius.pill, backgroundColor: colors.info }, progressDetails: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md }, delivered: { ...type.secondaryStrong, color: colors.success }, failed: { ...type.secondaryStrong, color: colors.danger }, remaining: { ...type.secondaryStrong, color: colors.textMuted },
+  progressHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' }, progressValue: { ...type.bodyStrong, color: colors.text }, percent: { ...type.readout, color: colors.info }, progressTrack: { height: 10, borderRadius: radius.pill, overflow: 'hidden', backgroundColor: colors.surfaceMuted }, progressFill: { height: '100%', borderRadius: radius.pill, backgroundColor: colors.success }, progressDetails: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md }, delivered: { ...type.secondaryStrong, color: colors.success }, failed: { ...type.secondaryStrong, color: colors.danger }, remaining: { ...type.secondaryStrong, color: colors.textMuted },
   nextStop: { flexDirection: 'row', alignItems: 'stretch', gap: spacing.md, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.infoSoft, borderWidth: 1, borderColor: colors.border }, nextSequence: { width: 56, alignItems: 'center', justifyContent: 'center', borderRightWidth: 1, borderRightColor: colors.border }, nextSequenceLabel: { ...type.label, color: colors.info }, nextSequenceValue: { fontSize: 26, lineHeight: 32, fontFamily: fonts.heading, color: colors.info }, nextRecipient: { ...type.cardTitle, color: colors.text }, nextAddress: { ...type.body, color: colors.textSecondary, marginTop: 2 }, nextMeta: { ...type.meta, color: colors.info, marginTop: spacing.xs },
   nextStopDone: { minHeight: 74, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.accentSoft }, nextDoneText: { ...type.bodyStrong, color: colors.success },
   cardFooter: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.borderSubtle }, updated: { ...type.meta, color: colors.textMuted }, updatedStale: { color: colors.warning }, started: { ...type.meta, color: colors.textMuted },
