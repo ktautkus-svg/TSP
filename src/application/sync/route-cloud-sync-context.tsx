@@ -9,6 +9,7 @@ import {
   type RouteCloudSyncTrigger,
 } from '@/application/sync/route-cloud-sync-coordinator';
 import { registerRouteCloudSyncLifecycle } from '@/application/sync/route-cloud-sync-lifecycle';
+import { useLocalAccess } from '@/application/auth/local-access-context';
 
 type RouteCloudSyncContextValue = RouteCloudSyncState & {
   requestSync: (reason: RouteCloudSyncTrigger) => Promise<void>;
@@ -26,6 +27,7 @@ const RouteCloudSyncContext = createContext<RouteCloudSyncContextValue | null>(n
 
 export function RouteCloudSyncProvider({ children }: { children: ReactNode }) {
   const db = useSQLiteContext();
+  const { profile } = useLocalAccess();
   const [state, setState] = useState<RouteCloudSyncState>(initialState);
   const coordinator = useMemo(() => new RouteCloudSyncCoordinator({
     sync: () => syncRoutesWithCloud(db),
@@ -39,6 +41,14 @@ export function RouteCloudSyncProvider({ children }: { children: ReactNode }) {
   }, [coordinator]);
 
   useEffect(() => {
+    // Quality control reads its own server projection and must never run the
+    // driver's two-way SQLite sync. Apart from wasting requests, that sync is
+    // intentionally forbidden for this read-only role and used to surface a
+    // misleading red "Klaida" badge in the header.
+    if (profile.role === 'quality') {
+      setState({ status: 'synced', lastSyncedAt: new Date().toISOString(), error: null, attention: null, revision: 0 });
+      return () => coordinator.stop();
+    }
     const cleanup = registerRouteCloudSyncLifecycle({
       onForeground: () => { void requestSync('foreground'); },
       onWindowFocus: () => { void requestSync('window-focus'); },
@@ -61,7 +71,7 @@ export function RouteCloudSyncProvider({ children }: { children: ReactNode }) {
       cleanup();
       coordinator.stop();
     };
-  }, [coordinator, requestSync]);
+  }, [coordinator, profile.role, requestSync]);
 
   const value = useMemo<RouteCloudSyncContextValue>(
     () => ({ ...state, requestSync }),

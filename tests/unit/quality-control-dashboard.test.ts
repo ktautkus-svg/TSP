@@ -10,6 +10,8 @@ const apiSource = readFileSync(resolve(root, 'server/employee-api.ts'), 'utf8');
 const dashboardSource = readFileSync(resolve(root, 'src/app/quality-control.tsx'), 'utf8');
 const deliverySource = readFileSync(resolve(root, 'src/app/route/[id]/delivery.tsx'), 'utf8');
 const layoutSource = readFileSync(resolve(root, 'src/app/_layout.tsx'), 'utf8');
+const brandHeaderSource = readFileSync(resolve(root, 'src/components/brand-header.tsx'), 'utf8');
+const syncContextSource = readFileSync(resolve(root, 'src/application/sync/route-cloud-sync-context.tsx'), 'utf8');
 
 function assignment(): RouteAssignment {
   const stops = Array.from({ length: 10 }, (_, index) => ({
@@ -54,5 +56,15 @@ describe('quality control dashboard', () => {
     expect(deliverySource).toContain('30_000');
     expect(dashboardSource).toContain('REFRESH_INTERVAL_MS = 15_000');
     expect(dashboardSource).toContain('Duomenys vėluoja');
+  });
+
+  it('keeps the mobile overview compact, explains order numbers and hides driver-only sync state', () => {
+    expect(dashboardSource).toContain('showSyncStatus={false}');
+    expect(dashboardSource).toContain('styles.metricCompact');
+    expect(dashboardSource).toContain('styles.routeCardMobile');
+    expect(dashboardSource).toContain('Užsakymo Nr.');
+    expect(dashboardSource).not.toContain("route.routeNumbers.join(', ')");
+    expect(brandHeaderSource).toContain('showSyncStatus = true');
+    expect(syncContextSource).toContain("profile.role === 'quality'");
   });
 });
