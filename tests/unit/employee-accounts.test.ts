@@ -36,6 +36,7 @@ const employeeStoreSource = readFileSync(resolve(dirname(fileURLToPath(import.me
 const adminSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../src/app/admin.tsx'), 'utf8');
 const tripSheetSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../src/app/trip-sheet.tsx'), 'utf8');
 const deliverySource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../src/app/route/[id]/delivery.tsx'), 'utf8');
+const homeSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../src/app/index.tsx'), 'utf8');
 function migration(version: number): string {
   const match = migrationSource.match(new RegExp(`const migrationV${version} = \`([\\s\\S]*?)\`;`));
   if (!match) throw new Error(`Missing migration V${version}`);
@@ -87,6 +88,7 @@ describe('employee server session', () => {
     expect(tripSheetSource).toContain("employeeApi<{ tripSheets: ServerTripSheet[] }>('/api/trip-sheets')");
     expect(tripSheetSource).toContain('Spausdinti / PDF');
     expect(deliverySource).toContain('await pushRouteAssignmentProgress(db, routeId)');
+    expect(homeSource).toContain('await pushCompletedRouteAssignmentProgress(db)');
   });
 
   it('stores a successful login and includes the secure same-origin session cookie in employee API calls', async () => {

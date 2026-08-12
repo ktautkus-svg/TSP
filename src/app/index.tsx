@@ -19,7 +19,7 @@ import type { ColorPalette } from '@/ui/theme-palette';
 import { formatWeightKg } from '@/ui/format-weight';
 import { Alert } from '@/ui/alert';
 import { useLocalAccess } from '@/application/auth/local-access-context';
-import { pullAssignedRoutes, pushRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
+import { pullAssignedRoutes, pushCompletedRouteAssignmentProgress, pushRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 
 let initialActiveRouteRestoreHandled = false;
@@ -64,7 +64,10 @@ export default function HomeScreen() {
     let mounted = true;
     void (async () => {
       try {
-        if (online && profile.role === 'driver') await pullAssignedRoutes(db, profile);
+        if (online && profile.role === 'driver') {
+          await pullAssignedRoutes(db, profile);
+          await pushCompletedRouteAssignmentProgress(db);
+        }
         await requestSync('home-focus');
         const operational = await repository.listOperational(profile.role === 'driver' ? profile.id : null);
         const route = operational[0] ?? null;
@@ -99,6 +102,7 @@ export default function HomeScreen() {
     if (syncRevision === 0) return;
     let mounted = true;
     void (async () => {
+      if (online && profile.role === 'driver') await pushCompletedRouteAssignmentProgress(db);
       const operational = await repository.listOperational(profile.role === 'driver' ? profile.id : null);
       const route = operational[0] ?? null;
       const nextProgress = route ? await new GetRouteProgress(db).execute(route.id) : null;
@@ -111,7 +115,7 @@ export default function HomeScreen() {
       if (__DEV__) console.warn('ACTIVE_ROUTE_SYNC_REFRESH_FAILED', reason);
     });
     return () => { mounted = false; };
-  }, [db, profile.id, profile.role, repository, syncRevision]);
+  }, [db, online, profile.id, profile.role, repository, syncRevision]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
