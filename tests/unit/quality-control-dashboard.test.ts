@@ -23,11 +23,15 @@ function assignment(): RouteAssignment {
     delivery_status: index < 7 ? 'delivered' : 'pending',
     weight_kg: 100,
   }));
+  const shipmentLines = stops.flatMap((stop, index) => [
+    { delivery_stop_id: stop.id, route_code: index === 7 ? 'H01' : 'R12', order_number: `RS60928${index}` },
+    ...(index === 7 ? [{ delivery_stop_id: stop.id, route_code: 'S01', order_number: 'RS609299' }] : []),
+  ]);
   return {
     id: 'assignment-quality-1', routeId: 'route-quality-1', driverId: 'driver-vadimas', driverName: 'Vadimas',
     status: 'in_progress', progress: null, createdBy: 'admin-sensejus', assignedAt: '2026-08-12T05:00:00.000Z',
     updatedAt: '2026-08-12T09:00:00.000Z', vehicle: { id: 'LRI744', registrationNumber: 'LRI744', model: 'Renault Master', maximumPayloadKg: 1500 },
-    routeSnapshot: { route: { id: 'route-quality-1', date: '2026-08-12', status: 'in_progress', total_stops: 10, remaining_stops: 3, total_weight_kg: 1000, remaining_weight_kg: 300, started_at: '2026-08-12T06:00:00.000Z' }, stops, shipmentLines: [] },
+    routeSnapshot: { route: { id: 'route-quality-1', date: '2026-08-12', status: 'in_progress', total_stops: 10, remaining_stops: 3, total_weight_kg: 1000, remaining_weight_kg: 300, started_at: '2026-08-12T06:00:00.000Z' }, stops, shipmentLines },
   };
 }
 
@@ -36,7 +40,8 @@ describe('quality control dashboard', () => {
     const route = buildQualityRouteMonitor(assignment(), assignment().vehicle);
     expect(route).toMatchObject({
       driverName: 'Vadimas', deliveredStops: 7, remainingStops: 3, progressPercent: 70,
-      nextStop: { sequence: 8, recipient: 'Klientas Kelmė', address: 'Vytauto Didžiojo g. 58, Kelmė', routeNumber: 'R8' },
+      routeNumbers: ['R12', 'H01'],
+      nextStop: { sequence: 8, recipient: 'Klientas Kelmė', address: 'Vytauto Didžiojo g. 58, Kelmė', routeNumber: 'H01' },
       vehicle: { registrationNumber: 'LRI744', model: 'Renault Master' },
     });
   });
@@ -58,12 +63,12 @@ describe('quality control dashboard', () => {
     expect(dashboardSource).toContain('Duomenys vėluoja');
   });
 
-  it('keeps the mobile overview compact, explains order numbers and hides driver-only sync state', () => {
+  it('keeps the mobile overview compact, shows region codes and hides driver-only sync state', () => {
     expect(dashboardSource).toContain('showSyncStatus={false}');
     expect(dashboardSource).toContain('styles.metricCompact');
     expect(dashboardSource).toContain('styles.routeCardMobile');
-    expect(dashboardSource).toContain('Užsakymo Nr.');
-    expect(dashboardSource).not.toContain("route.routeNumbers.join(', ')");
+    expect(dashboardSource).toContain('Regionas ${route.nextStop.routeNumber}');
+    expect(dashboardSource).not.toContain('Užsakymo Nr.');
     expect(brandHeaderSource).toContain('showSyncStatus = true');
     expect(syncContextSource).toContain("profile.role === 'quality'");
   });

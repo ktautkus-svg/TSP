@@ -657,16 +657,22 @@ export function buildServerTripSheet(assignment: RouteAssignment, vehicle: Fleet
 export function buildQualityRouteMonitor(assignment: RouteAssignment, vehicle: FleetVehicleSnapshot | null): QualityRouteMonitor {
   const route = assignment.routeSnapshot.route;
   const stops = [...assignment.routeSnapshot.stops].sort((left, right) => stopSequence(left) - stopSequence(right));
+  const shipmentLines = assignment.routeSnapshot.shipmentLines;
   const deliveredStops = stops.filter((stop) => stop.delivery_status === 'delivered').length;
   const failedStops = stops.filter((stop) => stop.delivery_status === 'failed').length;
   const totalStops = finiteNumber(route.total_stops, stops.length);
   const remainingStops = Math.max(0, finiteNumber(route.remaining_stops, totalStops - deliveredStops - failedStops));
   const nextIndex = stops.findIndex((stop) => !['delivered', 'failed'].includes(String(stop.delivery_status ?? 'pending')));
   const next = nextIndex >= 0 ? stops[nextIndex] : null;
-  const routeNumbers = [...new Set(stops
-    .map((stop) => optionalText(stop.order_number))
-    .filter((value): value is string => Boolean(value))
-    .map(normalizeRouteNumber))];
+  const routeNumbers = [...new Set(shipmentLines
+    .map((line) => normalizeRegionCode(line.route_code))
+    .filter((value): value is string => Boolean(value)))];
+  const nextRegion = next
+    ? shipmentLines
+      .filter((line) => optionalText(line.delivery_stop_id) === optionalText(next.id))
+      .map((line) => normalizeRegionCode(line.route_code))
+      .find((value): value is string => Boolean(value)) ?? null
+    : null;
   return {
     id: assignment.id,
     routeId: assignment.routeId,
@@ -687,7 +693,7 @@ export function buildQualityRouteMonitor(assignment: RouteAssignment, vehicle: F
       sequence: nextIndex + 1,
       recipient: optionalText(next.recipient) ?? 'Gavėjas nenurodytas',
       address: stopAddress(next),
-      routeNumber: optionalText(next.order_number) ? normalizeRouteNumber(optionalText(next.order_number)!) : null,
+      routeNumber: nextRegion,
     } : null,
     startedAt: optionalText(route.started_at),
     completedAt: optionalText(route.completed_at),
@@ -706,8 +712,9 @@ function stopAddress(stop: Record<string, unknown>): string {
     ?? 'Adresas nenurodytas';
 }
 
-function normalizeRouteNumber(value: string): string {
-  return /^R/i.test(value) ? value.toUpperCase() : `R${value}`;
+function normalizeRegionCode(value: unknown): string | null {
+  const normalized = optionalText(value)?.toUpperCase() ?? '';
+  return /^[A-RT-Z]\d{2}$/.test(normalized) ? normalized : null;
 }
 
 function qualityStatusRank(status: RouteAssignment['status']): number {
