@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { exportRouteSnapshot, importAssignmentSnapshot } from '../../src/application/auth/route-assignment-sync';
+import { exportRouteSnapshot, importAssignmentSnapshot, reconcileAssignedRouteCopies } from '../../src/application/auth/route-assignment-sync';
 import { CreateDraftRoute, ReplaceDraftStops } from '../../src/application/routes/route-commands';
 import {
   clearEmployeeSession,
@@ -131,5 +131,27 @@ describe('employee route assignment offline copy', () => {
     expect(target.adapter.raw.prepare('SELECT count(*) AS count FROM routes').get()).toMatchObject({ count: 1 });
     expect(target.adapter.raw.prepare('SELECT count(*) AS count FROM delivery_stops').get()).toMatchObject({ count: 1 });
     expect(target.adapter.raw.prepare('SELECT employee_id, sync_status FROM route_sync_state').get()).toMatchObject({ employee_id: profile.id, sync_status: 'synced' });
+  });
+
+  it('removes cancelled or deleted server assignments from the driver device', async () => {
+    const target = createDb();
+    const endpoint = { originalAddress: 'Sandėlio g. 1, Vilnius', geocodingQuery: 'Sandėlio g. 1, Vilnius', normalizedAddress: 'Sandėlio g. 1, Vilnius', latitude: 54.68, longitude: 25.27 };
+    await new CreateDraftRoute(target.db).execute({ id: 'route-stale-1', startLocation: endpoint, endLocation: endpoint });
+    await new ReplaceDraftStops(target.db, undefined, () => 'stale-stop-1').execute('route-stale-1', [{
+      id: 'stale-source-1', originalOrder: 1, orderNumber: null, recipient: 'Klientas', originalAddress: 'Gedimino pr. 9, Vilnius',
+      geocodingQuery: 'Gedimino pr. 9, Vilnius', normalizedAddress: 'Gedimino pr. 9, Vilnius', addressValidationState: 'auto_confirmed',
+      latitude: 54.68, longitude: 25.28, deliveryTimeFrom: null, deliveryTimeTo: null, requiredTimeWindow: false,
+      weightKg: 25, phone: null, notes: null,
+    }]);
+    const now = new Date().toISOString();
+    await target.db.runAsync(
+      `INSERT INTO route_sync_state (assignment_id, route_id, employee_id, server_revision, sync_status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'synced', ?, ?)`,
+      'assignment-stale-1', 'route-stale-1', profile.id, now, now, now,
+    );
+
+    expect(await reconcileAssignedRouteCopies(target.db, profile.id, [])).toBe(1);
+    expect(target.adapter.raw.prepare('SELECT COUNT(*) AS count FROM routes').get()).toMatchObject({ count: 0 });
+    expect(target.adapter.raw.prepare('SELECT COUNT(*) AS count FROM route_sync_state').get()).toMatchObject({ count: 0 });
   });
 });

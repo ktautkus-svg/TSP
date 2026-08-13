@@ -79,5 +79,12 @@ describe('driver permissions', () => {
     expect(deliverySource).toContain('profile.permissions?.canAddStops');
     expect(deliverySource).toContain('profile.permissions?.canRecalculateRoute');
   });
+
+  it('lets administrators cancel or permanently delete a blocking route', () => {
+    expect(adminSource).toContain('testID="route-management"');
+    expect(adminSource).toContain('cancelRoute(route)');
+    expect(adminSource).toContain('deleteRoute(route)');
+    expect(adminSource).toContain("route.status === 'planned'");
+  });
 });
 

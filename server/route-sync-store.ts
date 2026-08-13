@@ -99,6 +99,15 @@ export class RouteSyncStore {
     return results;
   }
 
+  async tombstone(routeIdInput: string): Promise<void> {
+    const routeId = safeId(routeIdInput);
+    const reference = this.routes.doc(routeId);
+    const document = await reference.get();
+    if (!document.exists) return;
+    const now = new Date().toISOString();
+    await reference.update({ deleted: true, clientUpdatedAt: now, serverUpdatedAt: FieldValue.serverTimestamp() });
+  }
+
   private async applyOne(
     reference: FirebaseFirestore.DocumentReference,
     employeeId: string,

@@ -105,6 +105,7 @@ export async function applyRouteSnapshot(
 export async function pullAssignedRoutes(db: SQLiteDatabase, profile: EmployeeProfile): Promise<{ imported: number; skipped: number }> {
   if (profile.role !== 'driver') return { imported: 0, skipped: 0 };
   const response = await employeeApi<{ assignments: ServerRouteAssignment[] }>('/api/assignments');
+  await reconcileAssignedRouteCopies(db, profile.id, response.assignments);
   let imported = 0;
   let skipped = 0;
   for (const assignment of response.assignments.filter((item) => !['completed', 'cancelled'].includes(item.status))) {
@@ -139,6 +140,34 @@ export async function pushRouteAssignmentProgress(db: SQLiteDatabase, routeId: s
     new Date().toISOString(), new Date().toISOString(), sync.assignment_id,
   );
   return true;
+}
+
+export async function reconcileAssignedRouteCopies(
+  db: SQLiteDatabase,
+  employeeId: string,
+  assignments: readonly ServerRouteAssignment[],
+): Promise<number> {
+  const serverById = new Map(assignments.map((assignment) => [assignment.id, assignment]));
+  const local = await db.getAllAsync<{ assignment_id: string; route_id: string }>(
+    'SELECT assignment_id, route_id FROM route_sync_state WHERE employee_id = ?',
+    employeeId,
+  );
+  let removed = 0;
+  for (const copy of local) {
+    const assignment = serverById.get(copy.assignment_id);
+    if (assignment?.status === 'completed') continue;
+    if (assignment && assignment.status !== 'cancelled') continue;
+    await purgeAssignedRouteCopy(db, copy.route_id);
+    removed += 1;
+  }
+  return removed;
+}
+
+async function purgeAssignedRouteCopy(db: SQLiteDatabase, routeId: string): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.runAsync('DELETE FROM trip_sheet_routes WHERE route_id = ?', routeId);
+    await db.runAsync('DELETE FROM routes WHERE id = ?', routeId);
+  });
 }
 
 export async function pushCompletedRouteAssignmentProgress(db: SQLiteDatabase): Promise<number> {

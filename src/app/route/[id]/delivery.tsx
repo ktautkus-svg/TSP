@@ -519,7 +519,8 @@ export default function DeliveryScreen() {
           selfCancelled.current = true;
           try {
             await new CancelDraftRoute(db).execute(routeId);
-            void requestSync('mutation');
+            await pushRouteAssignmentProgress(db, routeId).catch(() => undefined);
+            await requestSync('mutation');
             router.replace('/' as Href);
           } catch (reason) {
             selfCancelled.current = false;

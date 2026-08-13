@@ -431,6 +431,9 @@ export class EmployeeAuthStore {
     }
     const routeId = String(input.routeSnapshot.route.id ?? '');
     if (!routeId) throw new EmployeeApiError('INVALID_ROUTE', 'Maršruto ID nenurodytas.', 400);
+    if (String(input.routeSnapshot.route.status ?? '') !== 'planned') {
+      throw new EmployeeApiError('ROUTE_NOT_PLANNED', 'Vairuotojui galima priskirti tik suplanuotą maršrutą.', 409);
+    }
     const existing = await this.assignments.where('driverId', '==', driver.id).get();
     if (existing.docs.some((doc) => {
       const assignment = doc.data() as RouteAssignment;
@@ -454,6 +457,39 @@ export class EmployeeAuthStore {
       vehicle,
     };
     await this.assignments.doc(assignment.id).create(assignment);
+    return assignment;
+  }
+
+  async cancelAssignment(assignmentId: string): Promise<RouteAssignment> {
+    const reference = this.assignments.doc(safeId(assignmentId));
+    const document = await reference.get();
+    const assignment = document.data() as RouteAssignment | undefined;
+    if (!assignment) throw new EmployeeApiError('ASSIGNMENT_NOT_FOUND', 'Maršruto priskyrimas nerastas.', 404);
+    if (assignment.status === 'completed') {
+      throw new EmployeeApiError('ASSIGNMENT_COMPLETED', 'Užbaigto maršruto atšaukti negalima.', 409);
+    }
+    if (assignment.status === 'cancelled') return assignment;
+    const updatedAt = new Date().toISOString();
+    const routeSnapshot: RouteSnapshot = {
+      ...assignment.routeSnapshot,
+      route: {
+        ...assignment.routeSnapshot.route,
+        status: 'cancelled',
+        cancelled_at: updatedAt,
+        updated_at: updatedAt,
+      },
+    };
+    const updated = { ...assignment, status: 'cancelled' as const, routeSnapshot, updatedAt };
+    await reference.set(updated);
+    return updated;
+  }
+
+  async deleteAssignment(assignmentId: string): Promise<RouteAssignment> {
+    const reference = this.assignments.doc(safeId(assignmentId));
+    const document = await reference.get();
+    const assignment = document.data() as RouteAssignment | undefined;
+    if (!assignment) throw new EmployeeApiError('ASSIGNMENT_NOT_FOUND', 'Maršruto priskyrimas nerastas.', 404);
+    await reference.delete();
     return assignment;
   }
 

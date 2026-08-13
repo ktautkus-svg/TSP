@@ -4,6 +4,9 @@ import { Stack, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
 import { assignRouteToDriver } from '@/application/auth/route-assignment-sync';
+import { markRouteDeletedForCloud } from '@/application/sync/route-cloud-sync';
+import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
+import { CancelDraftRoute } from '@/application/routes/route-commands';
 import { LocalAccessService } from '@/application/auth/local-access';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import {
@@ -14,6 +17,7 @@ import {
   type DriverPermissionKey,
 } from '@/application/auth/employee-permissions';
 import { FoundationScreen } from '@/components/foundation-screen';
+import { Alert } from '@/ui/alert';
 import {
   employeeApi,
   loginEmployee,
@@ -33,6 +37,7 @@ export default function AdminScreen() {
   const router = useRouter();
   const db = useSQLiteContext();
   const { username, profile, online, logout } = useLocalAccess();
+  const { requestSync } = useRouteCloudSync();
   const { colors } = useTheme();
   const { width } = useWindowDimensions();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -139,6 +144,64 @@ export default function AdminScreen() {
     await assignRouteToDriver(db, selectedRouteId, selectedDriverId);
     setSelectedDriverId(''); setSelectedRouteId('');
     setMessage('Maršrutas priskirtas vairuotojui. Jis bus parsiųstas prisijungus telefone.');
+    await load();
+  });
+
+  const cancelRoute = (route: RouteChoice) => {
+    Alert.alert('Atšaukti maršrutą?', 'Maršrutas nebesimatys kaip aktyvus ir neblokuos naujo maršruto kūrimo.', [
+      { text: 'Ne', style: 'cancel' },
+      { text: 'Atšaukti', style: 'destructive', onPress: () => { void run(async () => {
+        const linked = assignments.filter((assignment) => assignment.routeId === route.id && !['completed', 'cancelled'].includes(assignment.status));
+        for (const assignment of linked) {
+          await employeeApi(`/api/admin/assignments/${encodeURIComponent(assignment.id)}/cancel`, { method: 'POST' });
+        }
+        await new CancelDraftRoute(db).execute(route.id);
+        await requestSync('mutation');
+        setSelectedRouteId((current) => current === route.id ? '' : current);
+        setMessage('Maršrutas atšauktas.');
+        await load();
+      }); } },
+    ]);
+  };
+
+  const deleteRoute = (route: RouteChoice) => {
+    Alert.alert('Ištrinti maršrutą?', 'Bus pašalintas maršrutas, jo priskyrimai ir bandomieji rezultatai. Veiksmo atšaukti negalima.', [
+      { text: 'Ne', style: 'cancel' },
+      { text: 'Ištrinti', style: 'destructive', onPress: () => { void run(async () => {
+        const linked = assignments.filter((assignment) => assignment.routeId === route.id);
+        for (const assignment of linked) {
+          await employeeApi(`/api/admin/assignments/${encodeURIComponent(assignment.id)}`, { method: 'DELETE' });
+        }
+        await new CancelDraftRoute(db).execute(route.id);
+        await markRouteDeletedForCloud(db, route.id);
+        await requestSync('mutation');
+        setSelectedRouteId((current) => current === route.id ? '' : current);
+        setMessage('Maršrutas ištrintas.');
+        await load();
+      }); } },
+    ]);
+  };
+
+  const cancelServerAssignment = (assignment: ServerRouteAssignment) => run(async () => {
+    await employeeApi(`/api/admin/assignments/${encodeURIComponent(assignment.id)}/cancel`, { method: 'POST' });
+    const local = routes.find((route) => route.id === assignment.routeId);
+    if (local) {
+      await new CancelDraftRoute(db).execute(local.id);
+      await requestSync('mutation');
+    }
+    setMessage('Vairuotojo maršrutas atšauktas.');
+    await load();
+  });
+
+  const deleteServerAssignment = (assignment: ServerRouteAssignment) => run(async () => {
+    await employeeApi(`/api/admin/assignments/${encodeURIComponent(assignment.id)}`, { method: 'DELETE' });
+    const local = routes.find((route) => route.id === assignment.routeId);
+    if (local) {
+      await new CancelDraftRoute(db).execute(local.id);
+      await markRouteDeletedForCloud(db, local.id);
+      await requestSync('mutation');
+    }
+    setMessage('Priskyrimas ir maršrutas ištrinti.');
     await load();
   });
 
@@ -318,14 +381,42 @@ export default function AdminScreen() {
                 <Text style={styles.listTitle}>{driver.displayName}</Text><Text style={styles.meta}>@{driver.username}</Text>
               </Pressable>)}</View>
             <Text style={styles.sectionLabel}>2. Maršrutas šiame įrenginyje</Text>
-            <View style={styles.choiceColumn}>{routes.map((route) =>
+            <View style={styles.choiceColumn}>{routes.filter((route) => route.status === 'planned').map((route) =>
               <Pressable key={route.id} onPress={() => setSelectedRouteId(route.id)} style={[styles.selection, selectedRouteId === route.id && styles.selectionActive]}>
                 <Text style={styles.listTitle}>{route.date} · {route.total_stops} tašk.</Text><Text style={styles.meta}>{route.status}</Text>
               </Pressable>)}</View>
             <Pressable disabled={busy || !online} style={[styles.primaryButton, (busy || !online) && styles.disabled]} onPress={() => void assignRoute()}>
               <Text style={styles.primaryText}>Priskirti maršrutą</Text>
             </Pressable>
-            {assignments.length ? <Text style={styles.meta}>Serverio priskyrimų: {assignments.length}</Text> : null}
+            {assignments.filter((assignment) => !['completed', 'cancelled'].includes(assignment.status)).map((assignment) => (
+              <View key={assignment.id} style={styles.routeManagementRow}>
+                <View style={styles.listContent}>
+                  <Text style={styles.listTitle}>{assignment.driverName}</Text>
+                  <Text style={styles.meta}>{String(assignment.routeSnapshot.route.date ?? '')} · {assignment.status}</Text>
+                </View>
+                <View style={styles.rowActions}>
+                  <Pressable disabled={busy || !online} onPress={() => void cancelServerAssignment(assignment)} style={styles.smallButton}><Text style={styles.smallButtonText}>Atšaukti</Text></Pressable>
+                  <Pressable disabled={busy || !online} onPress={() => void deleteServerAssignment(assignment)} style={styles.dangerButton}><Text style={styles.dangerButtonText}>Ištrinti</Text></Pressable>
+                </View>
+              </View>
+            ))}
+          </View>
+
+          <View style={styles.card} testID="route-management">
+            <Text style={styles.title}>Aktyvių maršrutų valdymas</Text>
+            <Text style={styles.meta}>Atšaukite arba visam laikui ištrinkite kabantį maršrutą prieš kurdami naują.</Text>
+            {routes.length === 0 ? <Text style={styles.meta}>Aktyvių maršrutų nėra.</Text> : routes.map((route) => (
+              <View key={route.id} style={styles.routeManagementRow}>
+                <View style={styles.listContent}>
+                  <Text style={styles.listTitle}>{route.date} · {route.total_stops} tašk.</Text>
+                  <Text style={styles.meta}>{route.status}</Text>
+                </View>
+                <View style={styles.rowActions}>
+                  <Pressable disabled={busy || !online} onPress={() => cancelRoute(route)} style={styles.smallButton}><Text style={styles.smallButtonText}>Atšaukti</Text></Pressable>
+                  <Pressable disabled={busy || !online} onPress={() => deleteRoute(route)} style={styles.dangerButton}><Text style={styles.dangerButtonText}>Ištrinti</Text></Pressable>
+                </View>
+              </View>
+            ))}
           </View>
 
           <View style={styles.card} testID="fleet-vehicle-management">
@@ -439,9 +530,12 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   employeeBlock: { gap: spacing.sm, paddingBottom: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border },
   listContent: { flex: 1, minWidth: 0 },
   rowActions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: spacing.xs },
+  routeManagementRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border },
   listTitle: { ...type.cardTitle, color: colors.text },
   smallButton: { minHeight: 42, paddingHorizontal: spacing.md, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, justifyContent: 'center' },
   smallButtonText: { ...type.secondaryStrong, color: colors.text },
+  dangerButton: { minHeight: 42, paddingHorizontal: spacing.md, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.danger, justifyContent: 'center' },
+  dangerButtonText: { ...type.secondaryStrong, color: colors.danger },
   selection: { padding: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md },
   selectionActive: { borderColor: colors.info, backgroundColor: colors.infoSoft },
   sectionLabel: { ...type.label, color: colors.textMuted, textTransform: 'uppercase', marginTop: spacing.xs },

@@ -4,6 +4,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo
 import { useSQLiteContext } from 'expo-sqlite';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
+import { pushRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
 
 import { ActivateRoute, CancelDraftRoute, ReopenRouteForPlanning } from '@/application/routes/route-commands';
 import { resolveRoute } from '@/application/routes/route-navigation';
@@ -313,8 +314,9 @@ export default function LoadingScreen() {
             selfCancelled.current = true;
             setBulkBusy(true);
             void new CancelDraftRoute(db).execute(routeId)
-              .then(() => {
-                void requestSync('mutation');
+              .then(async () => {
+                await pushRouteAssignmentProgress(db, routeId).catch(() => undefined);
+                await requestSync('mutation');
                 router.replace('/' as Href);
               })
               .catch((reason) => {

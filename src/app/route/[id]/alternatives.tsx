@@ -29,6 +29,7 @@ import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { Alert } from '@/ui/alert';
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
+import { pushRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
 
 export default function RouteAlternativesScreen() {
   const router = useRouter();
@@ -323,8 +324,9 @@ export default function RouteAlternativesScreen() {
             setCancelling(true);
             selfCancelled.current = true;
             void new CancelDraftRoute(db).execute(routeId)
-              .then(() => {
-                void requestSync('mutation');
+              .then(async () => {
+                await pushRouteAssignmentProgress(db, routeId).catch(() => undefined);
+                await requestSync('mutation');
                 router.replace('/import' as Href);
               })
               .catch((reason) => {

@@ -178,6 +178,19 @@ export async function handleEmployeeApi(
       requireRole(profile, ['driver']);
       return send(response, 200, { assignments: await store.listAssignments(profile) }, requestId);
     }
+    const adminAssignmentCancelMatch = pathname.match(/^\/api\/admin\/assignments\/([^/]+)\/cancel$/);
+    if (adminAssignmentCancelMatch && request.method === 'POST') {
+      requireRole(profile, ['admin', 'dispatcher']);
+      const assignment = await store.cancelAssignment(decodeURIComponent(adminAssignmentCancelMatch[1]));
+      return send(response, 200, { assignment }, requestId);
+    }
+    const adminAssignmentMatch = pathname.match(/^\/api\/admin\/assignments\/([^/]+)$/);
+    if (adminAssignmentMatch && request.method === 'DELETE') {
+      requireRole(profile, ['admin', 'dispatcher']);
+      const assignment = await store.deleteAssignment(decodeURIComponent(adminAssignmentMatch[1]));
+      await routeSyncStore.tombstone(assignment.routeId);
+      return send(response, 204, null, requestId);
+    }
     if (pathname === '/api/trip-sheets' && request.method === 'GET') {
       requireRole(profile, ['admin', 'dispatcher', 'driver']);
       return send(response, 200, { tripSheets: await store.listTripSheets(profile) }, requestId);
