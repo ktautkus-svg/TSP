@@ -18,10 +18,13 @@ describe('server trip sheet', () => {
           end_location_json: JSON.stringify({ normalizedAddress: 'Savanorių pr. 180, Vilnius' }),
         },
         stops: [
-          { order_number: '11', delivery_status: 'delivered', weight_kg: 200 },
-          { order_number: 'R15', delivery_status: 'failed', weight_kg: 150 },
+          { order_number: 'RS608084', delivery_status: 'delivered', weight_kg: 200 },
+          { order_number: 'RS608513š', delivery_status: 'failed', weight_kg: 150 },
         ],
-        shipmentLines: [],
+        shipmentLines: [
+          { route_code: 'R11', order_number: 'RS608084' },
+          { route_code: 'R15', order_number: 'RS608513š' },
+        ],
       },
     };
 
@@ -39,9 +42,13 @@ describe('server trip sheet', () => {
       status: 'completed', progress: null, createdBy: 'admin-12345678', assignedAt: '2026-08-12T05:30:00.000Z',
       updatedAt: '2026-08-12T14:10:00.000Z', vehicle: null,
       routeSnapshot: { route: { id: 'route-2', date: '2026-08-12' }, stops: [
-        { order_number: '11', delivery_status: 'delivered', weight_kg: null },
-        { order_number: 'R11', delivery_status: 'delivered', weight_kg: 25 },
-      ], shipmentLines: [] },
+        { order_number: 'RS608084', delivery_status: 'delivered', weight_kg: null },
+        { order_number: 'RS608513', delivery_status: 'delivered', weight_kg: 25 },
+      ], shipmentLines: [
+        { route_code: 'R11', order_number: 'RS608084' },
+        { route_code: 'r11', order_number: 'RS608513' },
+        { route_code: 'RS608084', order_number: 'RS608084' },
+      ] },
     } satisfies RouteAssignment;
     expect(buildServerTripSheet(assignment, null)).toMatchObject({ routeNumbers: ['R11'], actualDistanceKm: null, deliveredWeightKg: 25, vehicle: null });
   });

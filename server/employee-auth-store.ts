@@ -1,5 +1,6 @@
 import { pbkdf2Sync, randomBytes, randomUUID, timingSafeEqual, createHash } from 'node:crypto';
 import { Firestore } from '@google-cloud/firestore';
+import { normalizeRegionCode, uniqueRegionCodes } from '../src/domain/route-code.js';
 
 export const EMPLOYEE_ROLES = ['admin', 'dispatcher', 'driver', 'quality'] as const;
 export type EmployeeRole = (typeof EMPLOYEE_ROLES)[number];
@@ -640,10 +641,7 @@ export function buildServerTripSheet(assignment: RouteAssignment, vehicle: Fleet
     ? Math.max(0, Math.round((Date.parse(completedAt) - Date.parse(startedAt)) / 60_000))
     : nullableNumber(route.actual_duration_minutes);
   const deliveredStops = stops.filter((stop) => stop.delivery_status === 'delivered');
-  const routeNumbers = [...new Set(stops
-    .map((stop) => optionalText(stop.order_number))
-    .filter((value): value is string => Boolean(value))
-    .map((value) => /^R/i.test(value) ? value.toUpperCase() : `R${value}`))];
+  const routeNumbers = uniqueRegionCodes(assignment.routeSnapshot.shipmentLines);
   return {
     id: `trip-sheet-${assignment.id}`,
     assignmentId: assignment.id,
@@ -679,9 +677,7 @@ export function buildQualityRouteMonitor(assignment: RouteAssignment, vehicle: F
   const remainingStops = Math.max(0, finiteNumber(route.remaining_stops, totalStops - deliveredStops - failedStops));
   const nextIndex = stops.findIndex((stop) => !['delivered', 'failed'].includes(String(stop.delivery_status ?? 'pending')));
   const next = nextIndex >= 0 ? stops[nextIndex] : null;
-  const routeNumbers = [...new Set(shipmentLines
-    .map((line) => normalizeRegionCode(line.route_code))
-    .filter((value): value is string => Boolean(value)))];
+  const routeNumbers = uniqueRegionCodes(shipmentLines);
   const stopRegions = new Map<string, string>();
   for (const line of shipmentLines) {
     const stopId = optionalText(line.delivery_stop_id);
@@ -738,11 +734,6 @@ function stopAddress(stop: Record<string, unknown>): string {
     ?? optionalText(stop.address)
     ?? optionalText(stop.original_address)
     ?? 'Adresas nenurodytas';
-}
-
-function normalizeRegionCode(value: unknown): string | null {
-  const normalized = optionalText(value)?.toUpperCase() ?? '';
-  return /^[A-RT-Z]\d{2}$/.test(normalized) ? normalized : null;
 }
 
 function qualityStatusRank(status: RouteAssignment['status']): number {

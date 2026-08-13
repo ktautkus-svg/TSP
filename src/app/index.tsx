@@ -20,7 +20,7 @@ import { fonts, radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { formatWeightKg } from '@/ui/format-weight';
-import { groupRouteNumbers, routeNumberLabel } from '@/ui/route-numbers';
+import { groupRouteCodes, routeCodeLabel, type RouteCodeRow } from '@/ui/route-numbers';
 import { Alert } from '@/ui/alert';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { pullAssignedRoutes, pushCompletedRouteAssignmentProgress, pushRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
@@ -36,7 +36,7 @@ export default function HomeScreen() {
   const repository = useMemo(() => new RouteRepository(db), [db]);
   const [active, setActive] = useState<Route | null>(null);
   const [activeStops, setActiveStops] = useState<DeliveryStop[]>([]);
-  const [routeNumbers, setRouteNumbers] = useState<Record<string, string>>({});
+  const [routeCodes, setRouteCodes] = useState<Record<string, string>>({});
   const [progress, setProgress] = useState<RouteProgress | null>(null);
   const [exporting, setExporting] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
@@ -81,11 +81,11 @@ export default function HomeScreen() {
         if (online && route) void pushRouteAssignmentProgress(db, route.id).catch(() => undefined);
         if (!mounted) return;
         setActive(route);
-        const numberRows = await db.getAllAsync<{ route_id: string; order_number: string | null }>(
-          `SELECT route_id, order_number FROM delivery_stops
-           WHERE order_number IS NOT NULL AND TRIM(order_number) <> ''`,
+        const codeRows = await db.getAllAsync<RouteCodeRow>(
+          `SELECT DISTINCT route_id, route_code FROM shipment_lines
+           WHERE route_code IS NOT NULL AND TRIM(route_code) <> ''`,
         );
-        setRouteNumbers(groupRouteNumbers(numberRows));
+        setRouteCodes(groupRouteCodes(codeRows));
         setProgress(nextProgress);
         setActiveStops(nextStops);
       } catch (error) {
@@ -104,8 +104,13 @@ export default function HomeScreen() {
       const route = operational[0] ?? null;
       const nextProgress = route ? await new GetRouteProgress(db).execute(route.id) : null;
       const nextStops = route ? await repository.getStops(route.id) : [];
+      const codeRows = await db.getAllAsync<RouteCodeRow>(
+        `SELECT DISTINCT route_id, route_code FROM shipment_lines
+         WHERE route_code IS NOT NULL AND TRIM(route_code) <> ''`,
+      );
       if (mounted) {
         setActive(route);
+        setRouteCodes(groupRouteCodes(codeRows));
         setProgress(nextProgress);
         setActiveStops(nextStops);
       }
@@ -135,7 +140,7 @@ export default function HomeScreen() {
               }}
               progress={progress}
               route={active}
-              routeLabel={routeNumberLabel(active.id, routeNumbers)}
+              routeLabel={routeCodeLabel(active.id, routeCodes)}
               stops={activeStops}
             />
           ) : (

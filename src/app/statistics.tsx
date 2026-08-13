@@ -16,6 +16,7 @@ import type { ColorPalette } from '@/ui/theme-palette';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { employeeApi, type EmployeeProfile, type ServerRouteAssignment } from '@/infrastructure/auth/employee-session';
 import { buildStatisticsSnapshot, type FailureReasonCount, type StatsRouteRow } from '@/domain/statistics';
+import { uniqueRegionCodes } from '@/domain/route-code';
 
 export default function StatisticsScreen() {
   const db = useSQLiteContext();
@@ -225,11 +226,8 @@ function parseAssignmentSummary(value: unknown): StatsRouteRow['completionSummar
 }
 
 function assignmentRouteNumbers(assignment: ServerRouteAssignment): string {
-  const values = new Set(assignment.routeSnapshot.stops
-    .map((stop) => typeof stop.order_number === 'string' ? stop.order_number.trim() : '')
-    .filter(Boolean)
-    .map((value) => /^R/i.test(value) ? value.toUpperCase() : `R${value}`));
-  return values.size > 0 ? [...values].join(', ') : `R-${assignment.routeId.slice(-5).toUpperCase()}`;
+  const values = uniqueRegionCodes(assignment.routeSnapshot.shipmentLines);
+  return values.length > 0 ? values.join(' · ') : 'Maršrutas';
 }
 
 function SummaryTile({ styles, label, totals }: { styles: ReturnType<typeof createStyles>; label: string; totals: StatisticsPeriodTotals }) {

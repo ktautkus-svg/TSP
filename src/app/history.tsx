@@ -11,7 +11,7 @@ import { RouteRepository } from '@/database/repositories/route-repository';
 import type { Route } from '@/domain/route';
 import { formatWeightKg } from '@/ui/format-weight';
 import { formatLithuanianDate, routeStatusLabel } from '@/ui/history-labels';
-import { groupRouteNumbers, routeNumberLabel, type RouteNumberRow } from '@/ui/route-numbers';
+import { groupRouteCodes, routeCodeLabel, type RouteCodeRow } from '@/ui/route-numbers';
 import { fonts, radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
@@ -29,7 +29,7 @@ export default function RoutesScreen() {
   const repository = useMemo(() => new RouteRepository(db), [db]);
   const [operationalRoutes, setOperationalRoutes] = useState<Route[]>([]);
   const [historyRoutes, setHistoryRoutes] = useState<Route[]>([]);
-  const [routeNumbers, setRouteNumbers] = useState<Record<string, string>>({});
+  const [routeCodes, setRouteCodes] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
 
   useFocusEffect(useCallback(() => {
@@ -38,12 +38,12 @@ export default function RoutesScreen() {
     void Promise.all([
       repository.listOperational(owner),
       repository.listHistory(50, owner),
-      db.getAllAsync<RouteNumberRow>(`SELECT route_id, order_number FROM delivery_stops WHERE order_number IS NOT NULL AND TRIM(order_number) <> ''`),
-    ]).then(([operational, history, numberRows]) => {
+      db.getAllAsync<RouteCodeRow>(`SELECT DISTINCT route_id, route_code FROM shipment_lines WHERE route_code IS NOT NULL AND TRIM(route_code) <> ''`),
+    ]).then(([operational, history, codeRows]) => {
       if (!mounted) return;
       setOperationalRoutes(operational);
       setHistoryRoutes(history);
-      setRouteNumbers(groupRouteNumbers(numberRows));
+      setRouteCodes(groupRouteCodes(codeRows));
       setError(null);
     }).catch((reason) => {
       if (__DEV__) console.warn('ROUTES_LOAD_FAILED', reason);
@@ -77,7 +77,7 @@ export default function RoutesScreen() {
             dateLabel={formatLithuanianDate(route.date)}
             distanceLabel={`${route.estimatedDistanceKm?.toFixed(1) ?? '—'} km`}
             key={route.id}
-            numberLabel={routeNumberLabel(route.id, routeNumbers)}
+            numberLabel={routeCodeLabel(route.id, routeCodes)}
             onPress={() => openOperationalRoute(route)}
             statusLabel={operationalRouteLabel(route)}
             statusTone={route.status === 'in_progress' ? 'active' : 'planned'}
@@ -97,7 +97,7 @@ export default function RoutesScreen() {
                 dateLabel={formatLithuanianDate(route.date)}
                 distanceLabel={`${(route.actualDistanceKm ?? route.estimatedDistanceKm)?.toFixed(1) ?? '—'} km`}
                 key={route.id}
-                numberLabel={routeNumberLabel(route.id, routeNumbers)}
+                numberLabel={routeCodeLabel(route.id, routeCodes)}
                 onPress={() => router.push(`/history/${route.id}` as Href)}
                 statusLabel={routeStatusLabel(route.status)}
                 statusTone={route.status === 'completed' ? 'completed' : 'cancelled'}
