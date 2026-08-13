@@ -22,22 +22,22 @@ export function BrandHeader({
   return (
     <View style={[styles.header, driver && styles.driverHeader]} testID="brand-header">
       <View style={[styles.brandRow, driver && styles.driverBrandRow]}>
-        <TspBrand inverse={!driver} />
+        <TspBrand inverse={false} />
       </View>
       {!driver ? <View style={styles.headerActions}>
         {showSyncStatus ? <CloudSyncStatus compact /> : null}
         {showNotifications ? <View style={styles.notification}>
           <Svg width={22} height={22} viewBox="0 0 24 24">
-            <Path d="M6 9a6 6 0 0 1 12 0v4l2 3H4l2-3V9Z" fill="none" stroke="#FFFFFF" strokeWidth={1.8} strokeLinejoin="round" />
-            <Path d="M10 19h4" stroke="#FFFFFF" strokeLinecap="round" strokeWidth={1.8} />
+            <Path d="M6 9a6 6 0 0 1 12 0v4l2 3H4l2-3V9Z" fill="none" stroke={colors.brandNavy} strokeWidth={1.8} strokeLinejoin="round" />
+            <Path d="M10 19h4" stroke={colors.brandNavy} strokeLinecap="round" strokeWidth={1.8} />
           </Svg>
           <View style={styles.notificationDot} />
         </View> : null}
         {onMenuPress ? <Pressable accessibilityLabel="Atidaryti meniu" onPress={onMenuPress} style={styles.profileButton}>
           <Svg width={34} height={34} viewBox="0 0 34 34">
-            <Circle cx={17} cy={17} fill="#E9EFE9" r={16} stroke="rgba(255,255,255,0.65)" />
-            <Circle cx={17} cy={12} fill="#31523D" r={5} />
-            <Path d="M8 28c1.5-6 5-9 9-9s7.5 3 9 9" fill="#31523D" />
+            <Circle cx={17} cy={17} fill={colors.primarySoft} r={16} stroke={colors.border} />
+            <Circle cx={17} cy={12} fill={colors.brandNavy} r={5} />
+            <Path d="M8 28c1.5-6 5-9 9-9s7.5 3 9 9" fill={colors.brandNavy} />
           </Svg>
         </Pressable> : null}
       </View> : null}
@@ -51,13 +51,17 @@ const styles = StyleSheet.create({
     minHeight: 72,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
-    backgroundColor: colors.brandNavy,
+    backgroundColor: colors.surface,
+    borderTopWidth: 3,
+    borderTopColor: colors.brandWordmarkGreen,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderSubtle,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.md,
   },
-  driverHeader: { minHeight: 58, paddingVertical: 4, backgroundColor: colors.surface, justifyContent: 'center' },
+  driverHeader: { minHeight: 58, paddingVertical: 4, borderTopWidth: 0, justifyContent: 'center' },
   brandRow: { flex: 1, flexDirection: 'row', alignItems: 'center', minWidth: 0, overflow: 'hidden' },
   driverBrandRow: { flex: 0, justifyContent: 'center' },
   headerActions: {

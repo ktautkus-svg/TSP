@@ -52,9 +52,9 @@ function createDb(through = 11): SQLiteDatabase {
 }
 
 describe('ThemePreference', () => {
-  it('defaults to dark when nothing is stored (first launch, before any user choice)', async () => {
+  it('defaults to the approved light theme when nothing is stored', async () => {
     const db = createDb();
-    expect(await new ThemePreference(db).get()).toBe('dark');
+    expect(await new ThemePreference(db).get()).toBe('light');
   });
 
   it('persists and reloads the chosen mode, including an explicit system choice', async () => {
@@ -70,13 +70,13 @@ describe('ThemePreference', () => {
     expect(await preference.get()).toBe('dark');
   });
 
-  it('falls back to dark for an unexpected stored value', async () => {
+  it('falls back to light for an unexpected stored value', async () => {
     const db = createDb();
     await db.runAsync(
       `INSERT INTO app_preferences (key, value, updated_at) VALUES ('theme_preference', 'garbled', ?)`,
       new Date().toISOString(),
     );
-    expect(await new ThemePreference(db).get()).toBe('dark');
+    expect(await new ThemePreference(db).get()).toBe('light');
   });
 });
 

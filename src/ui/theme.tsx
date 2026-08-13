@@ -21,7 +21,7 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const db = useSQLiteContext();
   const systemScheme = useColorScheme();
-  const [preference, setPreferenceState] = useState<ThemeMode>('system');
+  const [preference, setPreferenceState] = useState<ThemeMode>('light');
 
   useEffect(() => {
     let cancelled = false;

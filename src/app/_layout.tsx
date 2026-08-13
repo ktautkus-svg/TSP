@@ -16,6 +16,7 @@ import {
 import { PwaRuntime } from '@/components/pwa-runtime';
 import { LocalAccessGate } from '@/components/local-access-gate';
 import { CloudSyncStatus } from '@/components/cloud-sync-status';
+import { StackBrandTitle } from '@/components/stack-brand-title';
 import { RouteCloudSyncProvider } from '@/application/sync/route-cloud-sync-context';
 import { migrateDatabase } from '@/database/migrations';
 import { ThemeProvider } from '@/ui/theme';
@@ -123,21 +124,21 @@ export default function RootLayout() {
           <RouteCloudSyncProvider>
             <AlertHost />
             <PwaRuntime />
-            <StatusBar style="light" />
+            <StatusBar style="dark" />
             <RoleAccessBoundary>
             <Stack
               screenOptions={{
                 headerShadowVisible: false,
-                headerStyle: { backgroundColor: colors.brandNavy },
-                headerTintColor: '#FFFFFF',
-                headerTitleStyle: { ...type.cardTitle, color: '#FFFFFF' },
+                headerStyle: { backgroundColor: colors.surface },
+                headerTintColor: colors.brandNavy,
+                headerTitle: ({ children }) => <StackBrandTitle title={children} />,
                 contentStyle: { backgroundColor: colors.background },
                 headerRight: () => (
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                     <CloudSyncStatus compact />
                     <Link href="/" replace asChild>
                       <Pressable accessibilityRole="button" style={{ minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 }}>
-                        <Text style={{ ...type.secondary, fontFamily: fonts.headingSemiBold, color: '#FFFFFF' }}>Pradžia</Text>
+                        <Text style={{ ...type.secondary, fontFamily: fonts.headingSemiBold, color: colors.brandNavy }}>Pradžia</Text>
                       </Pressable>
                     </Link>
                   </View>

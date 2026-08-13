@@ -10,10 +10,9 @@ export class ThemePreference {
       "SELECT value FROM app_preferences WHERE key = 'theme_preference'",
     );
     if (row?.value === 'light' || row?.value === 'dark' || row?.value === 'system') return row.value;
-    // No preference saved yet (first launch): default to dark rather than
-    // following the system theme, per explicit product decision. The user
-    // can still switch to Šviesus/Sistema in Settings at any time.
-    return 'dark';
+    // Open in the approved bright operational theme. Dark and system modes
+    // remain explicit choices in Settings.
+    return 'light';
   }
 
   async save(value: ThemeMode, now = new Date().toISOString()): Promise<void> {

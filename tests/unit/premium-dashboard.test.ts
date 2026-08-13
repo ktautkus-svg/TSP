@@ -120,10 +120,11 @@ describe('premium route dashboard', () => {
 
   it('uses the branded shell on the dashboard and route screens', () => {
     expect(source('src/app/index.tsx')).toContain('variant="driver"');
-    expect(source('src/app/_layout.tsx')).toContain('backgroundColor: colors.brandNavy');
+    expect(source('src/app/_layout.tsx')).toContain('backgroundColor: colors.surface');
+    expect(source('src/app/_layout.tsx')).toContain('<StackBrandTitle title={children} />');
     const header = source('src/components/brand-header.tsx');
     const brand = source('src/components/tsp-brand.tsx');
-    expect(header).toContain('<TspBrand inverse={!driver} />');
+    expect(header).toContain('<TspBrand inverse={false} />');
     expect(brand).toContain("accessibilityLabel={descriptor ? `TSP – ${descriptor}` : 'TSP'}");
     expect(brand).toContain('tsp-wordmark-red-blue.png');
     expect(brand).toContain('readonly descriptor?: string');

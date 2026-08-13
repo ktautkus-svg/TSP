@@ -1,9 +1,11 @@
 import Svg, { Circle, Line, Path } from 'react-native-svg';
 
+import { colors } from '@/ui/tokens';
+
 type IconProps = { size?: number; color?: string };
 
 /** Compass-style navigation arrow, replacing the flag glyph on the "Navigate" button. */
-export function NavigateIcon({ size = 26, color = '#FFFFFF' }: IconProps) {
+export function NavigateIcon({ size = 26, color = colors.textInverse }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <Circle cx={12} cy={12} r={9.5} stroke={color} strokeWidth={1.6} fill="none" opacity={0.55} />
@@ -14,7 +16,7 @@ export function NavigateIcon({ size = 26, color = '#FFFFFF' }: IconProps) {
 }
 
 /** Bold checkmark, replacing the ✓ glyph on the "Delivered" button. */
-export function DeliveredIcon({ size = 26, color = '#FFFFFF' }: IconProps) {
+export function DeliveredIcon({ size = 26, color = colors.textInverse }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <Path d="M5 12.5 L10 17.5 L19 6.5" stroke={color} strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" fill="none" />
@@ -23,7 +25,7 @@ export function DeliveredIcon({ size = 26, color = '#FFFFFF' }: IconProps) {
 }
 
 /** Bold cross, replacing the ⊘ glyph on the "Failed" button. */
-export function FailedIcon({ size = 26, color = '#FFFFFF' }: IconProps) {
+export function FailedIcon({ size = 26, color = colors.textInverse }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <Path d="M6 6 L18 18 M18 6 L6 18" stroke={color} strokeWidth={3} strokeLinecap="round" fill="none" />
@@ -32,7 +34,7 @@ export function FailedIcon({ size = 26, color = '#FFFFFF' }: IconProps) {
 }
 
 /** Map pin, replacing the ↗ glyph on the "distance to next stop" tile. */
-export function DistanceIcon({ size = 20, color = '#0A5A31' }: IconProps) {
+export function DistanceIcon({ size = 20, color = colors.success }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <Path
@@ -48,7 +50,7 @@ export function DistanceIcon({ size = 20, color = '#0A5A31' }: IconProps) {
 }
 
 /** Clock face, replacing the ⏱ glyph on the "time to next stop" tile. */
-export function ClockIcon({ size = 20, color = '#0A5A31' }: IconProps) {
+export function ClockIcon({ size = 20, color = colors.success }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <Circle cx={12} cy={12} r={9} stroke={color} strokeWidth={1.8} fill="none" />

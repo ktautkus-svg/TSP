@@ -16,55 +16,55 @@ import { Platform } from 'react-native';
  */
 export const colors = {
   // Neutrals
-  background: '#F5F6F5',
+  background: '#F7F9FC',
   surface: '#FFFFFF',
   surfaceElevated: '#FFFFFF',
-  surfaceMuted: '#F0F2F0',
-  surfaceSubtle: '#F8F9F8',
-  text: '#17251D',
-  textSecondary: '#46534C',
-  textMuted: '#65716A',
-  textSubtle: '#8A948D',
-  textDisabled: '#9CA59F',
+  surfaceMuted: '#F0F3F8',
+  surfaceSubtle: '#FAFBFD',
+  text: '#171A2B',
+  textSecondary: '#465064',
+  textMuted: '#667085',
+  textSubtle: '#8B95A7',
+  textDisabled: '#98A2B3',
   textInverse: '#FFFFFF',
-  border: '#DCE2DD',
-  borderSubtle: '#E9EDEA',
-  borderStrong: '#C3CCC6',
+  border: '#D9E0EA',
+  borderSubtle: '#E9EDF3',
+  borderStrong: '#BAC4D2',
 
-  // Brand green — one dark, one deeper for headers/pressed, one soft wash.
-  primary: '#0A5A31',
-  primaryDark: '#07351E',
-  primarySoft: '#E7F0EA',
+  // TSP navy for the shell and primary actions.
+  primary: '#15174C',
+  primaryDark: '#0D0F38',
+  primarySoft: '#EDEDF7',
 
-  // Single accent green: success and positive status only.
-  accent: '#1F7A46',
-  accentSoft: '#E7F2E9',
-  accentStrong: '#07351E',
-  success: '#1F7A46',
+  // Green is reserved for success and positive status.
+  accent: '#00A651',
+  accentSoft: '#E8F7EF',
+  accentStrong: '#087A3F',
+  success: '#00A651',
 
   // Semantic — each has exactly one meaning.
-  warning: '#9A6212',
+  warning: '#B54708',
   warningSoft: '#FDF3E2',
-  danger: '#B4342A',
+  danger: '#B42318',
   dangerSoft: '#FCF0EE',
-  info: '#2F5D8C',
-  infoSoft: '#EDF2F8',
+  info: '#155EEF',
+  infoSoft: '#EEF4FF',
 
   // Interaction roles. These aliases make intent explicit at call sites and
   // allow the brand and operational actions to evolve independently later.
-  actionPrimary: '#0A5A31',
-  actionPrimaryPressed: '#073F24',
-  actionRoute: '#2F5D8C',
-  actionRoutePressed: '#244A70',
-  disabledSurface: '#E7EAE8',
-  disabledText: '#7D8881',
+  actionPrimary: '#15174C',
+  actionPrimaryPressed: '#0D0F38',
+  actionRoute: '#155EEF',
+  actionRoutePressed: '#004EEB',
+  disabledSurface: '#E7EAF0',
+  disabledText: '#7D8799',
 
   /** Header/chrome surface. Kept as its own key because it is brand, not action. */
-  brandNavy: '#07351E',
+  brandNavy: '#15174C',
   /** TSP wordmark-only colors; they do not define the operational UI palette. */
-  brandWordmarkBlue: '#123A63',
-  brandWordmarkGreen: '#32B44A',
-  brandWordmarkGreenLight: '#75D65F',
+  brandWordmarkBlue: '#174A88',
+  brandWordmarkGreen: '#A73835',
+  brandWordmarkGreenLight: '#C8504C',
 } as const;
 
 export const fonts = {

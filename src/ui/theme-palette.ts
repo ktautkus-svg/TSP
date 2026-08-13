@@ -20,9 +20,9 @@ export const darkColors: ColorPalette = {
   borderSubtle: '#253029',
   borderStrong: '#3D4A42',
 
-  primary: '#3E9E68',
-  primaryDark: '#0E2E1D',
-  primarySoft: '#16291E',
+  primary: '#AEB4FF',
+  primaryDark: '#15174C',
+  primarySoft: '#24264F',
 
   accent: '#4FB07A',
   accentSoft: '#16291E',
@@ -36,15 +36,15 @@ export const darkColors: ColorPalette = {
   info: '#6FA3D6',
   infoSoft: '#182430',
 
-  actionPrimary: '#3E9E68',
-  actionPrimaryPressed: '#2D7D50',
+  actionPrimary: '#AEB4FF',
+  actionPrimaryPressed: '#8992F0',
   actionRoute: '#6FA3D6',
   actionRoutePressed: '#5689BB',
   disabledSurface: '#2A332D',
   disabledText: '#7F8A83',
 
-  brandNavy: '#0E2E1D',
+  brandNavy: '#15174C',
   brandWordmarkBlue: '#6FA3D6',
-  brandWordmarkGreen: '#4FB07A',
-  brandWordmarkGreenLight: '#7CC79A',
+  brandWordmarkGreen: '#E4695E',
+  brandWordmarkGreenLight: '#F19A92',
 };

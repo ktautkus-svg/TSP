@@ -1,5 +1,7 @@
 import Svg, { Circle, Line, Path, Polyline, Rect } from 'react-native-svg';
 
+import { colors as designColors } from '@/ui/tokens';
+
 /**
  * Shared line-icon set. Everything is drawn on a 24x24 grid with a consistent
  * 1.8 stroke and round joins, so icons sit together without one looking heavier
@@ -10,7 +12,7 @@ export type IconProps = { size?: number; color?: string; strokeWidth?: number };
 
 const BASE_STROKE = 1.8;
 
-export function ExcelIcon({ size = 24, color = '#1F7A46', strokeWidth = BASE_STROKE }: IconProps) {
+export function ExcelIcon({ size = 24, color = designColors.success, strokeWidth = BASE_STROKE }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <Path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" stroke={color} strokeWidth={strokeWidth} strokeLinejoin="round" fill="none" />
@@ -20,7 +22,7 @@ export function ExcelIcon({ size = 24, color = '#1F7A46', strokeWidth = BASE_STR
   );
 }
 
-export function PdfIcon({ size = 24, color = '#B4342A', strokeWidth = BASE_STROKE }: IconProps) {
+export function PdfIcon({ size = 24, color = designColors.danger, strokeWidth = BASE_STROKE }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <Path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" stroke={color} strokeWidth={strokeWidth} strokeLinejoin="round" fill="none" />
@@ -31,7 +33,7 @@ export function PdfIcon({ size = 24, color = '#B4342A', strokeWidth = BASE_STROK
   );
 }
 
-export function CameraIcon({ size = 24, color = '#2F5D8C', strokeWidth = BASE_STROKE }: IconProps) {
+export function CameraIcon({ size = 24, color = designColors.info, strokeWidth = BASE_STROKE }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <Path d="M4 8h3l1.4-2h7.2L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z" stroke={color} strokeWidth={strokeWidth} strokeLinejoin="round" fill="none" />
@@ -40,7 +42,7 @@ export function CameraIcon({ size = 24, color = '#2F5D8C', strokeWidth = BASE_ST
   );
 }
 
-export function GalleryIcon({ size = 24, color = '#2F5D8C', strokeWidth = BASE_STROKE }: IconProps) {
+export function GalleryIcon({ size = 24, color = designColors.info, strokeWidth = BASE_STROKE }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <Rect x={3.5} y={5} width={17} height={14} rx={2} stroke={color} strokeWidth={strokeWidth} fill="none" />
@@ -50,7 +52,7 @@ export function GalleryIcon({ size = 24, color = '#2F5D8C', strokeWidth = BASE_S
   );
 }
 
-export function PencilIcon({ size = 20, color = '#2F5D8C', strokeWidth = BASE_STROKE }: IconProps) {
+export function PencilIcon({ size = 20, color = designColors.info, strokeWidth = BASE_STROKE }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <Path d="M4 20h4.2L19 9.2a2.1 2.1 0 0 0 0-3l-1.2-1.2a2.1 2.1 0 0 0-3 0L4 15.8V20Z" stroke={color} strokeWidth={strokeWidth} strokeLinejoin="round" fill="none" />
@@ -59,7 +61,7 @@ export function PencilIcon({ size = 20, color = '#2F5D8C', strokeWidth = BASE_ST
   );
 }
 
-export function TrashIcon({ size = 20, color = '#B4342A', strokeWidth = BASE_STROKE }: IconProps) {
+export function TrashIcon({ size = 20, color = designColors.danger, strokeWidth = BASE_STROKE }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <Path d="M4.5 6.5h15" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" fill="none" />
@@ -70,7 +72,7 @@ export function TrashIcon({ size = 20, color = '#B4342A', strokeWidth = BASE_STR
   );
 }
 
-export function CheckIcon({ size = 20, color = '#1F7A46', strokeWidth = 2.4 }: IconProps) {
+export function CheckIcon({ size = 20, color = designColors.success, strokeWidth = 2.4 }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <Polyline points="5,12.6 9.8,17.4 19,7.2" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" fill="none" />
@@ -78,7 +80,7 @@ export function CheckIcon({ size = 20, color = '#1F7A46', strokeWidth = 2.4 }: I
   );
 }
 
-export function CrossIcon({ size = 20, color = '#B4342A', strokeWidth = 2.4 }: IconProps) {
+export function CrossIcon({ size = 20, color = designColors.danger, strokeWidth = 2.4 }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <Path d="M6.6 6.6l10.8 10.8M17.4 6.6L6.6 17.4" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" fill="none" />
@@ -86,7 +88,7 @@ export function CrossIcon({ size = 20, color = '#B4342A', strokeWidth = 2.4 }: I
   );
 }
 
-export function WarningIcon({ size = 20, color = '#B4342A', strokeWidth = BASE_STROKE }: IconProps) {
+export function WarningIcon({ size = 20, color = designColors.danger, strokeWidth = BASE_STROKE }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <Path d="M12 4.2 2.9 19.4h18.2L12 4.2Z" stroke={color} strokeWidth={strokeWidth} strokeLinejoin="round" fill="none" />
@@ -97,7 +99,7 @@ export function WarningIcon({ size = 20, color = '#B4342A', strokeWidth = BASE_S
 }
 
 /** Stopwatch, used for anything about delivery time windows. */
-export function WindowIcon({ size = 20, color = '#2F5D8C', strokeWidth = BASE_STROKE }: IconProps) {
+export function WindowIcon({ size = 20, color = designColors.info, strokeWidth = BASE_STROKE }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <Circle cx={12} cy={13.4} r={7.4} stroke={color} strokeWidth={strokeWidth} fill="none" />
@@ -109,7 +111,7 @@ export function WindowIcon({ size = 20, color = '#2F5D8C', strokeWidth = BASE_ST
 }
 
 /** Stacked boxes, used for weight/cargo readouts. */
-export function WeightIcon({ size = 20, color = '#2F5D8C', strokeWidth = BASE_STROKE }: IconProps) {
+export function WeightIcon({ size = 20, color = designColors.info, strokeWidth = BASE_STROKE }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <Path d="M12 3.6 20.4 8 12 12.4 3.6 8 12 3.6Z" stroke={color} strokeWidth={strokeWidth} strokeLinejoin="round" fill="none" />
@@ -120,7 +122,7 @@ export function WeightIcon({ size = 20, color = '#2F5D8C', strokeWidth = BASE_ST
 }
 
 /** Signpost, used for the region/route-code chips. */
-export function RegionIcon({ size = 20, color = '#2F5D8C', strokeWidth = BASE_STROKE }: IconProps) {
+export function RegionIcon({ size = 20, color = designColors.info, strokeWidth = BASE_STROKE }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <Path d="M12 3.4v17.2" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" fill="none" />
@@ -131,7 +133,7 @@ export function RegionIcon({ size = 20, color = '#2F5D8C', strokeWidth = BASE_ST
 }
 
 /** Speed dial, used for the "fastest route" objective. */
-export function FastestIcon({ size = 20, color = '#2F5D8C', strokeWidth = BASE_STROKE }: IconProps) {
+export function FastestIcon({ size = 20, color = designColors.info, strokeWidth = BASE_STROKE }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <Path d="M3.6 17.4a9 9 0 1 1 16.8 0" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" fill="none" />
@@ -142,7 +144,7 @@ export function FastestIcon({ size = 20, color = '#2F5D8C', strokeWidth = BASE_S
 }
 
 /** Ruler, used for the "shortest route" objective. */
-export function ShortestIcon({ size = 20, color = '#2F5D8C', strokeWidth = BASE_STROKE }: IconProps) {
+export function ShortestIcon({ size = 20, color = designColors.info, strokeWidth = BASE_STROKE }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <Rect x={2.6} y={8.4} width={18.8} height={7.2} rx={1.4} stroke={color} strokeWidth={strokeWidth} fill="none" transform="rotate(-20 12 12)" />

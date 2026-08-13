@@ -112,7 +112,7 @@ export default function DispatcherScreen() {
       <ScrollView contentContainerStyle={styles.page}>
         <View style={styles.topbar}>
           <View>
-            <Text style={styles.eyebrow}>TSP · DARBO VALDYMAS</Text>
+            <Text style={styles.eyebrow}>DARBO VALDYMAS</Text>
             <Text style={styles.pageTitle}>Maršrutų planavimas</Text>
             <Text style={styles.subtitle}>Paruoškite maršrutą ir perduokite jį konkrečiam vairuotojui.</Text>
           </View>

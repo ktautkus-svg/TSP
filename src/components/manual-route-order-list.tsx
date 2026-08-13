@@ -98,7 +98,7 @@ function DraggableRow(props: {
           elevation: dragging ? 12 : 1,
           shadowOpacity: dragging ? 0.28 : 0,
         },
-        dragging && styles.rowDragging,
+        dragging && { borderColor: colors.info, backgroundColor: colors.infoSoft },
       ]}>
       <Pressable
         accessibilityRole="checkbox"
@@ -154,10 +154,6 @@ const styles = StyleSheet.create({
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 6 },
     shadowRadius: 10,
-  },
-  rowDragging: {
-    borderColor: '#0A5A31',
-    backgroundColor: '#F4FFF6',
   },
   priority: { width: 40, height: 40, borderWidth: 1, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
   textBlock: { flex: 1, minWidth: 0, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
