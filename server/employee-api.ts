@@ -165,7 +165,7 @@ export async function handleEmployeeApi(
       // so it also participates in general multi-device sync going forward.
       // Never blocks the assignment response — the one-shot assignment
       // download remains the primary path for the driver's first device.
-      await routeSyncStore.push(assignment.driverId, [{ routeSnapshot: assignment.routeSnapshot, deleted: false }]).catch((reason) => {
+      await routeSyncStore.seedAssignment(assignment.driverId, assignment.routeSnapshot).catch((reason) => {
         process.stderr.write(`${JSON.stringify({ event: 'route_sync_seed_failed', requestId, error: reason instanceof Error ? reason.message : String(reason) })}\n`);
       });
       return send(response, 201, { assignment }, requestId);
@@ -194,6 +194,25 @@ export async function handleEmployeeApi(
     if (pathname === '/api/trip-sheets' && request.method === 'GET') {
       requireRole(profile, ['admin', 'dispatcher', 'driver']);
       return send(response, 200, { tripSheets: await store.listTripSheets(profile) }, requestId);
+    }
+    if (pathname === '/api/fuel-status' && request.method === 'GET') {
+      requireRole(profile, ['driver']);
+      return send(response, 200, await store.getFuelStatus(profile), requestId);
+    }
+    if (pathname === '/api/fuel-status' && request.method === 'POST') {
+      requireRole(profile, ['driver']);
+      const body = parseObject(await readBody(request, 32_000));
+      return send(response, 200, await store.reportFuel(profile, numberField(body, 'liters')), requestId);
+    }
+    if (pathname === '/api/admin/fuel-reports' && request.method === 'GET') {
+      requireRole(profile, ['admin']);
+      return send(response, 200, { reports: await store.listFuelReports() }, requestId);
+    }
+    const fuelReviewMatch = pathname.match(/^\/api\/admin\/fuel-reports\/([^/]+)\/(approve|reject)$/);
+    if (fuelReviewMatch && request.method === 'POST') {
+      requireRole(profile, ['admin']);
+      const report = await store.reviewFuelReport(decodeURIComponent(fuelReviewMatch[1]), profile, fuelReviewMatch[2] === 'approve');
+      return send(response, 200, { report }, requestId);
     }
     if (pathname === '/api/quality/routes' && request.method === 'GET') {
       requireRole(profile, ['quality', 'admin', 'dispatcher']);
@@ -228,6 +247,9 @@ export async function handleEmployeeApi(
         decodeURIComponent(progressMatch[1]),
         body.routeSnapshot as RouteSnapshot,
       );
+      await routeSyncStore.seedAssignment(assignment.driverId, assignment.routeSnapshot).catch((reason) => {
+        process.stderr.write(`${JSON.stringify({ event: 'route_sync_progress_seed_failed', requestId, error: reason instanceof Error ? reason.message : String(reason) })}\n`);
+      });
       return send(response, 200, { assignment }, requestId);
     }
 
@@ -254,6 +276,7 @@ function isEmployeePath(pathname: string): boolean {
     || pathname.startsWith('/api/admin/')
     || pathname.startsWith('/api/assignments')
     || pathname.startsWith('/api/trip-sheets')
+    || pathname.startsWith('/api/fuel-status')
     || pathname.startsWith('/api/quality/')
     || pathname.startsWith('/api/route-sync');
 }

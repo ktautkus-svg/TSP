@@ -145,9 +145,9 @@ export function InstrumentGauge({
               <Stop offset="1" stopColor={cockpit.routeBright} />
             </LinearGradient>
             <LinearGradient id="needle" x1="0" y1="0" x2="1" y2="0">
-              <Stop offset="0" stopColor={fraction >= 0.85 ? cockpit.error : cockpit.primaryDark} />
-              <Stop offset="0.45" stopColor={fraction >= 0.85 ? cockpit.error : cockpit.primary} />
-              <Stop offset="1" stopColor={fraction >= 0.85 ? cockpit.errorSoft : cockpit.routeBright} />
+              <Stop offset="0" stopColor={cockpit.error} />
+              <Stop offset="0.55" stopColor="#EF4444" />
+              <Stop offset="1" stopColor={cockpit.errorSoft} />
             </LinearGradient>
             <LinearGradient id="redZone" x1="0" y1="0" x2="1" y2="0">
               <Stop offset="0" stopColor={cockpit.error} stopOpacity={0} />
@@ -266,15 +266,15 @@ export function InstrumentGauge({
             <Path
               d={`M 114.8 130 L ${CENTER} ${CENTER - NEEDLE_TIP} L 125.2 130 Z`}
               fill="url(#needle)"
-              stroke={fraction >= 0.85 ? cockpit.errorSoft : cockpit.primarySoft}
+              stroke={cockpit.errorSoft}
               strokeWidth={1.4}
             />
             <Path
               d={`M ${CENTER - 3.4} ${CENTER - NEEDLE_TIP + 16} L ${CENTER} ${CENTER - NEEDLE_TIP} L ${CENTER + 3.4} ${CENTER - NEEDLE_TIP + 16} Z`}
-              fill={fraction >= 0.85 ? cockpit.errorSoft : cockpit.white}
+              fill={cockpit.errorSoft}
             />
           </G>
-          <Circle cx={CENTER} cy={CENTER} r={13} fill="url(#hub)" stroke={fraction >= 0.85 ? cockpit.error : cockpit.primary} strokeWidth={2.4} />
+          <Circle cx={CENTER} cy={CENTER} r={13} fill="url(#hub)" stroke={cockpit.error} strokeWidth={2.4} />
           <Circle cx={CENTER - 3} cy={CENTER - 4} r={3.2} fill={cockpit.metalMid} opacity={0.75} />
 
           <SvgText

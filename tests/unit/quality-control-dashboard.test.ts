@@ -64,7 +64,8 @@ describe('quality control dashboard', () => {
 
   it('publishes driver progress immediately after a delivery and refreshes both sides periodically', () => {
     expect(deliverySource).toContain('void publishProgress()');
-    expect(deliverySource).toContain('30_000');
+    expect(deliverySource).toContain('pullAssignedRoutes(db, profile)');
+    expect(deliverySource).toContain('10_000');
     expect(dashboardSource).toContain('REFRESH_INTERVAL_MS = 15_000');
     expect(dashboardSource).toContain('Duomenys vėluoja');
   });

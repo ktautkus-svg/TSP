@@ -31,10 +31,12 @@ function RoleAccessBoundary({ children }: { children: ReactNode }) {
   const adminOnly = pathname === '/admin'
     || pathname === '/dispatcher'
     || pathname.startsWith('/import')
-    || pathname === '/route/new'
-    || /\/route\/[^/]+\/(review|alternatives)$/.test(pathname);
+    || pathname === '/route/new';
+  const routePlanning = /\/route\/[^/]+\/(review|alternatives)$/.test(pathname);
+  const driverCanPlan = Boolean(profile.permissions?.canCreateRoutes || profile.permissions?.canReorderAssignedRoute);
   const qualityAllowed = pathname === '/' || pathname === '/quality-control';
-  const blocked = (profile.role === 'driver' && adminOnly) || (profile.role === 'quality' && !qualityAllowed);
+  const blocked = (profile.role === 'driver' && (adminOnly || (routePlanning && !driverCanPlan)))
+    || (profile.role === 'quality' && !qualityAllowed);
   useEffect(() => {
     if (blocked) router.replace('/' as Href);
   }, [blocked, router]);
@@ -148,6 +150,7 @@ export default function RootLayout() {
               <Stack.Screen name="route/new" options={{ title: 'Naujas maršrutas' }} />
               <Stack.Screen name="import/index" options={{ title: 'Dokumentų importas' }} />
               <Stack.Screen name="route/[id]/review" options={{ title: 'Patikra ir planavimas' }} />
+              <Stack.Screen name="route/[id]/overview" options={{ title: 'Maršruto informacija' }} />
               <Stack.Screen name="route/[id]/alternatives" options={{ title: 'Maršruto variantai' }} />
               <Stack.Screen name="route/[id]/loading" options={{ title: 'Krovimasis' }} />
               <Stack.Screen name="route/[id]/delivery" options={{ title: 'Pristatymai' }} />

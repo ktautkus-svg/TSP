@@ -72,6 +72,7 @@ type DeliveryStopRow = {
   eta_approximate: number;
   weight_kg: number | null;
   priority_first: number;
+  priority_rank: number | null;
   phone: string | null;
   notes: string | null;
   loading_status: DeliveryStop['loadingStatus'];
@@ -191,6 +192,9 @@ function mapStop(row: DeliveryStopRow): DeliveryStop {
     etaApproximate: row.eta_approximate === 1,
     weightKg: row.weight_kg,
     priorityFirst: row.priority_first === 1,
+    // Old cloud snapshots may still contain only priority_first. Preserve
+    // their deterministic order until the next explicit priority edit.
+    priorityRank: row.priority_rank ?? (row.priority_first === 1 ? row.original_order : null),
     phone: row.phone,
     notes: row.notes,
     loadingStatus: row.loading_status,

@@ -42,8 +42,8 @@ describe('dispatcher desktop workspace', () => {
 describe('driver permissions', () => {
   it('defaults every optional planning permission to disabled', () => {
     const permissions = normalizeDriverPermissions();
-    expect(DRIVER_PERMISSION_KEYS).toHaveLength(5);
-    expect(Object.values(permissions)).toEqual([false, false, false, false, false]);
+    expect(DRIVER_PERMISSION_KEYS).toHaveLength(6);
+    expect(Object.values(permissions)).toEqual([false, false, false, false, false, false]);
   });
 
   it('preserves explicitly enabled permissions while filling missing values', () => {

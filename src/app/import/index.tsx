@@ -41,7 +41,7 @@ import {
 } from '@/application/routes/route-draft-mappers';
 import { resolveRoute } from '@/application/routes/route-navigation';
 import { defaultPlanningDate, defaultPlanningTime, planningDepartureIso } from '@/application/routes/planning-schedule';
-import { DEFAULT_HOME_ADDRESS, DEFAULT_WAREHOUSE_ADDRESS, GetDefaultLocations, PlanningModePreference, RouteEndPreference, SaveDefaultLocation } from '@/application/routes/saved-locations';
+import { DEFAULT_HOME_ADDRESS, DEFAULT_WAREHOUSE_ADDRESS, GetDefaultLocations, KRETINGA_WAREHOUSE_ADDRESS, PlanningModePreference, RouteEndPreference, SaveDefaultLocation } from '@/application/routes/saved-locations';
 import { confidenceLevel } from '@/domain/import/confidence';
 import {
   LOGISTICS_EXCEL_V1,
@@ -101,6 +101,7 @@ export default function ImportScreen() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [endMode, setEndMode] = useState<'warehouse' | 'home'>('warehouse');
+  const [startMode, setStartMode] = useState<'vilnius' | 'kretinga'>('vilnius');
 
   useEffect(() => {
     if (profile.role === 'driver' && !profile.permissions?.canCreateRoutes) router.replace('/' as Href);
@@ -112,6 +113,7 @@ export default function ImportScreen() {
   const [warehouseAddress, setWarehouseAddress] = useState('');
   const [homeAddress, setHomeAddress] = useState('');
   const [warehouseEndpoint, setWarehouseEndpoint] = useState<RouteEndpoint | null>(null);
+  const [kretingaEndpoint, setKretingaEndpoint] = useState<RouteEndpoint | null>(null);
   const [homeEndpoint, setHomeEndpoint] = useState<RouteEndpoint | null>(null);
   const addressResolver = useMemo(() => new GatewayAddressResolver(), []);
   const [manualRowResolutions, setManualRowResolutions] = useState<Record<string, ManualRowResolution>>({});
@@ -120,6 +122,8 @@ export default function ImportScreen() {
   const excelBytes = useRef<Uint8Array | null>(null);
   const excelAsset = useRef<{ name: string; hash: string } | null>(null);
   const autoRestoredExcel = useRef(false);
+  const selectedStartEndpoint = startMode === 'kretinga' ? kretingaEndpoint : warehouseEndpoint;
+  const selectedStartAddress = startMode === 'kretinga' ? KRETINGA_WAREHOUSE_ADDRESS : (warehouseAddress || DEFAULT_WAREHOUSE_ADDRESS);
 
   useEffect(() => {
     creationCommandId.current = null;
@@ -181,6 +185,24 @@ export default function ImportScreen() {
         if (__DEV__) console.warn('PLANNING_MODE_PREFERENCE_LOAD_FAILED', reason);
       });
   }, [db]);
+
+  useEffect(() => {
+    let active = true;
+    void addressResolver.resolve(KRETINGA_WAREHOUSE_ADDRESS).then((candidates) => {
+      if (!active || candidates.length === 0) return;
+      const candidate = candidates[0];
+      setKretingaEndpoint({
+        originalAddress: KRETINGA_WAREHOUSE_ADDRESS,
+        geocodingQuery: KRETINGA_WAREHOUSE_ADDRESS,
+        normalizedAddress: candidate.normalizedAddress,
+        latitude: candidate.latitude,
+        longitude: candidate.longitude,
+      });
+    }).catch((reason) => {
+      if (__DEV__) console.warn('KRETINGA_START_GEOCODING_FAILED', reason);
+    });
+    return () => { active = false; };
+  }, [addressResolver]);
 
   const capture = async () => {
     const permission = await ImagePicker.requestCameraPermissionsAsync();
@@ -600,10 +622,10 @@ export default function ImportScreen() {
     const persistAndOpen = async () => {
       const plannedDepartureAt = planningDepartureIso(planningDate, planningTime);
       if (!plannedDepartureAt) throw new Error('Pasirinkite teisingą maršruto datą ir pradžios laiką.');
-      if (!warehouseEndpoint) throw new Error('Numatytasis išvykimas nenustatytas. Patikrinkite vietų nustatymus.');
+      if (!selectedStartEndpoint) throw new Error('Pasirinkta išvykimo vieta nenustatyta. Patikrinkite interneto ryšį ir vietų nustatymus.');
       if (endMode === 'home' && !homeEndpoint) throw new Error('Namų pabaigos vieta nenustatyta. Patikrinkite vietų nustatymus.');
-      const startLocation: RouteEndpoint = warehouseEndpoint;
-      const endLocation: RouteEndpoint = endMode === 'home' ? homeEndpoint! : warehouseEndpoint;
+      const startLocation: RouteEndpoint = selectedStartEndpoint;
+      const endLocation: RouteEndpoint = endMode === 'home' ? homeEndpoint! : selectedStartEndpoint;
       await new RouteEndPreference(db).save(endMode);
       await new PlanningModePreference(db).save(planningMode);
       const baseStops = excelPreview
@@ -718,7 +740,7 @@ export default function ImportScreen() {
     result,
     excelPreview,
     planningMode,
-    warehouseEndpoint,
+    warehouseEndpoint: selectedStartEndpoint,
     homeEndpoint,
     endMode,
     manuallyResolvedRowIds: new Set(Object.keys(manualRowResolutions)),
@@ -825,7 +847,7 @@ export default function ImportScreen() {
             <Pressable style={styles.setupRow} onPress={() => setEditingSchedule((current) => !current)} testID="toggle-schedule-edit">
               <View style={styles.setupRowText}>
                 <Text style={styles.setupRowLabel}>PRADŽIA</Text>
-                <Text numberOfLines={1} style={styles.setupRowValue}>{warehouseAddress || DEFAULT_WAREHOUSE_ADDRESS}</Text>
+                <Text numberOfLines={1} style={styles.setupRowValue}>{selectedStartAddress}</Text>
                 <Text style={styles.setupRowMeta}>{planningDate} · {planningTime}</Text>
               </View>
               <View style={styles.setupEditBadge}><PencilIcon size={17} color={colors.brandNavy} /></View>
@@ -833,6 +855,20 @@ export default function ImportScreen() {
 
             {editingSchedule ? (
               <View style={styles.setupEditPanel}>
+                <View style={styles.endSwitchRow} testID="start-location-choice">
+                  <Pressable
+                    disabled={!warehouseEndpoint?.latitude}
+                    onPress={() => setStartMode('vilnius')}
+                    style={[styles.endSwitchOption, startMode === 'vilnius' && styles.endSwitchOptionActive, !warehouseEndpoint?.latitude && styles.disabled]}>
+                    <Text style={[styles.endSwitchText, startMode === 'vilnius' && styles.endSwitchTextActive]}>Vilnius</Text>
+                  </Pressable>
+                  <Pressable
+                    disabled={!kretingaEndpoint?.latitude}
+                    onPress={() => setStartMode('kretinga')}
+                    style={[styles.endSwitchOption, startMode === 'kretinga' && styles.endSwitchOptionActive, !kretingaEndpoint?.latitude && styles.disabled]}>
+                    <Text style={[styles.endSwitchText, startMode === 'kretinga' && styles.endSwitchTextActive]}>Kretinga</Text>
+                  </Pressable>
+                </View>
                 <View style={styles.scheduleRow}>
                   <View style={styles.scheduleField}>
                     <Text style={styles.fieldCaption}>Data</Text>
@@ -912,14 +948,14 @@ export default function ImportScreen() {
               <View style={styles.setupRowText}>
                 <Text style={styles.setupRowLabel}>PABAIGA</Text>
                 <Text numberOfLines={1} style={styles.setupRowValue}>
-                  {endMode === 'home' ? (homeAddress || DEFAULT_HOME_ADDRESS) : (warehouseAddress || DEFAULT_WAREHOUSE_ADDRESS)}
+                  {endMode === 'home' ? (homeAddress || DEFAULT_HOME_ADDRESS) : selectedStartAddress}
                 </Text>
               </View>
               <View style={styles.endSwitchRow}>
                 <Pressable
-                  disabled={!warehouseEndpoint?.latitude}
+                  disabled={!selectedStartEndpoint?.latitude}
                   onPress={() => setEndMode('warehouse')}
-                  style={[styles.endSwitchOption, endMode === 'warehouse' && styles.endSwitchOptionActive, !warehouseEndpoint?.latitude && styles.disabled]}>
+                  style={[styles.endSwitchOption, endMode === 'warehouse' && styles.endSwitchOptionActive, !selectedStartEndpoint?.latitude && styles.disabled]}>
                   <Text style={[styles.endSwitchText, endMode === 'warehouse' && styles.endSwitchTextActive]}>Sandėlis</Text>
                 </Pressable>
                 <Pressable
@@ -936,7 +972,7 @@ export default function ImportScreen() {
                 {excelPreview && excelProblemCount > 0 ? (
                   <Text style={styles.issueText}>Reikia sutvarkyti {excelProblemCount} pristatymo {excelProblemCount === 1 ? 'tašką' : 'taškus'}.</Text>
                 ) : routeCreationBlockers.slice(0, 2).map((blocker) => <Text key={blocker} style={styles.issueText}>• {blocker}</Text>)}
-                {(!hasRouteCoordinates(warehouseEndpoint) || (endMode === 'home' && !hasRouteCoordinates(homeEndpoint))) ? (
+                {(!hasRouteCoordinates(selectedStartEndpoint) || (endMode === 'home' && !hasRouteCoordinates(homeEndpoint))) ? (
                   <Pressable style={styles.secondaryButton} onPress={() => router.push('/settings/locations' as Href)}>
                     <Text style={styles.secondaryText}>Atidaryti vietų nustatymus</Text>
                   </Pressable>

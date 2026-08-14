@@ -4,7 +4,7 @@ import { Stack, useFocusEffect, useLocalSearchParams, useRouter, type Href } fro
 import { useSQLiteContext } from 'expo-sqlite';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalAccess } from '@/application/auth/local-access-context';
-import { pushRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
+import { pullAssignedRoutes, pushRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 
 import { Alert } from '@/ui/alert';
@@ -165,16 +165,25 @@ export default function DeliveryScreen() {
     });
   }, [db, online, profile.role, routeId]);
 
+  const refreshFromServer = useCallback(async () => {
+    if (online && profile.role === 'driver') {
+      await pullAssignedRoutes(db, profile).catch((reason) => {
+        if (__DEV__) console.warn('LIVE_PROGRESS_PULL_FAILED', reason);
+      });
+    }
+    await load();
+  }, [db, load, online, profile]);
+
   useEffect(() => {
-    const timer = setInterval(() => { void load().then(publishProgress); }, 30_000);
+    const timer = setInterval(() => { void refreshFromServer(); }, 10_000);
     return () => clearInterval(timer);
-  }, [load, publishProgress]);
+  }, [refreshFromServer]);
 
   useEffect(() => {
     setActiveView(view === 'stops' ? 'stops' : 'dashboard');
   }, [view]);
 
-  useFocusEffect(useCallback(() => { void load().then(publishProgress); }, [load, publishProgress]));
+  useFocusEffect(useCallback(() => { void refreshFromServer(); }, [refreshFromServer]));
 
   useEffect(() => {
     if (syncRevision > 0) void load();

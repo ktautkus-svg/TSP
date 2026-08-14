@@ -20,6 +20,7 @@ export const DRIVER_PERMISSION_KEYS = [
   'canAddStops',
   'canRecalculateRoute',
   'canCancelRoute',
+  'canViewCompensation',
 ] as const;
 export type DriverPermissionKey = (typeof DRIVER_PERMISSION_KEYS)[number];
 export type DriverPermissions = Record<DriverPermissionKey, boolean>;
@@ -29,7 +30,15 @@ const DEFAULT_DRIVER_PERMISSIONS: DriverPermissions = {
   canAddStops: false,
   canRecalculateRoute: false,
   canCancelRoute: false,
+  canViewCompensation: false,
 };
+
+export const DEFAULT_COMPENSATION_RATES = {
+  fixedDailyNetEur: 23,
+  perKmEur: 0.05,
+  perKgEur: 0.006,
+  perStopEur: 0.65,
+} as const;
 
 export type RouteAssignment = {
   id: string;
@@ -51,17 +60,59 @@ export type FleetVehicle = {
   model: string;
   maximumPayloadKg: number;
   assignedDriverId: string | null;
+  fuelRemainingLiters: number | null;
+  fuelUpdatedAt: string | null;
+  assignmentRevision: number;
   createdAt: string;
   updatedAt: string;
 };
 
-export type FleetVehicleSnapshot = Pick<FleetVehicle, 'id' | 'registrationNumber' | 'model' | 'maximumPayloadKg'>;
+export type FleetVehicleSnapshot = Pick<FleetVehicle,
+  'id' | 'registrationNumber' | 'model' | 'maximumPayloadKg'
+> & Partial<Pick<FleetVehicle, 'fuelRemainingLiters' | 'fuelUpdatedAt' | 'assignmentRevision'>>;
+
+export type CompensationBreakdown = {
+  rates: typeof DEFAULT_COMPENSATION_RATES;
+  distanceKm: number;
+  distanceSource: 'planned' | 'odometer';
+  weightKg: number;
+  stops: number;
+  fixedAmountEur: number;
+  distanceAmountEur: number;
+  weightAmountEur: number;
+  stopsAmountEur: number;
+  totalNetEur: number;
+  preliminary: boolean;
+};
+
+export type FuelReport = {
+  id: string;
+  driverId: string;
+  driverName: string;
+  vehicleId: string;
+  registrationNumber: string;
+  assignmentRevision: number;
+  previousLiters: number | null;
+  reportedLiters: number;
+  status: 'approved' | 'pending' | 'rejected';
+  reportedAt: string;
+  reviewedAt: string | null;
+  reviewedBy: string | null;
+};
+
+export type FuelStatus = {
+  vehicle: FleetVehicleSnapshot | null;
+  requiresConfirmation: boolean;
+  approvalPending: boolean;
+  latestReport: FuelReport | null;
+};
 
 export type ServerTripSheet = {
   id: string;
   assignmentId: string;
   routeId: string;
   routeNumbers: string[];
+  status: RouteAssignment['status'];
   date: string;
   driverId: string;
   driverName: string;
@@ -79,6 +130,7 @@ export type ServerTripSheet = {
   deliveredWeightKg: number;
   startAddress: string;
   endAddress: string;
+  compensation: CompensationBreakdown | null;
 };
 
 export type QualityStopMonitor = {
@@ -143,6 +195,7 @@ export class EmployeeAuthStore {
   private readonly sessions = this.db.collection('tsp_sessions');
   private readonly assignments = this.db.collection('tsp_assignments');
   private readonly vehicles = this.db.collection('tsp_vehicles');
+  private readonly fuelReports = this.db.collection('tsp_fuel_reports');
 
   async hasUsers(): Promise<boolean> {
     return !(await this.users.limit(1).get()).empty;
@@ -262,7 +315,7 @@ export class EmployeeAuthStore {
   async listVehicles(): Promise<FleetVehicle[]> {
     const snapshot = await this.vehicles.get();
     return snapshot.docs
-      .map((document) => document.data() as FleetVehicle)
+      .map((document) => normalizeVehicle(document.data() as FleetVehicle))
       .sort((left, right) => left.registrationNumber.localeCompare(right.registrationNumber, 'lt'));
   }
 
@@ -282,6 +335,9 @@ export class EmployeeAuthStore {
       model,
       maximumPayloadKg,
       assignedDriverId: null,
+      fuelRemainingLiters: null,
+      fuelUpdatedAt: null,
+      assignmentRevision: 0,
       createdAt: now,
       updatedAt: now,
     };
@@ -302,7 +358,8 @@ export class EmployeeAuthStore {
 
     await this.db.runTransaction(async (transaction) => {
       const vehicleDocument = await transaction.get(vehicleRef);
-      const current = vehicleDocument.data() as FleetVehicle | undefined;
+      const stored = vehicleDocument.data() as FleetVehicle | undefined;
+      const current = stored ? normalizeVehicle(stored) : undefined;
       if (!current) throw new EmployeeApiError('VEHICLE_NOT_FOUND', 'Automobilis nerastas.', 404);
 
       let previousAssignmentDocs: Array<{ id: string; ref: FirebaseFirestore.DocumentReference }> = [];
@@ -317,10 +374,16 @@ export class EmployeeAuthStore {
 
       const updatedAt = new Date().toISOString();
       previousAssignmentDocs.forEach((document) => {
-        if (document.id !== vehicleId) transaction.update(document.ref, { assignedDriverId: null, updatedAt });
+        if (document.id !== vehicleId) transaction.update(document.ref, {
+          assignedDriverId: null,
+          updatedAt,
+        });
       });
-      transaction.update(vehicleRef, { assignedDriverId: driverId, updatedAt });
-      updated = { ...current, assignedDriverId: driverId, updatedAt };
+      const assignmentRevision = current.assignedDriverId === driverId
+        ? finiteNumber(current.assignmentRevision, 0)
+        : finiteNumber(current.assignmentRevision, 0) + 1;
+      transaction.update(vehicleRef, { assignedDriverId: driverId, assignmentRevision, updatedAt });
+      updated = { ...current, assignedDriverId: driverId, assignmentRevision, updatedAt };
     });
 
     return updated!;
@@ -337,7 +400,8 @@ export class EmployeeAuthStore {
 
     await this.db.runTransaction(async (transaction) => {
       const document = await transaction.get(currentRef);
-      const current = document.data() as FleetVehicle | undefined;
+      const stored = document.data() as FleetVehicle | undefined;
+      const current = stored ? normalizeVehicle(stored) : undefined;
       if (!current) throw new EmployeeApiError('VEHICLE_NOT_FOUND', 'Automobilis nerastas.', 404);
 
       const registrationNumber = input.registrationNumber === undefined
@@ -371,6 +435,94 @@ export class EmployeeAuthStore {
     });
 
     return updated!;
+  }
+
+  async getFuelStatus(profile: EmployeeProfile): Promise<FuelStatus> {
+    const vehicleQuery = await this.vehicles.where('assignedDriverId', '==', profile.id).limit(1).get();
+    const stored = vehicleQuery.docs[0]?.data() as FleetVehicle | undefined;
+    const vehicle = stored ? normalizeVehicle(stored) : null;
+    if (!vehicle) return { vehicle: null, requiresConfirmation: false, approvalPending: false, latestReport: null };
+    const reports = await this.fuelReports.where('driverId', '==', profile.id).get();
+    const latestReport = reports.docs
+      .map((document) => document.data() as FuelReport)
+      .filter((report) => report.vehicleId === vehicle.id && report.assignmentRevision === vehicle.assignmentRevision)
+      .sort((left, right) => right.reportedAt.localeCompare(left.reportedAt))[0] ?? null;
+    const accepted = latestReport?.status === 'approved' || latestReport?.status === 'pending';
+    return {
+      vehicle: vehicleSnapshot(vehicle),
+      requiresConfirmation: !accepted,
+      approvalPending: latestReport?.status === 'pending',
+      latestReport,
+    };
+  }
+
+  async reportFuel(profile: EmployeeProfile, litersInput: number): Promise<FuelStatus> {
+    const liters = validateFuelLiters(litersInput);
+    const vehicleQuery = await this.vehicles.where('assignedDriverId', '==', profile.id).limit(1).get();
+    const vehicleDocument = vehicleQuery.docs[0];
+    const stored = vehicleDocument?.data() as FleetVehicle | undefined;
+    const vehicle = stored ? normalizeVehicle(stored) : null;
+    if (!vehicle || !vehicleDocument) throw new EmployeeApiError('VEHICLE_NOT_ASSIGNED', 'Vairuotojui nepriskirtas automobilis.', 409);
+    const previousLiters = vehicle.fuelRemainingLiters;
+    const status: FuelReport['status'] = previousLiters === null || Math.abs(previousLiters - liters) <= 0.1
+      ? 'approved'
+      : 'pending';
+    const now = new Date().toISOString();
+    const report: FuelReport = {
+      id: randomUUID(),
+      driverId: profile.id,
+      driverName: profile.displayName,
+      vehicleId: vehicle.id,
+      registrationNumber: vehicle.registrationNumber,
+      assignmentRevision: vehicle.assignmentRevision,
+      previousLiters,
+      reportedLiters: liters,
+      status,
+      reportedAt: now,
+      reviewedAt: status === 'approved' ? now : null,
+      reviewedBy: status === 'approved' ? profile.id : null,
+    };
+    const batch = this.db.batch();
+    batch.create(this.fuelReports.doc(report.id), report);
+    if (status === 'approved') batch.update(vehicleDocument.ref, { fuelRemainingLiters: liters, fuelUpdatedAt: now, updatedAt: now });
+    await batch.commit();
+    return this.getFuelStatus(profile);
+  }
+
+  async listFuelReports(): Promise<FuelReport[]> {
+    const snapshot = await this.fuelReports.get();
+    return snapshot.docs
+      .map((document) => document.data() as FuelReport)
+      .sort((left, right) => right.reportedAt.localeCompare(left.reportedAt));
+  }
+
+  async reviewFuelReport(reportIdInput: string, reviewer: EmployeeProfile, approve: boolean): Promise<FuelReport> {
+    const reportRef = this.fuelReports.doc(safeId(reportIdInput));
+    const reportDocument = await reportRef.get();
+    const report = reportDocument.data() as FuelReport | undefined;
+    if (!report) throw new EmployeeApiError('FUEL_REPORT_NOT_FOUND', 'Kuro likučio pakeitimas nerastas.', 404);
+    if (report.status !== 'pending') return report;
+    const vehicleDocument = await this.vehicles.doc(report.vehicleId).get();
+    const storedVehicle = vehicleDocument.data() as FleetVehicle | undefined;
+    const vehicle = storedVehicle ? normalizeVehicle(storedVehicle) : null;
+    if (approve && (!vehicle
+      || vehicle.assignedDriverId !== report.driverId
+      || vehicle.assignmentRevision !== report.assignmentRevision)) {
+      throw new EmployeeApiError('FUEL_REPORT_STALE', 'Automobilio priskyrimas jau pasikeitė. Šio seno kuro rodmens patvirtinti nebegalima.', 409);
+    }
+    const now = new Date().toISOString();
+    const updated: FuelReport = { ...report, status: approve ? 'approved' : 'rejected', reviewedAt: now, reviewedBy: reviewer.id };
+    const batch = this.db.batch();
+    batch.set(reportRef, updated);
+    if (approve) {
+      batch.update(this.vehicles.doc(report.vehicleId), {
+        fuelRemainingLiters: report.reportedLiters,
+        fuelUpdatedAt: now,
+        updatedAt: now,
+      });
+    }
+    await batch.commit();
+    return updated;
   }
 
   async createUser(input: { username: string; displayName: string; pin: string; role: EmployeeRole }): Promise<EmployeeProfile> {
@@ -504,14 +656,16 @@ export class EmployeeAuthStore {
   }
 
   async listTripSheets(profile: EmployeeProfile): Promise<ServerTripSheet[]> {
-    const assignments = (await this.listAssignments(profile)).filter((assignment) => assignment.status === 'completed');
+    const assignments = (await this.listAssignments(profile)).filter((assignment) => assignment.status !== 'cancelled');
     const vehicles = await this.listVehicles();
     const currentVehicles = new Map(
       vehicles.filter((vehicle) => vehicle.assignedDriverId).map((vehicle) => [vehicle.assignedDriverId!, vehicleSnapshot(vehicle)]),
     );
-    return assignments
+    const sheets = assignments
       .map((assignment) => buildServerTripSheet(assignment, assignment.vehicle ?? currentVehicles.get(assignment.driverId) ?? null))
       .sort((left, right) => (right.completedAt ?? right.date).localeCompare(left.completedAt ?? left.date));
+    const canViewCompensation = profile.role !== 'driver' || profile.permissions.canViewCompensation;
+    return canViewCompensation ? attachDailyCompensation(sheets) : sheets;
   }
 
   async listQualityRoutes(): Promise<QualityRouteMonitor[]> {
@@ -552,9 +706,10 @@ export class EmployeeAuthStore {
       remainingWeightKg: Number(snapshot.route.remaining_weight_kg ?? 0),
       lastSyncedAt: updatedAt,
     };
-    const vehicle = routeStatus === 'completed'
-      ? assignment.vehicle ?? await this.findAssignedVehicleSnapshot(assignment.driverId)
-      : assignment.vehicle ?? null;
+    const currentVehicle = ['in_progress', 'completed'].includes(routeStatus)
+      ? await this.findAssignedVehicleSnapshot(assignment.driverId)
+      : null;
+    const vehicle = currentVehicle ?? assignment.vehicle ?? null;
     await reference.update({ status, routeSnapshot: snapshot, progress, updatedAt, vehicle });
     return { ...assignment, status, routeSnapshot: snapshot, progress, updatedAt, vehicle };
   }
@@ -573,7 +728,8 @@ export class EmployeeAuthStore {
 
   private async findAssignedVehicleSnapshot(driverId: string): Promise<FleetVehicleSnapshot | null> {
     const snapshot = await this.vehicles.where('assignedDriverId', '==', driverId).limit(1).get();
-    const vehicle = snapshot.docs[0]?.data() as FleetVehicle | undefined;
+    const stored = snapshot.docs[0]?.data() as FleetVehicle | undefined;
+    const vehicle = stored ? normalizeVehicle(stored) : undefined;
     return vehicle ? vehicleSnapshot(vehicle) : null;
   }
 }
@@ -660,12 +816,31 @@ function validatePin(pin: string): void {
   if (!/^\d{4,8}$/.test(pin)) throw new EmployeeApiError('INVALID_PIN', 'Serverio PIN turi būti 4–8 skaitmenų.', 400);
 }
 
+function validateFuelLiters(value: number): number {
+  if (!Number.isFinite(value) || value < 0 || value > 1_000) {
+    throw new EmployeeApiError('INVALID_FUEL_READING', 'Kuro likutis turi būti nuo 0 iki 1000 litrų.', 400);
+  }
+  return Math.round(value * 10) / 10;
+}
+
 function vehicleSnapshot(vehicle: FleetVehicle): FleetVehicleSnapshot {
   return {
     id: vehicle.id,
     registrationNumber: vehicle.registrationNumber,
     model: vehicle.model,
     maximumPayloadKg: vehicle.maximumPayloadKg,
+    fuelRemainingLiters: vehicle.fuelRemainingLiters,
+    fuelUpdatedAt: vehicle.fuelUpdatedAt,
+    assignmentRevision: vehicle.assignmentRevision,
+  };
+}
+
+function normalizeVehicle(vehicle: FleetVehicle): FleetVehicle {
+  return {
+    ...vehicle,
+    fuelRemainingLiters: nullableNumber(vehicle.fuelRemainingLiters),
+    fuelUpdatedAt: optionalText(vehicle.fuelUpdatedAt),
+    assignmentRevision: finiteNumber(vehicle.assignmentRevision, 0),
   };
 }
 
@@ -684,6 +859,7 @@ export function buildServerTripSheet(assignment: RouteAssignment, vehicle: Fleet
     assignmentId: assignment.id,
     routeId: assignment.routeId,
     routeNumbers,
+    status: assignment.status,
     date: optionalText(route.date) ?? assignment.assignedAt.slice(0, 10),
     driverId: assignment.driverId,
     driverName: assignment.driverName,
@@ -701,7 +877,48 @@ export function buildServerTripSheet(assignment: RouteAssignment, vehicle: Fleet
     deliveredWeightKg: deliveredStops.reduce((sum, stop) => sum + finiteNumber(stop.weight_kg, 0), 0),
     startAddress: locationAddress(route.start_location_json, 'Pradžia'),
     endAddress: locationAddress(route.end_location_json, 'Pabaiga'),
+    compensation: null,
   };
+}
+
+export function attachDailyCompensation(sheets: ServerTripSheet[]): ServerTripSheet[] {
+  const byDriverAndDate = new Map<string, ServerTripSheet[]>();
+  for (const sheet of sheets) {
+    const key = `${sheet.driverId}:${sheet.date}`;
+    byDriverAndDate.set(key, [...(byDriverAndDate.get(key) ?? []), sheet]);
+  }
+  const compensationByKey = new Map<string, CompensationBreakdown>();
+  for (const [key, daySheets] of byDriverAndDate) {
+    const allActual = daySheets.every((sheet) => sheet.actualDistanceKm !== null);
+    const distanceKm = daySheets.reduce((sum, sheet) => sum + (sheet.actualDistanceKm ?? sheet.plannedDistanceKm ?? 0), 0);
+    const weightKg = daySheets.reduce((sum, sheet) => sum + sheet.totalWeightKg, 0);
+    const stops = daySheets.reduce((sum, sheet) => sum + sheet.totalStops, 0);
+    const fixedAmountEur = DEFAULT_COMPENSATION_RATES.fixedDailyNetEur;
+    const distanceAmountEur = money(distanceKm * DEFAULT_COMPENSATION_RATES.perKmEur);
+    const weightAmountEur = money(weightKg * DEFAULT_COMPENSATION_RATES.perKgEur);
+    const stopsAmountEur = money(stops * DEFAULT_COMPENSATION_RATES.perStopEur);
+    compensationByKey.set(key, {
+      rates: DEFAULT_COMPENSATION_RATES,
+      distanceKm,
+      distanceSource: allActual ? 'odometer' : 'planned',
+      weightKg,
+      stops,
+      fixedAmountEur,
+      distanceAmountEur,
+      weightAmountEur,
+      stopsAmountEur,
+      totalNetEur: money(fixedAmountEur + distanceAmountEur + weightAmountEur + stopsAmountEur),
+      preliminary: !allActual || daySheets.some((sheet) => sheet.status !== 'completed'),
+    });
+  }
+  return sheets.map((sheet) => ({
+    ...sheet,
+    compensation: compensationByKey.get(`${sheet.driverId}:${sheet.date}`) ?? null,
+  }));
+}
+
+function money(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
 export function buildQualityRouteMonitor(assignment: RouteAssignment, vehicle: FleetVehicleSnapshot | null): QualityRouteMonitor {

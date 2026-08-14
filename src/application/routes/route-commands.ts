@@ -408,7 +408,7 @@ export class UpdateDraftStop extends RouteCommandBase {
 }
 
 export class SetStopPriority extends RouteCommandBase {
-  /** Multiple priority stops are allowed; optimizer keeps their relative order along the way. */
+  /** Selection order becomes priority order: first click = 1, second = 2, etc. */
   async execute(routeId: string, stopId: string, priorityFirst: boolean): Promise<void> {
     await this.requireDraft(routeId);
     const stops = await this.routes.getStops(routeId);
@@ -416,18 +416,38 @@ export class SetStopPriority extends RouteCommandBase {
     if (!current) throw new RouteCommandError('STOP_NOT_FOUND', 'Pristatymo taškas nerastas.', { stopId });
     const now = this.clock();
     await this.db.withTransactionAsync(async () => {
-      await this.db.runAsync(
-        'UPDATE delivery_stops SET priority_first = ?, updated_at = ? WHERE id = ? AND route_id = ?',
-        priorityFirst ? 1 : 0,
-        now,
-        stopId,
-        routeId,
-      );
+      if (priorityFirst) {
+        const maximum = await this.db.getFirstAsync<{ rank: number }>(
+          'SELECT COALESCE(MAX(priority_rank), 0) AS rank FROM delivery_stops WHERE route_id = ?',
+          routeId,
+        );
+        await this.db.runAsync(
+          `UPDATE delivery_stops
+           SET priority_first = 1,
+               priority_rank = COALESCE(priority_rank, ?),
+               updated_at = ?
+           WHERE id = ? AND route_id = ?`,
+          (maximum?.rank ?? 0) + 1,
+          now,
+          stopId,
+          routeId,
+        );
+      } else {
+        await this.db.runAsync(
+          `UPDATE delivery_stops
+           SET priority_first = 0, priority_rank = NULL, updated_at = ?
+           WHERE id = ? AND route_id = ?`,
+          now,
+          stopId,
+          routeId,
+        );
+        await compactPriorityRanks(this.db, routeId, now);
+      }
       await this.db.runAsync('UPDATE routes SET updated_at = ? WHERE id = ?', now, routeId);
       await this.audit(
         routeId,
         'draft_stop_priority_set',
-        { priorityFirst: current.priorityFirst },
+        { priorityFirst: current.priorityFirst, priorityRank: current.priorityRank },
         { priorityFirst },
         stopId,
       );
@@ -444,6 +464,7 @@ export class DeleteDraftStop extends RouteCommandBase {
     const remaining = stops.filter((stop) => stop.id !== stopId);
     await this.db.withTransactionAsync(async () => {
       await this.db.runAsync('DELETE FROM delivery_stops WHERE id = ? AND route_id = ?', stopId, routeId);
+      await compactPriorityRanks(this.db, routeId, this.clock());
       await rewriteOriginalOrder(this.db, routeId, remaining.map((stop) => stop.id));
       await updateRouteTotals(this.db, routeId, this.clock());
       await this.audit(routeId, 'draft_stop_deleted', current, {});
@@ -858,6 +879,28 @@ async function updateRouteTotals(db: SQLiteDatabase, routeId: string, now: strin
     now,
     routeId,
   );
+}
+
+async function compactPriorityRanks(
+  db: SQLiteDatabase,
+  routeId: string,
+  now: string,
+): Promise<void> {
+  const priorities = await db.getAllAsync<{ id: string }>(
+    `SELECT id FROM delivery_stops
+     WHERE route_id = ? AND priority_first = 1
+     ORDER BY COALESCE(priority_rank, original_order), original_order, id`,
+    routeId,
+  );
+  for (const [index, priority] of priorities.entries()) {
+    await db.runAsync(
+      'UPDATE delivery_stops SET priority_rank = ?, updated_at = ? WHERE id = ? AND route_id = ?',
+      index + 1,
+      now,
+      priority.id,
+      routeId,
+    );
+  }
 }
 
 async function rewriteOriginalOrder(

@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
@@ -12,9 +12,13 @@ import type { Route } from '@/domain/route';
 import { spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
+import { useLocalAccess } from '@/application/auth/local-access-context';
+import { pushCompletedRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
+import { employeeApi, type CompensationBreakdown, type ServerTripSheet } from '@/infrastructure/auth/employee-session';
 
 export default function RouteResultScreen() {
   const db = useSQLiteContext();
+  const { profile, online } = useLocalAccess();
   const router = useRouter();
   const { id: routeId = '' } = useLocalSearchParams<{ id: string }>();
   const { colors } = useTheme();
@@ -22,6 +26,7 @@ export default function RouteResultScreen() {
   const repository = useMemo(() => new RouteRepository(db), [db]);
   const [route, setRoute] = useState<Route | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [compensation, setCompensation] = useState<CompensationBreakdown | null>(null);
 
   useFocusEffect(useCallback(() => {
     let mounted = true;
@@ -44,6 +49,18 @@ export default function RouteResultScreen() {
     });
     return () => { mounted = false; };
   }, [repository, routeId, router]));
+
+  useFocusEffect(useCallback(() => {
+    if (!online || (profile.role === 'driver' && !profile.permissions?.canViewCompensation)) return undefined;
+    let mounted = true;
+    void (async () => {
+      if (profile.role === 'driver') await pushCompletedRouteAssignmentProgress(db);
+      const response = await employeeApi<{ tripSheets: ServerTripSheet[] }>('/api/trip-sheets');
+      const sheet = response.tripSheets.find((item) => item.routeId === routeId);
+      if (mounted) setCompensation(sheet?.compensation ?? null);
+    })().catch(() => undefined);
+    return () => { mounted = false; };
+  }, [db, online, profile.permissions?.canViewCompensation, profile.role, routeId]));
 
   const goHome = () => router.replace('/' as Href);
 
@@ -70,6 +87,11 @@ export default function RouteResultScreen() {
             startOdometer={route.startOdometer == null ? 'neįvestas' : String(route.startOdometer)}
           />
         ) : null}
+        {compensation ? <View style={styles.compensation} testID="route-result-compensation">
+          <Text style={styles.compensationLabel}>{compensation.preliminary ? 'PRELIMINARUS DIENOS ATLYGIS' : 'GALUTINIS DIENOS ATLYGIS'}</Text>
+          <Text style={styles.compensationValue}>{formatMoney(compensation.totalNetEur)} netto</Text>
+          <Text style={styles.compensationMeta}>€23,00 diena + {compensation.distanceKm.toFixed(1)} km + {Math.round(compensation.weightKg)} kg + {compensation.stops} tašk.</Text>
+        </View> : null}
         {route ? (
           <AppButton label="Peržiūrėti maršrutą" onPress={() => router.replace(`/history/${route.id}` as Href)} />
         ) : null}
@@ -83,6 +105,10 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   headerAction: { minWidth: 84, minHeight: 44, justifyContent: 'center' },
   headerText: { ...type.button, color: colors.textInverse },
   error: { ...type.secondaryStrong, color: colors.danger },
+  compensation: { padding: spacing.lg, borderRadius: 16, borderWidth: 1, borderColor: colors.success, backgroundColor: colors.surface, gap: spacing.xs },
+  compensationLabel: { ...type.label, color: colors.success },
+  compensationValue: { ...type.pageTitle, color: colors.text },
+  compensationMeta: { ...type.secondary, color: colors.textMuted },
 });
 
 function formatMinutes(value: number | null | undefined): string {
@@ -95,4 +121,8 @@ function formatMinutes(value: number | null | undefined): string {
 function formatSigned(value: number | null | undefined, unit: string, digits = 0): string {
   if (value === null || value === undefined) return '—';
   return `${value > 0 ? '+' : ''}${value.toFixed(digits)} ${unit}`;
+}
+
+function formatMoney(value: number): string {
+  return `${new Intl.NumberFormat('lt-LT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)} €`;
 }

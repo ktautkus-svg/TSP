@@ -37,17 +37,61 @@ export type ServerFleetVehicle = {
   model: string;
   maximumPayloadKg: number;
   assignedDriverId: string | null;
+  fuelRemainingLiters?: number | null;
+  fuelUpdatedAt?: string | null;
+  assignmentRevision?: number;
   createdAt: string;
   updatedAt: string;
 };
 
-export type ServerFleetVehicleSnapshot = Pick<ServerFleetVehicle, 'id' | 'registrationNumber' | 'model' | 'maximumPayloadKg'>;
+export type ServerFleetVehicleSnapshot = Pick<ServerFleetVehicle, 'id' | 'registrationNumber' | 'model' | 'maximumPayloadKg'> & {
+  fuelRemainingLiters?: number | null;
+  fuelUpdatedAt?: string | null;
+  assignmentRevision?: number;
+};
+
+export type CompensationBreakdown = {
+  rates: { fixedDailyNetEur: number; perKmEur: number; perKgEur: number; perStopEur: number };
+  distanceKm: number;
+  distanceSource: 'planned' | 'odometer';
+  weightKg: number;
+  stops: number;
+  fixedAmountEur: number;
+  distanceAmountEur: number;
+  weightAmountEur: number;
+  stopsAmountEur: number;
+  totalNetEur: number;
+  preliminary: boolean;
+};
+
+export type FuelReport = {
+  id: string;
+  driverId: string;
+  driverName: string;
+  vehicleId: string;
+  registrationNumber: string;
+  assignmentRevision: number;
+  previousLiters: number | null;
+  reportedLiters: number;
+  status: 'approved' | 'pending' | 'rejected';
+  reportedAt: string;
+  reviewedAt: string | null;
+  reviewedBy: string | null;
+};
+
+export type FuelStatus = {
+  vehicle: ServerFleetVehicleSnapshot | null;
+  requiresConfirmation: boolean;
+  approvalPending: boolean;
+  latestReport: FuelReport | null;
+};
 
 export type ServerTripSheet = {
   id: string;
   assignmentId: string;
   routeId: string;
   routeNumbers: string[];
+  status: ServerRouteAssignment['status'];
   date: string;
   driverId: string;
   driverName: string;
@@ -65,6 +109,7 @@ export type ServerTripSheet = {
   deliveredWeightKg: number;
   startAddress: string;
   endAddress: string;
+  compensation: CompensationBreakdown | null;
 };
 
 export type QualityStopMonitor = {

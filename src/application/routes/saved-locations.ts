@@ -4,6 +4,7 @@ import { SavedLocationRepository } from '@/database/repositories/saved-location-
 import type { PlanningMode, RouteEndpoint, SavedLocation, SavedLocationKind } from '@/domain/route';
 
 export const DEFAULT_WAREHOUSE_ADDRESS = 'Savanorių pr. 180, Vilnius';
+export const KRETINGA_WAREHOUSE_ADDRESS = 'Tiekėjų g. 7, Kretinga';
 export const DEFAULT_HOME_ADDRESS = '';
 const LEGACY_EXAMPLE_HOME_ADDRESS = 'Alinkos g. 1A, Elektrėnai';
 export type PreferredRouteEnd = 'warehouse' | 'home';

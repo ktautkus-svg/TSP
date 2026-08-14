@@ -84,7 +84,10 @@ export function buildOptimizationRequestFromRoute(
   };
   const priorityOrdered = stops
     .filter((stop) => stop.priorityFirst)
-    .sort((left, right) => left.originalOrder - right.originalOrder || left.id.localeCompare(right.id));
+    .sort((left, right) =>
+      (left.priorityRank ?? Number.MAX_SAFE_INTEGER) - (right.priorityRank ?? Number.MAX_SAFE_INTEGER)
+      || left.originalOrder - right.originalOrder
+      || left.id.localeCompare(right.id));
   const priorityRankById = new Map(priorityOrdered.map((stop, index) => [stop.id, index + 1]));
   const optimizationStops = stops.map((stop) => {
     const rank = priorityRankById.get(stop.id) ?? 0;

@@ -114,6 +114,14 @@ describe('compact daily Excel UI', () => {
     expect(manualRouteScreen).toContain('testID="manual-route-review-top"');
   });
 
+  it('offers both Vilnius and Kretinga as route starts', () => {
+    expect(importScreen).toContain('KRETINGA_WAREHOUSE_ADDRESS');
+    expect(importScreen).toContain('testID="start-location-choice"');
+    expect(importScreen).toContain("setStartMode('vilnius')");
+    expect(importScreen).toContain("setStartMode('kretinga')");
+    expect(importScreen).toContain('const startLocation: RouteEndpoint = selectedStartEndpoint');
+  });
+
   it('keeps route selection compact and fits the whole route after map resize', () => {
     expect(alternativesScreen).toContain('buildFourObjectiveAlternatives');
     expect(alternativesScreen).toContain('item.title');

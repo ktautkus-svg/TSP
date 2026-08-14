@@ -23,6 +23,7 @@ import {
   loginEmployee,
   type EmployeeProfile,
   type EmployeeRole,
+  type FuelReport,
   type ServerFleetVehicle,
   type ServerRouteAssignment,
 } from '@/infrastructure/auth/employee-session';
@@ -48,6 +49,7 @@ export default function AdminScreen() {
   const [users, setUsers] = useState<EmployeeProfile[]>([]);
   const [assignments, setAssignments] = useState<ServerRouteAssignment[]>([]);
   const [vehicles, setVehicles] = useState<ServerFleetVehicle[]>([]);
+  const [fuelReports, setFuelReports] = useState<FuelReport[]>([]);
   const [routes, setRoutes] = useState<RouteChoice[]>([]);
   const [newName, setNewName] = useState('');
   const [newUsername, setNewUsername] = useState('');
@@ -90,14 +92,16 @@ export default function AdminScreen() {
     });
     setRoutes(localRoutes);
     if (profile.role === 'admin' && online) {
-      const [userResponse, assignmentResponse, vehicleResponse] = await Promise.all([
+      const [userResponse, assignmentResponse, vehicleResponse, fuelResponse] = await Promise.all([
         employeeApi<{ users: EmployeeProfile[] }>('/api/admin/users'),
         employeeApi<{ assignments: ServerRouteAssignment[] }>('/api/admin/assignments'),
         employeeApi<{ vehicles: ServerFleetVehicle[] }>('/api/admin/vehicles'),
+        employeeApi<{ reports: FuelReport[] }>('/api/admin/fuel-reports'),
       ]);
       setUsers(userResponse.users);
       setAssignments(assignmentResponse.assignments);
       setVehicles(vehicleResponse.vehicles);
+      setFuelReports(fuelResponse.reports);
     }
   }, [db, online, profile.role]);
 
@@ -277,6 +281,12 @@ export default function AdminScreen() {
     setSelectedVehicleId(response.vehicle.id);
     setEditVehicleNumber(response.vehicle.registrationNumber);
     setMessage('Automobilio duomenys atnaujinti.');
+    await load();
+  });
+
+  const reviewFuel = (report: FuelReport, approve: boolean) => run(async () => {
+    await employeeApi(`/api/admin/fuel-reports/${encodeURIComponent(report.id)}/${approve ? 'approve' : 'reject'}`, { method: 'POST' });
+    setMessage(approve ? 'Kuro likučio pakeitimas patvirtintas.' : 'Kuro likučio pakeitimas atmestas; vairuotojas turės patvirtinti iš naujo.');
     await load();
   });
 
@@ -481,6 +491,24 @@ export default function AdminScreen() {
             <Pressable disabled={busy || !online || !selectedVehicleId} style={[styles.primaryButton, (busy || !online || !selectedVehicleId) && styles.disabled]} onPress={() => void assignVehicle()}>
               <Text style={styles.primaryText}>Patvirtinti priskyrimą</Text>
             </Pressable>
+            </> : null}
+          </View>
+
+          <View style={styles.card} testID="fuel-report-management">
+            <CollapsibleHeader title={`Kuro likučio pakeitimai (${fuelReports.filter((report) => report.status === 'pending').length})`} expanded={expandedSection === 'fuel-reports'} onPress={() => toggleSection('fuel-reports')} styles={styles} />
+            {expandedSection === 'fuel-reports' ? <>
+              <Text style={styles.meta}>Pirmasis automobilio kuro likutis priimamas automatiškai. Vėlesnį neatitikimą patvirtina administratorius.</Text>
+              {fuelReports.filter((report) => report.status === 'pending').length === 0 ? <Text style={styles.meta}>Laukiančių pakeitimų nėra.</Text> : null}
+              {fuelReports.filter((report) => report.status === 'pending').map((report) => <View key={report.id} style={styles.routeManagementRow}>
+                <View style={styles.listContent}>
+                  <Text style={styles.listTitle}>{report.driverName} · {report.registrationNumber}</Text>
+                  <Text style={styles.meta}>{report.previousLiters === null ? 'Pirmas likutis' : `${report.previousLiters} l`} → {report.reportedLiters} l</Text>
+                </View>
+                <View style={styles.rowActions}>
+                  <Pressable disabled={busy || !online} onPress={() => void reviewFuel(report, true)} style={styles.smallButton}><Text style={styles.smallButtonText}>Patvirtinti</Text></Pressable>
+                  <Pressable disabled={busy || !online} onPress={() => void reviewFuel(report, false)} style={styles.dangerButton}><Text style={styles.dangerButtonText}>Atmesti</Text></Pressable>
+                </View>
+              </View>)}
             </> : null}
           </View>
           </View>

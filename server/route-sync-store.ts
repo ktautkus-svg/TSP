@@ -108,6 +108,31 @@ export class RouteSyncStore {
     await reference.update({ deleted: true, clientUpdatedAt: now, serverUpdatedAt: FieldValue.serverTimestamp() });
   }
 
+  /**
+   * Transfers the shared route to its assigned driver. This is an internal,
+   * authenticated dispatcher operation, not a client-writable ownership
+   * change. Without it, the administrator's original cloud copy rejects both
+   * driver devices as a foreign owner and they can each display a green sync
+   * badge while never exchanging delivered-stop state.
+   */
+  async seedAssignment(employeeId: string, routeSnapshot: RouteSnapshot): Promise<void> {
+    validateSnapshot(routeSnapshot);
+    const routeId = safeId(String(routeSnapshot.route.id ?? ''));
+    const reference = this.routes.doc(routeId);
+    const existing = await reference.get();
+    const now = FieldValue.serverTimestamp();
+    const record: StoredRoute = {
+      id: routeId,
+      ownerEmployeeId: employeeId,
+      routeSnapshot,
+      deleted: false,
+      clientUpdatedAt: String(routeSnapshot.route.updated_at ?? new Date().toISOString()),
+      serverUpdatedAt: now,
+      createdAt: (existing.data() as StoredRoute | undefined)?.createdAt ?? now,
+    };
+    await reference.set(record as unknown as DocumentData);
+  }
+
   private async applyOne(
     reference: FirebaseFirestore.DocumentReference,
     employeeId: string,

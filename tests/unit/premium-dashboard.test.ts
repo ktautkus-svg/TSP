@@ -21,8 +21,9 @@ describe('premium route dashboard', () => {
     expect(gauge).toContain('remaining ?? safeMaximum - delivered');
     expect(gauge).toContain('needleAngle');
     expect(gauge).toContain('const NEEDLE_TIP = 78');
-    expect(gauge).toContain('fraction >= 0.85');
-    expect(gauge).toContain('stopColor={fraction >= 0.85 ? cockpit.error : cockpit.primary}');
+    expect(gauge).toContain('id="needle"');
+    expect(gauge).toContain('stopColor={cockpit.error}');
+    expect(gauge).toContain('stroke={cockpit.errorSoft}');
     expect(gauge).toContain('id="redZone"');
     expect(gauge).toContain('stopColor={cockpit.routeBright}');
     expect(gauge).not.toContain('LIKO');
@@ -66,7 +67,9 @@ describe('premium route dashboard', () => {
     expect(road).not.toContain('PRISTATYMO EIGA');
     expect(road).toContain('stroke="url(#steeringProgress)"');
     expect(road).toContain('GERO POILSIO!');
-    expect(road).toContain("scene?.timeOfDay === 'night'");
+    expect(road).toContain('setSceneClock(Date.now())');
+    expect(road).toContain('if (hour >= 18 && hour < 21) return scenes.evening');
+    expect(road).toContain('return scenes.night');
     expect(road).not.toContain('<WeatherOverlay');
     expect(road).not.toContain('<TimeOfDayOverlay');
     // Each state uses an exterior road image; no decorative celestial objects.

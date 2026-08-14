@@ -36,9 +36,10 @@ import { fonts, radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { formatWeightKg } from '@/ui/format-weight';
+import { employeeApi, type FuelStatus } from '@/infrastructure/auth/employee-session';
 
 export default function LoadingScreen() {
-  const { profile } = useLocalAccess();
+  const { profile, online } = useLocalAccess();
   const { requestSync, revision: syncRevision } = useRouteCloudSync();
   const db = useSQLiteContext();
   const router = useRouter();
@@ -58,6 +59,9 @@ export default function LoadingScreen() {
   const [notLoadedStopId, setNotLoadedStopId] = useState<string | null>(null);
   const [notLoadedReason, setNotLoadedReason] = useState<LoadingFailureReason>('Atšauktas užsakymas');
   const [odometerModalVisible, setOdometerModalVisible] = useState(false);
+  const [fuelStatus, setFuelStatus] = useState<FuelStatus | null>(null);
+  const [fuelInput, setFuelInput] = useState('');
+  const [fuelBusy, setFuelBusy] = useState(false);
   const bulkInFlight = useRef(false);
   const odometerPrompted = useRef(false);
   // See alternatives.tsx: suppresses this screen's own status guard while a
@@ -70,6 +74,15 @@ export default function LoadingScreen() {
     try {
       const persisted = await repository.getWithStops(routeId);
       if (!persisted) throw new Error('Maršrutas nerastas.');
+      if (persisted.route.startOdometer === null) {
+        const previous = await db.getFirstAsync<{ end_odometer: number }>(
+          `SELECT end_odometer FROM routes
+           WHERE id <> ? AND status = 'completed' AND end_odometer IS NOT NULL
+           ORDER BY COALESCE(completed_at, updated_at) DESC LIMIT 1`,
+          routeId,
+        );
+        if (previous) setOdometer((current) => current || String(previous.end_odometer));
+      }
       if (persisted.route.status === 'planned') {
         setRoute(persisted.route);
         setStops(persisted.stops);
@@ -106,7 +119,21 @@ export default function LoadingScreen() {
     }
   }, [db, repository, routeId, router]);
 
-  useFocusEffect(useCallback(() => { void load(); }, [load]));
+  const loadFuel = useCallback(async () => {
+    if (profile.role !== 'driver' || !online) return;
+    try {
+      const status = await employeeApi<FuelStatus>('/api/fuel-status');
+      setFuelStatus(status);
+      if (status.vehicle?.fuelRemainingLiters !== null && status.vehicle?.fuelRemainingLiters !== undefined) {
+        setFuelInput((current) => current || String(status.vehicle!.fuelRemainingLiters));
+      }
+    } catch {
+      // Fuel confirmation is server-backed; offline route operation remains
+      // possible and the confirmation is requested again when online.
+    }
+  }, [online, profile.role]);
+
+  useFocusEffect(useCallback(() => { void load(); void loadFuel(); }, [load, loadFuel]));
 
   useEffect(() => {
     if (syncRevision > 0) void load();
@@ -257,6 +284,10 @@ export default function LoadingScreen() {
 
   const beginLoading = () => {
     if (bulkInFlight.current) return;
+    if (profile.role === 'driver' && online && fuelStatus?.requiresConfirmation) {
+      Alert.alert('Patvirtinkite kuro likutį', 'Prieš pradedant krovimą patvirtinkite šio automobilio kuro likutį.');
+      return;
+    }
     Alert.alert(
       'Pradėti pasikrovimą?',
       'Maršrutas pereis į krovimo būseną ir galėsite žymėti pakrautus taškus.',
@@ -281,6 +312,29 @@ export default function LoadingScreen() {
         },
       ],
     );
+  };
+
+  const submitFuel = async () => {
+    if (fuelBusy) return;
+    const liters = Number(fuelInput.replace(',', '.'));
+    if (!Number.isFinite(liters) || liters < 0) {
+      Alert.alert('Neteisingas kuro likutis', 'Įveskite kuro kiekį litrais.');
+      return;
+    }
+    setFuelBusy(true);
+    try {
+      const status = await employeeApi<FuelStatus>('/api/fuel-status', {
+        method: 'POST', body: JSON.stringify({ liters }),
+      });
+      setFuelStatus(status);
+      Alert.alert(status.approvalPending ? 'Pakeitimas perduotas' : 'Kuro likutis patvirtintas', status.approvalPending
+        ? 'Rodmuo skiriasi nuo ankstesnio. Administratorius matys ir galės patvirtinti pakeitimą.'
+        : 'Kuro likutis išsaugotas.');
+    } catch (reason) {
+      Alert.alert('Kuro likutis neišsaugotas', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
+    } finally {
+      setFuelBusy(false);
+    }
   };
 
   const editPlannedRoute = async () => {
@@ -354,6 +408,14 @@ export default function LoadingScreen() {
             Atvykimo laikai skaičiuojami nuo šio starto. Paspaudus „Pradėti maršrutą“ jie bus perskaičiuoti nuo realaus starto.
           </Text>
         </View>
+        {profile.role === 'driver' && online ? <View style={styles.fuelCard} testID="fuel-confirmation-card">
+          <Text style={styles.summaryTitle}>Kuro likutis · {fuelStatus?.vehicle?.registrationNumber ?? 'automobilis'}</Text>
+          {fuelStatus?.approvalPending ? <Text style={styles.fuelPending}>Pakeitimas laukia administratoriaus patvirtinimo. Maršrutą galite tęsti.</Text> : fuelStatus?.requiresConfirmation ? <Text style={styles.summaryText}>Patvirtinkite esamą likutį. Jei skaičius pasikeitė, administratorius gaus prašymą.</Text> : <Text style={styles.summaryText}>Patvirtinta: {fuelStatus?.vehicle?.fuelRemainingLiters ?? fuelStatus?.latestReport?.reportedLiters ?? '—'} l</Text>}
+          {fuelStatus?.requiresConfirmation ? <View style={styles.fuelRow}>
+            <TextInput value={fuelInput} onChangeText={(value) => setFuelInput(value.replace(/[^\d.,]/g, '').slice(0, 7))} keyboardType="decimal-pad" placeholder="Kuro likutis, l" style={[styles.input, styles.fuelInput]} />
+            <Pressable disabled={fuelBusy || !fuelInput.trim()} onPress={() => void submitFuel()} style={[styles.fuelButton, (fuelBusy || !fuelInput.trim()) && styles.disabled]}><Text style={styles.primaryText}>{fuelBusy ? 'Saugoma…' : 'Patvirtinti'}</Text></Pressable>
+          </View> : null}
+        </View> : null}
         <Pressable disabled={bulkBusy} style={[styles.plannedPrimaryButton, bulkBusy && styles.disabled]} onPress={beginLoading} testID="begin-loading">
           {bulkBusy ? <ActivityIndicator color="#fff" /> : <>
             <TruckIcon size={22} color="#FFFFFF" />
@@ -730,6 +792,11 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   },
   undoText: { ...type.button, color: colors.warning },
   odometerCard: { gap: spacing.sm, padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.info, backgroundColor: colors.surface },
+  fuelCard: { gap: spacing.sm, padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.success, backgroundColor: colors.surface },
+  fuelRow: { flexDirection: 'row', gap: spacing.sm, alignItems: 'stretch' },
+  fuelInput: { flex: 1, minWidth: 0 },
+  fuelButton: { minWidth: 120, minHeight: 48, borderRadius: radius.sm, backgroundColor: colors.success, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
+  fuelPending: { ...type.bodyStrong, color: colors.warning },
   input: { minHeight: 48, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderStrong, paddingHorizontal: spacing.md, color: colors.text, backgroundColor: colors.surfaceSubtle, ...type.body },
   secondaryButton: { minHeight: 56, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
   secondaryText: { ...type.button, color: colors.textSecondary, fontSize: 16 },

@@ -653,8 +653,8 @@ describe('active route next stop', () => {
 });
 
 describe('stop priority', () => {
-  it('marks exactly one stop as priority-first and clears any previous pick', async () => {
-    const { db } = createDb();
+  it('numbers priorities by click order and compacts ranks after deselection', async () => {
+    const { db } = createDb(21);
     await new CreateDraftRoute(db).execute({ id: 'route-p', startLocation: endpoint, endLocation: endpoint });
     let stopNumber = 0;
     await new ReplaceDraftStops(db, undefined, (prefix) => prefix === 'stop' ? `stop-${++stopNumber}` : `${prefix}-${Math.random()}`)
@@ -663,22 +663,29 @@ describe('stop priority', () => {
     await new SetStopPriority(db).execute('route-p', 'stop-1', true);
     let stops = await new RouteRepository(db).getStops('route-p');
     expect(stops.find((item) => item.id === 'stop-1')?.priorityFirst).toBe(true);
+    expect(stops.find((item) => item.id === 'stop-1')?.priorityRank).toBe(1);
     expect(stops.find((item) => item.id === 'stop-2')?.priorityFirst).toBe(false);
 
     await new SetStopPriority(db).execute('route-p', 'stop-2', true);
     stops = await new RouteRepository(db).getStops('route-p');
     expect(stops.find((item) => item.id === 'stop-1')?.priorityFirst).toBe(true);
     expect(stops.find((item) => item.id === 'stop-2')?.priorityFirst).toBe(true);
+    expect(stops.map((item) => item.priorityRank)).toEqual([1, 2]);
+
+    await new SetStopPriority(db).execute('route-p', 'stop-1', false);
+    stops = await new RouteRepository(db).getStops('route-p');
+    expect(stops.find((item) => item.id === 'stop-1')?.priorityRank).toBeNull();
+    expect(stops.find((item) => item.id === 'stop-2')?.priorityRank).toBe(1);
   });
 
   it('orders multiple priority stops along the way without hard-locking the first slot', async () => {
-    const { db } = createDb();
+    const { db } = createDb(21);
     await new CreateDraftRoute(db).execute({ id: 'route-p2', startLocation: endpoint, endLocation: endpoint });
     let stopNumber = 0;
     await new ReplaceDraftStops(db, undefined, (prefix) => prefix === 'stop' ? `stop-${++stopNumber}` : `${prefix}-${Math.random()}`)
       .execute('route-p2', [stop('stop-1', 1, 10), stop('stop-2', 2, 20), stop('stop-3', 3, 5)]);
-    await new SetStopPriority(db).execute('route-p2', 'stop-1', true);
     await new SetStopPriority(db).execute('route-p2', 'stop-3', true);
+    await new SetStopPriority(db).execute('route-p2', 'stop-1', true);
 
     const persisted = await new RouteRepository(db).getWithStops('route-p2');
     const request = buildOptimizationRequestFromRoute(persisted!.route, persisted!.stops);
@@ -686,7 +693,8 @@ describe('stop priority', () => {
     const third = request.stops.find((item) => item.id === 'stop-3');
     expect(first?.mustBeFirst).toBe(false);
     expect(third?.mustBeFirst).toBe(false);
-    expect(first?.deliverBeforeStopIds).toEqual(['stop-3']);
+    expect(third?.deliverBeforeStopIds).toEqual(['stop-1']);
+    expect(first?.deliverBeforeStopIds).toEqual([]);
     expect(request.stops.filter((item) => item.preferEarly).map((item) => item.id).sort()).toEqual(['stop-1', 'stop-3']);
   });
 });

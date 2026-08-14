@@ -127,6 +127,8 @@ export type DeliveryStop = {
   etaApproximate: boolean;
   weightKg: number | null;
   priorityFirst: boolean;
+  /** 1-based order in which the user selected priority stops. */
+  priorityRank?: number | null;
   phone: string | null;
   notes: string | null;
   loadingStatus: LoadingStatus;

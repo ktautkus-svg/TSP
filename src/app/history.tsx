@@ -16,6 +16,7 @@ import { fonts, radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { useLocalAccess } from '@/application/auth/local-access-context';
+import { pullAssignedRoutes } from '@/application/auth/route-assignment-sync';
 
 export default function RoutesScreen() {
   const db = useSQLiteContext();
@@ -34,18 +35,25 @@ export default function RoutesScreen() {
 
   useFocusEffect(useCallback(() => {
     let mounted = true;
-    const owner = profile.role === 'driver' ? profile.id : null;
-    void Promise.all([
-      repository.listOperational(owner),
-      repository.listHistory(50, owner),
-      db.getAllAsync<RouteCodeRow>(`SELECT DISTINCT route_id, route_code FROM shipment_lines WHERE route_code IS NOT NULL AND TRIM(route_code) <> ''`),
-    ]).then(([operational, history, codeRows]) => {
+    const refresh = async () => {
+      if (profile.role === 'driver') {
+        await pullAssignedRoutes(db, profile).catch((reason) => {
+          if (__DEV__) console.warn('ROUTES_ASSIGNMENT_PULL_FAILED', reason);
+        });
+      }
+      const owner = profile.role === 'driver' ? profile.id : null;
+      const [operational, history, codeRows] = await Promise.all([
+        repository.listOperational(owner),
+        repository.listHistory(50, owner),
+        db.getAllAsync<RouteCodeRow>(`SELECT DISTINCT route_id, route_code FROM shipment_lines WHERE route_code IS NOT NULL AND TRIM(route_code) <> ''`),
+      ]);
       if (!mounted) return;
       setOperationalRoutes(operational);
       setHistoryRoutes(history);
       setRouteCodes(groupRouteCodes(codeRows));
       setError(null);
-    }).catch((reason) => {
+    };
+    void refresh().catch((reason) => {
       if (__DEV__) console.warn('ROUTES_LOAD_FAILED', reason);
       if (mounted) setError(reason instanceof Error ? reason.message : 'Maršrutų atkurti nepavyko.');
     });
@@ -54,9 +62,13 @@ export default function RoutesScreen() {
 
   const goHome = () => router.replace('/' as Href);
   const openOperationalRoute = (route: Route) => {
+    router.push({ pathname: '/route/[id]/overview', params: { id: route.id } } as unknown as Href);
+  };
+  const startOperationalRoute = (route: Route) => {
     const destination = resolveRoute(route);
     router.push({ pathname: destination.pathname, params: destination.params } as Href);
   };
+  const primaryRoute = operationalRoutes[0] ?? null;
 
   return (
     <>
@@ -70,10 +82,15 @@ export default function RoutesScreen() {
         <FoundationScreen contentMaxWidth={contentWidth} showFoundationNotice={false} title="Maršrutai" description="Aktyvūs, būsimi ir ankstesni jūsų maršrutai vienoje vietoje.">
           {error ? <Text style={styles.error}>{error}</Text> : null}
 
+          {primaryRoute ? <View style={styles.topActions} testID="driver-route-primary-actions">
+            <Pressable style={styles.startButton} onPress={() => startOperationalRoute(primaryRoute)}><Text style={styles.startButtonText}>{primaryRoute.status === 'in_progress' ? 'Tęsti' : 'Pradėti'}</Text></Pressable>
+            <Pressable style={styles.previewButton} onPress={() => openOperationalRoute(primaryRoute)}><Text style={styles.previewButtonText}>Peržiūrėti</Text></Pressable>
+          </View> : null}
+
           {operationalRoutes.length > 0 ? <Text style={styles.sectionLabel}>DABAR IR TOLIAU</Text> : null}
           <View style={[styles.routeGrid, wideLayout && styles.routeGridWide]}>
           {operationalRoutes.map((route) => <RouteListCard
-            actionLabel={route.status === 'in_progress' ? 'Tęsti maršrutą' : 'Peržiūrėti'}
+            actionLabel="Atidaryti informaciją"
             dateLabel={formatLithuanianDate(route.date)}
             distanceLabel={`${route.estimatedDistanceKm?.toFixed(1) ?? '—'} km`}
             key={route.id}
@@ -137,6 +154,11 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   screen: { flex: 1, alignSelf: 'center', width: '100%', backgroundColor: colors.background },
   routeGrid: { gap: spacing.md },
   routeGridWide: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'stretch' },
+  topActions: { flexDirection: 'row', gap: spacing.sm },
+  startButton: { flex: 1, minHeight: 54, borderRadius: radius.md, backgroundColor: colors.actionPrimary, alignItems: 'center', justifyContent: 'center' },
+  startButtonText: { ...type.button, color: colors.textInverse },
+  previewButton: { flex: 1, minHeight: 54, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+  previewButtonText: { ...type.button, color: colors.text },
   routeCardWide: { flexGrow: 1, flexBasis: 320, minWidth: 0, maxWidth: 470 },
   empty: { padding: spacing.lg, borderWidth: 1, borderRadius: radius.lg, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.xs },
   sectionLabel: { ...type.label, color: colors.textMuted, marginTop: spacing.sm },

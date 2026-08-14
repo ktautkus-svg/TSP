@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-export const SCHEMA_VERSION = 20;
+export const SCHEMA_VERSION = 21;
 
 const migrationV1 = `
 PRAGMA journal_mode = WAL;
@@ -1082,6 +1082,35 @@ PRAGMA user_version = 20;
 COMMIT;
 `;
 
+// v21 stores the exact order in which priority stops were selected. The old
+// boolean remains for backwards-compatible cloud snapshots and quick filters.
+const migrationV21 = `
+BEGIN IMMEDIATE;
+
+ALTER TABLE delivery_stops ADD COLUMN priority_rank INTEGER
+  CHECK (priority_rank IS NULL OR priority_rank > 0);
+
+UPDATE delivery_stops
+SET priority_rank = (
+  SELECT COUNT(*)
+  FROM delivery_stops earlier
+  WHERE earlier.route_id = delivery_stops.route_id
+    AND earlier.priority_first = 1
+    AND (
+      earlier.original_order < delivery_stops.original_order
+      OR (earlier.original_order = delivery_stops.original_order AND earlier.id <= delivery_stops.id)
+    )
+)
+WHERE priority_first = 1;
+
+CREATE INDEX priority_stops_by_route_and_rank
+ON delivery_stops(route_id, priority_rank)
+WHERE priority_rank IS NOT NULL;
+
+PRAGMA user_version = 21;
+COMMIT;
+`;
+
 async function ensureRouteReturnColumns(db: SQLiteDatabase): Promise<void> {
   const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(routes)');
   const names = new Set(columns.map((column) => column.name));
@@ -1215,5 +1244,10 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
 
   if (currentVersion < 20) {
     await db.execAsync(migrationV20);
+    currentVersion = 20;
+  }
+
+  if (currentVersion < 21) {
+    await db.execAsync(migrationV21);
   }
 }

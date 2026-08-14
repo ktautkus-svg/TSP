@@ -33,6 +33,8 @@ const accessGateSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.
 const settingsSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../src/app/settings/index.tsx'), 'utf8');
 const employeeApiSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../server/employee-api.ts'), 'utf8');
 const employeeStoreSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../server/employee-auth-store.ts'), 'utf8');
+const employeeRouteSyncStoreSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../server/route-sync-store.ts'), 'utf8');
+const assignmentSyncSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../src/application/auth/route-assignment-sync.ts'), 'utf8');
 const adminSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../src/app/admin.tsx'), 'utf8');
 const tripSheetSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../src/app/trip-sheet.tsx'), 'utf8');
 const deliverySource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../src/app/route/[id]/delivery.tsx'), 'utf8');
@@ -84,11 +86,19 @@ describe('employee server session', () => {
   it('publishes completed driver routes as role-scoped trip sheets', () => {
     expect(employeeApiSource).toContain("pathname === '/api/trip-sheets'");
     expect(employeeStoreSource).toContain('async listTripSheets');
-    expect(employeeStoreSource).toContain("assignment.status === 'completed'");
+    expect(employeeStoreSource).toContain("assignment.status !== 'cancelled'");
     expect(tripSheetSource).toContain("employeeApi<{ tripSheets: ServerTripSheet[] }>('/api/trip-sheets')");
     expect(tripSheetSource).toContain('Spausdinti / PDF');
     expect(deliverySource).toContain('await pushRouteAssignmentProgress(db, routeId)');
     expect(homeSource).toContain('await pushCompletedRouteAssignmentProgress(db)');
+  });
+
+  it('transfers assignment ownership and pulls newer progress onto every driver device', () => {
+    expect(employeeRouteSyncStoreSource).toContain('async seedAssignment(employeeId: string, routeSnapshot: RouteSnapshot)');
+    expect(employeeApiSource).toContain('await routeSyncStore.seedAssignment(assignment.driverId, assignment.routeSnapshot)');
+    expect(assignmentSyncSource).toContain("assignment.updatedAt > String(existingSync.server_revision ?? '')");
+    expect(assignmentSyncSource).toContain('await applyRouteSnapshot(db, assignment.routeSnapshot, assignment.updatedAt, profile.id)');
+    expect(deliverySource).toContain('pullAssignedRoutes(db, profile)');
   });
 
   it('stores a successful login and includes the secure same-origin session cookie in employee API calls', async () => {

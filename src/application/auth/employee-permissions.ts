@@ -26,6 +26,7 @@ export const DRIVER_PERMISSION_KEYS = [
   'canAddStops',
   'canRecalculateRoute',
   'canCancelRoute',
+  'canViewCompensation',
 ] as const;
 
 export type DriverPermissionKey = (typeof DRIVER_PERMISSION_KEYS)[number];
@@ -37,6 +38,7 @@ export const DEFAULT_DRIVER_PERMISSIONS: DriverPermissions = {
   canAddStops: false,
   canRecalculateRoute: false,
   canCancelRoute: false,
+  canViewCompensation: false,
 };
 
 export const DRIVER_PERMISSION_LABELS: Record<DriverPermissionKey, { title: string; description: string }> = {
@@ -59,6 +61,10 @@ export const DRIVER_PERMISSION_LABELS: Record<DriverPermissionKey, { title: stri
   canCancelRoute: {
     title: 'Nutraukti maršrutą',
     description: 'Vairuotojas gali pats atšaukti jam priskirtą maršrutą.',
+  },
+  canViewCompensation: {
+    title: 'Matyti atlygio skaičiavimą',
+    description: 'Vairuotojas kelionės lape ir maršruto suvestinėje mato preliminarų bei galutinį dienos netto atlygį.',
   },
 };
 

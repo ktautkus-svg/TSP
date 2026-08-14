@@ -120,7 +120,23 @@ function TripSheetCard({ sheet, styles }: { sheet: DisplayTripSheet; styles: Ret
       <Metric label="TAŠKAI" value={`${sheet.deliveredStops} / ${sheet.totalStops}`} styles={styles} />
       <Metric label="PRISTATYTA" value={`${formatWeightKg(sheet.deliveredWeightKg)} kg`} styles={styles} />
       <Metric label="PLANUOTA" value={`${formatWeightKg(sheet.totalWeightKg)} kg`} styles={styles} />
+      {sheet.vehicle?.fuelRemainingLiters !== null && sheet.vehicle?.fuelRemainingLiters !== undefined ? <Metric label="KURO LIKUTIS STARTUOJANT" value={`${formatNumber(sheet.vehicle.fuelRemainingLiters)} l`} styles={styles} /> : null}
     </View>
+    {sheet.compensation ? <View style={styles.compensation} testID={`compensation-${sheet.id}`}>
+      <View style={styles.compensationHeader}>
+        <View style={styles.flex}>
+          <Text style={styles.compensationEyebrow}>{sheet.compensation.preliminary ? 'PRELIMINARUS DIENOS ATLYGIS' : 'GALUTINIS DIENOS ATLYGIS'}</Text>
+          <Text style={styles.compensationTotal}>{formatMoney(sheet.compensation.totalNetEur)} netto</Text>
+        </View>
+        <Text style={styles.compensationSource}>{sheet.compensation.distanceSource === 'odometer' ? 'pagal odometrą' : 'pagal planuojamus km'}</Text>
+      </View>
+      <View style={styles.compensationRows}>
+        <Text style={styles.compensationLine}>Diena: {formatMoney(sheet.compensation.fixedAmountEur)}</Text>
+        <Text style={styles.compensationLine}>Km: {formatNumber(sheet.compensation.distanceKm)} × {formatMoney(sheet.compensation.rates.perKmEur)} = {formatMoney(sheet.compensation.distanceAmountEur)}</Text>
+        <Text style={styles.compensationLine}>Svoris: {formatWeightKg(sheet.compensation.weightKg)} kg × {formatMoney(sheet.compensation.rates.perKgEur)} = {formatMoney(sheet.compensation.weightAmountEur)}</Text>
+        <Text style={styles.compensationLine}>Taškai: {sheet.compensation.stops} × {formatMoney(sheet.compensation.rates.perStopEur)} = {formatMoney(sheet.compensation.stopsAmountEur)}</Text>
+      </View>
+    </View> : null}
     <View style={styles.routeBlock}><Text style={styles.routeLabel}>PRADŽIA · {formatTime(sheet.startedAt)}</Text><Text style={styles.routeAddress}>{sheet.startAddress}</Text></View>
     <View style={styles.routeBlock}><Text style={styles.routeLabel}>PABAIGA · {formatTime(sheet.completedAt)}</Text><Text style={styles.routeAddress}>{sheet.endAddress}</Text></View>
   </View>;
@@ -136,13 +152,13 @@ function Metric({ label, value, styles }: { label: string; value: string; styles
 
 function localSheet(sheet: TripSheetWithRoutes): DisplayTripSheet {
   return {
-    id: sheet.id, assignmentId: sheet.id, routeId: sheet.routeIds[0] ?? sheet.id, routeNumbers: [], date: sheet.date,
+    id: sheet.id, assignmentId: sheet.id, routeId: sheet.routeIds[0] ?? sheet.id, routeNumbers: [], date: sheet.date, status: 'completed',
     driverId: 'local', driverName: 'Šio įrenginio vairuotojas', vehicle: { id: sheet.vehicleId, registrationNumber: sheet.vehicleName, model: sheet.vehicleName, maximumPayloadKg: 0 },
     startOdometer: sheet.startOdometer, endOdometer: sheet.endOdometer, actualDistanceKm: sheet.actualDistanceKm,
     plannedDistanceKm: sheet.plannedDistanceKm, startedAt: sheet.actualStartAt, completedAt: sheet.completedAt,
     durationMinutes: sheet.actualDurationMinutes, totalStops: sheet.totalStops, deliveredStops: sheet.totalStops,
     totalWeightKg: sheet.totalDeliveredWeightKg, deliveredWeightKg: sheet.totalDeliveredWeightKg,
-    startAddress: sheet.startLocation.address ?? sheet.startLocation.label, endAddress: sheet.endLocation.address ?? sheet.endLocation.label, source: 'local',
+    startAddress: sheet.startLocation.address ?? sheet.startLocation.label, endAddress: sheet.endLocation.address ?? sheet.endLocation.label, compensation: null, source: 'local',
   };
 }
 
@@ -150,6 +166,7 @@ function formatDate(value: string): string { const date = new Date(`${value}T12:
 function formatNumber(value: number | null): string { return value === null ? '—' : new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(value); }
 function formatDuration(minutes: number | null): string { if (minutes === null) return '—'; const hours = Math.floor(minutes / 60); const rest = minutes % 60; return hours ? `${hours} val. ${rest} min.` : `${rest} min.`; }
 function formatTime(value: string | null): string { if (!value) return '—'; const date = new Date(value); return Number.isNaN(date.getTime()) ? '—' : new Intl.DateTimeFormat('lt-LT', { hour: '2-digit', minute: '2-digit' }).format(date); }
+function formatMoney(value: number): string { return `${new Intl.NumberFormat('lt-LT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)} €`; }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   headerAction: { minWidth: 120, minHeight: 48, justifyContent: 'center' }, headerText: { ...type.button, color: colors.textInverse },
@@ -163,5 +180,6 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   routeBadge: { borderRadius: radius.sm, backgroundColor: colors.infoSoft, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }, routeBadgeText: { ...type.label, color: colors.info },
   vehicleBar: { padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceMuted, gap: 2 }, vehicleNumber: { ...type.readout, color: colors.text },
   metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }, metric: { flexGrow: 1, minWidth: 115, padding: spacing.sm, borderRadius: radius.sm, backgroundColor: colors.surfaceSubtle, borderWidth: 1, borderColor: colors.borderSubtle, gap: 2 }, metricLabel: { ...type.label, color: colors.textMuted }, metricValue: { ...type.bodyStrong, color: colors.text },
+  compensation: { padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.success, backgroundColor: colors.surfaceSubtle, gap: spacing.sm }, compensationHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm }, compensationEyebrow: { ...type.label, color: colors.success }, compensationTotal: { ...type.readout, color: colors.text, marginTop: 2 }, compensationSource: { ...type.secondary, color: colors.textMuted }, compensationRows: { gap: 3 }, compensationLine: { ...type.secondary, color: colors.textSecondary },
   routeBlock: { borderLeftWidth: 3, borderLeftColor: colors.info, paddingLeft: spacing.sm, gap: 2 }, routeLabel: { ...type.label, color: colors.textMuted }, routeAddress: { ...type.body, color: colors.text }, cardTitle: { ...type.sectionTitle, color: colors.text }, meta: { ...type.secondary, color: colors.textMuted },
 });

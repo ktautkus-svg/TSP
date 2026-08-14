@@ -45,6 +45,7 @@ export function RoadProgressBar({
   const animatedProgress = useRef(new Animated.Value(clamped)).current;
   const [displayedProgress, setDisplayedProgress] = useState(clamped);
   const [reduceMotion, setReduceMotion] = useState(false);
+  const [sceneClock, setSceneClock] = useState(() => Date.now());
 
   useEffect(() => {
     void AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion);
@@ -66,6 +67,11 @@ export function RoadProgressBar({
     }).start();
   }, [animatedProgress, clamped, reduceMotion]);
 
+  useEffect(() => {
+    const timer = setInterval(() => setSceneClock(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+
   return (
     <View
       accessibilityLabel={`Maršruto progresas ${Math.round(clamped * 100)} procentų`}
@@ -75,7 +81,7 @@ export function RoadProgressBar({
         <Image
           accessibilityLabel={roadSceneLabel(weatherScene)}
           resizeMode="cover"
-          source={roadSceneSource(weatherScene)}
+          source={roadSceneSource(weatherScene, new Date(sceneClock))}
           style={styles.roadImage}
         />
         {completed ? (
@@ -121,16 +127,17 @@ export function RoadProgressBar({
   );
 }
 
-function roadSceneSource(scene?: RouteWeatherScene | null): ImageSourcePropType {
+function roadSceneSource(scene: RouteWeatherScene | null | undefined, now: Date): ImageSourcePropType {
   if (scene?.condition === 'rain') return scenes.rain;
   if (scene?.condition === 'snow') return scenes.snow;
   if (scene?.condition === 'fog') return scenes.fog;
   if (scene?.condition === 'storm' || scene?.condition === 'cloudy') return scenes.storm;
-  if (scene?.timeOfDay === 'dawn') return scenes.morning;
-  if (scene?.timeOfDay === 'dusk') return scenes.evening;
-  if (scene?.timeOfDay === 'night') return scenes.night;
-  const observedHour = scene?.observedAt ? new Date(scene.observedAt).getHours() : 12;
-  return observedHour >= 15 ? scenes.afternoon : scenes.midday;
+  const hour = now.getHours();
+  if (hour >= 5 && hour < 9) return scenes.morning;
+  if (hour >= 9 && hour < 15) return scenes.midday;
+  if (hour >= 15 && hour < 18) return scenes.afternoon;
+  if (hour >= 18 && hour < 21) return scenes.evening;
+  return scenes.night;
 }
 
 function roadSceneLabel(scene?: RouteWeatherScene | null): string {

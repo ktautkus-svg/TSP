@@ -109,10 +109,20 @@ export async function pullAssignedRoutes(db: SQLiteDatabase, profile: EmployeePr
   let imported = 0;
   let skipped = 0;
   for (const assignment of response.assignments.filter((item) => !['completed', 'cancelled'].includes(item.status))) {
-    const existingSync = await db.getFirstAsync<{ route_id: string }>(
-      'SELECT route_id FROM route_sync_state WHERE assignment_id = ?', assignment.id,
+    const existingSync = await db.getFirstAsync<{ route_id: string; server_revision: string | null }>(
+      'SELECT route_id, server_revision FROM route_sync_state WHERE assignment_id = ?', assignment.id,
     );
     if (existingSync) {
+      const local = await db.getFirstAsync<{ updated_at: string }>('SELECT updated_at FROM routes WHERE id = ?', existingSync.route_id);
+      const incomingUpdatedAt = String(assignment.routeSnapshot.route.updated_at ?? '');
+      if (assignment.updatedAt > String(existingSync.server_revision ?? '') && (!local || incomingUpdatedAt > local.updated_at)) {
+        await applyRouteSnapshot(db, assignment.routeSnapshot, assignment.updatedAt, profile.id);
+      }
+      await db.runAsync(
+        `UPDATE route_sync_state SET server_revision = ?, last_synced_at = ?, updated_at = ?
+         WHERE assignment_id = ?`,
+        assignment.updatedAt, new Date().toISOString(), new Date().toISOString(), assignment.id,
+      );
       skipped += 1;
       continue;
     }
@@ -191,6 +201,14 @@ export async function assignRouteToDriver(db: SQLiteDatabase, routeId: string, d
     method: 'POST',
     body: JSON.stringify({ driverId, routeSnapshot }),
   });
+  // The shared cloud copy is transferred to the assigned driver by the
+  // server. Mirror that ownership locally so this administrator device does
+  // not keep retrying a now-foreign stale copy before it can pull progress.
+  await db.runAsync(
+    'UPDATE routes SET owner_employee_id = ?, cloud_synced_at = updated_at WHERE id = ?',
+    driverId,
+    routeId,
+  );
   return response.assignment;
 }
 

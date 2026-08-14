@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildServerTripSheet, type RouteAssignment } from '../../server/employee-auth-store';
+import { attachDailyCompensation, buildServerTripSheet, type RouteAssignment } from '../../server/employee-auth-store';
 
 describe('server trip sheet', () => {
   it('builds an accounting-ready sheet from a completed assigned route', () => {
@@ -51,5 +51,20 @@ describe('server trip sheet', () => {
       ] },
     } satisfies RouteAssignment;
     expect(buildServerTripSheet(assignment, null)).toMatchObject({ routeNumbers: ['R11'], actualDistanceKm: null, deliveredWeightKg: 25, vehicle: null });
+  });
+
+  it('calculates one fixed daily amount and switches from planned to odometer kilometres', () => {
+    const base = buildServerTripSheet({
+      id: 'assignment-12345678', routeId: 'route-1', driverId: 'driver-12345678', driverName: 'Vairas',
+      status: 'completed', progress: null, createdBy: 'admin', assignedAt: '2026-08-12T05:00:00.000Z', updatedAt: '2026-08-12T10:00:00.000Z', vehicle: null,
+      routeSnapshot: { route: { id: 'route-1', date: '2026-08-12', actual_distance_km: 100, total_weight_kg: 1000, total_stops: 10 }, stops: [], shipmentLines: [] },
+    }, null);
+    const second = { ...base, id: 'trip-sheet-2', assignmentId: 'assignment-2', routeId: 'route-2', actualDistanceKm: null, plannedDistanceKm: 50, totalWeightKg: 500, totalStops: 5, status: 'assigned' as const };
+    const [calculated] = attachDailyCompensation([base, second]);
+    expect(calculated.compensation).toMatchObject({
+      distanceKm: 150, distanceSource: 'planned', weightKg: 1500, stops: 15,
+      fixedAmountEur: 23, distanceAmountEur: 7.5, weightAmountEur: 9, stopsAmountEur: 9.75,
+      totalNetEur: 49.25, preliminary: true,
+    });
   });
 });

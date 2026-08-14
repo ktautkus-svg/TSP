@@ -441,9 +441,7 @@ export default function RouteReviewScreen() {
 
       {allReady ? <Text style={styles.sectionIntro}>Pažymėkite vieną ar kelis prioritetinius taškus (1, 2, 3…). Jie bus apeinami ta eile, bet tarp jų gali įsiterpti kiti taškai, jei geografiškai pakeliui.</Text> : null}
       {visibleStops.map((stop) => {
-        const priorityRank = stop.priorityFirst
-          ? stops.filter((item) => item.priorityFirst && item.originalOrder <= stop.originalOrder).length
-          : 0;
+        const priorityRank = stop.priorityRank ?? 0;
         return (
         <StopEditor
           styles={styles}
