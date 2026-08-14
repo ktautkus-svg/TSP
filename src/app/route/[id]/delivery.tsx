@@ -202,10 +202,29 @@ export default function DeliveryScreen() {
     setBusy(true);
     try {
       await new MarkStopDelivered(db).execute(routeId, stopId);
+      const updatedRoute = await repository.getById(routeId);
       setExpandedStopId(null);
       await load();
       void requestSync('mutation');
       void publishProgress();
+      if (updatedRoute?.remainingStops === 0 && !updatedRoute.returnStartedAt) {
+        const choices = [
+          returnLocations.warehouse
+            ? { text: 'Į sandėlį', onPress: () => { void startReturn('warehouse'); } }
+            : null,
+          returnLocations.home
+            ? { text: 'Namo', onPress: () => { void startReturn('home'); } }
+            : null,
+          { text: 'Pasirinkti vėliau', style: 'cancel' as const },
+        ].filter((choice): choice is NonNullable<typeof choice> => choice !== null);
+        Alert.alert(
+          'Visi pristatymai užbaigti',
+          choices.length > 1
+            ? 'Kur važiuosite užbaigti dienos maršrutą? Maršrutas baigsis tik atvykus ir įvedus galutinį odometrą.'
+            : 'Nustatymuose įveskite sandėlio arba namų adresą, tada pasirinkite grįžimo vietą.',
+          choices,
+        );
+      }
     } catch (reason) {
       Alert.alert('Nepavyko pažymėti', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
     } finally {
@@ -546,7 +565,7 @@ export default function DeliveryScreen() {
     totalWeightKg: progress.totalKnownWeightKg,
     completedDistanceKm: progress.completedPlannedDistanceKm,
     totalDistanceKm: route?.estimatedDistanceKm ?? null,
-    completed: progress.totalStops > 0 && progress.remainingStops === 0,
+    completed: Boolean(route?.returnArrivedAt),
   }) : null;
 
   const stopRoute = () => {
@@ -589,7 +608,7 @@ export default function DeliveryScreen() {
               <RoadProgressBar
                 fraction={compositeProgress?.fraction ?? 0}
                 breakdown={compositeProgress ?? undefined}
-                completed={progress.totalStops > 0 && progress.remainingStops === 0}
+                completed={Boolean(route?.returnArrivedAt)}
                 weatherScene={weatherScene}
               />
               <View style={styles.gaugePanel}>
@@ -604,10 +623,10 @@ export default function DeliveryScreen() {
                   />
                   <View style={styles.gaugeCenterStats}>
                     <Text style={styles.gaugeCenterLabel}>LAIKAS</Text>
-                    <Text numberOfLines={1} style={styles.gaugeCenterValue}>{elapsedLabel(route?.startedAt ?? null)}</Text>
+                    <Text numberOfLines={1} style={styles.gaugeCenterValue}>{elapsedLabel(route?.startedAt ?? null, route?.returnArrivedAt ?? null)}</Text>
                     <View style={styles.gaugeCenterDivider} />
-                    <Text style={styles.gaugeCenterLabel}>LIKĘ KM</Text>
-                    <Text numberOfLines={1} style={styles.gaugeCenterValue}>{formatMetric(progress.preliminaryRemainingDistanceKm)}</Text>
+                    <Text style={styles.gaugeCenterLabel}>NUVAŽIUOTA</Text>
+                    <Text numberOfLines={1} style={styles.gaugeCenterValue}>{formatMetric(progress.completedPlannedDistanceKm)}</Text>
                     <Text style={styles.gaugeCenterUnit}>km</Text>
                   </View>
                   <InstrumentGauge
@@ -996,9 +1015,9 @@ export default function DeliveryScreen() {
   );
 }
 
-function elapsedLabel(startedAt: string | null): string {
+function elapsedLabel(startedAt: string | null, endedAt: string | null = null): string {
   if (!startedAt) return '—';
-  const ms = Date.now() - new Date(startedAt).getTime();
+  const ms = (endedAt ? new Date(endedAt).getTime() : Date.now()) - new Date(startedAt).getTime();
   if (!Number.isFinite(ms) || ms < 0) return '—';
   const totalMinutes = Math.floor(ms / 60_000);
   const hours = Math.floor(totalMinutes / 60);

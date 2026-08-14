@@ -13,6 +13,7 @@ import { GetDefaultLocations, PlanningModePreference, ResolveRouteLocations, Rou
 import {
   BeginRouteCompletion,
   CompleteRoute,
+  ConfirmRouteReturnArrival,
   GetLatestUndoableAction,
   GetRouteProgress,
   MarkAllStopsLoaded,
@@ -29,6 +30,7 @@ import {
   SetNextPendingStop,
   SkipStartOdometer,
   StartRoute,
+  StartRouteReturn,
   UndoRouteAction,
 } from '../../src/application/routes/route-workday';
 import { RouteRepository } from '../../src/database/repositories/route-repository';
@@ -94,6 +96,11 @@ async function startedRoute(db: SQLiteDatabase) {
   await new MarkStopLoaded(db).execute('route-1', 'stop-2');
   await new SaveStartOdometer(db).execute('route-1', 1000.5);
   await new StartRoute(db).execute('route-1');
+}
+
+async function arriveAtRouteEnd(db: SQLiteDatabase) {
+  await new StartRouteReturn(db).execute('route-1', 'warehouse', endpoint);
+  await new ConfirmRouteReturnArrival(db).execute('route-1');
 }
 
 describe('driver workday persistence', () => {
@@ -382,11 +389,13 @@ describe('driver workday persistence', () => {
   });
 
   it('completes transactionally, rejects negative distance and ignores double completion', async () => {
-    const { adapter, db } = createDb();
+    const { adapter, db } = createDb(21);
     await startedRoute(db);
     await new MarkStopDelivered(db).execute('route-1', 'stop-1');
     await new MarkStopDelivered(db).execute('route-1', 'stop-2');
     await expect(new CompleteRoute(db).execute('route-1', { endOdometer: 999 })).rejects.toMatchObject({ code: 'INVALID_ROUTE_STATE' });
+    await expect(new CompleteRoute(db).execute('route-1', { endOdometer: 1042.5 })).rejects.toMatchObject({ code: 'INVALID_ROUTE_STATE' });
+    await arriveAtRouteEnd(db);
     const first = await new CompleteRoute(db).execute('route-1', { endOdometer: 1042.5 });
     const second = await new CompleteRoute(db).execute('route-1', { endOdometer: 1100 });
     expect(first).toMatchObject({ idempotent: false, summary: { actualDistanceKm: 42 } });
@@ -480,23 +489,25 @@ describe('driver workday persistence', () => {
   });
 
   it('persists an interrupted completion and its odometer draft across process restart', async () => {
-    const { db } = createDb();
+    const { db } = createDb(21);
     await startedRoute(db);
     await new MarkStopFailed(db).execute('route-1', 'stop-1', {
       reason: 'Kita',
       comment: 'Išlikęs komentaras',
     });
+    await new MarkStopDelivered(db).execute('route-1', 'stop-2');
+    await arriveAtRouteEnd(db);
 
     const first = await new BeginRouteCompletion(db, () => '2026-08-03T14:00:00.000Z').execute('route-1');
     const second = await new BeginRouteCompletion(db, () => '2026-08-03T14:01:00.000Z').execute('route-1');
     await new SaveCompletionOdometerDraft(db, () => '2026-08-03T14:02:00.000Z').execute('route-1', '1042,5');
 
     const restarted = new RouteRepository(db);
-    expect(first).toMatchObject({ idempotent: false, startedAt: '2026-08-03T14:00:00.000Z' });
-    expect(second).toMatchObject({ idempotent: true, startedAt: '2026-08-03T14:00:00.000Z' });
+    expect(first).toMatchObject({ idempotent: true });
+    expect(second).toEqual(first);
     expect(await restarted.getById('route-1')).toMatchObject({
       status: 'in_progress',
-      completionStartedAt: '2026-08-03T14:00:00.000Z',
+      completionStartedAt: first.startedAt,
       completionEndOdometerDraft: '1042,5',
     });
     expect((await restarted.getStops('route-1'))[0]).toMatchObject({
@@ -506,8 +517,11 @@ describe('driver workday persistence', () => {
   });
 
   it('clears only the completion odometer draft after the same route is completed', async () => {
-    const { db } = createDb();
+    const { db } = createDb(21);
     await startedRoute(db);
+    await new MarkStopDelivered(db).execute('route-1', 'stop-1');
+    await new MarkStopDelivered(db).execute('route-1', 'stop-2');
+    await arriveAtRouteEnd(db);
     await new BeginRouteCompletion(db).execute('route-1');
     await new SaveCompletionOdometerDraft(db).execute('route-1', '1042.5');
     await new CompleteRoute(db).execute('route-1', {

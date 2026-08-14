@@ -16,7 +16,7 @@ import {
   stripSupplierPrefix,
 } from '../../src/application/import/logistics-excel-v1';
 import { ActivateRoute, CreateDraftRouteWithStops } from '../../src/application/routes/route-commands';
-import { CompleteRoute, MarkStopDelivered, MarkStopLoaded, SaveStartOdometer, StartRoute } from '../../src/application/routes/route-workday';
+import { CompleteRoute, ConfirmRouteReturnArrival, MarkStopDelivered, MarkStopLoaded, SaveStartOdometer, StartRoute, StartRouteReturn } from '../../src/application/routes/route-workday';
 import { ExcelImportRepository } from '../../src/database/repositories/excel-import-repository';
 import { RouteRepository } from '../../src/database/repositories/route-repository';
 import { ShipmentLineRepository } from '../../src/database/repositories/shipment-line-repository';
@@ -172,7 +172,8 @@ function createDb(): SQLiteDatabase {
   const adapter = new ExpoLikeDatabase();
   const source = readFileSync(resolve(here, '../../src/database/migrations.ts'), 'utf8');
   const tick = String.fromCharCode(96);
-  for (let version = 1; version <= 11; version += 1) {
+  const schemaVersion = Number(source.match(/SCHEMA_VERSION = (\d+)/)?.[1]);
+  for (let version = 1; version <= schemaVersion; version += 1) {
     const match = source.match(new RegExp(`const migrationV${version} = ${tick}([\\s\\S]*?)${tick};`));
     if (!match) throw new Error(`Missing migrationV${version}`);
     adapter.raw.exec(match[1]);
@@ -265,6 +266,8 @@ describe('Excel import persistence and ShipmentLine history', () => {
     await new SaveStartOdometer(db).execute(created.routeId, 1000);
     await new StartRoute(db).execute(created.routeId);
     for (const stop of await routeRepository.getStops(created.routeId)) await new MarkStopDelivered(db).execute(created.routeId, stop.id);
+    await new StartRouteReturn(db).execute(created.routeId, 'warehouse', endpoint);
+    await new ConfirmRouteReturnArrival(db).execute(created.routeId);
     await new CompleteRoute(db).execute(created.routeId, { endOdometer: 1018.4, confirmUnfinished: false });
     expect((await routeRepository.getById(created.routeId))?.status).toBe('completed');
     expect(await new ShipmentLineRepository(db).getByRoute(created.routeId)).toHaveLength(20);

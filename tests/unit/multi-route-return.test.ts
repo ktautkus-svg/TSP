@@ -6,7 +6,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { describe, expect, it } from 'vitest';
 
 import { CreateDraftRoute } from '../../src/application/routes/route-commands';
-import { ConfirmRouteReturnArrival, StartRouteReturn } from '../../src/application/routes/route-workday';
+import { CompleteRoute, ConfirmRouteReturnArrival, StartRouteReturn } from '../../src/application/routes/route-workday';
 import { migrateDatabase } from '../../src/database/migrations';
 
 class ExpoLikeDatabase {
@@ -97,5 +97,20 @@ describe('several planned routes and durable return stage', () => {
       completion_started_at: '2026-08-11T18:20:00.000Z',
       status: 'in_progress',
     });
+  });
+
+  it('counts the workday through return arrival, not through later odometer entry', async () => {
+    const { db } = database();
+    await new CreateDraftRoute(db).execute({ id: 'route-duration', startLocation: endpoint, endLocation: endpoint });
+    await db.runAsync(
+      "UPDATE routes SET status = 'in_progress', remaining_stops = 0, started_at = ?, start_odometer = 100 WHERE id = 'route-duration'",
+      '2026-08-11T17:00:00.000Z',
+    );
+    await new StartRouteReturn(db, () => '2026-08-11T18:00:00.000Z').execute('route-duration', 'home', endpoint);
+    await new ConfirmRouteReturnArrival(db, () => '2026-08-11T18:20:00.000Z').execute('route-duration');
+
+    const completed = await new CompleteRoute(db, () => '2026-08-11T19:00:00.000Z').execute('route-duration', { endOdometer: 142 });
+
+    expect(completed.summary).toMatchObject({ actualDurationMinutes: 80, actualDistanceKm: 42 });
   });
 });

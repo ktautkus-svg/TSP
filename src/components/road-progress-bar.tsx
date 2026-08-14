@@ -267,9 +267,9 @@ const styles = StyleSheet.create({
   breakdown: {
     alignSelf: 'center',
     marginBottom: 2,
-    color: cockpit.onSurfaceVariant,
-    fontFamily: fonts.bodyMedium,
-    fontSize: 9,
+    color: cockpit.onSurface,
+    fontFamily: fonts.headingSemiBold,
+    fontSize: 10,
     letterSpacing: 0.15,
   },
 });

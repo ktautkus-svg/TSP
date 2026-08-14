@@ -100,8 +100,11 @@ describe('premium route dashboard', () => {
     expect(delivery).toContain('title="Taškai"');
     expect(delivery).toContain('maximum={progress.totalStops}');
     expect(delivery).toContain('remaining={progress.remainingStops}');
-    expect(delivery).toContain('LIKĘ KM');
-    expect(delivery).toContain('formatMetric(progress.preliminaryRemainingDistanceKm)');
+    expect(delivery).toContain('NUVAŽIUOTA');
+    expect(delivery).toContain('formatMetric(progress.completedPlannedDistanceKm)');
+    expect(delivery).toContain('elapsedLabel(route?.startedAt ?? null, route?.returnArrivedAt ?? null)');
+    expect(delivery).toContain('completed={Boolean(route?.returnArrivedAt)}');
+    expect(delivery).toContain('Visi pristatymai užbaigti');
     expect(delivery).toContain('styles.gaugeCenterStats');
     expect(delivery).toContain('IKI ARTIMIAUSIOS');
     expect(delivery).toContain('NAVIGUOTI');

@@ -835,6 +835,12 @@ export class CompleteRoute extends WorkdayCommand {
     if (route.status !== 'in_progress') {
       throw new RouteCommandError('INVALID_ROUTE_STATE', 'Užbaigti galima tik pradėtą maršrutą.');
     }
+    if (!route.returnArrivedAt && !input.confirmUnfinished) {
+      throw new RouteCommandError(
+        'INVALID_ROUTE_STATE',
+        'Maršrutas dar nebaigtas. Pasirinkite grįžimą namo arba į sandėlį ir patvirtinkite atvykimą.',
+      );
+    }
     if (route.startOdometer !== null && input.endOdometer < route.startOdometer) {
       throw new RouteCommandError('INVALID_ROUTE_STATE', 'Galutinis odometras negali būti mažesnis už pradinį.');
     }
@@ -863,8 +869,9 @@ export class CompleteRoute extends WorkdayCommand {
     }
     const now = this.clock();
     const plannedDurationMinutes = route.estimatedDurationMinutes;
+    const routeEndedAt = route.returnArrivedAt ?? now;
     const actualDurationMinutes = route.startedAt
-      ? Math.round((Date.parse(now) - Date.parse(route.startedAt)) / 60_000)
+      ? Math.round((Date.parse(routeEndedAt) - Date.parse(route.startedAt)) / 60_000)
       : null;
     const summary: RouteCompletionSummary = {
       totalStops: stops.length,
@@ -1063,6 +1070,12 @@ export class BeginRouteCompletion extends WorkdayCommand {
     const route = await this.route(routeId);
     if (route.status !== 'in_progress') {
       throw new RouteCommandError('INVALID_ROUTE_STATE', 'Užbaigimą galima pradėti tik vykdomam maršrutui.');
+    }
+    if (!route.returnArrivedAt) {
+      throw new RouteCommandError(
+        'INVALID_ROUTE_STATE',
+        'Pirmiausia grįžkite namo arba į sandėlį ir patvirtinkite atvykimą.',
+      );
     }
     if (route.completionStartedAt) {
       return { idempotent: true, startedAt: route.completionStartedAt };
