@@ -3,7 +3,6 @@ import {
   AccessibilityInfo,
   Animated,
   Easing,
-  Image,
   type ImageSourcePropType,
   StyleSheet,
   Text,
@@ -52,6 +51,9 @@ export function RoadProgressBar({
   const [displayedProgress, setDisplayedProgress] = useState(clamped);
   const [reduceMotion, setReduceMotion] = useState(false);
   const [sceneClock, setSceneClock] = useState(() => Date.now());
+  const selectedSceneKey = roadSceneKey(weatherScene, new Date(sceneClock));
+  const [displayedSceneKey, setDisplayedSceneKey] = useState(selectedSceneKey);
+  const sceneOpacity = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     void AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion);
@@ -78,23 +80,51 @@ export function RoadProgressBar({
     return () => clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    if (selectedSceneKey === displayedSceneKey) return;
+    if (reduceMotion) {
+      setDisplayedSceneKey(selectedSceneKey);
+      sceneOpacity.setValue(1);
+      return;
+    }
+
+    Animated.timing(sceneOpacity, {
+      toValue: 0,
+      duration: 140,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (!finished) return;
+      setDisplayedSceneKey(selectedSceneKey);
+      Animated.timing(sceneOpacity, {
+        toValue: 1,
+        duration: 240,
+        easing: Easing.inOut(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    });
+  }, [displayedSceneKey, reduceMotion, sceneOpacity, selectedSceneKey]);
+
   return (
     <View
       accessibilityLabel={`Maršruto progresas ${Math.round(clamped * 100)} procentų`}
       style={styles.container}
       testID="route-road-progress">
-      <View style={styles.scene}>
-        <Image
-          accessibilityLabel={roadSceneLabel(weatherScene)}
-          resizeMode="cover"
-          source={roadSceneSource(weatherScene, new Date(sceneClock))}
-          style={styles.roadImage}
-        />
-        {completed ? (
-          <View pointerEvents="none" style={styles.completedMessage} testID="route-completed-windshield-message">
-            <Text style={styles.completedMessageText}>GERO POILSIO!</Text>
-          </View>
-        ) : null}
+      <View style={styles.mirrorArea}>
+        <View pointerEvents="none" style={styles.mirrorMount} />
+        <View style={styles.mirrorShell} testID="route-rear-view-mirror">
+          <Animated.Image
+            accessibilityLabel={roadSceneLabel(displayedSceneKey)}
+            resizeMode="cover"
+            source={scenes[displayedSceneKey]}
+            style={[styles.roadImage, { opacity: sceneOpacity }]}
+          />
+          {completed ? (
+            <View pointerEvents="none" style={styles.completedMessage} testID="route-completed-mirror-message">
+              <Text style={styles.completedMessageText}>GERO POILSIO!</Text>
+            </View>
+          ) : null}
+        </View>
       </View>
       <View style={styles.instrumentBridge}>
         <Svg pointerEvents="none" preserveAspectRatio="none" style={styles.arc} viewBox="0 0 430 62">
@@ -141,23 +171,34 @@ function percent(value: number): string {
   return `${Math.round(fraction * 100)}%`;
 }
 
-function roadSceneSource(scene: RouteWeatherScene | null | undefined, now: Date): ImageSourcePropType {
-  if (scene?.condition === 'rain') return scenes.rain;
-  if (scene?.condition === 'snow') return scenes.snow;
-  if (scene?.condition === 'fog') return scenes.fog;
-  if (scene?.condition === 'storm' || scene?.condition === 'cloudy') return scenes.storm;
+type RoadSceneKey = keyof typeof scenes;
+
+function roadSceneKey(scene: RouteWeatherScene | null | undefined, now: Date): RoadSceneKey {
+  if (scene?.condition === 'rain') return 'rain';
+  if (scene?.condition === 'snow') return 'snow';
+  if (scene?.condition === 'fog') return 'fog';
+  if (scene?.condition === 'storm') return 'storm';
   const hour = now.getHours();
-  if (hour >= 5 && hour < 9) return scenes.morning;
-  if (hour >= 9 && hour < 15) return scenes.midday;
-  if (hour >= 15 && hour < 18) return scenes.afternoon;
-  if (hour >= 18 && hour < 21) return scenes.evening;
-  return scenes.night;
+  if (hour >= 5 && hour < 9) return 'morning';
+  if (hour >= 9 && hour < 15) return 'midday';
+  if (hour >= 15 && hour < 18) return 'afternoon';
+  if (hour >= 18 && hour < 21) return 'evening';
+  return 'night';
 }
 
-function roadSceneLabel(scene?: RouteWeatherScene | null): string {
-  if (!scene) return 'Kelias dieną';
-  const condition = scene.condition === 'clear' ? '' : `, ${scene.condition}`;
-  return `Kelio vaizdas ${scene.timeOfDay}${condition}`;
+function roadSceneLabel(scene: RoadSceneKey): string {
+  const labels: Record<RoadSceneKey, string> = {
+    morning: 'Kelias ryte',
+    midday: 'Kelias dieną',
+    afternoon: 'Kelias pavakare',
+    evening: 'Kelias vakare',
+    night: 'Kelias naktį',
+    rain: 'Kelias lyjant',
+    snow: 'Kelias sningant',
+    fog: 'Kelias rūke',
+    storm: 'Kelias audros metu',
+  };
+  return labels[scene];
 }
 
 const styles = StyleSheet.create({
@@ -166,11 +207,33 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: cockpit.background,
   },
-  scene: {
+  mirrorArea: {
     width: '100%',
-    height: 108,
+    height: 118,
+    position: 'relative',
+    alignItems: 'center',
+    paddingTop: 14,
+    backgroundColor: cockpit.surface,
+  },
+  mirrorMount: {
+    position: 'absolute',
+    top: 0,
+    width: 42,
+    height: 18,
+    borderBottomLeftRadius: 8,
+    borderBottomRightRadius: 8,
+    backgroundColor: cockpit.metalDark,
+  },
+  mirrorShell: {
+    width: '91%',
+    maxWidth: 410,
+    height: 94,
     position: 'relative',
     overflow: 'hidden',
+    borderWidth: 5,
+    borderColor: cockpit.metalDark,
+    borderRadius: 18,
+    backgroundColor: cockpit.background,
   },
   roadImage: { position: 'absolute', inset: 0, width: '100%', height: '100%' },
   completedMessage: {

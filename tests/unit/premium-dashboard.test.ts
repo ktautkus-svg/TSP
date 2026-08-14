@@ -46,7 +46,7 @@ describe('premium route dashboard', () => {
     expect(gauge).not.toContain('formattedMaximum');
   });
 
-  it('composes the realistic windshield and code-native steering progress arc', () => {
+  it('composes the changing rear-view mirror scene and code-native steering progress arc', () => {
     const road = source('src/components/road-progress-bar.tsx');
     expect(road).toContain('route-scenes/clear-morning.png');
     expect(road).toContain('route-scenes/clear-midday.png');
@@ -62,14 +62,20 @@ describe('premium route dashboard', () => {
     expect(road).toContain('Animated.timing');
     expect(road).toContain('<Svg');
     expect(road).toContain('displayedProgress * ARC_LENGTH');
-    expect(road).toContain('<Image');
+    expect(road).toContain('<Animated.Image');
     expect(road).not.toContain('<SvgImage');
     expect(road).not.toContain('PRISTATYMO EIGA');
     expect(road).toContain('stroke="url(#steeringProgress)"');
     expect(road).toContain('GERO POILSIO!');
     expect(road).toContain('setSceneClock(Date.now())');
-    expect(road).toContain('if (hour >= 18 && hour < 21) return scenes.evening');
-    expect(road).toContain('return scenes.night');
+    expect(road).toContain('testID="route-rear-view-mirror"');
+    expect(road).toContain('styles.mirrorMount');
+    expect(road).toContain('Animated.Image');
+    expect(road).toContain('setDisplayedSceneKey(selectedSceneKey)');
+    expect(road).toContain("if (scene?.condition === 'storm') return 'storm'");
+    expect(road).not.toContain("scene?.condition === 'storm' || scene?.condition === 'cloudy'");
+    expect(road).toContain('if (hour >= 18 && hour < 21) return \'evening\'');
+    expect(road).toContain('return \'night\'');
     expect(road).not.toContain('<WeatherOverlay');
     expect(road).not.toContain('<TimeOfDayOverlay');
     // Each state uses an exterior road image; no decorative celestial objects.

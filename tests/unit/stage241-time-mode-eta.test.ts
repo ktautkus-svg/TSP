@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { unresolvedExcelIssues } from '../../src/application/import/excel-route-mapper';
 import {
   calculateRemainingEtas,
+  estimateFirstPendingLeg,
   etaScheduleState,
   persistCandidateEtas,
   RefreshRouteEtas,
@@ -53,6 +54,58 @@ describe('Etapas 2.4.1 time mode and ETA contract', () => {
       { stopId: 's1', arrivalAt: '2026-08-03T05:45:00.000Z' },
       { stopId: 's2', arrivalAt: '2026-08-03T06:30:00.000Z' },
     ]);
+  });
+
+  it('keeps the first ETA anchored to the actual leg departure instead of sliding on every refresh', () => {
+    const next = stopFixture('s1', 1, {
+      legDurationMinutes: 44,
+      serviceDurationMinutes: 10,
+      deliveryTimeFrom: null,
+      deliveryTimeTo: null,
+    });
+    const result = calculateRemainingEtas(
+      { planningMode: 'ignore_time_windows' },
+      [next],
+      '2026-08-14T10:30:00+03:00',
+      '2026-08-14T10:00:00+03:00',
+    );
+    expect(result).toEqual([{ stopId: 's1', arrivalAt: '2026-08-14T07:44:00.000Z' }]);
+
+    const overdue = calculateRemainingEtas(
+      { planningMode: 'ignore_time_windows' },
+      [next],
+      '2026-08-14T11:00:00+03:00',
+      '2026-08-14T10:00:00+03:00',
+    );
+    expect(overdue).toEqual([{ stopId: 's1', arrivalAt: '2026-08-14T08:00:00.000Z' }]);
+  });
+
+  it('rebases an out-of-order next leg from the latest actually resolved stop', () => {
+    const latest = stopFixture('s1', 1, {
+      latitude: 55.25,
+      longitude: 24.75,
+      deliveryStatus: 'delivered',
+      deliveredAt: '2026-08-14T10:00:00+03:00',
+    });
+    const skipped = stopFixture('s2', 2, {
+      latitude: 56.3,
+      longitude: 23,
+      deliveryStatus: 'failed',
+      failedAt: '2026-08-14T09:00:00+03:00',
+    });
+    const next = stopFixture('s3', 3, {
+      latitude: 55.23,
+      longitude: 25.42,
+      legDistanceKm: 153.4,
+      legDurationMinutes: 105,
+    });
+
+    const estimate = estimateFirstPendingLeg(routeFixture('ignore_time_windows'), [latest, skipped, next]);
+    expect(estimate).toMatchObject({ stopId: 's3' });
+    expect(estimate?.distanceKm).toBeGreaterThan(40);
+    expect(estimate?.distanceKm).toBeLessThan(60);
+    expect(estimate?.durationMinutes).toBeGreaterThan(35);
+    expect(estimate?.durationMinutes).toBeLessThan(55);
   });
 
   it('keeps original ETA, latest ETA and actual delivery timestamp separate', async () => {
