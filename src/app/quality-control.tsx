@@ -5,6 +5,7 @@ import { Stack, useRouter, type Href } from 'expo-router';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { AccountMenuSheet } from '@/components/account-menu-sheet';
 import { TspBrand } from '@/components/tsp-brand';
+import { classifyDeliveryWindow, minutesLate } from '@/domain/delivery-window-timing';
 import { employeeApi, type QualityRouteMonitor, type QualityStopMonitor } from '@/infrastructure/auth/employee-session';
 import { formatWeightKg } from '@/ui/format-weight';
 import { qualityBrandRed, qualityControlColors as colors } from '@/ui/quality-control-palette';
@@ -184,7 +185,7 @@ function RouteCard({ route, desktop, mobile, styles }: { route: QualityRouteMoni
 
       <View style={styles.processedSection}>
         <Text style={styles.processedTitle}>VISAS MARŠRUTO EILIŠKUMAS</Text>
-        {route.stops.map((stop) => <RouteSequenceStop key={`${route.id}-${stop.sequence}`} nextSequence={route.nextStop?.sequence ?? null} routeDate={route.date} stop={stop} styles={styles} />)}
+        {route.stops.map((stop) => <RouteSequenceStop key={`${route.id}-${stop.sequence}`} nextSequence={route.nextStop?.sequence ?? null} stop={stop} styles={styles} />)}
       </View>
 
       <View style={styles.cardFooter}><Text style={[styles.updated, stale && styles.updatedStale]}>{stale ? 'Duomenys vėluoja · ' : ''}Atnaujinta {formatRelative(route.updatedAt)}</Text><Text style={styles.started}>{route.startedAt ? `Startas ${formatClock(route.startedAt)}` : 'Dar nepradėtas'}</Text></View>
@@ -216,8 +217,8 @@ function NextStop({ stop, remainingWeightKg, styles }: { stop: QualityStopMonito
   </View>;
 }
 
-function ProcessedStop({ stop, routeDate, styles }: { stop: QualityStopMonitor; routeDate: string; styles: ReturnType<typeof createStyles> }) {
-  const timing = stopTiming(stop, routeDate);
+function ProcessedStop({ stop, styles }: { stop: QualityStopMonitor; styles: ReturnType<typeof createStyles> }) {
+  const timing = stopTiming(stop);
   return <View style={[styles.processedStop, styles[`processedStop_${timing.tone}`]]}>
     <View style={styles.processedSequence}><Text style={styles.processedSequenceText}>{stop.sequence}</Text></View>
     <View style={styles.flex}>
@@ -229,11 +230,11 @@ function ProcessedStop({ stop, routeDate, styles }: { stop: QualityStopMonitor; 
   </View>;
 }
 
-function RouteSequenceStop({ stop, routeDate, nextSequence, styles }: { stop: QualityStopMonitor; routeDate: string; nextSequence: number | null; styles: ReturnType<typeof createStyles> }) {
+function RouteSequenceStop({ stop, nextSequence, styles }: { stop: QualityStopMonitor; nextSequence: number | null; styles: ReturnType<typeof createStyles> }) {
   const next = stop.sequence === nextSequence;
   const timing = stop.status === 'pending'
     ? { label: stop.plannedArrivalAt ? `Numatyta ${formatClockShort(stop.plannedArrivalAt)}` : 'Laukia', tone: 'neutral' as const }
-    : stopTiming(stop, routeDate);
+    : stopTiming(stop);
   return <View style={[styles.processedStop, styles[`processedStop_${timing.tone}`], next && styles.sequenceNext]}>
     <View style={[styles.processedSequence, next && styles.sequenceNextNumber]}><Text style={[styles.processedSequenceText, next && styles.sequenceNextNumberText]}>{stop.sequence}</Text></View>
     <View style={styles.flex}>
@@ -255,31 +256,19 @@ function StatusFilter({ active, label, onPress, tone, value, styles }: { active:
   </Pressable>;
 }
 
-function stopTiming(stop: QualityStopMonitor, routeDate: string): { label: string; tone: 'neutral' | 'success' | 'warning' | 'danger' } {
+function stopTiming(stop: QualityStopMonitor): { label: string; tone: 'neutral' | 'success' | 'warning' | 'danger' } {
   if (stop.status === 'failed') return { label: stop.failedAt ? `Nepristatyta ${formatClockShort(stop.failedAt)}` : 'Nepristatyta', tone: 'danger' };
   if (!stop.deliveredAt) return { label: 'Pristatyta', tone: 'success' };
-  const delivered = Date.parse(stop.deliveredAt);
-  const from = windowTime(routeDate, stop.deliveryTimeFrom);
-  const to = windowTime(routeDate, stop.deliveryTimeTo);
   const clock = formatClockShort(stop.deliveredAt);
-  if (from !== null && delivered < from) return { label: `Per anksti · ${clock}`, tone: 'warning' };
-  if (to !== null && delivered > to) {
-    const delay = Math.max(1, Math.ceil((delivered - to) / 60_000));
+  const timing = classifyDeliveryWindow(stop.deliveredAt, stop.deliveryTimeFrom, stop.deliveryTimeTo);
+  if (timing === 'early') return { label: `Per anksti · ${clock}`, tone: 'warning' };
+  if (timing === 'late') {
+    const delay = Math.max(1, minutesLate(stop.deliveredAt, stop.deliveryTimeTo) ?? 1);
     return delay <= MINOR_DELAY_MINUTES
       ? { label: `Vėlavo ${delay} min. · ${clock}`, tone: 'warning' }
       : { label: `Pavėlavo ${delay} min. · ${clock}`, tone: 'danger' };
   }
   return { label: `Laiku · ${clock}`, tone: 'success' };
-}
-
-function windowTime(routeDate: string, value: string | null): number | null {
-  if (!value) return null;
-  const direct = Date.parse(value);
-  if (Number.isFinite(direct)) return direct;
-  const match = /^(\d{1,2}):(\d{2})/.exec(value);
-  if (!match) return null;
-  const combined = Date.parse(`${routeDate}T${match[1].padStart(2, '0')}:${match[2]}:00`);
-  return Number.isFinite(combined) ? combined : null;
 }
 
 function filterTitle(filter: QualityFilter): string { return ({ in_progress: 'Kelyje', waiting: 'Laukia starto', completed: 'Baigti šiandien', delivered: 'Maršrutai su pristatytais taškais' })[filter]; }
