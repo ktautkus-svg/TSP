@@ -99,6 +99,7 @@ export type QualityRouteMonitor = {
   remainingWeightKg: number;
   nextStop: QualityStopMonitor | null;
   stops: QualityStopMonitor[];
+  plannedStartAt: string | null;
   startedAt: string | null;
   completedAt: string | null;
   updatedAt: string;

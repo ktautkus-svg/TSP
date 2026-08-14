@@ -70,7 +70,7 @@ export async function loadRouteWeatherScene(
     && now.getTime() - new Date(cached.observedAt).getTime() < CACHE_TTL_MS
     && Math.abs(cached.latitude - latitude) < 0.25
     && Math.abs(cached.longitude - longitude) < 0.25;
-  if (cached && freshEnough) return { ...cached, timeOfDay: routeTimeOfDay(now) };
+  if (cached && freshEnough) return { ...cached, timeOfDay: routeTimeOfDay(now), observedAt: now.toISOString() };
 
   try {
     const query = new URLSearchParams({
@@ -103,7 +103,7 @@ export async function loadRouteWeatherScene(
     return scene;
   } catch (error) {
     if (__DEV__) console.warn('ROUTE_WEATHER_REFRESH_FAILED', error);
-    if (cached) return { ...cached, timeOfDay: routeTimeOfDay(now) };
+    if (cached) return { ...cached, timeOfDay: routeTimeOfDay(now), observedAt: now.toISOString() };
     return fallbackRouteWeatherScene(latitude, longitude, now);
   }
 }

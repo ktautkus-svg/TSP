@@ -9,8 +9,10 @@ import {
 describe('route windshield weather scene', () => {
   it('selects the time-of-day scene from local time', () => {
     expect(routeTimeOfDay(new Date('2026-08-09T06:00:00'))).toBe('dawn');
+    expect(routeTimeOfDay(new Date('2026-08-09T04:59:59'))).toBe('night');
     expect(routeTimeOfDay(new Date('2026-08-09T12:00:00'))).toBe('day');
     expect(routeTimeOfDay(new Date('2026-08-09T19:00:00'))).toBe('dusk');
+    expect(routeTimeOfDay(new Date('2026-08-09T21:00:00'))).toBe('night');
     expect(routeTimeOfDay(new Date('2026-08-09T23:00:00'))).toBe('night');
   });
 

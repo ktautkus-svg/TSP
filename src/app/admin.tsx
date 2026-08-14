@@ -72,6 +72,7 @@ export default function AdminScreen() {
   const [confirmPin, setConfirmPin] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [expandedSection, setExpandedSection] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const [routeCount, active, completed, stops, localRoutes] = await Promise.all([
@@ -296,6 +297,7 @@ export default function AdminScreen() {
   );
 
   const goHome = () => router.replace('/' as Href);
+  const toggleSection = (section: string) => setExpandedSection((current) => current === section ? null : section);
 
   return (
     <>
@@ -321,7 +323,8 @@ export default function AdminScreen() {
         {profile.role === 'admin' ? <View style={[styles.workspace, desktop && styles.workspaceDesktop]}>
           <View style={styles.column}>
           <View style={styles.card} testID="employee-create-form">
-            <Text style={styles.title}>Naujas darbuotojas</Text>
+            <CollapsibleHeader title="Naujas darbuotojas" expanded={expandedSection === 'employee-create'} onPress={() => toggleSection('employee-create')} styles={styles} />
+            {expandedSection === 'employee-create' ? <>
             {input(newName, setNewName, 'Vardas ir pavardė')}
             {input(newUsername, setNewUsername, 'Prisijungimo vardas')}
             {input(newPin, (value) => setNewPin(value.replace(/\D/g, '').slice(0, 8)), '4–8 skaitmenų pradinis PIN', true)}
@@ -332,10 +335,12 @@ export default function AdminScreen() {
             <Pressable disabled={busy || !online} style={[styles.primaryButton, (busy || !online) && styles.disabled]} onPress={() => void createEmployee()}>
               {busy ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.primaryText}>Sukurti darbuotoją</Text>}
             </Pressable>
+            </> : null}
           </View>
 
           <View style={styles.card} testID="employee-list">
-            <Text style={styles.title}>Darbuotojai</Text>
+            <CollapsibleHeader title={`Darbuotojai (${users.length})`} expanded={expandedSection === 'employees'} onPress={() => toggleSection('employees')} styles={styles} />
+            {expandedSection === 'employees' ? <>
             {users.map((employee) => <View key={employee.id} style={styles.employeeBlock}>
               <View style={styles.listRow}>
                 <View style={styles.listContent}><Text style={styles.listTitle}>{employee.displayName}</Text><Text style={styles.meta}>@{employee.username} · {roleLabel(employee.role)}{employee.disabled ? ' · Išjungta' : ''}</Text></View>
@@ -369,12 +374,14 @@ export default function AdminScreen() {
               {input(editEmployeePin, (value) => setEditEmployeePin(value.replace(/\D/g, '').slice(0, 8)), 'Naujas PIN (nebūtina)', true)}
               <Pressable accessibilityLabel="Išsaugoti darbuotojo pakeitimus" accessibilityRole="button" disabled={busy || !online} onPress={() => void saveEmployee()} style={[styles.primaryButton, (busy || !online) && styles.disabled]}><Text style={styles.primaryText}>Išsaugoti darbuotoją</Text></Pressable>
             </View> : null}
+            </> : null}
           </View>
 
           </View>
           <View style={styles.column}>
           <View style={styles.card} testID="route-assignment-form">
-            <Text style={styles.title}>Priskirti maršrutą vairuotojui</Text>
+            <CollapsibleHeader title="Priskirti maršrutą vairuotojui" expanded={expandedSection === 'route-assignment'} onPress={() => toggleSection('route-assignment')} styles={styles} />
+            {expandedSection === 'route-assignment' ? <>
             <Text style={styles.sectionLabel}>1. Vairuotojas</Text>
             <View style={styles.choiceColumn}>{users.filter((item) => item.role === 'driver' && !item.disabled).map((driver) =>
               <Pressable key={driver.id} onPress={() => setSelectedDriverId(driver.id)} style={[styles.selection, selectedDriverId === driver.id && styles.selectionActive]}>
@@ -400,10 +407,12 @@ export default function AdminScreen() {
                 </View>
               </View>
             ))}
+            </> : null}
           </View>
 
           <View style={styles.card} testID="route-management">
-            <Text style={styles.title}>Aktyvių maršrutų valdymas</Text>
+            <CollapsibleHeader title={`Aktyvių maršrutų valdymas (${routes.length})`} expanded={expandedSection === 'route-management'} onPress={() => toggleSection('route-management')} styles={styles} />
+            {expandedSection === 'route-management' ? <>
             <Text style={styles.meta}>Atšaukite arba visam laikui ištrinkite kabantį maršrutą prieš kurdami naują.</Text>
             {routes.length === 0 ? <Text style={styles.meta}>Aktyvių maršrutų nėra.</Text> : routes.map((route) => (
               <View key={route.id} style={styles.routeManagementRow}>
@@ -417,10 +426,12 @@ export default function AdminScreen() {
                 </View>
               </View>
             ))}
+            </> : null}
           </View>
 
           <View style={styles.card} testID="fleet-vehicle-management">
-            <Text style={styles.title}>Automobilių parkas</Text>
+            <CollapsibleHeader title={`Automobilių parkas (${vehicles.length})`} expanded={expandedSection === 'fleet'} onPress={() => toggleSection('fleet')} styles={styles} />
+            {expandedSection === 'fleet' ? <>
             <Text style={styles.meta}>Maksimalus svoris rodo leistiną krovinio svorį. Miestas automobiliams nesaugomas.</Text>
             <View style={styles.vehicleList}>
               {vehicles.map((vehicle) => {
@@ -470,16 +481,19 @@ export default function AdminScreen() {
             <Pressable disabled={busy || !online || !selectedVehicleId} style={[styles.primaryButton, (busy || !online || !selectedVehicleId) && styles.disabled]} onPress={() => void assignVehicle()}>
               <Text style={styles.primaryText}>Patvirtinti priskyrimą</Text>
             </Pressable>
+            </> : null}
           </View>
           </View>
         </View> : <View style={styles.card}><Text style={styles.title}>Administratoriaus teisės reikalingos</Text><Text style={styles.meta}>Darbuotojų valdymą mato tik administratorius.</Text></View>}
 
         <View style={styles.card}>
-          <Text style={styles.title}>Keisti savo PIN</Text>
+          <CollapsibleHeader title="Keisti savo PIN" expanded={expandedSection === 'pin'} onPress={() => toggleSection('pin')} styles={styles} />
+          {expandedSection === 'pin' ? <>
           {input(currentPin, (value) => setCurrentPin(value.replace(/\D/g, '').slice(0, 8)), 'Dabartinis PIN', true)}
           {input(nextPin, (value) => setNextPin(value.replace(/\D/g, '').slice(0, 8)), 'Naujas 4–8 skaitmenų PIN', true)}
           {input(confirmPin, (value) => setConfirmPin(value.replace(/\D/g, '').slice(0, 8)), 'Pakartokite naują PIN', true)}
           <Pressable disabled={busy || !online} style={[styles.primaryButton, (busy || !online) && styles.disabled]} onPress={() => void changePin()}><Text style={styles.primaryText}>Pakeisti PIN</Text></Pressable>
+          </> : null}
         </View>
 
         {message ? <Text accessibilityRole="alert" style={styles.message}>{message}</Text> : null}
@@ -495,12 +509,26 @@ function Metric({ label, value, styles }: { label: string; value: number | undef
   return <View style={styles.metric}><Text style={styles.metricValue}>{value ?? '–'}</Text><Text style={styles.metricLabel}>{label}</Text></View>;
 }
 
+function CollapsibleHeader({ title, expanded, onPress, styles }: {
+  title: string;
+  expanded: boolean;
+  onPress: () => void;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  return <Pressable accessibilityRole="button" accessibilityState={{ expanded }} onPress={onPress} style={styles.sectionHeader}>
+    <Text style={styles.title}>{title}</Text>
+    <Text style={styles.sectionChevron}>{expanded ? '−' : '+'}</Text>
+  </Pressable>;
+}
+
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   workspace: { gap: spacing.lg },
   workspaceDesktop: { flexDirection: 'row', alignItems: 'flex-start' },
   column: { flex: 1, minWidth: 0, gap: spacing.lg },
   card: { padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
   title: { ...type.sectionTitle, color: colors.text },
+  sectionHeader: { minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
+  sectionChevron: { ...type.pageTitle, color: colors.info, fontSize: 26, lineHeight: 30 },
   username: { ...type.sectionTitle, color: colors.info },
   meta: { ...type.secondary, color: colors.textMuted },
   metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },

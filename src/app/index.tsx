@@ -74,7 +74,9 @@ export default function HomeScreen() {
           await pushCompletedRouteAssignmentProgress(db);
         }
         await requestSync('home-focus');
-        const operational = await repository.listOperational(profile.role === 'driver' ? profile.id : null);
+        const operational = profile.role === 'admin'
+          ? []
+          : await repository.listOperational(profile.role === 'driver' ? profile.id : null);
         const route = operational[0] ?? null;
         const nextProgress = route ? await new GetRouteProgress(db).execute(route.id) : null;
         const nextStops = route ? await repository.getStops(route.id) : [];
@@ -100,7 +102,9 @@ export default function HomeScreen() {
     let mounted = true;
     void (async () => {
       if (online && profile.role === 'driver') await pushCompletedRouteAssignmentProgress(db);
-      const operational = await repository.listOperational(profile.role === 'driver' ? profile.id : null);
+      const operational = profile.role === 'admin'
+        ? []
+        : await repository.listOperational(profile.role === 'driver' ? profile.id : null);
       const route = operational[0] ?? null;
       const nextProgress = route ? await new GetRouteProgress(db).execute(route.id) : null;
       const nextStops = route ? await repository.getStops(route.id) : [];
@@ -128,7 +132,22 @@ export default function HomeScreen() {
       <AccountMenuSheet visible={accountMenuOpen} onClose={() => setAccountMenuOpen(false)} />
       <ScreenContainer>
         <ScrollView contentContainerStyle={[styles.content, profile.role === 'driver' && styles.driverContent]}>
-          {profile.role === 'driver' ? active && progress ? (
+          {profile.role === 'admin' ? (
+            <View style={styles.adminMenu} testID="admin-home-menu">
+              <View style={styles.adminMenuHeading}>
+                <Text style={styles.eyebrow}>ADMINISTRATORIAUS MENIU</Text>
+                <Text style={styles.adminMenuTitle}>Pasirinkite darbo sritį</Text>
+                <Text style={styles.activeText}>Maršrutai administratoriaus vardu automatiškai nepradedami.</Text>
+              </View>
+              <View style={styles.adminMenuGrid}>
+                <AdminMenuLink href="/dispatcher" label="Dispečeris" styles={styles} />
+                <AdminMenuLink href="/quality-control" label="Kokybės kontrolė" styles={styles} />
+                <AdminMenuLink href="/execute-route" label="Vykdyti maršrutą" primary styles={styles} />
+                <AdminMenuLink href="/history" label="Maršrutai" styles={styles} />
+                <AdminMenuLink href="/settings" label="Nustatymai" styles={styles} />
+              </View>
+            </View>
+          ) : profile.role === 'driver' ? active && progress ? (
             <DriverNowDashboard
               onContinue={() => {
                 const destination = resolveRoute(active);
@@ -215,14 +234,13 @@ export default function HomeScreen() {
           ) : (
             <AppCard style={styles.emptyCard}><Text style={styles.activeTitle}>Aktyvaus maršruto nėra</Text><Text style={styles.activeText}>Importuokite dokumentą arba įveskite adresų sąrašą.</Text></AppCard>
           )}
-          {!active && profile.role !== 'driver' ? (
+          {!active && profile.role !== 'driver' && profile.role !== 'admin' ? (
             <>
               <AppButton label="Naujas maršrutas" onPress={() => router.push('/import' as Href)} />
               <AppButton label="Įvesti adresus rankiniu būdu" onPress={() => router.push('/route/new' as Href)} variant="secondary" />
             </>
           ) : null}
-          {profile.role !== 'driver' ? <View style={styles.navigationCard}>
-            {profile.role === 'admin' ? <Link href={'/dispatcher' as Href} asChild><Pressable style={styles.navigationButton}><Text style={styles.historyLink}>Dispečeris</Text></Pressable></Link> : null}
+          {profile.role !== 'driver' && profile.role !== 'admin' ? <View style={styles.navigationCard}>
             <Link href="/history" asChild><Pressable style={styles.navigationButton}><Text style={styles.historyLink}>Maršrutai</Text></Pressable></Link>
             <Link href={'/settings' as Href} asChild><Pressable style={styles.navigationButton}><Text style={styles.historyLink}>Nustatymai</Text></Pressable></Link>
           </View> : null}
@@ -256,6 +274,23 @@ function formatMetric(value: number | null | undefined): string {
   return new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(value);
 }
 
+function AdminMenuLink({ href, label, primary = false, styles }: {
+  href: string;
+  label: string;
+  primary?: boolean;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  return <Link href={href as Href} asChild>
+    <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      style={({ pressed }) => [styles.adminMenuButton, primary && styles.adminMenuButtonPrimary, pressed && styles.adminMenuButtonPressed]}>
+      <Text style={[styles.adminMenuButtonText, primary && styles.adminMenuButtonTextPrimary]}>{label}</Text>
+      <Text style={[styles.adminMenuArrow, primary && styles.adminMenuButtonTextPrimary]}>→</Text>
+    </Pressable>
+  </Link>;
+}
+
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background },
   content: { flexGrow: 1, paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: 96, gap: spacing.md },
@@ -283,6 +318,16 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   progressFill: { height: '100%', borderRadius: radius.sm, backgroundColor: colors.accent },
   warningText: { ...type.bodyStrong, color: colors.warning },
   pilotExportButton: { minHeight: 44 },
+  adminMenu: { gap: spacing.lg },
+  adminMenuHeading: { gap: spacing.xs },
+  adminMenuTitle: { ...type.pageTitle, color: colors.text, fontSize: 28, lineHeight: 34 },
+  adminMenuGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  adminMenuButton: { minWidth: 230, flexBasis: 230, flexGrow: 1, minHeight: 72, paddingHorizontal: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
+  adminMenuButtonPrimary: { backgroundColor: colors.actionPrimary, borderColor: colors.actionPrimary },
+  adminMenuButtonPressed: { opacity: 0.82 },
+  adminMenuButtonText: { ...type.cardTitle, color: colors.text },
+  adminMenuButtonTextPrimary: { color: colors.textInverse },
+  adminMenuArrow: { ...type.sectionTitle, color: colors.info },
   // Tertiary navigation: deliberately quiet so it cannot compete with the
   // primary action above it.
   navigationCard: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs },

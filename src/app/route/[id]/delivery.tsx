@@ -37,7 +37,7 @@ import {
 import { GetDefaultLocations } from '@/application/routes/saved-locations';
 import { resolveRoute } from '@/application/routes/route-navigation';
 import { RefreshRouteEtas } from '@/application/routes/route-eta';
-import { loadRouteWeatherScene, type RouteWeatherScene } from '@/application/weather/route-weather';
+import { fallbackRouteWeatherScene, loadRouteWeatherScene, type RouteWeatherScene } from '@/application/weather/route-weather';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { BrandHeader } from '@/components/brand-header';
 import { ClockIcon, DeliveredIcon, DistanceIcon, FailedIcon, NavigateIcon } from '@/components/dashboard-icons';
@@ -144,6 +144,10 @@ export default function DeliveryScreen() {
           .catch((weatherError) => {
             if (__DEV__) console.warn('ROUTE_WEATHER_SCENE_FAILED', weatherError);
           });
+      } else {
+        // A route imported without coordinates must still follow the actual
+        // local time instead of being stuck on the component's midday default.
+        setWeatherScene(fallbackRouteWeatherScene(55.1694, 23.8813));
       }
       if (refreshed.route.completionStartedAt && !completionDismissed.current) setShowFinish(true);
       setError(null);
@@ -154,7 +158,7 @@ export default function DeliveryScreen() {
   }, [db, repository, routeId, router]);
 
   const publishProgress = useCallback(async () => {
-    if (!online || profile.role !== 'driver') return;
+    if (!online || !['driver', 'admin', 'dispatcher'].includes(profile.role)) return;
     await pushRouteAssignmentProgress(db, routeId).catch((reason) => {
       if (__DEV__) console.warn('LIVE_PROGRESS_SYNC_FAILED', reason);
     });

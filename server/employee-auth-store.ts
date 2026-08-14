@@ -113,6 +113,7 @@ export type QualityRouteMonitor = {
   remainingWeightKg: number;
   nextStop: QualityStopMonitor | null;
   stops: QualityStopMonitor[];
+  plannedStartAt: string | null;
   startedAt: string | null;
   completedAt: string | null;
   updatedAt: string;
@@ -755,6 +756,7 @@ export function buildQualityRouteMonitor(assignment: RouteAssignment, vehicle: F
     remainingWeightKg: finiteNumber(route.remaining_weight_kg, 0),
     nextStop: next ? monitorStops[nextIndex] : null,
     stops: monitorStops,
+    plannedStartAt: optionalText(route.planned_departure_at),
     startedAt: optionalText(route.started_at),
     completedAt: optionalText(route.completed_at),
     updatedAt: assignment.updatedAt,

@@ -196,8 +196,11 @@ export async function assignRouteToDriver(db: SQLiteDatabase, routeId: string, d
 
 export async function importAssignmentSnapshot(db: SQLiteDatabase, assignment: ServerRouteAssignment, employeeId: string): Promise<void> {
   validateSnapshot(assignment.routeSnapshot);
+  const existingRoute = await db.getFirstAsync<{ id: string }>('SELECT id FROM routes WHERE id = ?', assignment.routeId);
+  if (existingRoute) {
+    await applyRouteSnapshot(db, assignment.routeSnapshot, assignment.updatedAt, employeeId);
+  }
   await db.withTransactionAsync(async () => {
-    const existingRoute = await db.getFirstAsync<{ id: string }>('SELECT id FROM routes WHERE id = ?', assignment.routeId);
     if (!existingRoute) {
       await insertRow(db, SNAPSHOT_TABLES[0], {
         ...assignment.routeSnapshot.route,

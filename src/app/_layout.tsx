@@ -163,6 +163,7 @@ export default function RootLayout() {
               <Stack.Screen name="admin" options={{ title: 'Administratoriaus panelė' }} />
               <Stack.Screen name="dispatcher" options={{ title: 'Dispečerio skydelis' }} />
               <Stack.Screen name="quality-control" options={{ title: 'Kokybės kontrolė' }} />
+              <Stack.Screen name="execute-route" options={{ title: 'Vykdyti maršrutą' }} />
             </Stack>
             </RoleAccessBoundary>
           </RouteCloudSyncProvider>

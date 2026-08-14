@@ -59,7 +59,7 @@ export default function QualityControlScreen() {
   }, [online]);
 
   useEffect(() => {
-    if (profile.role !== 'quality') {
+    if (!['quality', 'admin', 'dispatcher'].includes(profile.role)) {
       router.replace('/' as Href);
       return;
     }
@@ -152,7 +152,6 @@ function RouteCard({ route, desktop, mobile, styles }: { route: QualityRouteMoni
   const completed = route.status === 'completed';
   const deliveredWeightKg = Math.max(0, route.totalWeightKg - route.remainingWeightKg);
   const weightPercent = route.totalWeightKg > 0 ? Math.round((deliveredWeightKg / route.totalWeightKg) * 100) : 0;
-  const processedStops = route.stops.filter((stop) => stop.status !== 'pending');
 
   return <View style={[styles.routeCard, mobile && styles.routeCardMobile, desktop && styles.routeCardDesktop, completed && styles.routeCardCompleted]} testID={`quality-route-${route.id}`}>
     <Pressable accessibilityRole="button" accessibilityState={{ expanded }} onPress={() => setExpanded((value) => !value)} style={({ pressed }) => [styles.cardSummary, pressed && styles.cardSummaryPressed]}>
@@ -173,16 +172,20 @@ function RouteCard({ route, desktop, mobile, styles }: { route: QualityRouteMoni
         <ProgressReadout label="TAŠKAI" primary={`${route.remainingStops} / ${route.totalStops}`} secondary={`${route.deliveredStops} pristatyta`} percent={route.progressPercent} styles={styles} tone="points" />
         <ProgressReadout label="SVORIS" primary={`${formatWeightKg(route.remainingWeightKg)} / ${formatWeightKg(route.totalWeightKg)} kg`} secondary={`${formatWeightKg(deliveredWeightKg)} kg pristatyta`} percent={weightPercent} styles={styles} tone="weight" />
       </View>
+      <View style={styles.startReadout}>
+        <Text style={styles.startLabel}>{route.startedAt ? 'REALUS STARTAS' : 'PLANUOTAS STARTAS'}</Text>
+        <Text style={styles.startValue}>{formatClockShort(route.startedAt ?? route.plannedStartAt ?? '')}</Text>
+      </View>
       <Text style={styles.expandHint}>{expanded ? 'Slėpti maršruto informaciją' : 'Rodyti taškus ir laikus'}</Text>
     </Pressable>
 
     {expanded ? <View style={styles.details}>
       {route.nextStop ? <NextStop stop={route.nextStop} remainingWeightKg={route.remainingWeightKg} styles={styles} /> : <View style={styles.nextStopDone}><Text style={styles.nextDoneText}>{completed ? 'Maršrutas užbaigtas' : 'Visi pristatymo taškai apdoroti'}</Text></View>}
 
-      {processedStops.length > 0 ? <View style={styles.processedSection}>
-        <Text style={styles.processedTitle}>APDOROTI TAŠKAI</Text>
-        {processedStops.map((stop) => <ProcessedStop key={`${route.id}-${stop.sequence}`} routeDate={route.date} stop={stop} styles={styles} />)}
-      </View> : <Text style={styles.noProcessed}>Užbaigtų taškų dar nėra.</Text>}
+      <View style={styles.processedSection}>
+        <Text style={styles.processedTitle}>VISAS MARŠRUTO EILIŠKUMAS</Text>
+        {route.stops.map((stop) => <RouteSequenceStop key={`${route.id}-${stop.sequence}`} nextSequence={route.nextStop?.sequence ?? null} routeDate={route.date} stop={stop} styles={styles} />)}
+      </View>
 
       <View style={styles.cardFooter}><Text style={[styles.updated, stale && styles.updatedStale]}>{stale ? 'Duomenys vėluoja · ' : ''}Atnaujinta {formatRelative(route.updatedAt)}</Text><Text style={styles.started}>{route.startedAt ? `Startas ${formatClock(route.startedAt)}` : 'Dar nepradėtas'}</Text></View>
     </View> : null}
@@ -223,6 +226,25 @@ function ProcessedStop({ stop, routeDate, styles }: { stop: QualityStopMonitor; 
       {formatWindow(stop) ? <Text style={styles.processedWindow}>Langas {formatWindow(stop)}</Text> : null}
     </View>
     <View style={[styles.timingBadge, styles[`timingBadge_${timing.tone}`]]}><Text style={[styles.timingText, styles[`timingText_${timing.tone}`]]}>{timing.label}</Text></View>
+  </View>;
+}
+
+function RouteSequenceStop({ stop, routeDate, nextSequence, styles }: { stop: QualityStopMonitor; routeDate: string; nextSequence: number | null; styles: ReturnType<typeof createStyles> }) {
+  const next = stop.sequence === nextSequence;
+  const timing = stop.status === 'pending'
+    ? { label: stop.plannedArrivalAt ? `Numatyta ${formatClockShort(stop.plannedArrivalAt)}` : 'Laukia', tone: 'neutral' as const }
+    : stopTiming(stop, routeDate);
+  return <View style={[styles.processedStop, styles[`processedStop_${timing.tone}`], next && styles.sequenceNext]}>
+    <View style={[styles.processedSequence, next && styles.sequenceNextNumber]}><Text style={[styles.processedSequenceText, next && styles.sequenceNextNumberText]}>{stop.sequence}</Text></View>
+    <View style={styles.flex}>
+      <Text numberOfLines={1} style={styles.processedRecipient}>{stop.recipient}</Text>
+      <Text numberOfLines={2} style={styles.processedAddress}>{stop.address}</Text>
+      <View style={styles.sequenceMeta}>
+        {formatWindow(stop) ? <Text style={styles.processedWindow}>Langas {formatWindow(stop)}</Text> : null}
+        {stop.routeNumber ? <Text style={styles.processedWindow}>Regionas {stop.routeNumber}</Text> : null}
+      </View>
+    </View>
+    <View style={[styles.timingBadge, styles[`timingBadge_${timing.tone}`]]}><Text style={[styles.timingText, styles[`timingText_${timing.tone}`]]}>{next ? `TOLIAU · ${timing.label}` : timing.label}</Text></View>
   </View>;
 }
 
@@ -271,7 +293,7 @@ function formatVehicleCount(value: number): string { if (value === 1) return '1 
 function formatWindow(stop: QualityStopMonitor): string | null { if (!stop.deliveryTimeFrom && !stop.deliveryTimeTo) return null; return `${formatTimeValue(stop.deliveryTimeFrom) ?? '—'}–${formatTimeValue(stop.deliveryTimeTo) ?? '—'}`; }
 function formatTimeValue(value: string | null): string | null { if (!value) return null; const match = /(\d{1,2}:\d{2})/.exec(value); return match?.[1] ?? formatClockShort(value); }
 function formatClock(value: string | null): string { if (!value) return '—'; const date = new Date(value); return Number.isNaN(date.getTime()) ? '—' : new Intl.DateTimeFormat('lt-LT', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(date); }
-function formatClockShort(value: string): string { const date = new Date(value); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('lt-LT', { hour: '2-digit', minute: '2-digit' }).format(date); }
+function formatClockShort(value: string | null): string { if (!value) return '—'; const date = new Date(value); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('lt-LT', { hour: '2-digit', minute: '2-digit' }).format(date); }
 function formatRelative(value: string): string { const seconds = Math.max(0, Math.floor((Date.now() - Date.parse(value)) / 1000)); if (seconds < 45) return 'ką tik'; if (seconds < 3600) return `prieš ${Math.floor(seconds / 60)} min.`; return formatClock(value); }
 function localDateKey(date: Date): string { const year = date.getFullYear(); const month = String(date.getMonth() + 1).padStart(2, '0'); const day = String(date.getDate()).padStart(2, '0'); return `${year}-${month}-${day}`; }
 
@@ -294,9 +316,11 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   status: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.pill }, statusActive: { backgroundColor: colors.infoSoft }, statusWaiting: { backgroundColor: colors.warningSoft }, statusCompleted: { backgroundColor: colors.accentSoft }, statusText: { ...type.label }, statusTextActive: { color: colors.info }, statusTextWaiting: { color: colors.warning }, statusTextCompleted: { color: colors.success },
   regionCode: { ...type.bodyStrong, color: colors.info },
   progressGrid: { flexDirection: 'row', gap: spacing.sm }, progressBlock: { flex: 1, minWidth: 0, padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.surfaceSubtle, borderWidth: 1, borderColor: colors.borderSubtle }, progressReadoutHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.xs }, progressLabel: { ...type.label, color: colors.textMuted }, progressPercent: { ...type.meta, fontFamily: fonts.headingSemiBold, color: colors.primary }, progressPrimary: { ...type.bodyStrong, color: colors.text, marginTop: spacing.xs }, progressSecondary: { ...type.meta, color: colors.textMuted, marginTop: 1 }, progressTrack: { height: 6, marginTop: spacing.sm, borderRadius: radius.pill, overflow: 'hidden', backgroundColor: colors.surfaceMuted }, progressFill: { height: '100%', borderRadius: radius.pill, backgroundColor: colors.info }, progressFillWeight: { backgroundColor: qualityBrandRed }, expandHint: { ...type.meta, textAlign: 'center', color: colors.textMuted },
+  startReadout: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md, paddingHorizontal: spacing.sm }, startLabel: { ...type.label, color: colors.textMuted }, startValue: { ...type.bodyStrong, color: colors.primary },
   details: { gap: spacing.md, paddingHorizontal: spacing.lg, paddingBottom: spacing.lg, borderTopWidth: 1, borderTopColor: colors.borderSubtle, paddingTop: spacing.lg },
   nextStop: { flexDirection: 'row', alignItems: 'stretch', gap: spacing.md, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.infoSoft, borderWidth: 1, borderColor: colors.border }, nextSequence: { width: 56, alignItems: 'center', justifyContent: 'center', borderRightWidth: 1, borderRightColor: colors.border }, nextSequenceLabel: { ...type.label, color: colors.info }, nextSequenceValue: { fontSize: 26, lineHeight: 32, fontFamily: fonts.heading, color: colors.info }, nextRecipient: { ...type.cardTitle, color: colors.text }, nextAddress: { ...type.body, color: colors.textSecondary, marginTop: 2 }, nextTimes: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.xs }, nextTime: { ...type.meta, fontFamily: fonts.headingSemiBold, color: colors.warning }, nextMeta: { ...type.meta, color: colors.info, marginTop: spacing.xs }, nextStopDone: { minHeight: 74, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.accentSoft }, nextDoneText: { ...type.bodyStrong, color: colors.success },
   processedSection: { gap: spacing.sm }, processedTitle: { ...type.label, color: colors.textMuted }, processedStop: { minHeight: 68, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.sm, borderLeftWidth: 4, borderRadius: radius.sm, backgroundColor: colors.surfaceSubtle }, processedStop_neutral: { borderLeftColor: colors.textMuted }, processedStop_success: { borderLeftColor: colors.success }, processedStop_warning: { borderLeftColor: colors.warning }, processedStop_danger: { borderLeftColor: colors.danger }, processedSequence: { width: 30, height: 30, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceMuted }, processedSequenceText: { ...type.secondaryStrong, color: colors.text }, processedRecipient: { ...type.bodyStrong, color: colors.text }, processedAddress: { ...type.meta, color: colors.textMuted }, processedWindow: { ...type.meta, color: colors.textSecondary, marginTop: 2 }, timingBadge: { maxWidth: 148, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.sm }, timingBadge_neutral: { backgroundColor: colors.surfaceMuted }, timingBadge_success: { backgroundColor: colors.accentSoft }, timingBadge_warning: { backgroundColor: colors.warningSoft }, timingBadge_danger: { backgroundColor: colors.dangerSoft }, timingText: { ...type.meta, fontFamily: fonts.headingSemiBold, textAlign: 'right' }, timingText_neutral: { color: colors.textMuted }, timingText_success: { color: colors.success }, timingText_warning: { color: colors.warning }, timingText_danger: { color: colors.danger }, noProcessed: { ...type.secondary, color: colors.textMuted },
+  sequenceNext: { borderLeftColor: colors.info, backgroundColor: colors.infoSoft }, sequenceNextNumber: { backgroundColor: colors.info }, sequenceNextNumberText: { color: colors.textInverse }, sequenceMeta: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   cardFooter: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.borderSubtle }, updated: { ...type.meta, color: colors.textMuted }, updatedStale: { color: colors.warning }, started: { ...type.meta, color: colors.textMuted },
   bottomDock: { borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surface, shadowColor: colors.primary, shadowOpacity: 0.1, shadowRadius: 12, shadowOffset: { width: 0, height: -3 }, elevation: 8 }, bottomDockInner: { width: '100%', maxWidth: 1440, alignSelf: 'center', paddingHorizontal: spacing.sm, paddingTop: spacing.sm, paddingBottom: spacing.sm, gap: spacing.xs }, bottomDockInnerWide: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.xl, gap: spacing.md },
   filters: { flex: 1, flexDirection: 'row', gap: spacing.xs }, filter: { flex: 1, minWidth: 0, minHeight: 54, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceSubtle, borderWidth: 1, borderColor: colors.border }, filterActive_info: { backgroundColor: colors.info, borderColor: colors.info }, filterActive_warning: { backgroundColor: colors.warning, borderColor: colors.warning }, filterActive_success: { backgroundColor: colors.success, borderColor: colors.success }, filterActive_delivered: { backgroundColor: colors.primary, borderColor: colors.primary }, filterPressed: { opacity: 0.82 }, filterValue: { fontFamily: fonts.heading, fontSize: 20, lineHeight: 22, color: colors.text }, filterValueActive: { color: colors.textInverse }, filterLabel: { ...type.label, fontSize: 9, lineHeight: 12, color: colors.textMuted, marginTop: 2 }, filterLabelActive: { color: colors.textInverse },
