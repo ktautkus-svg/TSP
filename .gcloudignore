@@ -1,0 +1,11 @@
+.gcloudignore
+.git/
+.gitignore
+#!include:.gitignore
+
+# User-owned local workspaces are never part of the production image.
+.cursor/
+.stitch/
+tsp-integration/
+tsp-premium-cockpit/
+reports/
