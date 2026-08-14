@@ -11,6 +11,8 @@ export type EmployeeProfile = {
   role: EmployeeRole;
   disabled: boolean;
   permissions?: DriverPermissions;
+  email?: string | null;
+  phone?: string | null;
 };
 
 export type EmployeeSession = {

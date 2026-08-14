@@ -20,16 +20,23 @@ describe('dispatcher desktop workspace', () => {
   it('contains the route, driver and confirmation workflow', () => {
     expect(dispatcherSource).toContain('1. Maršrutas');
     expect(dispatcherSource).toContain('2. Vairuotojas');
-    expect(dispatcherSource).toContain('3. Priskirti maršrutą');
-    expect(dispatcherSource).toContain('3. Priskirti vairuotoją');
-    expect(dispatcherSource).toContain('Priskirti vairuotoją');
+    expect(dispatcherSource).toContain('3. Automobilis');
+    expect(dispatcherSource).toContain('4. Patvirtinimas');
+    expect(dispatcherSource).toContain('Priskirti maršrutą');
     expect(dispatcherSource).toContain("width >= 980");
   });
 
   it('uses the shared assignment API and clearly reports the assigned driver', () => {
     expect(dispatcherSource).toContain("employeeApi<{ assignments: ServerRouteAssignment[] }>('/api/admin/assignments')");
-    expect(dispatcherSource).toContain('assignRouteToDriver(db, selectedRoute.id, selectedDriver.id)');
+    expect(dispatcherSource).toContain('assignRouteToDriver(db, selectedRoute.id, selectedDriver.id, selectedVehicle.id)');
     expect(dispatcherSource).toContain('Vairuotojas jį gaus prisijungęs');
+  });
+
+  it('routes prepared by dispatchers to assignment while keeping loading as a driver action', () => {
+    expect(loadingSource).toContain('testID="assign-planned-route"');
+    expect(loadingSource).toContain("pathname: '/dispatcher', params: { routeId }");
+    expect(loadingSource).toContain("profile.role === 'driver'");
+    expect(loadingSource).toContain('testID="begin-loading"');
   });
 
   it('sends dispatchers to their workspace and keeps route creation hidden from drivers by default', () => {

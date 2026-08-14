@@ -81,6 +81,8 @@ describe('premium route dashboard', () => {
     expect(delivery).toContain('<BrandHeader onMenuPress');
     expect(delivery).not.toContain('ŠIANDIENOS MARŠRUTAS');
     expect(delivery).toContain('<RoadProgressBar');
+    expect(delivery).toContain('calculateCompositeRouteProgress');
+    expect(delivery).toContain('breakdown={compositeProgress ?? undefined}');
     expect(delivery.indexOf('<RoadProgressBar')).toBeLessThan(delivery.indexOf('<InstrumentGauge'));
     expect(delivery).toContain('<InstrumentGauge');
     // The instruments expose the two values agreed for the cockpit: remaining

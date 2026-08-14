@@ -102,6 +102,8 @@ export async function handleEmployeeApi(
         displayName: stringField(body, 'displayName'),
         pin: stringField(body, 'pin'),
         role,
+        email: optionalString(body, 'email'),
+        phone: optionalString(body, 'phone'),
       });
       return send(response, 201, { user }, requestId);
     }
@@ -149,6 +151,8 @@ export async function handleEmployeeApi(
         disabled: typeof body.disabled === 'boolean' ? body.disabled : undefined,
         pin: optionalString(body, 'pin'),
         permissions: permissionPatch(body.permissions),
+        email: optionalString(body, 'email'),
+        phone: optionalString(body, 'phone'),
       });
       return send(response, 200, { user }, requestId);
     }
@@ -160,6 +164,7 @@ export async function handleEmployeeApi(
         driverId: stringField(body, 'driverId'),
         routeSnapshot: body.routeSnapshot as RouteSnapshot,
         createdBy: profile.id,
+        vehicleId: optionalString(body, 'vehicleId'),
       });
       // Best-effort: establishes the driver as the route's cloud-sync owner
       // so it also participates in general multi-device sync going forward.

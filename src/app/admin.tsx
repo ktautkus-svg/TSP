@@ -54,13 +54,19 @@ export default function AdminScreen() {
   const [newName, setNewName] = useState('');
   const [newUsername, setNewUsername] = useState('');
   const [newPin, setNewPin] = useState('');
+  const [newEmail, setNewEmail] = useState('');
+  const [newPhone, setNewPhone] = useState('');
   const [newRole, setNewRole] = useState<EmployeeRole>('driver');
   const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
   const [editEmployeeName, setEditEmployeeName] = useState('');
   const [editEmployeeRole, setEditEmployeeRole] = useState<EmployeeRole>('driver');
   const [editEmployeePin, setEditEmployeePin] = useState('');
+  const [editEmployeeEmail, setEditEmployeeEmail] = useState('');
+  const [editEmployeePhone, setEditEmployeePhone] = useState('');
   const [selectedDriverId, setSelectedDriverId] = useState('');
   const [selectedRouteId, setSelectedRouteId] = useState('');
+  const [selectedAssignmentVehicleId, setSelectedAssignmentVehicleId] = useState('');
+  const [assignmentPicker, setAssignmentPicker] = useState<'driver' | 'vehicle' | 'route' | null>(null);
   const [newVehicleNumber, setNewVehicleNumber] = useState('');
   const [newVehicleModel, setNewVehicleModel] = useState('');
   const [newVehiclePayload, setNewVehiclePayload] = useState('');
@@ -119,9 +125,9 @@ export default function AdminScreen() {
   const createEmployee = () => run(async () => {
     await employeeApi('/api/admin/users', {
       method: 'POST',
-      body: JSON.stringify({ username: newUsername, displayName: newName, pin: newPin, role: newRole }),
+      body: JSON.stringify({ username: newUsername, displayName: newName, pin: newPin, role: newRole, email: newEmail, phone: newPhone }),
     });
-    setNewName(''); setNewUsername(''); setNewPin(''); setNewRole('driver');
+    setNewName(''); setNewUsername(''); setNewPin(''); setNewEmail(''); setNewPhone(''); setNewRole('driver');
     setMessage('Darbuotojo paskyra sukurta.');
     await load();
   });
@@ -145,9 +151,9 @@ export default function AdminScreen() {
   });
 
   const assignRoute = () => run(async () => {
-    if (!selectedDriverId || !selectedRouteId) throw new Error('Pasirinkite vairuotoją ir maršrutą.');
-    await assignRouteToDriver(db, selectedRouteId, selectedDriverId);
-    setSelectedDriverId(''); setSelectedRouteId('');
+    if (!selectedDriverId || !selectedRouteId || !selectedAssignmentVehicleId) throw new Error('Pasirinkite vairuotoją, automobilį ir maršrutą.');
+    await assignRouteToDriver(db, selectedRouteId, selectedDriverId, selectedAssignmentVehicleId);
+    setSelectedDriverId(''); setSelectedRouteId(''); setSelectedAssignmentVehicleId('');
     setMessage('Maršrutas priskirtas vairuotojui. Jis bus parsiųstas prisijungus telefone.');
     await load();
   });
@@ -215,6 +221,8 @@ export default function AdminScreen() {
     setEditEmployeeName(employee.displayName);
     setEditEmployeeRole(employee.role);
     setEditEmployeePin('');
+    setEditEmployeeEmail(employee.email ?? '');
+    setEditEmployeePhone(employee.phone ?? '');
   };
 
   const saveEmployee = () => run(async () => {
@@ -222,6 +230,8 @@ export default function AdminScreen() {
     const patch: Record<string, unknown> = {
       displayName: editEmployeeName,
       role: editEmployeeRole,
+      email: editEmployeeEmail,
+      phone: editEmployeePhone,
     };
     if (editEmployeePin.trim()) patch.pin = editEmployeePin;
     await employeeApi(`/api/admin/users/${encodeURIComponent(selectedEmployeeId)}`, {
@@ -308,6 +318,10 @@ export default function AdminScreen() {
 
   const goHome = () => router.replace('/' as Href);
   const toggleSection = (section: string) => setExpandedSection((current) => current === section ? null : section);
+  const selectedEmployee = users.find((employee) => employee.id === selectedEmployeeId) ?? null;
+  const selectedAssignmentDriver = users.find((employee) => employee.id === selectedDriverId) ?? null;
+  const selectedAssignmentVehicle = vehicles.find((vehicle) => vehicle.id === selectedAssignmentVehicleId) ?? null;
+  const selectedAssignmentRoute = routes.find((route) => route.id === selectedRouteId) ?? null;
 
   return (
     <>
@@ -337,6 +351,8 @@ export default function AdminScreen() {
             {expandedSection === 'employee-create' ? <>
             {input(newName, setNewName, 'Vardas ir pavardė')}
             {input(newUsername, setNewUsername, 'Prisijungimo vardas')}
+            <TextInput autoCapitalize="none" autoComplete="email" keyboardType="email-address" value={newEmail} onChangeText={setNewEmail} placeholder="El. paštas (nebūtina)" placeholderTextColor={colors.textMuted} style={styles.input} />
+            <TextInput autoComplete="tel" keyboardType="phone-pad" value={newPhone} onChangeText={setNewPhone} placeholder="Telefonas (nebūtina)" placeholderTextColor={colors.textMuted} style={styles.input} />
             {input(newPin, (value) => setNewPin(value.replace(/\D/g, '').slice(0, 8)), '4–8 skaitmenų pradinis PIN', true)}
             <View style={styles.choiceRow}>{(['driver', 'dispatcher', 'quality'] as EmployeeRole[]).map((role) =>
               <Pressable key={role} onPress={() => setNewRole(role)} style={[styles.choice, newRole === role && styles.choiceActive]}>
@@ -353,37 +369,39 @@ export default function AdminScreen() {
             {expandedSection === 'employees' ? <>
             {users.map((employee) => <View key={employee.id} style={styles.employeeBlock}>
               <View style={styles.listRow}>
-                <View style={styles.listContent}><Text style={styles.listTitle}>{employee.displayName}</Text><Text style={styles.meta}>@{employee.username} · {roleLabel(employee.role)}{employee.disabled ? ' · Išjungta' : ''}</Text></View>
+                <View style={styles.listContent}><Text style={styles.listTitle}>{employee.displayName}</Text><Text style={styles.meta}>@{employee.username} · {roleLabel(employee.role)}{employee.disabled ? ' · Išjungta' : ''}</Text>{employee.email || employee.phone ? <Text style={styles.meta}>{[employee.email, employee.phone].filter(Boolean).join(' · ')}</Text> : null}</View>
                 <View style={styles.rowActions}>
                   <Pressable accessibilityLabel={`Redaguoti ${employee.displayName}`} accessibilityRole="button" onPress={() => selectEmployee(employee)} style={styles.smallButton}><Text style={styles.smallButtonText}>Redaguoti</Text></Pressable>
                   {employee.id !== profile.id ? <Pressable accessibilityLabel={`${employee.disabled ? 'Įjungti' : 'Išjungti'} ${employee.displayName}`} accessibilityRole="button" onPress={() => void toggleEmployee(employee)} style={styles.smallButton}><Text style={styles.smallButtonText}>{employee.disabled ? 'Įjungti' : 'Išjungti'}</Text></Pressable> : null}
                 </View>
               </View>
-              {employee.role === 'driver' ? <View style={styles.permissions}>
-                <Text style={styles.sectionLabel}>Vairuotojo leidimai</Text>
-                {DRIVER_PERMISSION_KEYS.map((key) => {
-                  const enabled = normalizeDriverPermissions(employee.permissions)[key];
-                  const copy = DRIVER_PERMISSION_LABELS[key];
-                  return <Pressable key={key} onPress={() => void togglePermission(employee, key)} style={styles.permissionRow} testID={`permission-${employee.id}-${key}`}>
-                    <View style={styles.permissionCopy}><Text style={styles.permissionTitle}>{copy.title}</Text><Text style={styles.permissionDescription}>{copy.description}</Text></View>
-                    <View style={[styles.switchTrack, enabled && styles.switchTrackOn]}><View style={[styles.switchThumb, enabled && styles.switchThumbOn]} /></View>
-                  </Pressable>;
-                })}
-              </View> : null}
-            </View>)}
-            {selectedEmployeeId ? <View style={styles.editor} testID="employee-edit-form">
+              {selectedEmployeeId === employee.id ? <View style={styles.editor} testID="employee-edit-form">
               <View style={styles.editorHeading}>
                 <View style={styles.listContent}><Text style={styles.title}>Redaguoti darbuotoją</Text><Text style={styles.meta}>Prisijungimo vardas nekeičiamas. Tuščias PIN paliks dabartinį.</Text></View>
                 <Pressable accessibilityLabel="Uždaryti darbuotojo redagavimą" accessibilityRole="button" onPress={() => setSelectedEmployeeId('')} style={styles.closeButton}><Text style={styles.closeButtonText}>×</Text></Pressable>
               </View>
               {input(editEmployeeName, setEditEmployeeName, 'Vardas ir pavardė')}
+              <TextInput autoCapitalize="none" autoComplete="email" keyboardType="email-address" value={editEmployeeEmail} onChangeText={setEditEmployeeEmail} placeholder="El. paštas" placeholderTextColor={colors.textMuted} style={styles.input} />
+              <TextInput autoComplete="tel" keyboardType="phone-pad" value={editEmployeePhone} onChangeText={setEditEmployeePhone} placeholder="Telefonas" placeholderTextColor={colors.textMuted} style={styles.input} />
               <View style={styles.choiceRow}>{(['driver', 'dispatcher', 'quality'] as EmployeeRole[]).map((role) =>
                 <Pressable accessibilityLabel={`Rolė ${roleLabel(role)}`} accessibilityRole="radio" accessibilityState={{ checked: editEmployeeRole === role }} key={role} onPress={() => setEditEmployeeRole(role)} style={[styles.choice, editEmployeeRole === role && styles.choiceActive]}>
                   <Text style={[styles.choiceText, editEmployeeRole === role && styles.choiceTextActive]}>{roleLabel(role)}</Text>
                 </Pressable>)}</View>
               {input(editEmployeePin, (value) => setEditEmployeePin(value.replace(/\D/g, '').slice(0, 8)), 'Naujas PIN (nebūtina)', true)}
+              {selectedEmployee && editEmployeeRole === 'driver' ? <View style={styles.permissions}>
+                <Text style={styles.sectionLabel}>Vairuotojo leidimai</Text>
+                {DRIVER_PERMISSION_KEYS.map((key) => {
+                  const enabled = normalizeDriverPermissions(selectedEmployee.permissions)[key];
+                  const copy = DRIVER_PERMISSION_LABELS[key];
+                  return <Pressable key={key} onPress={() => void togglePermission(selectedEmployee, key)} style={styles.permissionRow} testID={`permission-${selectedEmployee.id}-${key}`}>
+                    <View style={styles.permissionCopy}><Text style={styles.permissionTitle}>{copy.title}</Text><Text style={styles.permissionDescription}>{copy.description}</Text></View>
+                    <View style={[styles.switchTrack, enabled && styles.switchTrackOn]}><View style={[styles.switchThumb, enabled && styles.switchThumbOn]} /></View>
+                  </Pressable>;
+                })}
+              </View> : null}
               <Pressable accessibilityLabel="Išsaugoti darbuotojo pakeitimus" accessibilityRole="button" disabled={busy || !online} onPress={() => void saveEmployee()} style={[styles.primaryButton, (busy || !online) && styles.disabled]}><Text style={styles.primaryText}>Išsaugoti darbuotoją</Text></Pressable>
-            </View> : null}
+              </View> : null}
+            </View>)}
             </> : null}
           </View>
 
@@ -393,15 +411,29 @@ export default function AdminScreen() {
             <CollapsibleHeader title="Priskirti maršrutą vairuotojui" expanded={expandedSection === 'route-assignment'} onPress={() => toggleSection('route-assignment')} styles={styles} />
             {expandedSection === 'route-assignment' ? <>
             <Text style={styles.sectionLabel}>1. Vairuotojas</Text>
-            <View style={styles.choiceColumn}>{users.filter((item) => item.role === 'driver' && !item.disabled).map((driver) =>
-              <Pressable key={driver.id} onPress={() => setSelectedDriverId(driver.id)} style={[styles.selection, selectedDriverId === driver.id && styles.selectionActive]}>
+            <Pressable onPress={() => setAssignmentPicker((current) => current === 'driver' ? null : 'driver')} style={styles.pickerSummary}>
+              <View style={styles.listContent}><Text style={styles.listTitle}>{selectedAssignmentDriver?.displayName ?? 'Pasirinkti vairuotoją'}</Text>{selectedAssignmentDriver ? <Text style={styles.meta}>@{selectedAssignmentDriver.username}</Text> : null}</View><Text style={styles.pickerChevron}>{assignmentPicker === 'driver' ? '−' : '+'}</Text>
+            </Pressable>
+            {assignmentPicker === 'driver' ? <View style={styles.choiceColumn}>{users.filter((item) => item.role === 'driver' && !item.disabled).map((driver) =>
+              <Pressable key={driver.id} onPress={() => { setSelectedDriverId(driver.id); const assigned = vehicles.find((vehicle) => vehicle.assignedDriverId === driver.id); if (assigned) setSelectedAssignmentVehicleId(assigned.id); setAssignmentPicker(null); }} style={[styles.selection, selectedDriverId === driver.id && styles.selectionActive]}>
                 <Text style={styles.listTitle}>{driver.displayName}</Text><Text style={styles.meta}>@{driver.username}</Text>
-              </Pressable>)}</View>
-            <Text style={styles.sectionLabel}>2. Maršrutas šiame įrenginyje</Text>
-            <View style={styles.choiceColumn}>{routes.filter((route) => route.status === 'planned').map((route) =>
-              <Pressable key={route.id} onPress={() => setSelectedRouteId(route.id)} style={[styles.selection, selectedRouteId === route.id && styles.selectionActive]}>
+              </Pressable>)}</View> : null}
+            <Text style={styles.sectionLabel}>2. Automobilis</Text>
+            <Pressable onPress={() => setAssignmentPicker((current) => current === 'vehicle' ? null : 'vehicle')} style={styles.pickerSummary}>
+              <View style={styles.listContent}><Text style={styles.listTitle}>{selectedAssignmentVehicle ? `${selectedAssignmentVehicle.registrationNumber} · ${selectedAssignmentVehicle.model}` : 'Pasirinkti automobilį'}</Text>{selectedAssignmentVehicle ? <Text style={styles.meta}>iki {selectedAssignmentVehicle.maximumPayloadKg} kg</Text> : null}</View><Text style={styles.pickerChevron}>{assignmentPicker === 'vehicle' ? '−' : '+'}</Text>
+            </Pressable>
+            {assignmentPicker === 'vehicle' ? <View style={styles.choiceColumn}>{vehicles.map((vehicle) =>
+              <Pressable key={vehicle.id} onPress={() => { setSelectedAssignmentVehicleId(vehicle.id); setAssignmentPicker(null); }} style={[styles.selection, selectedAssignmentVehicleId === vehicle.id && styles.selectionActive]}>
+                <Text style={styles.listTitle}>{vehicle.registrationNumber} · {vehicle.model}</Text><Text style={styles.meta}>iki {vehicle.maximumPayloadKg} kg</Text>
+              </Pressable>)}</View> : null}
+            <Text style={styles.sectionLabel}>3. Maršrutas šiame įrenginyje</Text>
+            <Pressable onPress={() => setAssignmentPicker((current) => current === 'route' ? null : 'route')} style={styles.pickerSummary}>
+              <View style={styles.listContent}><Text style={styles.listTitle}>{selectedAssignmentRoute ? `${selectedAssignmentRoute.date} · ${selectedAssignmentRoute.total_stops} tašk.` : 'Pasirinkti maršrutą'}</Text></View><Text style={styles.pickerChevron}>{assignmentPicker === 'route' ? '−' : '+'}</Text>
+            </Pressable>
+            {assignmentPicker === 'route' ? <View style={styles.choiceColumn}>{routes.filter((route) => route.status === 'planned').map((route) =>
+              <Pressable key={route.id} onPress={() => { setSelectedRouteId(route.id); setAssignmentPicker(null); }} style={[styles.selection, selectedRouteId === route.id && styles.selectionActive]}>
                 <Text style={styles.listTitle}>{route.date} · {route.total_stops} tašk.</Text><Text style={styles.meta}>{route.status}</Text>
-              </Pressable>)}</View>
+              </Pressable>)}</View> : null}
             <Pressable disabled={busy || !online} style={[styles.primaryButton, (busy || !online) && styles.disabled]} onPress={() => void assignRoute()}>
               <Text style={styles.primaryText}>Priskirti maršrutą</Text>
             </Pressable>
@@ -446,18 +478,17 @@ export default function AdminScreen() {
             <View style={styles.vehicleList}>
               {vehicles.map((vehicle) => {
                 const driver = users.find((item) => item.id === vehicle.assignedDriverId);
-                return <Pressable accessibilityLabel={`Redaguoti automobilį ${vehicle.registrationNumber}`} accessibilityRole="button" key={vehicle.id} onPress={() => selectVehicle(vehicle)} style={[styles.selection, selectedVehicleId === vehicle.id && styles.selectionActive]}>
+                return <View key={vehicle.id} style={styles.employeeBlock}>
+                <View style={[styles.selection, selectedVehicleId === vehicle.id && styles.selectionActive]}>
                   <View style={styles.listRowCompact}>
                     <View style={styles.listContent}>
                       <Text style={styles.listTitle}>{vehicle.registrationNumber} · {vehicle.model}</Text>
                       <Text style={styles.meta}>{vehicle.maximumPayloadKg} kg · {driver ? driver.displayName : 'Nepriskirtas'}</Text>
                     </View>
+                    <Pressable accessibilityLabel={`Redaguoti automobilį ${vehicle.registrationNumber}`} accessibilityRole="button" onPress={() => selectVehicle(vehicle)} style={styles.smallButton}><Text style={styles.smallButtonText}>Redaguoti</Text></Pressable>
                   </View>
-                </Pressable>;
-              })}
-            </View>
-
-            {selectedVehicleId ? <View style={styles.editor} testID="vehicle-edit-form">
+                </View>
+                {selectedVehicleId === vehicle.id ? <View style={styles.editor} testID="vehicle-edit-form">
               <View style={styles.editorHeading}>
                 <View style={styles.listContent}><Text style={styles.title}>Redaguoti automobilį</Text><Text style={styles.meta}>Numeris, modelis ir maksimali krovinio masė.</Text></View>
                 <Pressable accessibilityLabel="Uždaryti automobilio redagavimą" accessibilityRole="button" onPress={() => setSelectedVehicleId('')} style={styles.closeButton}><Text style={styles.closeButtonText}>×</Text></Pressable>
@@ -467,7 +498,23 @@ export default function AdminScreen() {
               <TextInput accessibilityLabel="Maksimalus krovinio svoris" value={editVehiclePayload} onChangeText={(value) => setEditVehiclePayload(value.replace(/[^\d.,]/g, '').slice(0, 8))}
                 keyboardType="decimal-pad" placeholder="Maksimalus krovinio svoris, kg" placeholderTextColor={colors.textMuted} style={styles.input} />
               <Pressable accessibilityLabel="Išsaugoti automobilio pakeitimus" accessibilityRole="button" disabled={busy || !online} style={[styles.primaryButton, (busy || !online) && styles.disabled]} onPress={() => void saveVehicle()}><Text style={styles.primaryText}>Išsaugoti automobilį</Text></Pressable>
-            </View> : null}
+              <Text style={styles.sectionLabel}>Priskirti vairuotojui</Text>
+              <View style={styles.choiceColumn}>
+                <Pressable onPress={() => setSelectedVehicleDriverId('')} style={[styles.selection, selectedVehicleDriverId === '' && styles.selectionActive]}>
+                  <Text style={styles.listTitle}>Nepriskirtas</Text>
+                </Pressable>
+                {users.filter((item) => item.role === 'driver' && !item.disabled).map((driver) =>
+                  <Pressable key={driver.id} onPress={() => setSelectedVehicleDriverId(driver.id)} style={[styles.selection, selectedVehicleDriverId === driver.id && styles.selectionActive]}>
+                    <Text style={styles.listTitle}>{driver.displayName}</Text><Text style={styles.meta}>@{driver.username}</Text>
+                  </Pressable>)}
+              </View>
+              <Pressable disabled={busy || !online} style={[styles.primaryButton, (busy || !online) && styles.disabled]} onPress={() => void assignVehicle()}>
+                <Text style={styles.primaryText}>Patvirtinti priskyrimą</Text>
+              </Pressable>
+                </View> : null}
+                </View>;
+              })}
+            </View>
 
             <Text style={styles.sectionLabel}>Pridėti automobilį</Text>
             {input(newVehicleNumber, (value) => setNewVehicleNumber(value.toUpperCase().replace(/\s/g, '').slice(0, 12)), 'Valstybinis numeris')}
@@ -478,19 +525,6 @@ export default function AdminScreen() {
               <Text style={styles.secondaryText}>Pridėti automobilį</Text>
             </Pressable>
 
-            <Text style={styles.sectionLabel}>Priskirti pasirinktą automobilį</Text>
-            <View style={styles.choiceColumn}>
-              <Pressable onPress={() => setSelectedVehicleDriverId('')} style={[styles.selection, selectedVehicleDriverId === '' && styles.selectionActive]}>
-                <Text style={styles.listTitle}>Nepriskirtas</Text>
-              </Pressable>
-              {users.filter((item) => item.role === 'driver' && !item.disabled).map((driver) =>
-                <Pressable key={driver.id} onPress={() => setSelectedVehicleDriverId(driver.id)} style={[styles.selection, selectedVehicleDriverId === driver.id && styles.selectionActive]}>
-                  <Text style={styles.listTitle}>{driver.displayName}</Text><Text style={styles.meta}>@{driver.username}</Text>
-                </Pressable>)}
-            </View>
-            <Pressable disabled={busy || !online || !selectedVehicleId} style={[styles.primaryButton, (busy || !online || !selectedVehicleId) && styles.disabled]} onPress={() => void assignVehicle()}>
-              <Text style={styles.primaryText}>Patvirtinti priskyrimą</Text>
-            </Pressable>
             </> : null}
           </View>
 
@@ -594,6 +628,8 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   dangerButtonText: { ...type.secondaryStrong, color: colors.danger },
   selection: { padding: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md },
   selectionActive: { borderColor: colors.info, backgroundColor: colors.infoSoft },
+  pickerSummary: { minHeight: 54, padding: spacing.sm, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radius.md, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  pickerChevron: { ...type.sectionTitle, color: colors.info, fontSize: 24 },
   sectionLabel: { ...type.label, color: colors.textMuted, textTransform: 'uppercase', marginTop: spacing.xs },
   permissions: { gap: spacing.xs, paddingLeft: spacing.sm },
   permissionRow: { minHeight: 62, flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xs },

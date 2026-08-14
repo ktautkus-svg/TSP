@@ -416,12 +416,19 @@ export default function LoadingScreen() {
             <Pressable disabled={fuelBusy || !fuelInput.trim()} onPress={() => void submitFuel()} style={[styles.fuelButton, (fuelBusy || !fuelInput.trim()) && styles.disabled]}><Text style={styles.primaryText}>{fuelBusy ? 'Saugoma…' : 'Patvirtinti'}</Text></Pressable>
           </View> : null}
         </View> : null}
-        <Pressable disabled={bulkBusy} style={[styles.plannedPrimaryButton, bulkBusy && styles.disabled]} onPress={beginLoading} testID="begin-loading">
+        {profile.role === 'driver' ? <Pressable disabled={bulkBusy} style={[styles.plannedPrimaryButton, bulkBusy && styles.disabled]} onPress={beginLoading} testID="begin-loading">
           {bulkBusy ? <ActivityIndicator color="#fff" /> : <>
             <TruckIcon size={22} color="#FFFFFF" />
             <Text style={styles.plannedPrimaryText}>Pradėti krovimą</Text>
           </>}
-        </Pressable>
+        </Pressable> : <Pressable
+          disabled={bulkBusy || !online}
+          style={[styles.plannedPrimaryButton, (bulkBusy || !online) && styles.disabled]}
+          onPress={() => router.replace({ pathname: '/dispatcher', params: { routeId } })}
+          testID="assign-planned-route">
+          <TruckIcon size={22} color="#FFFFFF" />
+          <Text style={styles.plannedPrimaryText}>Priskirti maršrutą</Text>
+        </Pressable>}
         {profile.role !== 'driver' || profile.permissions?.canReorderAssignedRoute ? <Pressable disabled={bulkBusy} style={[styles.plannedSecondaryButton, bulkBusy && styles.disabled]} onPress={() => { void editPlannedRoute(); }} testID="edit-planned-route">
           <PencilIcon size={19} color={colors.brandNavy} />
           <Text style={styles.plannedSecondaryText}>Grįžti į redagavimą</Text>

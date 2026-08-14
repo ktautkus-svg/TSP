@@ -1,6 +1,7 @@
 import { pbkdf2Sync, randomBytes, randomUUID, timingSafeEqual, createHash } from 'node:crypto';
 import { Firestore } from '@google-cloud/firestore';
 import { normalizeRegionCode, uniqueRegionCodes } from '../src/domain/route-code.js';
+import { calculateCompositeRouteProgress } from '../src/application/routes/composite-route-progress.js';
 
 export const EMPLOYEE_ROLES = ['admin', 'dispatcher', 'driver', 'quality'] as const;
 export type EmployeeRole = (typeof EMPLOYEE_ROLES)[number];
@@ -12,6 +13,8 @@ export type EmployeeProfile = {
   role: EmployeeRole;
   disabled: boolean;
   permissions: DriverPermissions;
+  email: string | null;
+  phone: string | null;
 };
 
 export const DRIVER_PERMISSION_KEYS = [
@@ -525,12 +528,19 @@ export class EmployeeAuthStore {
     return updated;
   }
 
-  async createUser(input: { username: string; displayName: string; pin: string; role: EmployeeRole }): Promise<EmployeeProfile> {
+  async createUser(input: { username: string; displayName: string; pin: string; role: EmployeeRole; email?: string; phone?: string }): Promise<EmployeeProfile> {
     const username = validateUsername(input.username);
     const displayName = validateDisplayName(input.displayName);
     validatePin(input.pin);
     if (!EMPLOYEE_ROLES.includes(input.role)) throw new EmployeeApiError('INVALID_ROLE', 'Neleistina darbuotojo rolė.', 400);
-    const stored = createStoredUser({ username, displayName, role: input.role, pin: input.pin });
+    const stored = createStoredUser({
+      username,
+      displayName,
+      role: input.role,
+      pin: input.pin,
+      email: validateEmail(input.email),
+      phone: validatePhone(input.phone),
+    });
     await this.db.runTransaction(async (transaction) => {
       const usernameRef = this.usernames.doc(username);
       if ((await transaction.get(usernameRef)).exists) {
@@ -542,7 +552,7 @@ export class EmployeeAuthStore {
     return publicProfile(stored);
   }
 
-  async updateUser(userId: string, input: { displayName?: string; role?: EmployeeRole; disabled?: boolean; pin?: string; permissions?: Partial<DriverPermissions> }): Promise<EmployeeProfile> {
+  async updateUser(userId: string, input: { displayName?: string; role?: EmployeeRole; disabled?: boolean; pin?: string; permissions?: Partial<DriverPermissions>; email?: string; phone?: string }): Promise<EmployeeProfile> {
     const reference = this.users.doc(safeId(userId));
     const document = await reference.get();
     const current = document.data() as StoredUser | undefined;
@@ -555,6 +565,8 @@ export class EmployeeAuthStore {
     }
     if (input.disabled !== undefined) patch.disabled = Boolean(input.disabled);
     if (input.permissions !== undefined) patch.permissions = validatePermissions(input.permissions);
+    if (input.email !== undefined) patch.email = validateEmail(input.email);
+    if (input.phone !== undefined) patch.phone = validatePhone(input.phone);
     if (input.pin !== undefined) {
       validatePin(input.pin);
       const credentials = pinCredentials(current.username, input.pin);
@@ -575,6 +587,7 @@ export class EmployeeAuthStore {
     driverId: string;
     routeSnapshot: RouteSnapshot;
     createdBy: string;
+    vehicleId?: string;
   }): Promise<RouteAssignment> {
     validateSnapshot(input.routeSnapshot);
     const driverDoc = await this.users.doc(safeId(input.driverId)).get();
@@ -587,15 +600,17 @@ export class EmployeeAuthStore {
     if (String(input.routeSnapshot.route.status ?? '') !== 'planned') {
       throw new EmployeeApiError('ROUTE_NOT_PLANNED', 'Vairuotojui galima priskirti tik suplanuotą maršrutą.', 409);
     }
-    const existing = await this.assignments.where('driverId', '==', driver.id).get();
+    const existing = await this.assignments.where('routeId', '==', routeId).get();
     if (existing.docs.some((doc) => {
       const assignment = doc.data() as RouteAssignment;
-      return assignment.routeId === routeId && !['completed', 'cancelled'].includes(assignment.status);
+      return !['completed', 'cancelled'].includes(assignment.status);
     })) {
-      throw new EmployeeApiError('ROUTE_ALREADY_ASSIGNED', 'Šis maršrutas vairuotojui jau priskirtas.', 409);
+      throw new EmployeeApiError('ROUTE_ALREADY_ASSIGNED', 'Šis maršrutas jau priskirtas vairuotojui.', 409);
     }
     const now = new Date().toISOString();
-    const vehicle = await this.findAssignedVehicleSnapshot(driver.id);
+    const vehicle = input.vehicleId
+      ? vehicleSnapshot(await this.assignVehicle(input.vehicleId, driver.id))
+      : await this.findAssignedVehicleSnapshot(driver.id);
     const assignment: RouteAssignment = {
       id: randomUUID(),
       routeId,
@@ -740,7 +755,7 @@ export class EmployeeApiError extends Error {
   }
 }
 
-function createStoredUser(input: { username: string; displayName: string; role: EmployeeRole; pin: string }): StoredUser {
+function createStoredUser(input: { username: string; displayName: string; role: EmployeeRole; pin: string; email?: string | null; phone?: string | null }): StoredUser {
   const now = new Date().toISOString();
   return {
     id: randomUUID(),
@@ -749,6 +764,8 @@ function createStoredUser(input: { username: string; displayName: string; role: 
     role: input.role,
     disabled: false,
     permissions: { ...DEFAULT_DRIVER_PERMISSIONS },
+    email: input.email ?? null,
+    phone: input.phone ?? null,
     ...pinCredentials(input.username, input.pin),
     createdAt: now,
     updatedAt: now,
@@ -782,6 +799,8 @@ function publicProfile(user: StoredUser): EmployeeProfile {
     role: user.role,
     disabled: user.disabled,
     permissions: validatePermissions(user.permissions),
+    email: optionalText(user.email),
+    phone: optionalText(user.phone),
   };
 }
 
@@ -814,6 +833,24 @@ function validateDisplayName(value: string): string {
 
 function validatePin(pin: string): void {
   if (!/^\d{4,8}$/.test(pin)) throw new EmployeeApiError('INVALID_PIN', 'Serverio PIN turi būti 4–8 skaitmenų.', 400);
+}
+
+function validateEmail(value: string | null | undefined): string | null {
+  const normalized = value?.trim().toLocaleLowerCase('lt-LT') ?? '';
+  if (!normalized) return null;
+  if (normalized.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
+    throw new EmployeeApiError('INVALID_EMAIL', 'Neteisingas darbuotojo el. pašto adresas.', 400);
+  }
+  return normalized;
+}
+
+function validatePhone(value: string | null | undefined): string | null {
+  const normalized = value?.trim().replace(/[\s()-]+/g, '') ?? '';
+  if (!normalized) return null;
+  if (!/^\+?[0-9]{7,15}$/.test(normalized)) {
+    throw new EmployeeApiError('INVALID_PHONE', 'Neteisingas darbuotojo telefono numeris.', 400);
+  }
+  return normalized;
 }
 
 function validateFuelLiters(value: number): number {
@@ -955,6 +992,23 @@ export function buildQualityRouteMonitor(assignment: RouteAssignment, vehicle: F
       failedAt: optionalText(stop.failed_at),
     };
   });
+  const totalWeightKg = finiteNumber(route.total_weight_kg, 0);
+  const remainingWeightKg = nullableNumber(route.remaining_weight_kg) ?? stops
+    .filter((stop) => !['delivered', 'failed'].includes(String(stop.delivery_status ?? 'pending')))
+    .reduce((total, stop) => total + finiteNumber(stop.weight_kg, 0), 0);
+  const hasPlannedLegDistances = stops.some((stop) => nullableNumber(stop.leg_distance_km) !== null);
+  const completedPlannedDistanceKm = stops
+    .filter((stop) => ['delivered', 'failed'].includes(String(stop.delivery_status ?? 'pending')))
+    .reduce((total, stop) => total + finiteNumber(stop.leg_distance_km, 0), 0);
+  const compositeProgress = calculateCompositeRouteProgress({
+    completedStops: totalStops - remainingStops,
+    totalStops,
+    processedWeightKg: totalWeightKg - remainingWeightKg,
+    totalWeightKg,
+    completedDistanceKm: hasPlannedLegDistances ? completedPlannedDistanceKm : null,
+    totalDistanceKm: hasPlannedLegDistances ? nullableNumber(route.estimated_distance_km) : null,
+    completed: assignment.status === 'completed',
+  });
   return {
     id: assignment.id,
     routeId: assignment.routeId,
@@ -968,9 +1022,9 @@ export function buildQualityRouteMonitor(assignment: RouteAssignment, vehicle: F
     deliveredStops,
     failedStops,
     remainingStops,
-    progressPercent: totalStops > 0 ? Math.round(((totalStops - remainingStops) / totalStops) * 100) : 0,
-    totalWeightKg: finiteNumber(route.total_weight_kg, 0),
-    remainingWeightKg: finiteNumber(route.remaining_weight_kg, 0),
+    progressPercent: Math.round(compositeProgress.fraction * 100),
+    totalWeightKg,
+    remainingWeightKg,
     nextStop: next ? monitorStops[nextIndex] : null,
     stops: monitorStops,
     plannedStartAt: optionalText(route.planned_departure_at),

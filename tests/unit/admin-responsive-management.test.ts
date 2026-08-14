@@ -13,6 +13,17 @@ describe('responsive administration workspace', () => {
     expect(adminSource).toContain('displayName: editEmployeeName');
     expect(adminSource).toContain('role: editEmployeeRole');
     expect(adminSource).toContain('patch.pin = editEmployeePin');
+    expect(adminSource).toContain('email: editEmployeeEmail');
+    expect(adminSource).toContain('phone: editEmployeePhone');
+    expect(apiSource).toContain("email: optionalString(body, 'email')");
+    expect(storeSource).toContain('function validateEmail');
+    expect(storeSource).toContain('function validatePhone');
+  });
+
+  it('keeps long management areas collapsed and only expands driver permissions while editing', () => {
+    expect(adminSource).toContain('const [expandedSection, setExpandedSection] = useState<string | null>(null)');
+    expect(adminSource).toContain("selectedEmployee && editEmployeeRole === 'driver'");
+    expect(adminSource).not.toContain("employee.role === 'driver' ? <View style={styles.permissions}");
   });
 
   it('edits fleet vehicle identity and capacity through the server API', () => {

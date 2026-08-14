@@ -195,11 +195,11 @@ export async function pushCompletedRouteAssignmentProgress(db: SQLiteDatabase): 
   return synced;
 }
 
-export async function assignRouteToDriver(db: SQLiteDatabase, routeId: string, driverId: string): Promise<ServerRouteAssignment> {
+export async function assignRouteToDriver(db: SQLiteDatabase, routeId: string, driverId: string, vehicleId?: string): Promise<ServerRouteAssignment> {
   const routeSnapshot = await exportRouteSnapshot(db, routeId);
   const response = await employeeApi<{ assignment: ServerRouteAssignment }>('/api/admin/assignments', {
     method: 'POST',
-    body: JSON.stringify({ driverId, routeSnapshot }),
+    body: JSON.stringify({ driverId, vehicleId, routeSnapshot }),
   });
   // The shared cloud copy is transferred to the assigned driver by the
   // server. Mirror that ownership locally so this administrator device does

@@ -34,12 +34,18 @@ export interface RoadProgressBarProps {
   readonly fraction: number;
   readonly completed?: boolean;
   readonly weatherScene?: RouteWeatherScene | null;
+  readonly breakdown?: {
+    readonly stopsFraction: number;
+    readonly weightFraction: number;
+    readonly distanceFraction: number;
+  };
 }
 
 export function RoadProgressBar({
   fraction,
   completed = false,
   weatherScene,
+  breakdown,
 }: RoadProgressBarProps) {
   const clamped = Math.max(0, Math.min(1, Number.isFinite(fraction) ? fraction : 0));
   const animatedProgress = useRef(new Animated.Value(clamped)).current;
@@ -122,9 +128,17 @@ export function RoadProgressBar({
           />
         </Svg>
         <Text style={styles.percent}>{Math.round(clamped * 100)}%</Text>
+        {breakdown ? <Text numberOfLines={1} style={styles.breakdown}>
+          Taškai {percent(breakdown.stopsFraction)} · Svoris {percent(breakdown.weightFraction)} · Kelias {percent(breakdown.distanceFraction)}
+        </Text> : null}
       </View>
     </View>
   );
+}
+
+function percent(value: number): string {
+  const fraction = Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
+  return `${Math.round(fraction * 100)}%`;
 }
 
 function roadSceneSource(scene: RouteWeatherScene | null | undefined, now: Date): ImageSourcePropType {
@@ -174,7 +188,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
   },
   instrumentBridge: {
-    height: 56,
+    height: 68,
     position: 'relative',
     justifyContent: 'flex-end',
     backgroundColor: cockpit.surface,
@@ -182,9 +196,17 @@ const styles = StyleSheet.create({
   arc: { position: 'absolute', left: 0, right: 0, top: 0, width: '100%', height: 62 },
   percent: {
     alignSelf: 'center',
-    marginBottom: 1,
+    marginBottom: 0,
     color: cockpit.onSurface,
     fontFamily: fonts.headingExtraBold,
     fontSize: 16,
+  },
+  breakdown: {
+    alignSelf: 'center',
+    marginBottom: 2,
+    color: cockpit.onSurfaceVariant,
+    fontFamily: fonts.bodyMedium,
+    fontSize: 9,
+    letterSpacing: 0.15,
   },
 });

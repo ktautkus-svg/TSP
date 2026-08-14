@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
-import { Stack, useRouter, type Href } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
 import { assignRouteToDriver } from '@/application/auth/route-assignment-sync';
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 import { useLocalAccess } from '@/application/auth/local-access-context';
-import { employeeApi, type EmployeeProfile, type ServerRouteAssignment } from '@/infrastructure/auth/employee-session';
+import { employeeApi, type EmployeeProfile, type ServerFleetVehicle, type ServerRouteAssignment } from '@/infrastructure/auth/employee-session';
 import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
@@ -26,6 +26,7 @@ type LocalRoute = {
 export default function DispatcherScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
+  const { routeId: requestedRouteId } = useLocalSearchParams<{ routeId?: string }>();
   const { profile, online } = useLocalAccess();
   const { requestSync } = useRouteCloudSync();
   const { width } = useWindowDimensions();
@@ -35,9 +36,10 @@ export default function DispatcherScreen() {
   const [routes, setRoutes] = useState<LocalRoute[]>([]);
   const [drivers, setDrivers] = useState<EmployeeProfile[]>([]);
   const [assignments, setAssignments] = useState<ServerRouteAssignment[]>([]);
+  const [vehicles, setVehicles] = useState<ServerFleetVehicle[]>([]);
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
   const [selectedDriverId, setSelectedDriverId] = useState<string | null>(null);
-  const [selectionOrigin, setSelectionOrigin] = useState<'route' | 'driver'>('route');
+  const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -58,21 +60,27 @@ export default function DispatcherScreen() {
        ORDER BY created_at DESC`,
     );
     setRoutes(localRoutes);
-    setSelectedRouteId((current) => current && localRoutes.some((route) => route.id === current)
-      ? current
-      : localRoutes[0]?.id ?? null);
+    setSelectedRouteId((current) => requestedRouteId && localRoutes.some((route) => route.id === requestedRouteId)
+      ? requestedRouteId
+      : current && localRoutes.some((route) => route.id === current) ? current : localRoutes[0]?.id ?? null);
     if (!online) return;
-    const [userResponse, assignmentResponse] = await Promise.all([
+    const [userResponse, assignmentResponse, vehicleResponse] = await Promise.all([
       employeeApi<{ users: EmployeeProfile[] }>('/api/admin/users'),
       employeeApi<{ assignments: ServerRouteAssignment[] }>('/api/admin/assignments'),
+      employeeApi<{ vehicles: ServerFleetVehicle[] }>('/api/admin/vehicles'),
     ]);
     const availableDrivers = userResponse.users.filter((user) => user.role === 'driver' && !user.disabled);
     setDrivers(availableDrivers);
     setAssignments(assignmentResponse.assignments);
-    setSelectedDriverId((current) => current && availableDrivers.some((driver) => driver.id === current)
-      ? current
-      : availableDrivers[0]?.id ?? null);
-  }, [db, online, requestSync]);
+    setVehicles(vehicleResponse.vehicles);
+    setSelectedDriverId((current) => {
+      const driverId = current && availableDrivers.some((driver) => driver.id === current) ? current : availableDrivers[0]?.id ?? null;
+      setSelectedVehicleId((vehicleId) => vehicleId && vehicleResponse.vehicles.some((vehicle) => vehicle.id === vehicleId)
+        ? vehicleId
+        : vehicleResponse.vehicles.find((vehicle) => vehicle.assignedDriverId === driverId)?.id ?? null);
+      return driverId;
+    });
+  }, [db, online, requestSync, requestedRouteId]);
 
   useEffect(() => {
     if (!['admin', 'dispatcher'].includes(profile.role)) {
@@ -84,8 +92,14 @@ export default function DispatcherScreen() {
 
   const selectedRoute = routes.find((route) => route.id === selectedRouteId) ?? null;
   const selectedDriver = drivers.find((driver) => driver.id === selectedDriverId) ?? null;
+  const selectedVehicle = vehicles.find((vehicle) => vehicle.id === selectedVehicleId) ?? null;
+  const selectDriver = (driver: EmployeeProfile) => {
+    setSelectedDriverId(driver.id);
+    const assignedVehicle = vehicles.find((vehicle) => vehicle.assignedDriverId === driver.id);
+    if (assignedVehicle) setSelectedVehicleId(assignedVehicle.id);
+  };
   const assign = async () => {
-    if (busy || !selectedRoute || !selectedDriver) return;
+    if (busy || !selectedRoute || !selectedDriver || !selectedVehicle) return;
     if (selectedRoute.status !== 'planned') {
       setMessage('Pirmiausia užbaikite maršruto planavimą ir pasirinkite variantą.');
       return;
@@ -93,8 +107,8 @@ export default function DispatcherScreen() {
     setBusy(true);
     setMessage(null);
     try {
-      await assignRouteToDriver(db, selectedRoute.id, selectedDriver.id);
-      setMessage(`Maršrutas priskirtas: ${selectedDriver.displayName}. Vairuotojas jį gaus prisijungęs.`);
+      await assignRouteToDriver(db, selectedRoute.id, selectedDriver.id, selectedVehicle.id);
+      setMessage(`Maršrutas priskirtas: ${selectedDriver.displayName} · ${selectedVehicle.registrationNumber}. Vairuotojas jį gaus prisijungęs.`);
       await load();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Maršruto priskirti nepavyko.');
@@ -142,7 +156,7 @@ export default function DispatcherScreen() {
               <View style={styles.empty}><Text style={styles.emptyTitle}>Paruoštų maršrutų nėra</Text><Text style={styles.panelHint}>Importuokite Excel arba įveskite adresus ir pasirinkite maršruto variantą.</Text></View>
             ) : routes.map((route) => {
               const alreadyAssigned = assignments.some((assignment) => assignment.routeId === route.id && isActiveAssignment(assignment));
-              return <Pressable key={route.id} onPress={() => { setSelectionOrigin('route'); setSelectedRouteId(route.id); }} style={[styles.routeCard, selectedRouteId === route.id && styles.selectedCard]}>
+              return <Pressable key={route.id} onPress={() => setSelectedRouteId(route.id)} style={[styles.routeCard, selectedRouteId === route.id && styles.selectedCard]}>
                 <View style={styles.routeCardTop}><Text style={styles.routeDate}>{formatDate(route.date)}</Text><StatusBadge status={alreadyAssigned ? 'assigned' : route.status} styles={styles} /></View>
                 <Text style={styles.routeNumbers}>{route.total_stops} taškų · {Math.round(route.total_weight_kg)} kg · {formatKm(route.estimated_distance_km)}</Text>
                 <Text numberOfLines={1} style={styles.routeEndpoint}>{endpointLabel(route.start_location_json)} → {endpointLabel(route.end_location_json)}</Text>
@@ -157,7 +171,7 @@ export default function DispatcherScreen() {
                 const driverAssignments = activeAssignments.filter((item) => item.driverId === driver.id);
                 return <Pressable
                   key={driver.id}
-                  onPress={() => { setSelectionOrigin('driver'); setSelectedDriverId(driver.id); }}
+                  onPress={() => selectDriver(driver)}
                   style={[styles.driverCard, selectedDriverId === driver.id && styles.selectedCard]}>
                   <View style={styles.avatar}><Text style={styles.avatarText}>{initials(driver.displayName)}</Text></View>
                   <View style={styles.driverText}><Text style={styles.driverName}>{driver.displayName}</Text><Text style={styles.panelHint}>@{driver.username}</Text></View>
@@ -167,12 +181,28 @@ export default function DispatcherScreen() {
             </View>
           </View>
 
+          <View style={[styles.panel, desktop && styles.vehiclePanel]}>
+            <View style={styles.panelHeading}><View><Text style={styles.panelTitle}>3. Automobilis</Text><Text style={styles.panelHint}>Pasirinkite šio maršruto automobilį</Text></View><Text style={styles.countBadge}>{vehicles.length}</Text></View>
+            <View style={styles.driverGrid}>
+              {vehicles.map((vehicle) => <Pressable
+                accessibilityRole="button"
+                key={vehicle.id}
+                onPress={() => setSelectedVehicleId(vehicle.id)}
+                style={[styles.vehicleCard, selectedVehicleId === vehicle.id && styles.selectedCard]}>
+                <Text style={styles.driverName}>{vehicle.registrationNumber}</Text>
+                <Text style={styles.panelHint}>{vehicle.model} · iki {Math.round(vehicle.maximumPayloadKg)} kg</Text>
+                <Text style={styles.availability}>{vehicle.assignedDriverId === selectedDriverId ? 'Priskirtas pasirinktam vairuotojui' : 'Galima pasirinkti'}</Text>
+              </Pressable>)}
+            </View>
+          </View>
+
           <View style={[styles.panel, desktop && styles.actionPanel]}>
-            <Text style={styles.panelTitle}>{selectionOrigin === 'driver' ? '3. Priskirti maršrutą' : '3. Priskirti vairuotoją'}</Text>
+            <Text style={styles.panelTitle}>4. Patvirtinimas</Text>
             <Summary label="Maršrutas" value={selectedRoute ? `${formatDate(selectedRoute.date)} · ${selectedRoute.total_stops} taškų` : 'Nepasirinktas'} styles={styles} />
             <Summary label="Vairuotojas" value={selectedDriver?.displayName ?? 'Nepasirinktas'} styles={styles} />
-            <Pressable disabled={busy || !online || !selectedRoute || !selectedDriver} onPress={() => void assign()} style={[styles.assignButton, (busy || !online || !selectedRoute || !selectedDriver) && styles.disabled]}>
-              {busy ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.assignText}>{selectionOrigin === 'driver' ? 'Priskirti maršrutą' : 'Priskirti vairuotoją'}</Text>}
+            <Summary label="Automobilis" value={selectedVehicle ? `${selectedVehicle.registrationNumber} · ${selectedVehicle.model}` : 'Nepasirinktas'} styles={styles} />
+            <Pressable disabled={busy || !online || !selectedRoute || !selectedDriver || !selectedVehicle} onPress={() => void assign()} style={[styles.assignButton, (busy || !online || !selectedRoute || !selectedDriver || !selectedVehicle) && styles.disabled]}>
+              {busy ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.assignText}>Priskirti maršrutą</Text>}
             </Pressable>
             <Pressable style={styles.permissionsLink} onPress={() => router.push('/admin' as Href)}><Text style={styles.permissionsText}>Darbuotojai ir leidimai →</Text></Pressable>
           </View>
@@ -182,7 +212,7 @@ export default function DispatcherScreen() {
           <Text style={styles.panelTitle}>Vairuotojų maršrutai</Text>
           {activeAssignments.length === 0 ? <Text style={styles.panelHint}>Šiuo metu vairuotojams nieko nepriskirta.</Text> : activeAssignments.map((assignment) => (
             <View key={assignment.id} style={styles.assignmentRow}>
-              <View><Text style={styles.driverName}>{assignment.driverName}</Text><Text style={styles.panelHint}>{formatDate(String(assignment.routeSnapshot.route.date ?? ''))} · {Number(assignment.routeSnapshot.route.total_stops ?? 0)} taškų</Text></View>
+              <View><Text style={styles.driverName}>{assignment.driverName}</Text><Text style={styles.panelHint}>{formatDate(String(assignment.routeSnapshot.route.date ?? ''))} · {Number(assignment.routeSnapshot.route.total_stops ?? 0)} taškų{assignment.vehicle ? ` · ${assignment.vehicle.registrationNumber}` : ''}</Text></View>
               <StatusBadge status={assignment.status} styles={styles} />
             </View>
           ))}
@@ -221,11 +251,12 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   message: { ...type.bodyStrong, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.infoSoft, color: colors.info },
   warning: { ...type.bodyStrong, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.warningSoft, color: colors.warning },
   workspace: { gap: 16 },
-  workspaceDesktop: { flexDirection: 'row', alignItems: 'flex-start' },
+  workspaceDesktop: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start' },
   panel: { padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, gap: spacing.md },
-  routePanel: { flex: 1.05, minWidth: 0 },
-  driverPanel: { flex: 1.15, minWidth: 0 },
-  actionPanel: { width: 300 },
+  routePanel: { flexGrow: 1.05, flexBasis: 330, minWidth: 280 },
+  driverPanel: { flexGrow: 1.15, flexBasis: 330, minWidth: 280 },
+  vehiclePanel: { flexGrow: 0.9, flexBasis: 280, minWidth: 260 },
+  actionPanel: { flexGrow: 1, flexBasis: 280, minWidth: 260 },
   panelHeading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 },
   panelTitle: { ...type.sectionTitle, color: colors.text, fontSize: 19, lineHeight: 24 },
   panelHint: { ...type.secondary, color: colors.textMuted },
@@ -241,6 +272,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   routeEndpoint: { ...type.secondary, color: colors.textMuted },
   driverGrid: { gap: 9 },
   driverCard: { flexDirection: 'row', alignItems: 'center', padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, gap: 10 },
+  vehicleCard: { padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, gap: 4 },
   unavailable: { opacity: 0.5, backgroundColor: colors.disabledSurface },
   avatar: { width: 42, height: 42, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.infoSoft },
   avatarText: { ...type.bodyStrong, color: colors.info },

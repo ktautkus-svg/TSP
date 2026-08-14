@@ -33,6 +33,7 @@ export type RouteProgress = {
   loadingPercent: number;
   deliveryPercent: number;
   preliminaryRemainingDistanceKm: number | null;
+  completedPlannedDistanceKm: number | null;
 };
 
 export type UndoableAction = {
@@ -812,6 +813,11 @@ export class GetRouteProgress extends WorkdayCommand {
       preliminaryRemainingDistanceKm: route.estimatedDistanceKm === null || stops.length === 0
         ? null
         : round(route.estimatedDistanceKm * remaining.length / stops.length),
+      completedPlannedDistanceKm: stops.some((stop) => stop.legDistanceKm !== null)
+        ? round(stops
+          .filter((stop) => stop.deliveryStatus !== 'pending')
+          .reduce((total, stop) => total + (stop.legDistanceKm ?? 0), 0))
+        : null,
     };
   }
 }

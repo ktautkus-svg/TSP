@@ -36,6 +36,7 @@ import {
   type UndoableAction,
 } from '@/application/routes/route-workday';
 import { GetDefaultLocations } from '@/application/routes/saved-locations';
+import { calculateCompositeRouteProgress } from '@/application/routes/composite-route-progress';
 import { resolveRoute } from '@/application/routes/route-navigation';
 import { RefreshRouteEtas } from '@/application/routes/route-eta';
 import { fallbackRouteWeatherScene, loadRouteWeatherScene, type RouteWeatherScene } from '@/application/weather/route-weather';
@@ -538,6 +539,15 @@ export default function DeliveryScreen() {
   const nextStopWindow = arrivalWindowStatus(nextStop, route?.date);
   const wideLayout = viewportWidth >= 720;
   const gaugeSize = wideLayout ? 160 : Math.min(152, Math.max(104, (Math.min(viewportWidth, 430) - 124) / 2));
+  const compositeProgress = progress ? calculateCompositeRouteProgress({
+    completedStops: progress.totalStops - progress.remainingStops,
+    totalStops: progress.totalStops,
+    processedWeightKg: progress.totalKnownWeightKg - progress.remainingKnownWeightKg,
+    totalWeightKg: progress.totalKnownWeightKg,
+    completedDistanceKm: progress.completedPlannedDistanceKm,
+    totalDistanceKm: route?.estimatedDistanceKm ?? null,
+    completed: progress.totalStops > 0 && progress.remainingStops === 0,
+  }) : null;
 
   const stopRoute = () => {
     if (busy) return;
@@ -577,9 +587,8 @@ export default function DeliveryScreen() {
             <View style={[styles.dashboard, wideLayout && styles.dashboardWide]} testID="route-dashboard">
               <View style={[styles.dashboardPrimary, wideLayout && styles.dashboardPrimaryWide]}>
               <RoadProgressBar
-                fraction={progress.totalStops > 0
-                  ? (progress.totalStops - progress.remainingStops) / progress.totalStops
-                  : 0}
+                fraction={compositeProgress?.fraction ?? 0}
+                breakdown={compositeProgress ?? undefined}
                 completed={progress.totalStops > 0 && progress.remainingStops === 0}
                 weatherScene={weatherScene}
               />
