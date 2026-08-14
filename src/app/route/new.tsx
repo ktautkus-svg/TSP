@@ -46,21 +46,7 @@ export default function NewRouteScreen() {
       router.replace('/' as Href);
       return;
     }
-    let active = true;
-    void repository.getActive()
-      .then((route) => {
-        if (!active || !route || route.status === 'draft') return;
-        const destination = resolveRoute(route);
-        router.replace({
-          pathname: destination.pathname,
-          params: destination.params ? { ...destination.params, redirectReason: 'stale-planning-screen' } : undefined,
-        } as Href);
-      })
-      .catch((reason) => {
-        if (__DEV__) console.warn('NEW_ROUTE_GUARD_FAILED', reason);
-      });
-    return () => { active = false; };
-  }, [profile, repository, router]);
+  }, [profile, router]);
 
   useEffect(() => {
     let active = true;

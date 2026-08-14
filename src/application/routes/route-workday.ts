@@ -946,6 +946,88 @@ export class StartRouteReturn extends WorkdayCommand {
   }
 }
 
+export class SetNextPendingStop extends WorkdayCommand {
+  /**
+   * Promotes any pending stop to the next position without losing the skipped
+   * stops. The remaining order is kept stable and distance/ETA hints are
+   * rebuilt locally so the cockpit immediately follows the driver's choice.
+   */
+  async execute(routeId: string, stopId: string): Promise<{ idempotent: boolean; orderedStopIds: string[] }> {
+    const route = await this.route(routeId);
+    if (route.status !== 'in_progress') {
+      throw new RouteCommandError('INVALID_ROUTE_STATE', 'Kitą tašką galima pasirinkti tik vykdomame maršrute.');
+    }
+    const stops = await this.routes.getStops(routeId);
+    const pending = stops.filter((stop) => stop.deliveryStatus === 'pending');
+    const target = pending.find((stop) => stop.id === stopId);
+    if (!target) {
+      throw new RouteCommandError('INVALID_STOP', 'Kitu galima pasirinkti tik dar neapdorotą tašką.', { stopId });
+    }
+    if (pending[0]?.id === stopId) {
+      return { idempotent: true, orderedStopIds: pending.map((stop) => stop.id) };
+    }
+
+    const reordered = [target, ...pending.filter((stop) => stop.id !== stopId)];
+    const before = pending.map((stop) => stop.id);
+    const usedRows = await this.db.getAllAsync<{ active_order: number }>(
+      "SELECT active_order FROM delivery_stops WHERE route_id = ? AND delivery_status <> 'pending' AND active_order IS NOT NULL",
+      routeId,
+    );
+    const used = new Set(usedRows.map((row) => row.active_order));
+    const available: number[] = [];
+    for (let order = 1; available.length < reordered.length; order += 1) {
+      if (!used.has(order)) available.push(order);
+    }
+    const now = this.clock();
+    await this.db.withTransactionAsync(async () => {
+      await this.db.runAsync(
+        "UPDATE delivery_stops SET active_order = active_order + 1000000 WHERE route_id = ? AND delivery_status = 'pending'",
+        routeId,
+      );
+      let previous = mostRecentResolvedStop(stops) ?? route.startLocation;
+      for (const [index, stop] of reordered.entries()) {
+        const distanceKm = distanceBetween(previous, stop);
+        const durationMinutes = distanceKm === null ? null : Math.max(1, Math.round(distanceKm / 55 * 60));
+        await this.db.runAsync(
+          `UPDATE delivery_stops SET active_order = ?, leg_distance_km = ?,
+           leg_duration_minutes = ?, eta_approximate = 1, updated_at = ?
+           WHERE id = ? AND route_id = ?`,
+          available[index],
+          distanceKm,
+          durationMinutes,
+          now,
+          stop.id,
+          routeId,
+        );
+        previous = stop;
+      }
+      await this.db.runAsync(
+        'UPDATE routes SET active_sequence_snapshot_at = ?, updated_at = ? WHERE id = ?',
+        now,
+        now,
+        routeId,
+      );
+      await this.db.runAsync(
+        `INSERT INTO route_order_snapshots (id, route_id, kind, ordered_stop_ids_json, created_at)
+         VALUES (?, ?, 'manual', ?, ?)`,
+        this.idFactory('snapshot'),
+        routeId,
+        JSON.stringify(reordered.map((stop) => stop.id)),
+        now,
+      );
+      await this.journal(
+        routeId,
+        stopId,
+        'next_pending_stop_changed',
+        { orderedStopIds: before },
+        { orderedStopIds: reordered.map((stop) => stop.id), nextStopId: stopId },
+      );
+    });
+    await new RefreshRouteEtas(this.db, this.clock).execute(routeId);
+    return { idempotent: false, orderedStopIds: reordered.map((stop) => stop.id) };
+  }
+}
+
 export class ConfirmRouteReturnArrival extends WorkdayCommand {
   async execute(routeId: string): Promise<{ idempotent: boolean; arrivedAt: string }> {
     const route = await this.route(routeId);
@@ -1034,6 +1116,31 @@ export function parseOdometer(value: string): number {
   const parsed = Number(normalized);
   validateOdometer(parsed);
   return parsed;
+}
+
+function mostRecentResolvedStop(stops: DeliveryStop[]): DeliveryStop | null {
+  return stops
+    .filter((stop) => stop.deliveryStatus !== 'pending')
+    .sort((left, right) => resolvedAt(right).localeCompare(resolvedAt(left)))[0] ?? null;
+}
+
+function resolvedAt(stop: DeliveryStop): string {
+  return stop.deliveredAt ?? stop.failedAt ?? '';
+}
+
+function distanceBetween(
+  from: Pick<DeliveryStop | RouteEndpoint, 'latitude' | 'longitude'> | null,
+  to: Pick<DeliveryStop | RouteEndpoint, 'latitude' | 'longitude'>,
+): number | null {
+  if (!from || from.latitude === null || from.longitude === null || to.latitude === null || to.longitude === null) return null;
+  const radians = (degrees: number) => degrees * Math.PI / 180;
+  const latitudeDelta = radians(to.latitude - from.latitude);
+  const longitudeDelta = radians(to.longitude - from.longitude);
+  const left = radians(from.latitude);
+  const right = radians(to.latitude);
+  const a = Math.sin(latitudeDelta / 2) ** 2
+    + Math.cos(left) * Math.cos(right) * Math.sin(longitudeDelta / 2) ** 2;
+  return round(6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 }
 
 function validateOdometer(value: number): void {

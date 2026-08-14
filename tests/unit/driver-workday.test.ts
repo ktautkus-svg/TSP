@@ -26,6 +26,7 @@ import {
   ReverseStopOrder,
   SaveCompletionOdometerDraft,
   SaveStartOdometer,
+  SetNextPendingStop,
   SkipStartOdometer,
   StartRoute,
   UndoRouteAction,
@@ -632,6 +633,22 @@ describe('reverse stop order', () => {
     const { db } = createDb();
     await startedRoute(db);
     await expect(new ReverseStopOrder(db).execute('route-1')).rejects.toThrow();
+  });
+});
+
+describe('active route next stop', () => {
+  it('promotes a later pending stop and keeps skipped stops pending', async () => {
+    const { adapter, db } = createDb();
+    await startedRoute(db);
+
+    await expect(new SetNextPendingStop(db, () => '2026-08-03T10:00:00.000Z').execute('route-1', 'stop-2'))
+      .resolves.toMatchObject({ idempotent: false, orderedStopIds: ['stop-2', 'stop-1'] });
+
+    const stops = await new RouteRepository(db).getStops('route-1');
+    expect(stops.map((item) => item.id)).toEqual(['stop-2', 'stop-1']);
+    expect(stops.map((item) => item.deliveryStatus)).toEqual(['pending', 'pending']);
+    expect(adapter.raw.prepare("SELECT COUNT(*) AS count FROM action_journal WHERE action_type = 'next_pending_stop_changed'").get())
+      .toMatchObject({ count: 1 });
   });
 });
 

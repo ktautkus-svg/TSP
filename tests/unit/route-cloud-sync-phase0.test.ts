@@ -189,7 +189,7 @@ describe('E. cross-account upload safety', () => {
 describe('G. deferred routes are retried, not lost', () => {
   const remoteActive = {
     route: {
-      id: 'route-from-phone', date: '2026-08-11', status: 'planned', total_weight_kg: 480, total_stops: 1,
+      id: 'route-from-phone', date: '2026-08-11', status: 'loading', total_weight_kg: 480, total_stops: 1,
       created_at: '2026-08-11T07:00:00.000Z', updated_at: '2026-08-11T07:00:00.000Z',
     },
     stops: [{
@@ -226,7 +226,7 @@ describe('G. deferred routes are retried, not lost', () => {
 
     expect(second.pulled).toBe(1);
     const applied = adapter.raw.prepare('SELECT status, total_weight_kg FROM routes WHERE id = ?').get('route-from-phone') as { status: string; total_weight_kg: number };
-    expect(applied).toMatchObject({ status: 'planned', total_weight_kg: 480 });
+    expect(applied).toMatchObject({ status: 'loading', total_weight_kg: 480 });
     expect(adapter.raw.prepare('SELECT route_id FROM route_sync_deferrals').all()).toEqual([]);
   });
 
@@ -245,6 +245,22 @@ describe('G. deferred routes are retried, not lost', () => {
     expect(second.deferred).toBe(1);
     const deferral = adapter.raw.prepare('SELECT attempts FROM route_sync_deferrals WHERE route_id = ?').get('route-from-phone') as { attempts: number };
     expect(deferral.attempts).toBe(2);
+  });
+
+  it('applies an additional planned route while another route is being driven', async () => {
+    await saveEmployeeSession({ profile: driverA, expiresAt: '2099-01-01T00:00:00.000Z' });
+    const { adapter, db } = createDb();
+    insertRoute(adapter, { id: 'route-local-active', status: 'in_progress', owner: 'employee-a', cloudSyncedAt: '2026-08-11T08:00:00.000Z' });
+    const plannedItem = {
+      ...remoteItem,
+      routeSnapshot: { ...remoteActive, route: { ...remoteActive.route, status: 'planned' } },
+    };
+    stubCloud({ serverProfile: driverA, pull: { routes: [plannedItem], cursor: '2026-08-11T12:00:00.000Z' } });
+
+    const result = await syncRoutesWithCloud(db);
+
+    expect(result.deferred).toBe(0);
+    expect(adapter.raw.prepare('SELECT status FROM routes WHERE id = ?').get('route-from-phone')).toMatchObject({ status: 'planned' });
   });
 
   it('never lets an older cloud copy overwrite newer local work', async () => {

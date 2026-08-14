@@ -29,6 +29,7 @@ import {
   parseOdometer,
   SaveStartOdometer,
   SaveCompletionOdometerDraft,
+  SetNextPendingStop,
   StartRouteReturn,
   UndoRouteAction,
   type RouteProgress,
@@ -329,6 +330,22 @@ export default function DeliveryScreen() {
       await Linking.openURL(selectedUrl);
     } catch (reason) {
       Alert.alert('Navigacija neatidaryta', reason instanceof Error ? reason.message : 'Adresas netinkamas navigacijai.');
+    }
+  };
+
+  const chooseNextStop = async (stop: DeliveryStop) => {
+    if (busy || stop.deliveryStatus !== 'pending') return;
+    setBusy(true);
+    try {
+      await new SetNextPendingStop(db).execute(routeId, stop.id);
+      setExpandedStopId(null);
+      await load();
+      void requestSync('mutation');
+      void publishProgress();
+    } catch (reason) {
+      Alert.alert('Nepavyko pakeisti kito taško', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -771,6 +788,18 @@ export default function DeliveryScreen() {
                 {stop.deliveryStatus === 'failed' ? (
                   <Text style={styles.failure}>{failedDeliveryLabel(stop.failureReason, stop.failureComment)}</Text>
                 ) : null}
+                {stop.deliveryStatus === 'pending' && nextStop?.id !== stop.id ? (
+                  <Pressable
+                    accessibilityLabel="Pasirinkti šį tašką kitu"
+                    accessibilityRole="button"
+                    disabled={busy}
+                    onPress={() => { void chooseNextStop(stop); }}
+                    style={[styles.makeNextButton, busy && styles.disabled]}
+                    testID={`make-next-stop-${stop.id}`}>
+                    <Text style={styles.makeNextText}>VYKDYTI ŠĮ TAŠKĄ TOLIAU</Text>
+                    <Text style={styles.makeNextHint}>Praleisti taškai liks maršrute vėlesniam laikui</Text>
+                  </Pressable>
+                ) : null}
                 <View style={styles.actions}>
                   <Pressable accessibilityLabel="Naviguoti į stotelę" accessibilityRole="button" style={styles.navigateButton} onPress={() => { void navigate(stop); }}><Text style={styles.buttonText}>NAVIGUOTI</Text></Pressable>
                   <Pressable accessibilityLabel="Pažymėti atlikta" accessibilityRole="button" style={styles.deliverButton} onPress={() => { void delivered(stop.id); }}><Text style={styles.buttonText}>ATLIKTA</Text></Pressable>
@@ -1148,6 +1177,9 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   heading: { color: colors.text, fontSize: 17, fontFamily: fonts.heading },
   meta: { color: colors.textMuted, lineHeight: 20 },
   failure: { color: colors.danger, fontFamily: fonts.headingSemiBold },
+  makeNextButton: { minHeight: 52, marginTop: spacing.sm, paddingHorizontal: spacing.md, borderWidth: 1, borderRadius: radius.md, borderColor: colors.info, backgroundColor: colors.infoSoft, alignItems: 'center', justifyContent: 'center', gap: 2 },
+  makeNextText: { ...type.button, color: colors.info },
+  makeNextHint: { ...type.meta, color: colors.textMuted, textAlign: 'center' },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.sm },
   navigateButton: { flex: 1, minWidth: 100, minHeight: 46, borderWidth: 1, borderColor: colors.actionRoute, borderRadius: radius.md, backgroundColor: colors.actionRoute, alignItems: 'center', justifyContent: 'center' },
   deliverButton: { flex: 1, minWidth: 100, minHeight: 46, borderRadius: radius.md, backgroundColor: colors.success, alignItems: 'center', justifyContent: 'center' },

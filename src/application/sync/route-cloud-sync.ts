@@ -4,7 +4,7 @@ import { applyRouteSnapshot, exportRouteSnapshot } from '@/application/auth/rout
 import { employeeApi, type EmployeeProfile, type RouteSnapshot } from '@/infrastructure/auth/employee-session';
 
 const CURSOR_ENTITY = 'routes';
-const NON_TERMINAL_STATUSES = ['draft', 'planned', 'loading', 'loaded', 'in_progress'];
+const WORKING_STATUSES = ['loading', 'loaded', 'in_progress'];
 
 type RouteSyncPushItem = { routeSnapshot: RouteSnapshot; deleted: boolean };
 type RouteSyncPushResult =
@@ -291,13 +291,13 @@ async function applyPulledRoute(db: SQLiteDatabase, employeeId: string, pulledRo
   }
 
   const incomingStatus = String(pulledRoute.routeSnapshot.route.status ?? '');
-  if (!existing && NON_TERMINAL_STATUSES.includes(incomingStatus)) {
+  if (!existing && WORKING_STATUSES.includes(incomingStatus)) {
     const active = await db.getFirstAsync<{ id: string }>(
-      "SELECT id FROM routes WHERE status NOT IN ('completed','cancelled') LIMIT 1",
+      "SELECT id FROM routes WHERE status IN ('loading','loaded','in_progress') LIMIT 1",
     );
     if (active) {
-      // This device already has a different active route: applying the incoming
-      // one would violate the one-active-route-per-device invariant.
+      // This device already has a different physically worked route. Drafts
+      // and planned routes are deliberately allowed to coexist.
       await deferRoute(db, employeeId, pulledRoute, 'ACTIVE_ROUTE_EXISTS');
       return 'deferred';
     }

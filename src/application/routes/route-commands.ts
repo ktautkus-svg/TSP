@@ -178,11 +178,6 @@ export class CreateDraftRoute extends RouteCommandBase {
               return;
             }
           }
-          const draftRow = await this.db.getFirstAsync<{ id: string }>(
-            "SELECT id FROM routes WHERE status = 'draft' ORDER BY created_at DESC LIMIT 1",
-          );
-          const draft = draftRow ? await this.routes.getById(draftRow.id) : null;
-          if (draft) throw activeRouteError(draft);
           await insertDraftRoute(this.db, routeId, input, now);
           if (input.importSource) await insertImportSource(this.db, routeId, input.importSource, now, this.idFactory);
           if (input.sourceImportAuditId) {
@@ -208,10 +203,6 @@ export class CreateDraftRoute extends RouteCommandBase {
           }
         });
       } catch (error) {
-        if (String(error).includes('one_active_route')) {
-          const winner = await this.routes.getActive();
-          if (winner) throw activeRouteError(winner);
-        }
         throw error;
       }
       return { routeId };
@@ -264,14 +255,20 @@ export class CreateDraftRouteWithStops extends RouteCommandBase {
             return;
           }
 
-          const draftRow = await this.db.getFirstAsync<{ id: string }>(
-            "SELECT id FROM routes WHERE status = 'draft' ORDER BY created_at DESC LIMIT 1",
+          const draftRows = await this.db.getAllAsync<{ id: string }>(
+            "SELECT id FROM routes WHERE status = 'draft' ORDER BY created_at DESC",
           );
-          const active = draftRow ? await this.routes.getById(draftRow.id) : null;
-          const recoverable = active ? await isRecoverableIncompleteDraft(this.db, active, input) : false;
-          const routeId = recoverable ? active!.id : generatedRouteId;
+          let recoverableDraft: Route | null = null;
+          for (const row of draftRows) {
+            const draft = await this.routes.getById(row.id);
+            if (draft && await isRecoverableIncompleteDraft(this.db, draft, input)) {
+              recoverableDraft = draft;
+              break;
+            }
+          }
+          const recoverable = recoverableDraft !== null;
+          const routeId = recoverableDraft?.id ?? generatedRouteId;
           result = { ...result, routeId, recoveredIncompleteDraft: recoverable };
-          if (active && !recoverable) throw activeRouteError(active);
 
           if (!recoverable) {
             await insertDraftRoute(this.db, routeId, input, now);

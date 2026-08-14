@@ -136,15 +136,15 @@ export default function HomeScreen() {
             <View style={styles.adminMenu} testID="admin-home-menu">
               <View style={styles.adminMenuHeading}>
                 <Text style={styles.eyebrow}>ADMINISTRATORIAUS MENIU</Text>
-                <Text style={styles.adminMenuTitle}>Pasirinkite darbo sritį</Text>
-                <Text style={styles.activeText}>Maršrutai administratoriaus vardu automatiškai nepradedami.</Text>
+                <Text style={styles.adminMenuTitle}>TSP valdymo centras</Text>
+                <Text style={styles.activeText}>Pasirinkite užduotį. Maršrutai administratoriaus vardu automatiškai nepradedami.</Text>
               </View>
               <View style={styles.adminMenuGrid}>
-                <AdminMenuLink href="/dispatcher" label="Dispečeris" styles={styles} />
-                <AdminMenuLink href="/quality-control" label="Kokybės kontrolė" styles={styles} />
-                <AdminMenuLink href="/execute-route" label="Vykdyti maršrutą" primary styles={styles} />
-                <AdminMenuLink href="/history" label="Maršrutai" styles={styles} />
-                <AdminMenuLink href="/settings" label="Nustatymai" styles={styles} />
+                <AdminMenuCard description="Stebėti automobilius, eigą ir nukrypimus realiu laiku" label="Dispečeris" onPress={() => router.push('/dispatcher' as Href)} symbol="D" styles={styles} />
+                <AdminMenuCard description="Matyti visą taškų seką, laikus ir pristatymo kokybę" label="Kokybės kontrolė" onPress={() => router.push('/quality-control' as Href)} symbol="K" styles={styles} />
+                <AdminMenuCard description="Pasirinkti vairuotoją ir laikinai vykdyti jo maršrutą" label="Vykdyti maršrutą" onPress={() => router.push('/execute-route' as Href)} primary symbol="V" styles={styles} />
+                <AdminMenuCard description="Kurti, priskirti, atšaukti ir peržiūrėti maršrutus" label="Maršrutai" onPress={() => router.push('/history' as Href)} symbol="M" styles={styles} />
+                <AdminMenuCard description="Darbuotojai, automobiliai, teisės ir programėlės parinktys" label="Nustatymai" onPress={() => router.push('/settings' as Href)} symbol="N" styles={styles} />
               </View>
             </View>
           ) : profile.role === 'driver' ? active && progress ? (
@@ -274,21 +274,28 @@ function formatMetric(value: number | null | undefined): string {
   return new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(value);
 }
 
-function AdminMenuLink({ href, label, primary = false, styles }: {
-  href: string;
+function AdminMenuCard({ label, description, symbol, onPress, primary = false, styles }: {
   label: string;
+  description: string;
+  symbol: string;
+  onPress: () => void;
   primary?: boolean;
   styles: ReturnType<typeof createStyles>;
 }) {
-  return <Link href={href as Href} asChild>
-    <Pressable
-      accessibilityLabel={label}
-      accessibilityRole="button"
-      style={({ pressed }) => [styles.adminMenuButton, primary && styles.adminMenuButtonPrimary, pressed && styles.adminMenuButtonPressed]}>
+  return <Pressable
+    accessibilityLabel={label}
+    accessibilityRole="button"
+    onPress={onPress}
+    style={({ pressed }) => [styles.adminMenuButton, primary && styles.adminMenuButtonPrimary, pressed && styles.adminMenuButtonPressed]}>
+    <View style={[styles.adminMenuSymbol, primary && styles.adminMenuSymbolPrimary]}>
+      <Text style={[styles.adminMenuSymbolText, primary && styles.adminMenuButtonTextPrimary]}>{symbol}</Text>
+    </View>
+    <View style={styles.adminMenuButtonBody}>
       <Text style={[styles.adminMenuButtonText, primary && styles.adminMenuButtonTextPrimary]}>{label}</Text>
-      <Text style={[styles.adminMenuArrow, primary && styles.adminMenuButtonTextPrimary]}>→</Text>
-    </Pressable>
-  </Link>;
+      <Text style={[styles.adminMenuDescription, primary && styles.adminMenuDescriptionPrimary]}>{description}</Text>
+    </View>
+    <Text style={[styles.adminMenuArrow, primary && styles.adminMenuButtonTextPrimary]}>→</Text>
+  </Pressable>;
 }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
@@ -322,11 +329,17 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   adminMenuHeading: { gap: spacing.xs },
   adminMenuTitle: { ...type.pageTitle, color: colors.text, fontSize: 28, lineHeight: 34 },
   adminMenuGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  adminMenuButton: { minWidth: 230, flexBasis: 230, flexGrow: 1, minHeight: 72, paddingHorizontal: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
+  adminMenuButton: { minWidth: 280, flexBasis: 360, flexGrow: 1, minHeight: 108, paddingHorizontal: spacing.lg, paddingVertical: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   adminMenuButtonPrimary: { backgroundColor: colors.actionPrimary, borderColor: colors.actionPrimary },
   adminMenuButtonPressed: { opacity: 0.82 },
+  adminMenuSymbol: { width: 46, height: 46, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.infoSoft },
+  adminMenuSymbolPrimary: { backgroundColor: 'rgba(255,255,255,0.15)' },
+  adminMenuSymbolText: { ...type.sectionTitle, color: colors.info },
+  adminMenuButtonBody: { flex: 1, minWidth: 0, gap: 4 },
   adminMenuButtonText: { ...type.cardTitle, color: colors.text },
   adminMenuButtonTextPrimary: { color: colors.textInverse },
+  adminMenuDescription: { ...type.secondary, color: colors.textMuted },
+  adminMenuDescriptionPrimary: { color: 'rgba(255,255,255,0.78)' },
   adminMenuArrow: { ...type.sectionTitle, color: colors.info },
   // Tertiary navigation: deliberately quiet so it cannot compete with the
   // primary action above it.

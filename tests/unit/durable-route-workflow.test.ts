@@ -61,7 +61,9 @@ function createDb(): { adapter: ExpoLikeDatabase; db: SQLiteDatabase } {
     resolve(dirname(fileURLToPath(import.meta.url)), '../../src/database/migrations.ts'),
     'utf8',
   );
-  for (const name of ['migrationV1', 'migrationV2', 'migrationV3', 'migrationV4', 'migrationV5', 'migrationV6', 'migrationV7', 'migrationV8', 'migrationV9', 'migrationV10', 'migrationV11']) {
+  const schemaVersion = Number(source.match(/SCHEMA_VERSION = (\d+)/)?.[1]);
+  for (let version = 1; version <= schemaVersion; version += 1) {
+    const name = `migrationV${version}`;
     const match = source.match(new RegExp(`const ${name} = \`([\\s\\S]*?)\`;`));
     if (!match) throw new Error(`Missing ${name}`);
     adapter.raw.exec(match[1]);
@@ -134,12 +136,11 @@ describe('durable route workflow', () => {
     expect(request.workdayEndAt).toBeUndefined();
   });
 
-  it('allows only one active route and permits a new one only after explicit cancellation', async () => {
-    const { db } = createDb();
+  it('allows several draft routes so another driver route can be prepared in parallel', async () => {
+    const { adapter, db } = createDb();
     await draftWithStops(db);
-    await expect(new CreateDraftRoute(db).execute({ id: 'route-2', startLocation: endpoint })).rejects.toMatchObject({ code: 'ACTIVE_ROUTE_EXISTS' });
-    await new CancelDraftRoute(db).execute('route-1');
     await expect(new CreateDraftRoute(db).execute({ id: 'route-2', startLocation: endpoint })).resolves.toEqual({ routeId: 'route-2' });
+    expect(adapter.raw.prepare("SELECT COUNT(*) AS count FROM routes WHERE status = 'draft'").get()).toMatchObject({ count: 2 });
   });
 
   it('edits, reorders and deletes draft stops transactionally', async () => {

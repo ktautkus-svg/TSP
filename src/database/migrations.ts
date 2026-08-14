@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-export const SCHEMA_VERSION = 19;
+export const SCHEMA_VERSION = 20;
 
 const migrationV1 = `
 PRAGMA journal_mode = WAL;
@@ -1066,6 +1066,22 @@ PRAGMA user_version = 19;
 COMMIT;
 `;
 
+// v20 restores the intended multi-route workflow: administrators may prepare
+// and schedule many routes while a driver device still protects the single
+// route that is physically being loaded or driven.
+const migrationV20 = `
+BEGIN IMMEDIATE;
+
+DROP INDEX IF EXISTS one_active_route;
+DROP INDEX IF EXISTS one_working_route;
+CREATE UNIQUE INDEX one_working_route
+ON routes ((1))
+WHERE status IN ('loading','loaded','in_progress');
+
+PRAGMA user_version = 20;
+COMMIT;
+`;
+
 async function ensureRouteReturnColumns(db: SQLiteDatabase): Promise<void> {
   const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(routes)');
   const names = new Set(columns.map((column) => column.name));
@@ -1194,5 +1210,10 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
   if (currentVersion < 19) {
     await ensureRouteReturnColumns(db);
     await db.execAsync(migrationV19);
+    currentVersion = 19;
+  }
+
+  if (currentVersion < 20) {
+    await db.execAsync(migrationV20);
   }
 }

@@ -182,23 +182,6 @@ export default function ImportScreen() {
       });
   }, [db]);
 
-  useEffect(() => {
-    let active = true;
-    void repository.getActive()
-      .then((route) => {
-        if (!active || !route || route.status === 'draft') return;
-        const destination = resolveRoute(route);
-        router.replace({
-          pathname: destination.pathname,
-          params: destination.params ? { ...destination.params, redirectReason: 'stale-planning-screen' } : undefined,
-        } as Href);
-      })
-      .catch((reason) => {
-        if (__DEV__) console.warn('IMPORT_ROUTE_GUARD_FAILED', reason);
-      });
-    return () => { active = false; };
-  }, [repository, router]);
-
   const capture = async () => {
     const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) return setMessage('Kameros leidimas nesuteiktas.');
