@@ -134,7 +134,7 @@ export default function LoadingScreen() {
   }, [online, profile.role]);
 
   const openDispatcherAssignment = () => {
-    router.replace({ pathname: '/dispatcher', params: { routeId } } as Href);
+    router.replace({ pathname: '/route-management', params: { routeId } } as unknown as Href);
   };
 
   useFocusEffect(useCallback(() => { void load(); void loadFuel(); }, [load, loadFuel]));

@@ -11,7 +11,7 @@ import { AccountMenuSheet } from '@/components/account-menu-sheet';
 import { BrandHeader } from '@/components/brand-header';
 import { DriverNowDashboard } from '@/components/driver-now-dashboard';
 import { DriverAppTabs } from '@/components/driver-app-tabs';
-import { DispatchIcon, ExecuteRouteIcon, QualityIcon, RouteIcon, SettingsIcon, TripSheetIcon } from '@/components/app-icons';
+import { DispatchIcon, ExecuteRouteIcon, QualityIcon, SettingsIcon, TripSheetIcon } from '@/components/app-icons';
 import { ScreenContainer } from '@/components/screen-container';
 import { AppButton, AppCard } from '@/components/ui-primitives';
 import { RouteRepository } from '@/database/repositories/route-repository';
@@ -144,10 +144,9 @@ export default function HomeScreen() {
                 <Text style={styles.activeText}>Pasirinkite užduotį. Maršrutai administratoriaus vardu automatiškai nepradedami.</Text>
               </View>
               <View style={styles.adminMenuGrid}>
-                <AdminMenuCard description="Automobiliai, eiga ir nukrypimai realiu laiku" icon={<DispatchIcon />} label="Dispečeris" onPress={() => router.push('/dispatcher' as Href)} styles={styles} />
+                <AdminMenuCard description="Kurti, redaguoti ir priskirti maršrutus, valdyti vairuotojus bei automobilius" icon={<DispatchIcon />} label="Dispečerio skydelis" onPress={() => router.push('/dispatcher' as Href)} styles={styles} />
                 <AdminMenuCard description="Taškų seka, laikai ir pristatymo kokybė" icon={<QualityIcon />} label="Kokybės kontrolė" onPress={() => router.push('/quality-control' as Href)} styles={styles} />
                 <AdminMenuCard description="Pasirinkti vairuotoją ir tęsti jo maršrutą" icon={<ExecuteRouteIcon color={colors.info} />} label="Vykdyti maršrutą" onPress={() => router.push('/execute-route' as Href)} styles={styles} />
-                <AdminMenuCard description="Kurti, priskirti ir peržiūrėti maršrutus" icon={<RouteIcon color={colors.info} />} label="Maršrutai" onPress={() => router.push('/history' as Href)} styles={styles} />
                 <AdminMenuCard description="Vairuotojai, automobiliai, vietos ir programėlė" icon={<SettingsIcon />} label="Nustatymai" onPress={() => router.push('/settings' as Href)} styles={styles} />
                 <AdminMenuCard description="Užbaigtų darbų suvestinės, odometrai ir PDF" icon={<TripSheetIcon />} label="Kelionės lapai" onPress={() => router.push('/trip-sheet' as Href)} styles={styles} />
               </View>

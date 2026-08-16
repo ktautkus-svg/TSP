@@ -6,6 +6,8 @@ import {
   EmployeeApiError,
   EmployeeAuthStore,
   DRIVER_PERMISSION_KEYS,
+  MANAGEMENT_PERMISSION_KEYS,
+  type EmployeePermissionKey,
   type EmployeeProfile,
   type EmployeeRole,
   type RouteSnapshot,
@@ -93,20 +95,22 @@ export async function handleEmployeeApi(
       return send(response, 200, { settings: await store.getRoutePriceSettings() }, requestId);
     }
     if (pathname === '/api/admin/route-price-settings' && request.method === 'PATCH') {
-      requireRole(profile, ['admin']);
+      requireManagementPermission(profile, 'canManageFinancials');
       const body = parseObject(await readBody(request, 256_000));
       return send(response, 200, { settings: await store.updateRoutePriceSettings(body.settings, profile.id) }, requestId);
     }
 
     if (pathname === '/api/admin/users' && request.method === 'GET') {
       requireRole(profile, ['admin', 'dispatcher']);
-      return send(response, 200, { users: await store.listUsers() }, requestId);
+      const users = await store.listUsers();
+      return send(response, 200, { users: profile.role === 'admin' ? users : users.filter((user) => user.role === 'driver') }, requestId);
     }
     if (pathname === '/api/admin/users' && request.method === 'POST') {
-      requireRole(profile, ['admin']);
+      requireManagementPermission(profile, 'canManageEmployees');
       const body = parseObject(await readBody(request, 64_000));
       const role = stringField(body, 'role') as EmployeeRole;
       if (!EMPLOYEE_ROLES.includes(role)) throw new EmployeeApiError('INVALID_ROLE', 'Neleistina darbuotojo rolė.', 400);
+      if (profile.role !== 'admin' && role !== 'driver') throw new EmployeeApiError('FORBIDDEN', 'Dispečeris gali kurti tik vairuotojo paskyrą.', 403);
       const user = await store.createUser({
         username: stringField(body, 'username'),
         displayName: stringField(body, 'displayName'),
@@ -122,7 +126,7 @@ export async function handleEmployeeApi(
       return send(response, 200, { vehicles: await store.listVehicles() }, requestId);
     }
     if (pathname === '/api/admin/vehicles' && request.method === 'POST') {
-      requireRole(profile, ['admin']);
+      requireManagementPermission(profile, 'canManageVehicles');
       const body = parseObject(await readBody(request, 64_000));
       const vehicle = await store.createVehicle({
         registrationNumber: stringField(body, 'registrationNumber'),
@@ -133,7 +137,7 @@ export async function handleEmployeeApi(
     }
     const vehicleMatch = pathname.match(/^\/api\/admin\/vehicles\/([^/]+)$/);
     if (vehicleMatch && request.method === 'PATCH') {
-      requireRole(profile, ['admin']);
+      requireManagementPermission(profile, 'canManageVehicles');
       const body = parseObject(await readBody(request, 64_000));
       const hasVehicleFields = body.registrationNumber !== undefined || body.model !== undefined || body.maximumPayloadKg !== undefined;
       let vehicle = hasVehicleFields
@@ -152,8 +156,15 @@ export async function handleEmployeeApi(
     }
     const userMatch = pathname.match(/^\/api\/admin\/users\/([^/]+)$/);
     if (userMatch && request.method === 'PATCH') {
-      requireRole(profile, ['admin']);
+      requireManagementPermission(profile, 'canManageEmployees');
       const body = parseObject(await readBody(request, 64_000));
+      if (profile.role !== 'admin' && (body.role !== undefined || body.permissions !== undefined)) {
+        throw new EmployeeApiError('FORBIDDEN', 'Roles ir teisių keitimą gali atlikti tik administratorius.', 403);
+      }
+      if (profile.role !== 'admin') {
+        const target = (await store.listUsers()).find((user) => user.id === decodeURIComponent(userMatch[1]));
+        if (!target || target.role !== 'driver') throw new EmployeeApiError('FORBIDDEN', 'Dispečeris gali redaguoti tik vairuotojus.', 403);
+      }
       const role = optionalString(body, 'role') as EmployeeRole | undefined;
       const user = await store.updateUser(decodeURIComponent(userMatch[1]), {
         username: optionalString(body, 'username'),
@@ -315,13 +326,19 @@ function requireRole(profile: EmployeeProfile, roles: EmployeeRole[]): void {
   if (!roles.includes(profile.role)) throw new EmployeeApiError('FORBIDDEN', 'Šiam veiksmui neturite teisės.', 403);
 }
 
-function permissionPatch(value: unknown): Record<(typeof DRIVER_PERMISSION_KEYS)[number], boolean> | undefined {
+function requireManagementPermission(profile: EmployeeProfile, permission: 'canManageEmployees' | 'canManageVehicles' | 'canManageFinancials'): void {
+  if (profile.role === 'admin') return;
+  if (profile.role === 'dispatcher' && profile.permissions[permission]) return;
+  throw new EmployeeApiError('FORBIDDEN', 'Šiam veiksmui neturite suteiktos teisės.', 403);
+}
+
+function permissionPatch(value: unknown): Record<EmployeePermissionKey, boolean> | undefined {
   if (value === undefined) return undefined;
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new EmployeeApiError('INVALID_PERMISSIONS', 'Neteisingi vairuotojo leidimai.', 400);
   }
   const source = value as Record<string, unknown>;
-  return Object.fromEntries(DRIVER_PERMISSION_KEYS.map((key) => [key, source[key] === true])) as Record<(typeof DRIVER_PERMISSION_KEYS)[number], boolean>;
+  return Object.fromEntries([...DRIVER_PERMISSION_KEYS, ...MANAGEMENT_PERMISSION_KEYS].map((key) => [key, source[key] === true])) as Record<EmployeePermissionKey, boolean>;
 }
 
 function sessionToken(request: IncomingMessage): string {

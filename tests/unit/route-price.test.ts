@@ -65,4 +65,21 @@ describe('preliminary route price imported from Maršruto kaina.xlsm logic', () 
     expect(result?.driverCostEur).toBe(63);
     expect(result?.overheadEur).toBe(0);
   });
+
+  it('preserves newly created driver and vehicle tariffs during normalization', () => {
+    const settings = normalizeRoutePriceSettings({
+      ...DEFAULT_ROUTE_PRICE_SETTINGS,
+      driverCosts: {
+        ...DEFAULT_ROUTE_PRICE_SETTINGS.driverCosts,
+        'vairas 10': { type: 'fixed', dailyNetEur: 88 },
+      },
+      vehicleCosts: {
+        ...DEFAULT_ROUTE_PRICE_SETTINGS.vehicleCosts,
+        XYZ123: { fuelNormLitersPer100Km: 12.4, annualInsuranceEur: 900, monthlyRoadTaxEur: 75 },
+      },
+    });
+
+    expect(settings.driverCosts['vairas 10']).toEqual({ type: 'fixed', dailyNetEur: 88 });
+    expect(settings.vehicleCosts.XYZ123).toEqual({ fuelNormLitersPer100Km: 12.4, annualInsuranceEur: 900, monthlyRoadTaxEur: 75 });
+  });
 });

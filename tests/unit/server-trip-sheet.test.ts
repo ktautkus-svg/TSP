@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { attachDailyCompensation, buildServerTripSheet, type RouteAssignment } from '../../server/employee-auth-store';
+import { attachDailyCompensation, buildServerTripSheet, tripSheetFuelNorm, type RouteAssignment } from '../../server/employee-auth-store';
+import { DEFAULT_ROUTE_PRICE_SETTINGS } from '../../src/application/routes/route-price';
 
 describe('server trip sheet', () => {
   it('builds an accounting-ready sheet from a completed assigned route', () => {
@@ -32,8 +33,16 @@ describe('server trip sheet', () => {
       routeNumbers: ['R11', 'R15'], driverName: 'Vairas 1', startOdometer: 1000, endOdometer: 1081.2,
       actualDistanceKm: 81.2, durationMinutes: 480, totalStops: 2, deliveredStops: 1,
       totalWeightKg: 350, deliveredWeightKg: 200, startAddress: 'Savanorių pr. 180, Vilnius',
+      fuelNormLitersPer100Km: null,
       vehicle: { registrationNumber: 'LRI744', model: 'Renault Master' },
     });
+  });
+
+  it('uses the configured vehicle fuel norm and falls back by payload size', () => {
+    expect(tripSheetFuelNorm({ id: 'LRI744', registrationNumber: 'LRI744', model: 'Renault Master', maximumPayloadKg: 1500 }, DEFAULT_ROUTE_PRICE_SETTINGS))
+      .toBe(DEFAULT_ROUTE_PRICE_SETTINGS.vehicleCosts.LRI744.fuelNormLitersPer100Km);
+    expect(tripSheetFuelNorm({ id: 'XYZ123', registrationNumber: 'XYZ123', model: 'Kitas', maximumPayloadKg: 2500 }, DEFAULT_ROUTE_PRICE_SETTINGS))
+      .toBe(DEFAULT_ROUTE_PRICE_SETTINGS.fallbackVehicleCosts.medium.fuelNormLitersPer100Km);
   });
 
   it('normalizes duplicate route numbers and tolerates missing optional measurements', () => {

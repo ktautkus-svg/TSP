@@ -82,6 +82,16 @@ export function RoutePriceSettingsPanel({
     }));
   };
 
+  const updateDriverType = (name: string, nextType: DriverCostProfile['type']) => {
+    setDraft((current) => {
+      const currentProfile = current.driverCosts[name];
+      const nextProfile: DriverCostProfile = nextType === 'fixed'
+        ? { type: 'fixed', dailyNetEur: currentProfile?.type === 'fixed' ? currentProfile.dailyNetEur : currentProfile?.baseNetEur ?? current.defaultDriverCost.baseNetEur }
+        : currentProfile?.type === 'variable' ? currentProfile : { ...current.defaultDriverCost, type: 'variable' };
+      return { ...current, driverCosts: { ...current.driverCosts, [name]: nextProfile } };
+    });
+  };
+
   const updateFallbackVehicle = (size: keyof RoutePriceSettings['fallbackVehicleCosts'], key: keyof VehicleCostProfile, value: number) => {
     setDraft((current) => ({
       ...current,
@@ -130,6 +140,10 @@ export function RoutePriceSettingsPanel({
     <PriceSection title="Vairuotojų individualūs tarifai" styles={styles}>
       {Object.entries(draft.driverCosts).sort(([left], [right]) => left.localeCompare(right, 'lt')).map(([name, profile]) => <View key={name} style={styles.dataRow}>
         <View style={styles.rowHeading}><Text style={styles.rowTitle}>{name}</Text><Text style={styles.rowMeta}>{profile.type === 'fixed' ? 'Fiksuotas dienos tarifas' : 'Kintamas tarifas'}</Text></View>
+        <View style={styles.tariffChoice}>
+          <Pressable disabled={!canEdit} onPress={() => updateDriverType(name, 'fixed')} style={[styles.tariffButton, profile.type === 'fixed' && styles.tariffButtonActive]}><Text style={[styles.tariffButtonText, profile.type === 'fixed' && styles.tariffButtonTextActive]}>Fiksuotas</Text></Pressable>
+          <Pressable disabled={!canEdit} onPress={() => updateDriverType(name, 'variable')} style={[styles.tariffButton, profile.type === 'variable' && styles.tariffButtonActive]}><Text style={[styles.tariffButtonText, profile.type === 'variable' && styles.tariffButtonTextActive]}>Kintamas</Text></Pressable>
+        </View>
         {profile.type === 'fixed'
           ? <NumberField disabled={!canEdit} label="Dienos neto, €" value={profile.dailyNetEur} onChange={(value) => updateDriver(name, 'dailyNetEur', value)} styles={styles} />
           : <VariableDriverFields disabled={!canEdit} profile={profile} onChange={(key, value) => updateDriver(name, key, value)} styles={styles} />}
@@ -231,6 +245,11 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   rowHeading: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: spacing.sm },
   rowTitle: { ...type.bodyStrong, color: colors.text },
   rowMeta: { ...type.secondary, color: colors.textMuted },
+  tariffChoice: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  tariffButton: { minHeight: 44, minWidth: 120, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface },
+  tariffButtonActive: { backgroundColor: colors.info, borderColor: colors.info },
+  tariffButtonText: { ...type.button, color: colors.textSecondary },
+  tariffButtonTextActive: { color: colors.textInverse },
   footer: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.borderSubtle },
   footerHint: { ...type.secondary, flex: 1, minWidth: 240, color: colors.textMuted },
   saveButton: { minHeight: 50, paddingHorizontal: spacing.lg, alignItems: 'center', justifyContent: 'center', borderRadius: radius.md, backgroundColor: colors.actionPrimary },

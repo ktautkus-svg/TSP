@@ -41,6 +41,13 @@ export default function RootHtml({ children }: PropsWithChildren) {
             position: absolute; left: 0; top: 0;
           }
           .leaflet-container img.leaflet-tile { max-width: none !important; max-height: none !important; }
+          @media print {
+            @page { size: A4 landscape; margin: 10mm; }
+            html, body, #root { background: #FFFFFF !important; overflow: visible !important; }
+            [data-testid="trip-sheet-controls"],
+            [data-testid="trip-sheet-driver-filter"],
+            [data-testid="trip-sheet-month-filter"] { display: none !important; }
+          }
         ` }} />
       </head>
       <body>{children}</body>

@@ -217,9 +217,11 @@ function profileRecord<T>(
   normalize: (value: unknown, fallback: T) => T,
 ): Record<string, T> {
   const source = record(value);
-  return Object.fromEntries(Object.entries(fallback).map(([key, defaultValue]) => [
+  const defaultValue = Object.values(fallback)[0];
+  if (!defaultValue) return {};
+  return Object.fromEntries([...new Set([...Object.keys(fallback), ...Object.keys(source)])].map((key) => [
     key,
-    normalize(source[key], defaultValue),
+    normalize(source[key], fallback[key] ?? defaultValue),
   ]));
 }
 

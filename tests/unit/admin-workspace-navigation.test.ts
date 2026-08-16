@@ -9,6 +9,7 @@ const admin = readFileSync(resolve(root, 'src/app/admin.tsx'), 'utf8');
 const quality = readFileSync(resolve(root, 'src/app/quality-control.tsx'), 'utf8');
 const settings = readFileSync(resolve(root, 'src/app/settings/index.tsx'), 'utf8');
 const dispatcher = readFileSync(resolve(root, 'src/app/dispatcher.tsx'), 'utf8');
+const routeManagement = readFileSync(resolve(root, 'src/app/route-management.tsx'), 'utf8');
 const routes = readFileSync(resolve(root, 'src/app/history.tsx'), 'utf8');
 const appLayout = readFileSync(resolve(root, 'src/app/_layout.tsx'), 'utf8');
 const stackNavigation = readFileSync(resolve(root, 'src/components/stack-navigation.tsx'), 'utf8');
@@ -16,6 +17,8 @@ const stackNavigation = readFileSync(resolve(root, 'src/components/stack-navigat
 describe('administrator workspace navigation', () => {
   it('shows administrator tools instead of automatically continuing a local route', () => {
     expect(home).toContain('testID="admin-home-menu"');
+    expect(home).toContain('label="Dispečerio skydelis"');
+    expect(home).not.toContain('label="Maršrutai"');
     expect(home).toContain('Kokybės kontrolė');
     expect(home).toContain('Vykdyti maršrutą');
     expect(home).toContain('Kelionės lapai');
@@ -35,8 +38,10 @@ describe('administrator workspace navigation', () => {
   });
 
   it('keeps a visible deterministic exit inside both route workspaces', () => {
-    expect(dispatcher).toContain('Redaguoti vairuotojus →');
-    expect(dispatcher).toContain('Redaguoti automobilius →');
+    expect(dispatcher).toContain('Redaguoti vairuotojus');
+    expect(dispatcher).toContain('Redaguoti automobilius');
+    expect(routeManagement).toContain('Redaguoti vairuotojus →');
+    expect(routeManagement).toContain('Redaguoti automobilius →');
     expect(stackNavigation).toContain('router.canGoBack()');
     expect(stackNavigation).toContain('router.back()');
     expect(stackNavigation).toContain("router.replace(fallback)");

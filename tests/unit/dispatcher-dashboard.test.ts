@@ -9,7 +9,8 @@ import {
 } from '../../src/application/auth/employee-permissions';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const dispatcherSource = readFileSync(resolve(root, 'src/app/dispatcher.tsx'), 'utf8');
+const dispatcherHomeSource = readFileSync(resolve(root, 'src/app/dispatcher.tsx'), 'utf8');
+const dispatcherSource = readFileSync(resolve(root, 'src/app/route-management.tsx'), 'utf8');
 const adminSource = readFileSync(resolve(root, 'src/app/admin.tsx'), 'utf8');
 const homeSource = readFileSync(resolve(root, 'src/app/index.tsx'), 'utf8');
 const loadingSource = readFileSync(resolve(root, 'src/app/route/[id]/loading.tsx'), 'utf8');
@@ -17,14 +18,22 @@ const deliverySource = readFileSync(resolve(root, 'src/app/route/[id]/delivery.t
 const layoutSource = readFileSync(resolve(root, 'src/app/_layout.tsx'), 'utf8');
 
 describe('dispatcher desktop workspace', () => {
-  it('uses a compact dropdown assignment workflow', () => {
-    expect(dispatcherSource).toContain('testID="compact-assignment-form"');
-    expect(dispatcherSource).toContain('1. Maršrutas');
-    expect(dispatcherSource).toContain('2. Vairuotojas');
-    expect(dispatcherSource).toContain('3. Automobilis');
+  it('requires choosing a route before showing the assignment workflow', () => {
+    expect(dispatcherSource).toContain('testID="route-first-selection"');
+    expect(dispatcherSource).toContain("mode: 'management'");
+    expect(dispatcherSource).toContain('testID="route-assignment-form"');
+    expect(dispatcherSource).toContain('Pasirinkite maršrutą');
+    expect(dispatcherSource).toContain('Keisti eiliškumą');
+    expect(dispatcherSource).toContain('Peržiūrėti');
+    expect(dispatcherSource).toContain('1. Vairuotojas');
+    expect(dispatcherSource).toContain('2. Automobilis');
     expect(dispatcherSource).toContain('SelectionDropdown');
     expect(dispatcherSource).toContain("const [openPicker, setOpenPicker] = useState<'route' | 'driver' | 'vehicle' | null>(null)");
     expect(dispatcherSource).toContain('Priskirti maršrutą');
+    expect(dispatcherSource).toContain('Niekas neparenkama automatiškai');
+    expect(dispatcherSource).not.toContain('availableDrivers[0]');
+    expect(dispatcherSource).not.toContain('availableVehicles[0]');
+    expect(dispatcherSource).not.toContain("assignableRoutes[0]?.id");
     expect(dispatcherSource).toContain("width >= 980");
     expect(dispatcherSource).toContain('style={styles.scroll}');
     expect(dispatcherSource).toContain('showsVerticalScrollIndicator');
@@ -38,7 +47,7 @@ describe('dispatcher desktop workspace', () => {
   });
 
   it('keeps driver-owned route copies out of the dispatcher cleanup list', () => {
-    expect(dispatcherSource).toContain("WHERE status IN ('draft', 'planned')");
+    expect(dispatcherSource).toContain("WHERE status <> 'cancelled'");
     expect(dispatcherSource).toContain("AND (owner_employee_id IS NULL OR owner_employee_id = ?)");
     expect(dispatcherSource).toContain('profile.id,');
   });
@@ -54,9 +63,7 @@ describe('dispatcher desktop workspace', () => {
 
   it('lets the dispatcher safely remove duplicate or unnecessary planned routes in place', () => {
     expect(dispatcherSource).toContain('TrashIcon');
-    expect(dispatcherSource).toContain("const [manageRoutes, setManageRoutes] = useState(false)");
-    expect(dispatcherSource).toContain('title="Tvarkyti maršrutus"');
-    expect(dispatcherSource).toContain('Ištrinkite nereikalingus ar pasikartojančius maršrutus');
+    expect(dispatcherSource).toContain('routeDeleteAction');
     expect(dispatcherSource).toContain("await new CancelDraftRoute(db).execute(route.id)");
     expect(dispatcherSource).toContain('await markRouteDeletedForCloud(db, route.id)');
     expect(dispatcherSource).toContain("['loading', 'loaded', 'in_progress'].includes(route.status)");
@@ -64,21 +71,20 @@ describe('dispatcher desktop workspace', () => {
     expect(dispatcherSource).toContain('Prisijungus ištrynimas bus sinchronizuotas');
   });
 
-  it('shows the Excel-derived preliminary route price before and after assignment', () => {
+  it('shows the Excel-derived preliminary route price before assignment', () => {
     expect(dispatcherSource).toContain("estimatePreliminaryRoutePrice");
     expect(dispatcherSource).toContain('testID="preliminary-route-price"');
     expect(dispatcherSource).toContain('PRELIMINARI MARŠRUTO KAINA');
-    expect(dispatcherSource).toContain('Preliminari kaina ·');
     expect(dispatcherSource).toContain('Excel automobilio tarifai');
     expect(dispatcherSource).toContain('Įvertinta pagal automobilio dydį');
-    expect(dispatcherSource).toContain('Kainos parametrai');
+    expect(dispatcherHomeSource).toContain('Finansiniai duomenys');
     expect(dispatcherSource).toContain("'/api/admin/route-price-settings'");
   });
 
   it('routes prepared by dispatchers to assignment while keeping loading as a driver action', () => {
     expect(loadingSource).toContain('testID="assign-planned-route"');
-    expect(loadingSource).toContain("pathname: '/dispatcher', params: { routeId }");
-    expect(loadingSource).toContain('router.replace({ pathname: \'/dispatcher\'');
+    expect(loadingSource).toContain("pathname: '/route-management', params: { routeId }");
+    expect(loadingSource).toContain('router.replace({ pathname: \'/route-management\'');
     expect(loadingSource).toContain('onPress={openDispatcherAssignment}');
     expect(loadingSource).toContain("profile.role === 'driver'");
     expect(loadingSource).toContain('testID="begin-loading"');
@@ -121,6 +127,16 @@ describe('driver permissions', () => {
     // triggers without any screen-specific wiring.
     expect(layoutSource).toContain('<RouteCloudSyncProvider>');
     expect(layoutSource).toContain('<Stack.Screen name="dispatcher"');
+  });
+
+  it('starts from a task menu instead of an assignment form', () => {
+    expect(dispatcherHomeSource).toContain('testID="dispatcher-home-menu"');
+    expect(dispatcherHomeSource).toContain('Kurti maršrutus');
+    expect(dispatcherHomeSource).toContain('Redaguoti esamus');
+    expect(dispatcherHomeSource).toContain('Redaguoti automobilius');
+    expect(dispatcherHomeSource).toContain('Redaguoti vairuotojus');
+    expect(dispatcherHomeSource).toContain('Finansiniai duomenys');
+    expect(dispatcherHomeSource).toContain('Kelionės lapai');
   });
 
   it('explains how to recover when another web tab holds the SQLite database', () => {

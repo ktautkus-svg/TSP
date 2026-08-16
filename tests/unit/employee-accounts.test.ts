@@ -95,11 +95,20 @@ describe('employee server session', () => {
   it('publishes completed driver routes as role-scoped trip sheets', () => {
     expect(employeeApiSource).toContain("pathname === '/api/trip-sheets'");
     expect(employeeStoreSource).toContain('async listTripSheets');
-    expect(employeeStoreSource).toContain("assignment.status !== 'cancelled'");
+    expect(employeeStoreSource).toContain("assignment.status === 'completed'");
+    expect(employeeStoreSource).toContain('fuelNormLitersPer100Km: tripSheetFuelNorm');
     expect(tripSheetSource).toContain("employeeApi<{ tripSheets: ServerTripSheet[] }>('/api/trip-sheets')");
     expect(tripSheetSource).toContain('Spausdinti / PDF');
     expect(deliverySource).toContain('await pushRouteAssignmentProgress(db, routeId)');
     expect(homeSource).toContain('await pushCompletedRouteAssignmentProgress(db)');
+  });
+
+  it('allows management actions only to an admin or an explicitly permitted dispatcher', () => {
+    expect(employeeApiSource).toContain("requireManagementPermission(profile, 'canManageEmployees')");
+    expect(employeeApiSource).toContain("requireManagementPermission(profile, 'canManageVehicles')");
+    expect(employeeApiSource).toContain("requireManagementPermission(profile, 'canManageFinancials')");
+    expect(employeeApiSource).toContain("profile.role === 'admin' ? users : users.filter((user) => user.role === 'driver')");
+    expect(employeeApiSource).toContain('Dispečeris gali redaguoti tik vairuotojus.');
   });
 
   it('transfers assignment ownership and pulls newer progress onto every driver device', () => {

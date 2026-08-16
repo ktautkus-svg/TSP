@@ -30,6 +30,8 @@ function RoleAccessBoundary({ children }: { children: ReactNode }) {
   const router = useRouter();
   const adminOnly = pathname === '/admin'
     || pathname === '/dispatcher'
+    || pathname === '/route-management'
+    || pathname === '/financial-settings'
     || pathname.startsWith('/import')
     || pathname === '/route/new';
   const routePlanning = /\/route\/[^/]+\/(review|alternatives)$/.test(pathname);
@@ -166,6 +168,8 @@ export default function RootLayout() {
               <Stack.Screen name="vehicle" options={{ title: 'Transporto priemonė' }} />
               <Stack.Screen name="admin" options={{ title: 'Administratoriaus panelė' }} />
               <Stack.Screen name="dispatcher" options={{ title: 'Dispečerio skydelis' }} />
+              <Stack.Screen name="route-management" options={{ title: 'Redaguoti maršrutus' }} />
+              <Stack.Screen name="financial-settings" options={{ title: 'Finansiniai duomenys' }} />
               <Stack.Screen name="quality-control" options={{ title: 'Kokybės kontrolė' }} />
               <Stack.Screen name="execute-route" options={{ title: 'Vykdyti maršrutą' }} />
             </Stack>

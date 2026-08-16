@@ -12,9 +12,12 @@ import { useLocalAccess } from '@/application/auth/local-access-context';
 import {
   DRIVER_PERMISSION_KEYS,
   DRIVER_PERMISSION_LABELS,
+  MANAGEMENT_PERMISSION_KEYS,
+  MANAGEMENT_PERMISSION_LABELS,
+  normalizeEmployeePermissions,
   normalizeDriverPermissions,
   roleLabel,
-  type DriverPermissionKey,
+  type EmployeePermissionKey,
 } from '@/application/auth/employee-permissions';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { Alert } from '@/ui/alert';
@@ -84,6 +87,11 @@ export default function AdminScreen() {
   const [busy, setBusy] = useState(false);
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
   const focus = requestedSection === 'employees' || requestedSection === 'fleet' ? requestedSection : null;
+  const currentPermissions = normalizeEmployeePermissions(profile.permissions);
+  const canManageEmployees = profile.role === 'admin' || (profile.role === 'dispatcher' && currentPermissions.canManageEmployees);
+  const canManageVehicles = profile.role === 'admin' || (profile.role === 'dispatcher' && currentPermissions.canManageVehicles);
+  const canManageFinancials = profile.role === 'admin' || (profile.role === 'dispatcher' && currentPermissions.canManageFinancials);
+  const canOpenWorkspace = focus === 'employees' ? canManageEmployees : focus === 'fleet' ? canManageVehicles : profile.role === 'admin';
 
   const load = useCallback(async () => {
     const [routeCount, active, completed, stops, localRoutes] = await Promise.all([
@@ -100,12 +108,14 @@ export default function AdminScreen() {
       stops: stops?.count ?? 0,
     });
     setRoutes(localRoutes);
-    if (profile.role === 'admin' && online) {
+    if (['admin', 'dispatcher'].includes(profile.role) && online) {
       const [userResponse, assignmentResponse, vehicleResponse, fuelResponse] = await Promise.all([
         employeeApi<{ users: EmployeeProfile[] }>('/api/admin/users'),
         employeeApi<{ assignments: ServerRouteAssignment[] }>('/api/admin/assignments'),
         employeeApi<{ vehicles: ServerFleetVehicle[] }>('/api/admin/vehicles'),
-        employeeApi<{ reports: FuelReport[] }>('/api/admin/fuel-reports'),
+        profile.role === 'admin'
+          ? employeeApi<{ reports: FuelReport[] }>('/api/admin/fuel-reports')
+          : Promise.resolve({ reports: [] as FuelReport[] }),
       ]);
       setUsers(userResponse.users);
       setAssignments(assignmentResponse.assignments);
@@ -146,8 +156,8 @@ export default function AdminScreen() {
     await load();
   });
 
-  const togglePermission = (employee: EmployeeProfile, key: DriverPermissionKey) => run(async () => {
-    const permissions = normalizeDriverPermissions(employee.permissions);
+  const togglePermission = (employee: EmployeeProfile, key: EmployeePermissionKey) => run(async () => {
+    const permissions = normalizeEmployeePermissions(employee.permissions);
     await employeeApi(`/api/admin/users/${encodeURIComponent(employee.id)}`, {
       method: 'PATCH',
       body: JSON.stringify({ permissions: { ...permissions, [key]: !permissions[key] } }),
@@ -237,10 +247,10 @@ export default function AdminScreen() {
     const patch: Record<string, unknown> = {
       username: editEmployeeUsername,
       displayName: editEmployeeName,
-      role: editEmployeeRole,
       email: editEmployeeEmail,
       phone: editEmployeePhone,
     };
+    if (profile.role === 'admin') patch.role = editEmployeeRole;
     if (editEmployeePin.trim()) patch.pin = editEmployeePin;
     await employeeApi(`/api/admin/users/${encodeURIComponent(selectedEmployeeId)}`, {
       method: 'PATCH', body: JSON.stringify(patch),
@@ -325,7 +335,8 @@ export default function AdminScreen() {
   );
 
   const toggleSection = (section: string) => setExpandedSection((current) => current === section ? null : section);
-  const selectedEmployee = users.find((employee) => employee.id === selectedEmployeeId) ?? null;
+  const editableUsers = profile.role === 'admin' ? users : users.filter((employee) => employee.role === 'driver');
+  const selectedEmployee = editableUsers.find((employee) => employee.id === selectedEmployeeId) ?? null;
   const selectedAssignmentDriver = users.find((employee) => employee.id === selectedDriverId) ?? null;
   const selectedAssignmentVehicle = vehicles.find((vehicle) => vehicle.id === selectedAssignmentVehicleId) ?? null;
   const selectedAssignmentRoute = routes.find((route) => route.id === selectedRouteId) ?? null;
@@ -351,8 +362,8 @@ export default function AdminScreen() {
           <Metric label="Taškai" value={counts?.stops} styles={styles} />
         </View> : null}
 
-        {profile.role === 'admin' ? <View style={[styles.workspace, desktop && styles.workspaceDesktop]}>
-          <View style={[styles.column, focus === 'fleet' && styles.hidden]}>
+        {canOpenWorkspace ? <View style={[styles.workspace, desktop && styles.workspaceDesktop]}>
+          <View style={[styles.column, (focus === 'fleet' || !canManageEmployees) && styles.hidden]}>
           <View style={styles.card} testID="employee-create-form">
             <CollapsibleHeader title="Naujas darbuotojas" expanded={expandedSection === 'employee-create'} onPress={() => toggleSection('employee-create')} styles={styles} />
             {expandedSection === 'employee-create' ? <>
@@ -361,10 +372,10 @@ export default function AdminScreen() {
             <TextInput autoCapitalize="none" autoComplete="email" keyboardType="email-address" value={newEmail} onChangeText={setNewEmail} placeholder="El. paštas (nebūtina)" placeholderTextColor={colors.textMuted} style={styles.input} />
             <TextInput autoComplete="tel" keyboardType="phone-pad" value={newPhone} onChangeText={setNewPhone} placeholder="Telefonas (nebūtina)" placeholderTextColor={colors.textMuted} style={styles.input} />
             {input(newPin, (value) => setNewPin(value.replace(/\D/g, '').slice(0, 8)), '4–8 skaitmenų pradinis PIN', true)}
-            <View style={styles.choiceRow}>{(['driver', 'dispatcher', 'quality'] as EmployeeRole[]).map((role) =>
+            {profile.role === 'admin' ? <View style={styles.choiceRow}>{(['driver', 'dispatcher', 'quality'] as EmployeeRole[]).map((role) =>
               <Pressable key={role} onPress={() => setNewRole(role)} style={[styles.choice, newRole === role && styles.choiceActive]}>
                 <Text style={[styles.choiceText, newRole === role && styles.choiceTextActive]}>{roleLabel(role)}</Text>
-              </Pressable>)}</View>
+              </Pressable>)}</View> : null}
             <Pressable disabled={busy || !online} style={[styles.primaryButton, (busy || !online) && styles.disabled]} onPress={() => void createEmployee()}>
               {busy ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.primaryText}>Sukurti darbuotoją</Text>}
             </Pressable>
@@ -372,9 +383,9 @@ export default function AdminScreen() {
           </View>
 
           <View style={styles.card} testID="employee-list">
-            <CollapsibleHeader title={`Vairuotojai ir darbuotojai (${users.length})`} expanded={expandedSection === 'employees'} onPress={() => toggleSection('employees')} styles={styles} />
+            <CollapsibleHeader title={`${profile.role === 'admin' ? 'Vairuotojai ir darbuotojai' : 'Vairuotojai'} (${editableUsers.length})`} expanded={expandedSection === 'employees'} onPress={() => toggleSection('employees')} styles={styles} />
             {expandedSection === 'employees' ? <>
-            {users.map((employee) => <View key={employee.id} style={styles.employeeBlock}>
+            {editableUsers.map((employee) => <View key={employee.id} style={styles.employeeBlock}>
               <View style={styles.listRow}>
                 <View style={styles.listContent}><Text style={styles.listTitle}>{employee.displayName}</Text><Text style={styles.meta}>@{employee.username} · {roleLabel(employee.role)}{employee.disabled ? ' · Išjungta' : ''}</Text>{employee.email || employee.phone ? <Text style={styles.meta}>{[employee.email, employee.phone].filter(Boolean).join(' · ')}</Text> : null}</View>
                 <View style={styles.rowActions}>
@@ -391,12 +402,12 @@ export default function AdminScreen() {
               {input(editEmployeeName, setEditEmployeeName, 'Vardas ir pavardė')}
               <TextInput autoCapitalize="none" autoComplete="email" keyboardType="email-address" value={editEmployeeEmail} onChangeText={setEditEmployeeEmail} placeholder="El. paštas" placeholderTextColor={colors.textMuted} style={styles.input} />
               <TextInput autoComplete="tel" keyboardType="phone-pad" value={editEmployeePhone} onChangeText={setEditEmployeePhone} placeholder="Telefonas" placeholderTextColor={colors.textMuted} style={styles.input} />
-              <View style={styles.choiceRow}>{(['driver', 'dispatcher', 'quality'] as EmployeeRole[]).map((role) =>
+              {profile.role === 'admin' ? <View style={styles.choiceRow}>{(['driver', 'dispatcher', 'quality'] as EmployeeRole[]).map((role) =>
                 <Pressable accessibilityLabel={`Rolė ${roleLabel(role)}`} accessibilityRole="radio" accessibilityState={{ checked: editEmployeeRole === role }} key={role} onPress={() => setEditEmployeeRole(role)} style={[styles.choice, editEmployeeRole === role && styles.choiceActive]}>
                   <Text style={[styles.choiceText, editEmployeeRole === role && styles.choiceTextActive]}>{roleLabel(role)}</Text>
-                </Pressable>)}</View>
+                </Pressable>)}</View> : null}
               {input(editEmployeePin, (value) => setEditEmployeePin(value.replace(/\D/g, '').slice(0, 8)), 'Naujas PIN (nebūtina)', true)}
-              {selectedEmployee && editEmployeeRole === 'driver' ? <View style={styles.permissions}>
+              {profile.role === 'admin' && selectedEmployee && editEmployeeRole === 'driver' ? <View style={styles.permissions}>
                 <Text style={styles.sectionLabel}>Vairuotojo leidimai</Text>
                 {DRIVER_PERMISSION_KEYS.map((key) => {
                   const enabled = normalizeDriverPermissions(selectedEmployee.permissions)[key];
@@ -407,6 +418,18 @@ export default function AdminScreen() {
                   </Pressable>;
                 })}
               </View> : null}
+              {profile.role === 'admin' && selectedEmployee && editEmployeeRole === 'dispatcher' ? <View style={styles.permissions}>
+                <Text style={styles.sectionLabel}>Dispečerio valdymo teisės</Text>
+                {MANAGEMENT_PERMISSION_KEYS.map((key) => {
+                  const enabled = normalizeEmployeePermissions(selectedEmployee.permissions)[key];
+                  const copy = MANAGEMENT_PERMISSION_LABELS[key];
+                  return <Pressable key={key} onPress={() => void togglePermission(selectedEmployee, key)} style={styles.permissionRow} testID={`permission-${selectedEmployee.id}-${key}`}>
+                    <View style={styles.permissionCopy}><Text style={styles.permissionTitle}>{copy.title}</Text><Text style={styles.permissionDescription}>{copy.description}</Text></View>
+                    <View style={[styles.switchTrack, enabled && styles.switchTrackOn]}><View style={[styles.switchThumb, enabled && styles.switchThumbOn]} /></View>
+                  </Pressable>;
+                })}
+              </View> : null}
+              {canManageFinancials && editEmployeeRole === 'driver' ? <Pressable accessibilityRole="link" onPress={() => router.push('/financial-settings' as Href)} style={styles.smallButton}><Text style={styles.smallButtonText}>Keisti atlygio skaičiavimą →</Text></Pressable> : null}
               <Pressable accessibilityLabel="Išsaugoti darbuotojo pakeitimus" accessibilityRole="button" disabled={busy || !online} onPress={() => void saveEmployee()} style={[styles.primaryButton, (busy || !online) && styles.disabled]}><Text style={styles.primaryText}>Išsaugoti darbuotoją</Text></Pressable>
               </View> : null}
             </View>)}
@@ -414,7 +437,7 @@ export default function AdminScreen() {
           </View>
 
           </View>
-          <View style={[styles.column, focus === 'employees' && styles.hidden]}>
+          <View style={[styles.column, (focus === 'employees' || (focus === 'fleet' && !canManageVehicles)) && styles.hidden]}>
           <View style={[styles.card, Boolean(focus) && styles.hidden]} testID="route-assignment-form">
             <CollapsibleHeader title="Priskirti maršrutą vairuotojui" expanded={expandedSection === 'route-assignment'} onPress={() => toggleSection('route-assignment')} styles={styles} />
             {expandedSection === 'route-assignment' ? <>
@@ -479,7 +502,7 @@ export default function AdminScreen() {
             </> : null}
           </View>
 
-          <View style={[styles.card, focus === 'employees' && styles.hidden]} testID="fleet-vehicle-management">
+          <View style={[styles.card, (focus === 'employees' || !canManageVehicles) && styles.hidden]} testID="fleet-vehicle-management">
             <CollapsibleHeader title={`Automobilių parkas (${vehicles.length})`} expanded={expandedSection === 'fleet'} onPress={() => toggleSection('fleet')} styles={styles} />
             {expandedSection === 'fleet' ? <>
             <Text style={styles.meta}>Maksimalus svoris rodo leistiną krovinio svorį. Miestas automobiliams nesaugomas.</Text>
@@ -505,6 +528,7 @@ export default function AdminScreen() {
               {input(editVehicleModel, setEditVehicleModel, 'Modelis')}
               <TextInput accessibilityLabel="Maksimalus krovinio svoris" value={editVehiclePayload} onChangeText={(value) => setEditVehiclePayload(value.replace(/[^\d.,]/g, '').slice(0, 8))}
                 keyboardType="decimal-pad" placeholder="Maksimalus krovinio svoris, kg" placeholderTextColor={colors.textMuted} style={styles.input} />
+              {canManageFinancials ? <Pressable accessibilityRole="link" onPress={() => router.push('/financial-settings' as Href)} style={styles.smallButton}><Text style={styles.smallButtonText}>Keisti kuro normą, draudimą ir kelių mokestį →</Text></Pressable> : null}
               <Pressable accessibilityLabel="Išsaugoti automobilio pakeitimus" accessibilityRole="button" disabled={busy || !online} style={[styles.primaryButton, (busy || !online) && styles.disabled]} onPress={() => void saveVehicle()}><Text style={styles.primaryText}>Išsaugoti automobilį</Text></Pressable>
               <Text style={styles.sectionLabel}>Priskirti vairuotojui</Text>
               <View style={styles.choiceColumn}>
@@ -554,7 +578,7 @@ export default function AdminScreen() {
             </> : null}
           </View>
           </View>
-        </View> : <View style={styles.card}><Text style={styles.title}>Administratoriaus teisės reikalingos</Text><Text style={styles.meta}>Darbuotojų valdymą mato tik administratorius.</Text></View>}
+        </View> : <View style={styles.card}><Text style={styles.title}>Teisė nesuteikta</Text><Text style={styles.meta}>Šios valdymo dalies teisę dispečeriui gali suteikti administratorius.</Text></View>}
 
         {!focus ? <View style={styles.card}>
           <CollapsibleHeader title="Keisti savo PIN" expanded={expandedSection === 'pin'} onPress={() => toggleSection('pin')} styles={styles} />

@@ -32,6 +32,16 @@ export const DRIVER_PERMISSION_KEYS = [
 export type DriverPermissionKey = (typeof DRIVER_PERMISSION_KEYS)[number];
 export type DriverPermissions = Record<DriverPermissionKey, boolean>;
 
+export const MANAGEMENT_PERMISSION_KEYS = [
+  'canManageEmployees',
+  'canManageVehicles',
+  'canManageFinancials',
+] as const;
+export type ManagementPermissionKey = (typeof MANAGEMENT_PERMISSION_KEYS)[number];
+export type ManagementPermissions = Record<ManagementPermissionKey, boolean>;
+export type EmployeePermissionKey = DriverPermissionKey | ManagementPermissionKey;
+export type EmployeePermissions = DriverPermissions & ManagementPermissions;
+
 export const DEFAULT_DRIVER_PERMISSIONS: DriverPermissions = {
   canReorderAssignedRoute: false,
   canCreateRoutes: false,
@@ -68,9 +78,38 @@ export const DRIVER_PERMISSION_LABELS: Record<DriverPermissionKey, { title: stri
   },
 };
 
+export const DEFAULT_MANAGEMENT_PERMISSIONS: ManagementPermissions = {
+  canManageEmployees: false,
+  canManageVehicles: false,
+  canManageFinancials: false,
+};
+
 export function normalizeDriverPermissions(value?: Partial<DriverPermissions> | null): DriverPermissions {
   return {
     ...DEFAULT_DRIVER_PERMISSIONS,
+    ...(value ?? {}),
+  };
+}
+
+export const MANAGEMENT_PERMISSION_LABELS: Record<ManagementPermissionKey, { title: string; description: string }> = {
+  canManageEmployees: {
+    title: 'Redaguoti vairuotojus',
+    description: 'Dispečeris gali kurti ir redaguoti vairuotojus bei jų prisijungimus.',
+  },
+  canManageVehicles: {
+    title: 'Redaguoti automobilius',
+    description: 'Dispečeris gali keisti automobilių duomenis ir jų priskyrimą.',
+  },
+  canManageFinancials: {
+    title: 'Redaguoti finansinius duomenis',
+    description: 'Dispečeris gali keisti kuro, draudimo, kelių mokesčių ir atlygio parametrus.',
+  },
+};
+
+export function normalizeEmployeePermissions(value?: Partial<EmployeePermissions> | null): EmployeePermissions {
+  return {
+    ...DEFAULT_DRIVER_PERMISSIONS,
+    ...DEFAULT_MANAGEMENT_PERMISSIONS,
     ...(value ?? {}),
   };
 }

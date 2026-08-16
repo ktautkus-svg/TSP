@@ -17,7 +17,7 @@ export type EmployeeProfile = {
   displayName: string;
   role: EmployeeRole;
   disabled: boolean;
-  permissions: DriverPermissions;
+  permissions: EmployeePermissions;
   email: string | null;
   phone: string | null;
 };
@@ -32,6 +32,15 @@ export const DRIVER_PERMISSION_KEYS = [
 ] as const;
 export type DriverPermissionKey = (typeof DRIVER_PERMISSION_KEYS)[number];
 export type DriverPermissions = Record<DriverPermissionKey, boolean>;
+export const MANAGEMENT_PERMISSION_KEYS = [
+  'canManageEmployees',
+  'canManageVehicles',
+  'canManageFinancials',
+] as const;
+export type ManagementPermissionKey = (typeof MANAGEMENT_PERMISSION_KEYS)[number];
+export type ManagementPermissions = Record<ManagementPermissionKey, boolean>;
+export type EmployeePermissionKey = DriverPermissionKey | ManagementPermissionKey;
+export type EmployeePermissions = DriverPermissions & ManagementPermissions;
 const DEFAULT_DRIVER_PERMISSIONS: DriverPermissions = {
   canReorderAssignedRoute: false,
   canCreateRoutes: false,
@@ -39,6 +48,11 @@ const DEFAULT_DRIVER_PERMISSIONS: DriverPermissions = {
   canRecalculateRoute: false,
   canCancelRoute: false,
   canViewCompensation: false,
+};
+const DEFAULT_MANAGEMENT_PERMISSIONS: ManagementPermissions = {
+  canManageEmployees: false,
+  canManageVehicles: false,
+  canManageFinancials: false,
 };
 
 export const DEFAULT_COMPENSATION_RATES = {
@@ -125,6 +139,7 @@ export type ServerTripSheet = {
   driverId: string;
   driverName: string;
   vehicle: FleetVehicleSnapshot | null;
+  fuelNormLitersPer100Km: number | null;
   startOdometer: number | null;
   endOdometer: number | null;
   actualDistanceKm: number | null;
@@ -575,7 +590,7 @@ export class EmployeeAuthStore {
     return publicProfile(stored);
   }
 
-  async updateUser(userId: string, input: { username?: string; displayName?: string; role?: EmployeeRole; disabled?: boolean; pin?: string; permissions?: Partial<DriverPermissions>; email?: string; phone?: string }): Promise<EmployeeProfile> {
+  async updateUser(userId: string, input: { username?: string; displayName?: string; role?: EmployeeRole; disabled?: boolean; pin?: string; permissions?: Partial<EmployeePermissions>; email?: string; phone?: string }): Promise<EmployeeProfile> {
     const reference = this.users.doc(safeId(userId));
     const document = await reference.get();
     const current = document.data() as StoredUser | undefined;
@@ -720,13 +735,15 @@ export class EmployeeAuthStore {
   }
 
   async listTripSheets(profile: EmployeeProfile): Promise<ServerTripSheet[]> {
-    const assignments = (await this.listAssignments(profile)).filter((assignment) => assignment.status !== 'cancelled');
+    const assignments = (await this.listAssignments(profile)).filter((assignment) => assignment.status === 'completed');
     const vehicles = await this.listVehicles();
     const currentVehicles = new Map(
       vehicles.filter((vehicle) => vehicle.assignedDriverId).map((vehicle) => [vehicle.assignedDriverId!, vehicleSnapshot(vehicle)]),
     );
+    const priceSettings = await this.getRoutePriceSettings();
     const sheets = assignments
       .map((assignment) => buildServerTripSheet(assignment, assignment.vehicle ?? currentVehicles.get(assignment.driverId) ?? null))
+      .map((sheet) => ({ ...sheet, fuelNormLitersPer100Km: tripSheetFuelNorm(sheet.vehicle, priceSettings) }))
       .sort((left, right) => (right.completedAt ?? right.date).localeCompare(left.completedAt ?? left.date));
     const canViewCompensation = profile.role !== 'driver' || profile.permissions.canViewCompensation;
     return canViewCompensation ? attachDailyCompensation(sheets) : sheets;
@@ -812,7 +829,7 @@ function createStoredUser(input: { username: string; displayName: string; role: 
     displayName: input.displayName,
     role: input.role,
     disabled: false,
-    permissions: { ...DEFAULT_DRIVER_PERMISSIONS },
+    permissions: { ...DEFAULT_DRIVER_PERMISSIONS, ...DEFAULT_MANAGEMENT_PERMISSIONS },
     email: input.email ?? null,
     phone: input.phone ?? null,
     ...pinCredentials(input.username, input.pin),
@@ -853,11 +870,11 @@ function publicProfile(user: StoredUser): EmployeeProfile {
   };
 }
 
-function validatePermissions(value: Partial<DriverPermissions> | undefined): DriverPermissions {
+function validatePermissions(value: Partial<EmployeePermissions> | undefined): EmployeePermissions {
   const source = value && typeof value === 'object' ? value : {};
   return Object.fromEntries(
-    DRIVER_PERMISSION_KEYS.map((key) => [key, source[key] === true]),
-  ) as DriverPermissions;
+    [...DRIVER_PERMISSION_KEYS, ...MANAGEMENT_PERMISSION_KEYS].map((key) => [key, source[key] === true]),
+  ) as EmployeePermissions;
 }
 
 function normalizeUsername(value: string): string {
@@ -950,6 +967,7 @@ export function buildServerTripSheet(assignment: RouteAssignment, vehicle: Fleet
     driverId: assignment.driverId,
     driverName: assignment.driverName,
     vehicle,
+    fuelNormLitersPer100Km: null,
     startOdometer: nullableNumber(route.start_odometer),
     endOdometer: nullableNumber(route.end_odometer),
     actualDistanceKm: nullableNumber(route.actual_distance_km),
@@ -965,6 +983,16 @@ export function buildServerTripSheet(assignment: RouteAssignment, vehicle: Fleet
     endAddress: locationAddress(route.end_location_json, 'Pabaiga'),
     compensation: null,
   };
+}
+
+export function tripSheetFuelNorm(vehicle: FleetVehicleSnapshot | null, settings: RoutePriceSettings): number | null {
+  if (!vehicle) return null;
+  const exact = settings.vehicleCosts[vehicle.registrationNumber.trim().toUpperCase()];
+  if (exact) return exact.fuelNormLitersPer100Km;
+  const size = vehicle.maximumPayloadKg > settings.fallbackPayloadThresholdsKg.mediumMax
+    ? 'large'
+    : vehicle.maximumPayloadKg > settings.fallbackPayloadThresholdsKg.smallMax ? 'medium' : 'small';
+  return settings.fallbackVehicleCosts[size].fuelNormLitersPer100Km;
 }
 
 export function attachDailyCompensation(sheets: ServerTripSheet[]): ServerTripSheet[] {

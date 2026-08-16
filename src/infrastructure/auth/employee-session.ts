@@ -1,5 +1,5 @@
 import { createGatewayAuthorizationHeaders } from '@/infrastructure/gateway/device-auth';
-import type { DriverPermissions } from '@/application/auth/employee-permissions';
+import type { EmployeePermissions } from '@/application/auth/employee-permissions';
 
 export const EMPLOYEE_ROLES = ['admin', 'dispatcher', 'driver', 'quality'] as const;
 export type EmployeeRole = (typeof EMPLOYEE_ROLES)[number];
@@ -10,7 +10,7 @@ export type EmployeeProfile = {
   displayName: string;
   role: EmployeeRole;
   disabled: boolean;
-  permissions?: DriverPermissions;
+  permissions?: EmployeePermissions;
   email?: string | null;
   phone?: string | null;
 };
@@ -98,6 +98,7 @@ export type ServerTripSheet = {
   driverId: string;
   driverName: string;
   vehicle: ServerFleetVehicleSnapshot | null;
+  fuelNormLitersPer100Km: number | null;
   startOdometer: number | null;
   endOdometer: number | null;
   actualDistanceKm: number | null;
