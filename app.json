@@ -4,11 +4,11 @@
     "slug": "logistikos-pristatymai",
     "version": "1.0.0",
     "orientation": "default",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/brand/tsp-app-icon-1024.png",
     "scheme": "logistikospristatymai",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon",
+      "icon": "./assets/brand/tsp-app-icon-1024.png",
       "supportsTablet": true,
       "bundleIdentifier": "lt.asmeninis.manopristatymai",
       "infoPlist": {
@@ -21,16 +21,14 @@
     "android": {
       "package": "lt.asmeninis.manopristatymai",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "backgroundColor": "#F7F9FC",
+        "foregroundImage": "./assets/brand/tsp-app-icon-foreground-1024.png"
       },
       "predictiveBackGestureEnabled": false
     },
     "web": {
       "output": "single",
-      "favicon": "./assets/images/favicon.png",
+      "favicon": "./assets/brand/tsp-favicon-64.png",
       "name": "TSP – Tikslus siuntų pristatymas",
       "shortName": "TSP",
       "description": "Tikslus siuntų maršruto planavimas ir pristatymo vykdymas.",

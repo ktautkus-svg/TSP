@@ -56,7 +56,7 @@ async function patchProductionHtml(path) {
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <meta name="apple-mobile-web-app-title" content="TSP" />
 <link rel="manifest" href="/manifest.webmanifest" />
-<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+<link rel="apple-touch-icon" sizes="180x180" href="/tsp-apple-touch-icon.png" />
 <style id="tsp-mobile-layout">
   html, body, #root { width: 100vw; min-width: 0; max-width: 100vw; overflow-x: clip; }
   html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }

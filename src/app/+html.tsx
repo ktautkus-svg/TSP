@@ -22,7 +22,7 @@ export default function RootHtml({ children }: PropsWithChildren) {
           content="Tikslus siuntų maršruto planavimas ir pristatymo vykdymas."
         />
         <link rel="manifest" href="/manifest.webmanifest" />
-        <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+        <link rel="apple-touch-icon" sizes="180x180" href="/tsp-apple-touch-icon.png" />
         <link
           rel="stylesheet"
           href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
