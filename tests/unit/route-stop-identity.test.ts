@@ -189,6 +189,43 @@ describe('persisted DeliveryStop identity and atomic route creation', () => {
     expect(adapter.raw.prepare('SELECT COUNT(*) AS count FROM delivery_stops').get()).toMatchObject({ count: 2 });
   });
 
+  it('uses the latest route settings when recovering an interrupted empty draft', async () => {
+    const { db } = createDb();
+    const legacy = await new CreateDraftRoute(db, undefined, uniqueFactory('legacy-location')).execute({
+      date: '2026-08-16',
+      planningMode: 'ignore_time_windows',
+      plannedDepartureAt: '2026-08-16T04:00:00.000Z',
+      startLocation: endpoint,
+      endLocation: endpoint,
+      importSource: { type: 'pasted_text', originalText: 'tas pats importas', imageReference: null },
+    });
+    const kretinga = {
+      originalAddress: 'Tiekėjų g. 7, Kretinga',
+      geocodingQuery: 'Tiekėjų g. 7, Kretinga',
+      normalizedAddress: 'Tiekėjų g. 7, 97187 Kretinga, Lietuva',
+      latitude: 55.891,
+      longitude: 21.244,
+    };
+
+    const recovered = await new CreateDraftRouteWithStops(db, undefined, uniqueFactory('latest-location')).execute({
+      ...createInput('latest-location-command'),
+      date: '2026-08-17',
+      planningMode: 'with_time_windows',
+      plannedDepartureAt: '2026-08-17T04:00:00.000Z',
+      startLocation: kretinga,
+      endLocation: kretinga,
+    });
+
+    expect(recovered).toMatchObject({ routeId: legacy.routeId, recoveredIncompleteDraft: true });
+    expect(await new RouteRepository(db).getById(recovered.routeId)).toMatchObject({
+      date: '2026-08-17',
+      planningMode: 'with_time_windows',
+      plannedDepartureAt: '2026-08-17T04:00:00.000Z',
+      startLocation: kretinga,
+      endLocation: kretinga,
+    });
+  });
+
   it('retries idempotently from a new command instance after a process restart', async () => {
     const { db } = createDb();
     const first = await new CreateDraftRouteWithStops(db, undefined, uniqueFactory('before-restart')).execute(createInput('restart-command'));

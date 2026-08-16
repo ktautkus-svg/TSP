@@ -108,7 +108,10 @@ export async function pullAssignedRoutes(db: SQLiteDatabase, profile: EmployeePr
   await reconcileAssignedRouteCopies(db, profile.id, response.assignments);
   let imported = 0;
   let skipped = 0;
-  for (const assignment of response.assignments.filter((item) => !['completed', 'cancelled'].includes(item.status))) {
+  // Completed assignments must also be applied. Otherwise a second tab/device
+  // can keep an old in_progress copy forever even though the server already
+  // holds the final route and all delivery results.
+  for (const assignment of response.assignments.filter((item) => item.status !== 'cancelled')) {
     const existingSync = await db.getFirstAsync<{ route_id: string; server_revision: string | null }>(
       'SELECT route_id, server_revision FROM route_sync_state WHERE assignment_id = ?', assignment.id,
     );
@@ -149,6 +152,27 @@ export async function pushRouteAssignmentProgress(db: SQLiteDatabase, routeId: s
      WHERE assignment_id = ?`,
     new Date().toISOString(), new Date().toISOString(), sync.assignment_id,
   );
+  return true;
+}
+
+/** Publishes a newly selected route sequence to an existing driver assignment. */
+export async function pushRouteAssignmentRevision(
+  db: SQLiteDatabase,
+  routeId: string,
+  canInspectAdminAssignments = false,
+): Promise<boolean> {
+  if (await pushRouteAssignmentProgress(db, routeId)) return true;
+  if (!canInspectAdminAssignments) return false;
+  const response = await employeeApi<{ assignments: ServerRouteAssignment[] }>('/api/admin/assignments');
+  const assignment = response.assignments.find((item) =>
+    item.routeId === routeId && !['completed', 'cancelled'].includes(item.status),
+  );
+  if (!assignment) return false;
+  const routeSnapshot = await exportRouteSnapshot(db, routeId);
+  await employeeApi(`/api/assignments/${encodeURIComponent(assignment.id)}/progress`, {
+    method: 'PUT',
+    body: JSON.stringify({ routeSnapshot }),
+  });
   return true;
 }
 

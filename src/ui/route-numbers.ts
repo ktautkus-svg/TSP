@@ -16,10 +16,17 @@ export function groupRouteCodes(rows: readonly RouteCodeRow[]): Record<string, s
   }
   return Object.fromEntries([...grouped].map(([routeId, values]) => [
     routeId,
-    [...values].join(' · '),
+    [...values].sort(compareRouteCodes).join(' · '),
   ]));
 }
 
 export function routeCodeLabel(routeId: string, routeCodes: Readonly<Record<string, string>>): string {
-  return routeCodes[routeId] ?? 'Maršrutas';
+  return routeCodes[routeId] ?? 'Regiono kodas nenurodytas';
+}
+
+function compareRouteCodes(left: string, right: string): number {
+  const leftMatch = /^([A-Z])(\d{2})$/.exec(left);
+  const rightMatch = /^([A-Z])(\d{2})$/.exec(right);
+  if (!leftMatch || !rightMatch) return left.localeCompare(right, 'lt');
+  return leftMatch[1].localeCompare(rightMatch[1], 'lt') || Number(leftMatch[2]) - Number(rightMatch[2]);
 }

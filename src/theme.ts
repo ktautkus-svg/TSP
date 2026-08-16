@@ -1,3 +1,4 @@
+import type { ResolvedScheme } from '@/ui/theme-palette';
 import { colors, fonts, layout, radius, spacing, type } from '@/ui/tokens';
 
 /** Tokens extracted from the approved light Stitch cockpit direction. */
@@ -77,5 +78,87 @@ export const stitchTheme = {
     warning: '#F59E0B',
   },
 } as const;
+
+/**
+ * Dark counterparts of the two approved light palettes above.
+ *
+ * The light values are the approved Stitch extraction and must not drift, so
+ * these screens cannot simply be moved onto the generic tokens. Instead every
+ * approved role gets a dark twin taken from `@/ui/theme-palette`, and screens
+ * select the pair with `stitchColorsFor` / `cockpitColorsFor`. Light mode stays
+ * pixel-identical; dark mode stops rendering dark text on white panels.
+ */
+type CockpitColors = Record<keyof typeof stitchCockpitTheme.colors, string>;
+type StitchColors = {
+  [Group in keyof typeof stitchTheme]: Record<keyof (typeof stitchTheme)[Group], string>;
+};
+
+const stitchCockpitDarkColors: CockpitColors = {
+  background: '#101512',
+  surface: '#18201B',
+  surfaceMuted: '#1F2822',
+  surfaceContainer: '#1D2620',
+  surfaceContainerHigh: '#253029',
+  surfaceContainerHighest: '#2C3830',
+  surfaceDim: '#151C18',
+  onSurface: '#EDF1EE',
+  onSurfaceVariant: '#C7D0CA',
+  outline: '#9AA69E',
+  outlineVariant: '#3D4A42',
+  primary: '#6FA3D6',
+  primarySoft: '#24264F',
+  primaryDim: '#5689BB',
+  primaryDark: '#15174C',
+  secondary: '#4FB07A',
+  secondarySoft: '#16291E',
+  tertiary: '#E0A44B',
+  error: '#E4695E',
+  errorSoft: '#2C1B19',
+  white: '#FFFFFF',
+  shadow: '#000000',
+  metalLight: '#2A332D',
+  metalMid: '#7A857E',
+  metalDark: '#C7D0CA',
+  routeBright: '#6FA3D6',
+};
+
+const stitchDark: StitchColors = {
+  login: {
+    background: '#101512',
+    surface: '#18201B',
+    text: '#EDF1EE',
+    muted: '#9AA69E',
+    border: '#3D4A42',
+    // The two approved navies swap roles so the button still separates from a
+    // dark background instead of disappearing into it.
+    primary: '#2B2D62',
+    primaryPressed: '#15174C',
+    accent: '#E4695E',
+    error: '#E4695E',
+  },
+  driverNow: {
+    background: '#101512',
+    surface: '#18201B',
+    text: '#EDF1EE',
+    muted: '#9AA69E',
+    border: '#3D4A42',
+    routeBlue: '#6FA3D6',
+    routeBluePressed: '#5689BB',
+    routeBlueSoft: '#182430',
+    progress: '#4FB07A',
+    progressSoft: '#16291E',
+    warning: '#E0A44B',
+  },
+};
+
+/** Approved login / driver palette for the active colour scheme. */
+export function stitchColorsFor(scheme: ResolvedScheme): StitchColors {
+  return scheme === 'dark' ? stitchDark : stitchTheme;
+}
+
+/** Approved cockpit (gauge / progress) palette for the active colour scheme. */
+export function cockpitColorsFor(scheme: ResolvedScheme): CockpitColors {
+  return scheme === 'dark' ? stitchCockpitDarkColors : stitchCockpitTheme.colors;
+}
 
 export { colors, fonts, layout, radius, spacing, type };

@@ -36,7 +36,7 @@ export function RouteListCard(props: RouteListCardProps) {
       <View style={styles.heading}>
         <View style={styles.identity}>
           <Text style={styles.date}>{props.dateLabel}</Text>
-          <Text style={styles.number}>{props.numberLabel}</Text>
+          <Text numberOfLines={1} style={styles.number}>{props.numberLabel}</Text>
         </View>
         <Text style={[styles.status, statusStyle(props.statusTone, styles)]}>{props.statusLabel}</Text>
       </View>
@@ -69,7 +69,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   heading: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing.md },
   identity: { flex: 1, minWidth: 0, gap: 2 },
   date: { ...type.label, color: colors.textMuted },
-  number: { ...type.sectionTitle, fontSize: 20, color: colors.text },
+  number: { ...type.sectionTitle, minHeight: 25, fontSize: 20, color: colors.text },
   status: { ...type.label, overflow: 'hidden', borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
   statusActive: { color: colors.info, backgroundColor: colors.infoSoft },
   statusPlanned: { color: colors.textSecondary, backgroundColor: colors.surfaceMuted },

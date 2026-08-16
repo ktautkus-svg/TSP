@@ -86,7 +86,7 @@ export class ExcelImportRepository {
   async getLatestReview(): Promise<{ preview: ExcelImportPreview; result: ImportResult | null } | null> {
     const session = await this.db.getFirstAsync<{ id: string; review_result_json: string | null }>(
       `SELECT id, review_result_json FROM excel_import_sessions
-       WHERE status IN ('review','ready') ORDER BY updated_at DESC LIMIT 1`,
+       WHERE status IN ('review','ready','routed') ORDER BY updated_at DESC LIMIT 1`,
     );
     if (!session) return null;
     const preview = await this.getPreview(session.id);

@@ -15,7 +15,7 @@ describe('stage 2.2 deterministic navigation', () => {
     expect(result).toContain('Peržiūrėti maršrutą');
     expect(result).toContain('Į pradžią');
     expect(result).toContain('gestureEnabled: false');
-    expect(result).toContain('headerBackVisible: false');
+    expect(result).toContain("title: 'Maršruto rezultatas'");
     expect(result).not.toContain('router.back(');
   });
 
@@ -35,7 +35,7 @@ describe('stage 2.2 deterministic navigation', () => {
   it('combines operational and historical routes with deterministic exits', () => {
     const history = source('src/app/history.tsx');
     expect(history).toContain("router.replace('/' as Href)");
-    expect(history).toContain('← Skydelis');
+    expect(history).toContain('Į skydelį');
     expect(history).toContain('DABAR IR TOLIAU');
     expect(history).toContain('ANKSTESNI');
     expect(history).toContain('repository.listOperational(owner)');
@@ -76,9 +76,10 @@ describe('stage 2.2 deterministic navigation', () => {
 
   it('gives every non-Dashboard stack screen a visible global Home action', () => {
     const layout = source('src/app/_layout.tsx');
-    expect(layout).toContain('headerRight: () =>');
-    expect(layout).toContain('<Text style={{ ...type.secondary,');
-    expect(layout).toContain('>Pradžia</Text>');
+    const stackNavigation = source('src/components/stack-navigation.tsx');
+    expect(layout).toContain('headerRight: () => <StackHeaderActions />');
+    expect(stackNavigation).toContain("router.replace('/' as Href)");
+    expect(stackNavigation).toContain('>Pradžia<');
     expect(layout).toContain('<Stack.Screen name="settings/index"');
     expect(layout).toContain('<Stack.Screen name="route/[id]/result"');
   });

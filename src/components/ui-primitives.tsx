@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -37,7 +37,7 @@ export function AppButton({
   ...props
 }: AppButtonProps) {
   const { colors } = useTheme();
-  const styles = createStyles(colors);
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const inactive = Boolean(disabled || loading);
   const [focused, setFocused] = useState(false);
 
@@ -66,7 +66,7 @@ export function AppButton({
 
 export function AppCard({ children, style, ...props }: Omit<ViewProps, 'style'> & { children: ReactNode; style?: StyleProp<ViewStyle> }) {
   const { colors } = useTheme();
-  const styles = createStyles(colors);
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return <View style={[styles.card, style]} {...props}>{children}</View>;
 }
 
@@ -78,7 +78,7 @@ type AppTextFieldProps = TextInputProps & {
 
 export function AppTextField({ label, hint, error, style, ...props }: AppTextFieldProps) {
   const { colors } = useTheme();
-  const styles = createStyles(colors);
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <View style={styles.fieldGroup}>
       {label ? <Text style={styles.fieldLabel}>{label}</Text> : null}
@@ -96,7 +96,7 @@ export type StatusTone = 'neutral' | 'info' | 'success' | 'warning' | 'danger';
 
 export function StatusBadge({ label, tone = 'neutral' }: { label: string; tone?: StatusTone }) {
   const { colors } = useTheme();
-  const styles = createStyles(colors);
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <View style={[styles.badge, styles[`${tone}Badge`]]}>
       <View style={[styles.badgeDot, styles[`${tone}Dot`]]} />
@@ -107,7 +107,7 @@ export function StatusBadge({ label, tone = 'neutral' }: { label: string; tone?:
 
 export function SectionHeader({ title, detail }: { title: string; detail?: string }) {
   const { colors } = useTheme();
-  const styles = createStyles(colors);
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <View style={styles.sectionHeader}>
       <Text style={styles.sectionTitle}>{title}</Text>
@@ -118,7 +118,7 @@ export function SectionHeader({ title, detail }: { title: string; detail?: strin
 
 export function InlineNotice({ children, tone = 'info' }: { children: ReactNode; tone?: StatusTone }) {
   const { colors } = useTheme();
-  const styles = createStyles(colors);
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <View accessibilityRole="alert" style={[styles.notice, styles[`${tone}Notice`]]}>
       <View style={[styles.noticeRail, styles[`${tone}Dot`]]} />

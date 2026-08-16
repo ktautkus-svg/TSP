@@ -88,6 +88,16 @@ export async function handleEmployeeApi(
       return send(response, 204, null, requestId, { 'set-cookie': expiredSessionCookie() });
     }
 
+    if (pathname === '/api/admin/route-price-settings' && request.method === 'GET') {
+      requireRole(profile, ['admin', 'dispatcher']);
+      return send(response, 200, { settings: await store.getRoutePriceSettings() }, requestId);
+    }
+    if (pathname === '/api/admin/route-price-settings' && request.method === 'PATCH') {
+      requireRole(profile, ['admin']);
+      const body = parseObject(await readBody(request, 256_000));
+      return send(response, 200, { settings: await store.updateRoutePriceSettings(body.settings, profile.id) }, requestId);
+    }
+
     if (pathname === '/api/admin/users' && request.method === 'GET') {
       requireRole(profile, ['admin', 'dispatcher']);
       return send(response, 200, { users: await store.listUsers() }, requestId);
@@ -146,6 +156,7 @@ export async function handleEmployeeApi(
       const body = parseObject(await readBody(request, 64_000));
       const role = optionalString(body, 'role') as EmployeeRole | undefined;
       const user = await store.updateUser(decodeURIComponent(userMatch[1]), {
+        username: optionalString(body, 'username'),
         displayName: optionalString(body, 'displayName'),
         role,
         disabled: typeof body.disabled === 'boolean' ? body.disabled : undefined,

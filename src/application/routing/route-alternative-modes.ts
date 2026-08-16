@@ -64,6 +64,21 @@ export type FourObjectiveAlternatives = {
   request: RouteOptimizationRequest;
 };
 
+/**
+ * Shares one screen-level time budget across `runs` engine calls. Never drops
+ * below a single seed's budget, so short routes are unaffected.
+ */
+function splitTotalBudget(
+  request: RouteOptimizationRequest,
+  runs: number,
+): RouteOptimizationRequest {
+  const total = request.maxTotalCalculationMs ?? request.maxCalculationMs * 3;
+  return {
+    ...request,
+    maxTotalCalculationMs: Math.max(request.maxCalculationMs, Math.round(total / runs)),
+  };
+}
+
 /** Rebuild a request so required windows match the chosen planning mode. */
 export function requestForPlanningMode(
   request: RouteOptimizationRequest,
@@ -107,18 +122,49 @@ export function selectFourObjectiveAlternatives(
   const timedPool = poolForObjective(timed);
   const geoPool = poolForObjective(geo);
 
-  const picks: Array<{ mode: RouteAlternativeMode; candidate: RouteCandidate }> = [
-    { mode: 'free_fastest', candidate: pickBest(geoPool, byFastest) ?? geoFallback },
-    { mode: 'free_shortest', candidate: pickBest(geoPool, byShortest) ?? geoFallback },
-    { mode: 'timed_fastest', candidate: pickBest(timedPool, byFastest) ?? timedFallback },
-    { mode: 'timed_shortest', candidate: pickBest(timedPool, byShortest) ?? timedFallback },
+  const freeFastest = pickBest(geoPool, byFastest) ?? geoFallback;
+  const absoluteFreeShortest = pickBest(geoPool, byShortest) ?? geoFallback;
+  const freeShortestAlternative = sameSequence(freeFastest, absoluteFreeShortest)
+    ? pickBestDistinct(geoPool, byShortest, freeFastest)
+    : absoluteFreeShortest;
+  const timedFastest = pickBest(timedPool, byFastest) ?? timedFallback;
+  const absoluteTimedShortest = pickBest(timedPool, byShortest) ?? timedFallback;
+  const timedShortestAlternative = sameSequence(timedFastest, absoluteTimedShortest)
+    ? pickBestDistinct(timedPool, byShortest, timedFastest)
+    : absoluteTimedShortest;
+
+  const picks: Array<{ mode: RouteAlternativeMode; candidate: RouteCandidate; duplicateWinner: boolean; alternateShown: boolean }> = [
+    { mode: 'free_fastest', candidate: freeFastest, duplicateWinner: false, alternateShown: false },
+    {
+      mode: 'free_shortest',
+      candidate: freeShortestAlternative ?? absoluteFreeShortest,
+      duplicateWinner: sameSequence(freeFastest, absoluteFreeShortest),
+      alternateShown: Boolean(freeShortestAlternative),
+    },
+    { mode: 'timed_fastest', candidate: timedFastest, duplicateWinner: false, alternateShown: false },
+    {
+      mode: 'timed_shortest',
+      candidate: timedShortestAlternative ?? absoluteTimedShortest,
+      duplicateWinner: sameSequence(timedFastest, absoluteTimedShortest),
+      alternateShown: Boolean(timedShortestAlternative),
+    },
   ];
 
-  return picks.map(({ mode, candidate }) => ({
-    mode,
-    ...ROUTE_ALTERNATIVE_LABELS[mode],
-    candidate: stampMode(candidate, mode),
-  }));
+  return picks.map(({ mode, candidate, duplicateWinner, alternateShown }) => {
+    const label = ROUTE_ALTERNATIVE_LABELS[mode];
+    const duplicateComment = duplicateWinner
+      ? alternateShown
+        ? 'Absoliučiai trumpiausias sutampa su greičiausiu; rodoma artimiausia skirtinga seka pagal atstumą.'
+        : 'Tas pats eiliškumas pagal turimą kelių matricą yra ir greičiausias, ir trumpiausias.'
+      : label.comment;
+    return {
+      mode,
+      ...label,
+      title: duplicateWinner ? (alternateShown ? 'Kitas trumpiausias' : 'Trumpiausias = greičiausias') : label.title,
+      comment: duplicateComment,
+      candidate: stampMode(candidate, mode, duplicateComment),
+    };
+  });
 }
 
 /**
@@ -129,8 +175,11 @@ export async function buildFourObjectiveAlternatives(
   engine: RouteOptimizer,
   request: RouteOptimizationRequest,
 ): Promise<FourObjectiveAlternatives> {
-  const timedRequest = requestForPlanningMode(request, 'with_time_windows');
-  const geoRequest = requestForPlanningMode(request, 'ignore_time_windows');
+  // Two engine runs share the screen's budget instead of each taking a full one,
+  // so opening the alternatives screen costs the same wall-clock time as planning.
+  const halved = splitTotalBudget(request, 2);
+  const timedRequest = requestForPlanningMode(halved, 'with_time_windows');
+  const geoRequest = requestForPlanningMode(halved, 'ignore_time_windows');
   const [timed, geo] = await Promise.all([
     engine.optimize(timedRequest),
     engine.optimize(geoRequest),
@@ -185,13 +234,26 @@ function pickBest(
   return [...pool].sort(compare)[0] ?? null;
 }
 
-function stampMode(candidate: RouteCandidate, mode: RouteAlternativeMode): RouteCandidate {
+function pickBestDistinct(
+  pool: RouteCandidate[],
+  compare: (left: RouteCandidate, right: RouteCandidate) => number,
+  excluded: RouteCandidate,
+): RouteCandidate | null {
+  return pickBest(pool.filter((candidate) => !sameSequence(candidate, excluded)), compare);
+}
+
+function sameSequence(left: RouteCandidate, right: RouteCandidate): boolean {
+  return left.stopSequence.length === right.stopSequence.length
+    && left.stopSequence.every((stopId, index) => stopId === right.stopSequence[index]);
+}
+
+function stampMode(candidate: RouteCandidate, mode: RouteAlternativeMode, comment = ROUTE_ALTERNATIVE_LABELS[mode].comment): RouteCandidate {
   const label = ROUTE_ALTERNATIVE_LABELS[mode];
   const honoursWindows = mode.startsWith('timed_');
   const isShortest = label.objective === 'shortest';
   const explanation: ExplanationEvidence = {
     code: honoursWindows ? 'REQUIRED_WINDOW' : isShortest ? 'LOWER_TONNE_KM' : 'LONGER_BUT_FASTER',
-    text: label.comment,
+    text: comment,
     criterion: isShortest ? 'distance' : 'drivingTime',
     baselineValue: null,
     selectedValue: `${label.group} · ${label.title}`,

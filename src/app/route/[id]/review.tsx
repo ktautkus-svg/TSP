@@ -6,7 +6,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
 import { Alert } from '@/ui/alert';
@@ -25,12 +25,13 @@ import {
   routeEndpointFromGeocode,
 } from '@/application/routes/route-draft-mappers';
 import { resolveRoute } from '@/application/routes/route-navigation';
+import { GetDefaultLocations, KRETINGA_WAREHOUSE_ADDRESS } from '@/application/routes/saved-locations';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { ChevronDownIcon, ChevronRightIcon, TrashIcon } from '@/components/app-icons';
 import { AppButton } from '@/components/ui-primitives';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import { ShipmentLineRepository } from '@/database/repositories/shipment-line-repository';
-import type { DeliveryStop, Route } from '@/domain/route';
+import type { DeliveryStop, Route, RouteEndpoint } from '@/domain/route';
 import {
   GatewayGeocodingProvider,
   type GeocodeCandidate,
@@ -50,12 +51,14 @@ export default function RouteReviewScreen() {
   const repository = useMemo(() => new RouteRepository(db), [db]);
   const provider = useMemo(() => new GatewayGeocodingProvider(), []);
   const [route, setRoute] = useState<Route | null>(null);
+  const [defaultWarehouse, setDefaultWarehouse] = useState<RouteEndpoint | null>(null);
   const [stops, setStops] = useState<DeliveryStop[]>([]);
   const [candidates, setCandidates] = useState<Record<string, GeocodeCandidate[]>>({});
   const [running, setRunning] = useState(false);
   const editQueue = useRef<Promise<void>>(Promise.resolve());
   const [newAddress, setNewAddress] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const screenFocused = useRef(false);
 
   const redirectStalePlanningScreen = useCallback(async (): Promise<boolean> => {
     const current = await repository.getById(routeId);
@@ -80,7 +83,13 @@ export default function RouteReviewScreen() {
 
   const reload = useCallback(async () => {
     try {
-      const persisted = await repository.getWithStops(routeId);
+      const [persisted, locations] = await Promise.all([
+        repository.getWithStops(routeId),
+        new GetDefaultLocations(db).execute().catch((reason) => {
+          if (__DEV__) console.warn('REVIEW_DEFAULT_LOCATIONS_LOAD_FAILED', reason);
+          return null;
+        }),
+      ]);
       if (persisted && persisted.route.status !== 'draft') {
         const destination = resolveRoute(persisted.route);
         router.replace({
@@ -90,6 +99,7 @@ export default function RouteReviewScreen() {
         return;
       }
       setRoute(persisted?.route ?? null);
+      setDefaultWarehouse(locations?.warehouse?.endpoint ?? null);
       const ordered = persisted?.stops ?? [];
       setStops([
         ...ordered.filter((stop) => stop.addressValidationState !== 'auto_confirmed'),
@@ -99,14 +109,16 @@ export default function RouteReviewScreen() {
       if (__DEV__) console.warn('REVIEW_ROUTE_LOAD_FAILED', reason);
       setError(reason instanceof Error ? reason.message : 'Maršruto atkurti nepavyko.');
     }
-  }, [repository, routeId, router]);
+  }, [db, repository, routeId, router]);
 
   useFocusEffect(useCallback(() => {
+    screenFocused.current = true;
     void reload();
+    return () => { screenFocused.current = false; };
   }, [reload]));
 
   useEffect(() => {
-    if (syncRevision > 0) void reload();
+    if (syncRevision > 0 && screenFocused.current) void reload();
   }, [reload, syncRevision]);
 
   const geocodeAll = async () => {
@@ -262,6 +274,28 @@ export default function RouteReviewScreen() {
     }
   };
 
+  const applyDefaultWarehouse = async () => {
+    if (!route || !defaultWarehouse || running) return;
+    setRunning(true);
+    setError(null);
+    try {
+      if (await redirectStalePlanningScreen()) return;
+      const returnedToStart = sameEndpoint(route.startLocation, route.endLocation);
+      await new UpdateDraftRouteLocations(db).execute(
+        routeId,
+        defaultWarehouse,
+        returnedToStart ? defaultWarehouse : route.endLocation ?? defaultWarehouse,
+      );
+      setCandidates((current) => ({ ...current, start: [], ...(returnedToStart ? { end: [] } : {}) }));
+      await reload();
+      void requestSync('mutation');
+    } catch (reason) {
+      await handleDraftActionError(reason);
+    } finally {
+      setRunning(false);
+    }
+  };
+
   const editStop = async (stop: DeliveryStop, patch: Parameters<UpdateDraftStop['execute']>[2]) => {
     const operation = editQueue.current.then(async () => {
       try {
@@ -375,6 +409,11 @@ export default function RouteReviewScreen() {
   const knownWeightKg = stops.reduce((total, stop) => total + (stop.weightKg ?? 0), 0);
   const confirmedStops = stops.filter((stop) => stop.addressValidationState === 'auto_confirmed').length;
   const canCalculate = startReady && endReady && allReady;
+  const warehouseChanged = Boolean(
+    defaultWarehouse &&
+    !isKretingaWarehouse(route?.startLocation) &&
+    !sameEndpoint(route?.startLocation, defaultWarehouse),
+  );
   const visibleStops = allReady
     ? stops
     : stops.filter((stop) => stop.addressValidationState !== 'auto_confirmed');
@@ -396,6 +435,8 @@ export default function RouteReviewScreen() {
   };
 
   return (
+    <>
+    <Stack.Screen options={{ gestureEnabled: false, title: 'Adresų patikra' }} />
     <FoundationScreen
       showFoundationNotice={false}
       title="Patikrinkite adresus"
@@ -422,21 +463,34 @@ export default function RouteReviewScreen() {
         onPress={goToAlternatives}
       />
       <View style={styles.card}>
-        <Text style={styles.heading}>Startas ir grįžimas</Text>
-        <Text style={styles.query}>{route.startLocation?.originalAddress}</Text>
+        <Text style={styles.heading}>Maršruto pradžia</Text>
+        <Text style={styles.query}>{route.startLocation?.normalizedAddress ?? route.startLocation?.originalAddress}</Text>
         <StateLabel styles={styles} ready={startReady} state={startReady ? 'auto_confirmed' : 'unconfirmed'} />
         {candidates.start?.map((candidate) => (
           <Candidate styles={styles} key={candidate.normalizedAddress} candidate={candidate} onPress={() => selectStart(candidate)} />
         ))}
-        <Text style={styles.heading}>Pabaiga</Text>
-        <Text style={styles.query}>{route.endLocation?.originalAddress}</Text>
+        <Text style={styles.heading}>Maršruto pabaiga</Text>
+        <Text style={styles.query}>{route.endLocation?.normalizedAddress ?? route.endLocation?.originalAddress}</Text>
         <StateLabel styles={styles} ready={endReady} state={endReady ? 'auto_confirmed' : 'unconfirmed'} />
         {candidates.end?.map((candidate) => (
           <Candidate styles={styles} key={candidate.normalizedAddress} candidate={candidate} onPress={() => selectEnd(candidate)} />
         ))}
+        {warehouseChanged ? (
+          <View style={styles.locationChangeNotice} testID="warehouse-location-changed">
+            <Text style={styles.locationChangeTitle}>Šis juodraštis dar naudoja ankstesnę pradžios vietą.</Text>
+            <Text style={styles.auditText}>Dabartinis sandėlis: {defaultWarehouse?.normalizedAddress ?? defaultWarehouse?.originalAddress}</Text>
+            <Pressable
+              disabled={running}
+              onPress={() => { void applyDefaultWarehouse(); }}
+              style={[styles.secondaryButton, running && styles.disabled]}
+              testID="apply-current-warehouse">
+              <Text style={styles.secondaryText}>Naudoti dabartinį sandėlį</Text>
+            </Pressable>
+          </View>
+        ) : null}
       </View>
 
-      {!allReady ? <AppButton label="Patikrinti probleminius adresus" loading={running} onPress={geocodeAll} variant="route" /> : null}
+      {!canCalculate ? <AppButton label="Patikrinti nepatvirtintus adresus" loading={running} onPress={geocodeAll} variant="route" /> : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       {allReady ? <Text style={styles.sectionIntro}>Pažymėkite vieną ar kelis prioritetinius taškus (1, 2, 3…). Jie bus apeinami ta eile, bet tarp jų gali įsiterpti kiti taškai, jei geografiškai pakeliui.</Text> : null}
@@ -473,6 +527,7 @@ export default function RouteReviewScreen() {
         testID="optimize-route-bottom"
       />
     </FoundationScreen>
+    </>
   );
 }
 
@@ -480,6 +535,34 @@ function formatTimeWindowInput(from: string | null, to: string | null): string {
   if (!from && !to) return '';
   if (from && to && from !== to) return `${from}-${to}`;
   return (from || to) ?? '';
+}
+
+function sameEndpoint(left: RouteEndpoint | null | undefined, right: RouteEndpoint | null | undefined): boolean {
+  if (!left || !right) return false;
+  const leftAddress = (left.normalizedAddress ?? left.originalAddress).trim().toLocaleLowerCase('lt-LT');
+  const rightAddress = (right.normalizedAddress ?? right.originalAddress).trim().toLocaleLowerCase('lt-LT');
+  if (leftAddress && rightAddress && leftAddress === rightAddress) return true;
+  if (left.latitude === null || left.longitude === null || right.latitude === null || right.longitude === null) return false;
+  return Math.abs(left.latitude - right.latitude) < 0.00001 && Math.abs(left.longitude - right.longitude) < 0.00001;
+}
+
+function isKretingaWarehouse(endpoint: RouteEndpoint | null | undefined): boolean {
+  if (!endpoint) return false;
+  const expected = canonicalWarehouseAddress(KRETINGA_WAREHOUSE_ADDRESS);
+  return [endpoint.originalAddress, endpoint.normalizedAddress, endpoint.geocodingQuery]
+    .some((address) => canonicalWarehouseAddress(address ?? '') === expected);
+}
+
+function canonicalWarehouseAddress(address: string): string {
+  return address
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('lt-LT')
+    .replace(/\b\d{5}\b/g, ' ')
+    .replace(/\blietuva\b/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
 }
 
 function parseTimeWindowInput(val: string): { deliveryTimeFrom: string | null; deliveryTimeTo: string | null; requiredTimeWindow: boolean } {
@@ -659,6 +742,8 @@ function extractCityHint(address: string): string | null {
 }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
+  headerAction: { minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.sm },
+  headerText: { ...type.secondaryStrong, color: colors.brandNavy },
   sectionIntro: { ...type.bodyStrong, color: colors.textSecondary },
   planSummary: { flexDirection: 'row', alignItems: 'stretch', padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceElevated },
   planMetric: { flex: 1, minWidth: 0, alignItems: 'center', justifyContent: 'center', gap: 3, paddingHorizontal: spacing.xs },
@@ -696,6 +781,8 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   secondaryText: { ...type.button, color: colors.textSecondary },
   candidate: { padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.info, backgroundColor: colors.infoSoft },
   candidateText: { ...type.secondaryStrong, color: colors.text },
+  locationChangeNotice: { gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.warningSoft },
+  locationChangeTitle: { ...type.secondaryStrong, color: colors.text },
   priorityButton: { minHeight: 44, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.sm },
   priorityButtonActive: { backgroundColor: colors.warningSoft, borderColor: colors.warning },
   priorityText: { ...type.secondaryStrong, color: colors.textMuted },

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   Animated,
@@ -12,7 +12,8 @@ import Svg, { Defs, LinearGradient, Path, Stop } from 'react-native-svg';
 
 import type { RouteWeatherScene } from '@/application/weather/route-weather';
 import { fonts } from '@/ui/tokens';
-import { stitchCockpitTheme } from '@/theme';
+import { cockpitColorsFor } from '@/theme';
+import { useTheme } from '@/ui/theme';
 
 const scenes = {
   morning: require('../../assets/images/route-scenes/clear-morning.png'),
@@ -26,7 +27,7 @@ const scenes = {
   storm: require('../../assets/images/route-scenes/storm.png'),
 } satisfies Record<string, ImageSourcePropType>;
 
-const cockpit = stitchCockpitTheme.colors;
+type CockpitPalette = ReturnType<typeof cockpitColorsFor>;
 const ARC_LENGTH = 470;
 
 export interface RoadProgressBarProps {
@@ -46,6 +47,9 @@ export function RoadProgressBar({
   weatherScene,
   breakdown,
 }: RoadProgressBarProps) {
+  const { scheme } = useTheme();
+  const cockpit = cockpitColorsFor(scheme);
+  const styles = useMemo(() => createStyles(cockpit), [cockpit]);
   const clamped = Math.max(0, Math.min(1, Number.isFinite(fraction) ? fraction : 0));
   const animatedProgress = useRef(new Animated.Value(clamped)).current;
   const [displayedProgress, setDisplayedProgress] = useState(clamped);
@@ -201,7 +205,7 @@ function roadSceneLabel(scene: RoadSceneKey): string {
   return labels[scene];
 }
 
-const styles = StyleSheet.create({
+const createStyles = (cockpit: CockpitPalette) => StyleSheet.create({
   container: {
     width: '100%',
     overflow: 'hidden',

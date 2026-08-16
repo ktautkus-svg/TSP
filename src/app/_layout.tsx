@@ -1,5 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
-import { Link, Stack, usePathname, useRouter, type Href } from 'expo-router';
+import { Stack, usePathname, useRouter, type Href } from 'expo-router';
 import { SQLiteProvider } from 'expo-sqlite';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useState, type ReactNode } from 'react';
@@ -15,13 +15,13 @@ import {
 
 import { PwaRuntime } from '@/components/pwa-runtime';
 import { LocalAccessGate } from '@/components/local-access-gate';
-import { CloudSyncStatus } from '@/components/cloud-sync-status';
 import { StackBrandTitle } from '@/components/stack-brand-title';
+import { StackBackButton, StackHeaderActions } from '@/components/stack-navigation';
 import { RouteCloudSyncProvider } from '@/application/sync/route-cloud-sync-context';
 import { migrateDatabase } from '@/database/migrations';
 import { ThemeProvider } from '@/ui/theme';
 import { AlertHost } from '@/ui/alert';
-import { colors, fonts, radius, type } from '@/ui/tokens';
+import { colors, radius, type } from '@/ui/tokens';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 
 function RoleAccessBoundary({ children }: { children: ReactNode }) {
@@ -51,6 +51,14 @@ const failureStyles = {
   button: { minHeight: 48, backgroundColor: colors.primary, paddingHorizontal: 24, borderRadius: radius.md, justifyContent: 'center', alignItems: 'center' } as const,
   buttonText: { ...type.button, color: colors.textInverse } as const,
 };
+
+function localDatabaseError(error: unknown): Error {
+  const fallback = error instanceof Error ? error.message : String(error);
+  if (/NoModificationAllowedError|Access Handles? cannot be created/i.test(fallback)) {
+    return new Error('TSP vietinė bazė jau naudojama kitame naršyklės lange. Uždarykite kitą TSP kortelę arba įdiegtos programėlės langą ir paspauskite „Perkrauti puslapį“.');
+  }
+  return error instanceof Error ? error : new Error(`Vietinės bazės klaida: ${fallback}`);
+}
 
 void SplashScreen.preventAutoHideAsync().catch((reason) => {
   if (__DEV__) console.warn('SPLASH_PREVENT_HIDE_FAILED', reason);
@@ -119,7 +127,7 @@ export default function RootLayout() {
       onInit={migrateDatabase}
       onError={(error) => {
         if (__DEV__) console.warn('SQLite DB init error:', error);
-        setDbError(error instanceof Error ? error : new Error('Vietinės bazės klaida: ' + String(error)));
+        setDbError(localDatabaseError(error));
       }}>
       <ThemeProvider>
         <LocalAccessGate>
@@ -134,17 +142,10 @@ export default function RootLayout() {
                 headerStyle: { backgroundColor: colors.surface },
                 headerTintColor: colors.brandNavy,
                 headerTitle: ({ children }) => <StackBrandTitle title={children} />,
+                headerBackVisible: false,
+                headerLeft: () => <StackBackButton />,
                 contentStyle: { backgroundColor: colors.background },
-                headerRight: () => (
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <CloudSyncStatus compact />
-                    <Link href="/" replace asChild>
-                      <Pressable accessibilityRole="button" style={{ minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 }}>
-                        <Text style={{ ...type.secondary, fontFamily: fonts.headingSemiBold, color: colors.brandNavy }}>Pradžia</Text>
-                      </Pressable>
-                    </Link>
-                  </View>
-                ),
+                headerRight: () => <StackHeaderActions />,
               }}>
               <Stack.Screen name="index" options={{ headerShown: false }} />
               <Stack.Screen name="route/new" options={{ title: 'Naujas maršrutas' }} />

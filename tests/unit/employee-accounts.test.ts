@@ -83,6 +83,15 @@ describe('employee server session', () => {
     expect(adminSource).toContain('Patvirtinti priskyrimą');
   });
 
+  it('allows an administrator to rename an employee login safely', () => {
+    expect(adminSource).toContain('username: editEmployeeUsername');
+    expect(adminSource).toContain("'Prisijungimo vardas'");
+    expect(employeeApiSource).toContain("username: optionalString(body, 'username')");
+    expect(employeeStoreSource).toContain('USERNAME_CHANGE_REQUIRES_PIN');
+    expect(employeeStoreSource).toContain('transaction.set(nextUsernameRef');
+    expect(employeeStoreSource).toContain('transaction.delete(previousUsernameRef)');
+  });
+
   it('publishes completed driver routes as role-scoped trip sheets', () => {
     expect(employeeApiSource).toContain("pathname === '/api/trip-sheets'");
     expect(employeeStoreSource).toContain('async listTripSheets');
@@ -98,6 +107,8 @@ describe('employee server session', () => {
     expect(employeeApiSource).toContain('await routeSyncStore.seedAssignment(assignment.driverId, assignment.routeSnapshot)');
     expect(assignmentSyncSource).toContain("assignment.updatedAt > String(existingSync.server_revision ?? '')");
     expect(assignmentSyncSource).toContain('await applyRouteSnapshot(db, assignment.routeSnapshot, assignment.updatedAt, profile.id)');
+    expect(assignmentSyncSource).toContain("response.assignments.filter((item) => item.status !== 'cancelled')");
+    expect(assignmentSyncSource).toContain('pushRouteAssignmentRevision');
     expect(deliverySource).toContain('pullAssignedRoutes(db, profile)');
   });
 

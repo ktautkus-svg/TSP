@@ -13,10 +13,20 @@ export function improveWithLocalSearch(input: {
   generatedBy: string;
   request: RouteOptimizationRequest;
   matrix: TravelMatrix;
+  /**
+   * Absolute `performance.now()` value shared by every seed of one optimize()
+   * call. The seed still gets its own `maxCalculationMs`, but never outlives
+   * the shared budget. Omitted means "per-seed budget only".
+   */
+  deadlineAt?: number;
 }): RouteCandidate {
   const { generatedBy, request, matrix } = input;
   const stopById = new Map(request.stops.map((stop) => [stop.id, stop]));
   const startedAt = performance.now();
+  const stopSearchingAt = Math.min(
+    startedAt + request.maxCalculationMs,
+    input.deadlineAt ?? Number.POSITIVE_INFINITY,
+  );
   let best = evaluateCandidate({
     stopSequence: input.sequence,
     generatedBy: [generatedBy],
@@ -28,7 +38,7 @@ export function improveWithLocalSearch(input: {
   let stoppedBy: LocalSearchStats['stoppedBy'] = 'no_improvement';
 
   while (iterations < request.maxIterations) {
-    if (performance.now() - startedAt >= request.maxCalculationMs) {
+    if (performance.now() >= stopSearchingAt) {
       stoppedBy = 'time_limit';
       break;
     }
@@ -50,7 +60,7 @@ export function improveWithLocalSearch(input: {
         matrix,
       });
       if (isBetter(candidate, improved ?? best, request)) improved = candidate;
-      if (performance.now() - startedAt >= request.maxCalculationMs) break;
+      if (performance.now() >= stopSearchingAt) break;
     }
     if (!improved || !isBetter(improved, best, request)) break;
     best = improved;

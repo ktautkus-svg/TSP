@@ -1,9 +1,13 @@
+import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import Svg, { Circle, Path } from 'react-native-svg';
 
-import { stitchTheme } from '@/theme';
+import { stitchColorsFor } from '@/theme';
+import { useTheme } from '@/ui/theme';
 import { fonts, radius } from '@/ui/tokens';
+
+type DriverPalette = ReturnType<typeof stitchColorsFor>['driverNow'];
 
 export type DriverAppTab = 'now' | 'routes' | 'statistics' | 'settings';
 
@@ -19,6 +23,9 @@ const tabs: ReadonlyArray<{ key: DriverAppTab; label: string; href: Href }> = [
 
 export function DriverAppTabs({ active }: DriverAppTabsProps) {
   const router = useRouter();
+  const { scheme } = useTheme();
+  const palette = stitchColorsFor(scheme).driverNow;
+  const styles = useMemo(() => createStyles(palette), [palette]);
   const { width } = useWindowDimensions();
   const barWidth = width >= 1100 ? 900 : width >= 720 ? 720 : 430;
   return (
@@ -33,7 +40,7 @@ export function DriverAppTabs({ active }: DriverAppTabsProps) {
             key={tab.key}
             onPress={() => { if (!selected) router.replace(tab.href); }}
             style={[styles.tab, selected && styles.tabActive]}>
-            <TabIcon active={selected} tab={tab.key} />
+            <TabIcon active={selected} palette={palette} tab={tab.key} />
             <Text numberOfLines={1} style={[styles.label, selected && styles.labelActive]}>{tab.label}</Text>
           </Pressable>
         );
@@ -42,7 +49,7 @@ export function DriverAppTabs({ active }: DriverAppTabsProps) {
   );
 }
 
-function TabIcon({ active, tab }: { readonly active: boolean; readonly tab: DriverAppTab }) {
+function TabIcon({ active, palette, tab }: { readonly active: boolean; readonly palette: DriverPalette; readonly tab: DriverAppTab }) {
   const color = active ? palette.surface : palette.muted;
   return (
     <Svg accessibilityLabel="" height={22} viewBox="0 0 24 24" width={22}>
@@ -53,9 +60,7 @@ function TabIcon({ active, tab }: { readonly active: boolean; readonly tab: Driv
   );
 }
 
-const palette = stitchTheme.driverNow;
-
-const styles = StyleSheet.create({
+const createStyles = (palette: DriverPalette) => StyleSheet.create({
   tabBar: { alignSelf: 'center', width: '100%', minHeight: 64, flexShrink: 0, borderTopWidth: 1, borderTopColor: palette.border, backgroundColor: palette.surface, flexDirection: 'row', paddingHorizontal: 4, paddingVertical: 4 },
   tab: { flex: 1, minWidth: 0, alignItems: 'center', justifyContent: 'center', gap: 2, paddingHorizontal: 2, borderRadius: radius.md },
   tabActive: { backgroundColor: palette.routeBlue },

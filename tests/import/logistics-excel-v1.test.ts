@@ -222,6 +222,27 @@ describe('Excel import persistence and ShipmentLine history', () => {
     expect((await restarted.getReviewResult(preview.id))?.deliveries[0]?.selectedAddress).not.toBeNull();
   });
 
+  it('keeps a routed Excel session reusable for planning another route', async () => {
+    const preview = parseFixture('session-reusable-after-route');
+    const repository = new ExcelImportRepository(db);
+    await repository.savePreview(preview);
+    const result = confirmAddresses(preview);
+    await repository.saveReviewResult(preview.id, result);
+    let id = 0;
+    const created = await new CreateDraftRouteWithStops(db, undefined, (prefix) => `${prefix}-reusable-${++id}`).execute({
+      commandId: 'excel-command-reusable',
+      startLocation: endpoint,
+      endLocation: endpoint,
+      importSource: { type: 'excel', originalText: null, imageReference: null },
+      stops: excelPreviewToDraftStops(preview, result.deliveries),
+    });
+    await repository.markRouted(preview.id, created.routeId);
+
+    const restored = await new ExcelImportRepository(db).getLatestReview();
+    expect(restored?.preview.id).toBe(preview.id);
+    expect(restored?.result?.deliveries[0]?.selectedAddress).not.toBeNull();
+  });
+
   it('persists audited manual corrections', async () => {
     const preview = parseFixture('session-correction');
     const repository = new ExcelImportRepository(db);

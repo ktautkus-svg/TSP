@@ -4,6 +4,7 @@ import { join, relative, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 run(process.execPath, ['scripts/generate-pwa-icons.mjs']);
+run(process.execPath, ['scripts/sync-leaflet-css.mjs']);
 run(command('npx'), ['tsc', '--noEmit']);
 const productionEnv = { ...process.env, EXPO_NO_DOTENV: '1' };
 delete productionEnv.EXPO_PUBLIC_GATEWAY_URL;

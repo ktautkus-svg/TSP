@@ -138,10 +138,16 @@ export function buildOptimizationRequestFromRoute(
   };
 }
 
-function searchBudgetFor(stopCount: number): Pick<RouteOptimizationRequest, 'maxIterations' | 'maxCalculationMs' | 'randomSeeds'> {
+function searchBudgetFor(
+  stopCount: number,
+): Pick<RouteOptimizationRequest, 'maxIterations' | 'maxCalculationMs' | 'maxTotalCalculationMs' | 'randomSeeds'> {
+  const perSeedMs = Math.min(2_500, Math.max(1_200, stopCount * 150));
   return {
     maxIterations: Math.min(15, Math.max(6, Math.round(stopCount * 0.5))),
-    maxCalculationMs: Math.min(2_500, Math.max(1_200, stopCount * 150)),
+    maxCalculationMs: perSeedMs,
+    // 16 seeds x perSeedMs would be up to 40 s of frozen UI. All seeds are still
+    // evaluated; only refinement stops once this shared budget runs out.
+    maxTotalCalculationMs: Math.max(perSeedMs, Math.min(4_000, stopCount * 120)),
     randomSeeds: [7, 42, 2026, 101, 512],
   };
 }

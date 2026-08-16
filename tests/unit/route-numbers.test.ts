@@ -14,7 +14,7 @@ describe('route number labels', () => {
   });
 
   it('never invents a district code from an internal route id', () => {
-    expect(routeCodeLabel('route-204', {})).toBe('Maršrutas');
-    expect(routeCodeLabel('route-alpha', {})).toBe('Maršrutas');
+    expect(routeCodeLabel('route-204', {})).toBe('Regiono kodas nenurodytas');
+    expect(routeCodeLabel('route-alpha', {})).toBe('Regiono kodas nenurodytas');
   });
 });

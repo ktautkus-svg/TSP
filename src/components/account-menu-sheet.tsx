@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -15,7 +16,7 @@ export function AccountMenuSheet({ visible, onClose }: { visible: boolean; onClo
   const { profile, online, logout } = useLocalAccess();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const styles = createStyles(colors);
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const sessionState = sessionStateLabel(online);
 
   function openSettings() {

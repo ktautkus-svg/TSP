@@ -17,24 +17,69 @@ const deliverySource = readFileSync(resolve(root, 'src/app/route/[id]/delivery.t
 const layoutSource = readFileSync(resolve(root, 'src/app/_layout.tsx'), 'utf8');
 
 describe('dispatcher desktop workspace', () => {
-  it('contains the route, driver and confirmation workflow', () => {
+  it('uses a compact dropdown assignment workflow', () => {
+    expect(dispatcherSource).toContain('testID="compact-assignment-form"');
     expect(dispatcherSource).toContain('1. Maršrutas');
     expect(dispatcherSource).toContain('2. Vairuotojas');
     expect(dispatcherSource).toContain('3. Automobilis');
-    expect(dispatcherSource).toContain('4. Patvirtinimas');
+    expect(dispatcherSource).toContain('SelectionDropdown');
+    expect(dispatcherSource).toContain("const [openPicker, setOpenPicker] = useState<'route' | 'driver' | 'vehicle' | null>(null)");
     expect(dispatcherSource).toContain('Priskirti maršrutą');
     expect(dispatcherSource).toContain("width >= 980");
+    expect(dispatcherSource).toContain('style={styles.scroll}');
+    expect(dispatcherSource).toContain('showsVerticalScrollIndicator');
+  });
+
+  it('shows the newly planned local route before waiting for server directories', () => {
+    expect(dispatcherSource.indexOf('await loadLocalRoutes();')).toBeLessThan(
+      dispatcherSource.indexOf("await requestSync('dispatcher-refresh')"),
+    );
+    expect(dispatcherSource).toContain('Promise.allSettled');
+  });
+
+  it('keeps driver-owned route copies out of the dispatcher cleanup list', () => {
+    expect(dispatcherSource).toContain("WHERE status IN ('draft', 'planned')");
+    expect(dispatcherSource).toContain("AND (owner_employee_id IS NULL OR owner_employee_id = ?)");
+    expect(dispatcherSource).toContain('profile.id,');
   });
 
   it('uses the shared assignment API and clearly reports the assigned driver', () => {
     expect(dispatcherSource).toContain("employeeApi<{ assignments: ServerRouteAssignment[] }>('/api/admin/assignments')");
     expect(dispatcherSource).toContain('assignRouteToDriver(db, selectedRoute.id, selectedDriver.id, selectedVehicle.id)');
-    expect(dispatcherSource).toContain('Vairuotojas jį gaus prisijungęs');
+    expect(dispatcherSource).toContain('testID="route-assignment-success"');
+    expect(dispatcherSource).toContain('Maršrutas priskirtas');
+    expect(dispatcherSource).toContain('Laukia vairuotojo');
+    expect(dispatcherSource).toContain('Gautas įrenginyje');
+  });
+
+  it('lets the dispatcher safely remove duplicate or unnecessary planned routes in place', () => {
+    expect(dispatcherSource).toContain('TrashIcon');
+    expect(dispatcherSource).toContain("const [manageRoutes, setManageRoutes] = useState(false)");
+    expect(dispatcherSource).toContain('title="Tvarkyti maršrutus"');
+    expect(dispatcherSource).toContain('Ištrinkite nereikalingus ar pasikartojančius maršrutus');
+    expect(dispatcherSource).toContain("await new CancelDraftRoute(db).execute(route.id)");
+    expect(dispatcherSource).toContain('await markRouteDeletedForCloud(db, route.id)');
+    expect(dispatcherSource).toContain("['loading', 'loaded', 'in_progress'].includes(route.status)");
+    expect(dispatcherSource).toContain('Vykdomo maršruto ištrinti negalima');
+    expect(dispatcherSource).toContain('Prisijungus ištrynimas bus sinchronizuotas');
+  });
+
+  it('shows the Excel-derived preliminary route price before and after assignment', () => {
+    expect(dispatcherSource).toContain("estimatePreliminaryRoutePrice");
+    expect(dispatcherSource).toContain('testID="preliminary-route-price"');
+    expect(dispatcherSource).toContain('PRELIMINARI MARŠRUTO KAINA');
+    expect(dispatcherSource).toContain('Preliminari kaina ·');
+    expect(dispatcherSource).toContain('Excel automobilio tarifai');
+    expect(dispatcherSource).toContain('Įvertinta pagal automobilio dydį');
+    expect(dispatcherSource).toContain('Kainos parametrai');
+    expect(dispatcherSource).toContain("'/api/admin/route-price-settings'");
   });
 
   it('routes prepared by dispatchers to assignment while keeping loading as a driver action', () => {
     expect(loadingSource).toContain('testID="assign-planned-route"');
     expect(loadingSource).toContain("pathname: '/dispatcher', params: { routeId }");
+    expect(loadingSource).toContain('router.replace({ pathname: \'/dispatcher\'');
+    expect(loadingSource).toContain('onPress={openDispatcherAssignment}');
     expect(loadingSource).toContain("profile.role === 'driver'");
     expect(loadingSource).toContain('testID="begin-loading"');
   });
@@ -76,6 +121,12 @@ describe('driver permissions', () => {
     // triggers without any screen-specific wiring.
     expect(layoutSource).toContain('<RouteCloudSyncProvider>');
     expect(layoutSource).toContain('<Stack.Screen name="dispatcher"');
+  });
+
+  it('explains how to recover when another web tab holds the SQLite database', () => {
+    expect(layoutSource).toContain('NoModificationAllowedError');
+    expect(layoutSource).toContain('Uždarykite kitą TSP kortelę');
+    expect(layoutSource).toContain('setDbError(localDatabaseError(error))');
   });
 
   it('renders administrator permission switches and enforces the route actions in driver screens', () => {

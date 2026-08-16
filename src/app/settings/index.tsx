@@ -18,6 +18,7 @@ import {
 import type { ThemeMode } from '@/application/settings/theme-preference';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { DriverAppTabs } from '@/components/driver-app-tabs';
+import { EmployeesIcon, SettingsIcon, VehicleIcon } from '@/components/app-icons';
 import {
   clearGatewayDeviceSecret,
   getGatewayDeviceSecret,
@@ -243,12 +244,7 @@ export default function SettingsScreen() {
 
   return (
     <>
-      <Stack.Screen options={{
-        gestureEnabled: false,
-        headerBackVisible: false,
-        headerLeft: () => <Pressable onPress={goHome} style={styles.headerAction}><Text style={styles.headerText}>← Pradžios meniu</Text></Pressable>,
-        headerRight: () => null,
-      }} />
+      <Stack.Screen options={{ gestureEnabled: false }} />
       <View style={styles.screen}>
       <FoundationScreen showFoundationNotice={false} title="Nustatymai" description="Vietos, navigacija ir programos parinktys.">
         <View style={styles.section} testID="account-settings-section">
@@ -272,13 +268,39 @@ export default function SettingsScreen() {
           ) : null}
         </View>
 
-        {profile.role === 'admin' ? <Pressable style={styles.card} onPress={() => router.push('/admin' as Href)} testID="open-admin-panel">
-          <View style={styles.flex}>
-            <Text style={styles.title}>Administratoriaus panelė</Text>
-            <Text style={styles.meta}>Prisijungimas, PIN ir įrenginio duomenų santrauka</Text>
+        {profile.role === 'admin' ? <View style={styles.managementSection} testID="admin-management-shortcuts">
+          <View>
+            <Text style={styles.sectionTitle}>Darbuotojai ir automobiliai</Text>
+            <Text style={styles.meta}>Pasirinkite, ką norite redaguoti.</Text>
           </View>
-          <Text style={styles.chevron}>›</Text>
-        </Pressable> : null}
+          <View style={styles.managementGrid}>
+            <Pressable
+              accessibilityLabel="Redaguoti vairuotojus ir darbuotojus"
+              accessibilityRole="button"
+              onPress={() => router.push({ pathname: '/admin', params: { section: 'employees' } } as Href)}
+              style={styles.managementCard}
+              testID="open-employee-management">
+              <View style={styles.managementIcon}><EmployeesIcon /></View>
+              <View style={styles.flex}><Text style={styles.title}>Vairuotojai</Text><Text style={styles.meta}>Duomenys, PIN ir leidimai</Text></View>
+              <Text style={styles.chevron}>›</Text>
+            </Pressable>
+            <Pressable
+              accessibilityLabel="Redaguoti automobilius"
+              accessibilityRole="button"
+              onPress={() => router.push({ pathname: '/admin', params: { section: 'fleet' } } as Href)}
+              style={styles.managementCard}
+              testID="open-vehicle-management">
+              <View style={styles.managementIcon}><VehicleIcon /></View>
+              <View style={styles.flex}><Text style={styles.title}>Automobiliai</Text><Text style={styles.meta}>Numeriai, modeliai ir keliamoji galia</Text></View>
+              <Text style={styles.chevron}>›</Text>
+            </Pressable>
+          </View>
+          <Pressable style={styles.adminPanelLink} onPress={() => router.push('/admin' as Href)} testID="open-admin-panel">
+            <SettingsIcon size={20} />
+            <Text style={styles.adminPanelLinkText}>Visas administratoriaus valdymas</Text>
+            <Text style={styles.chevron}>›</Text>
+          </Pressable>
+        </View> : null}
 
         <Pressable style={styles.card} onPress={() => router.push('/settings/locations' as Href)}>
           <View style={styles.flex}>
@@ -414,6 +436,12 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   screen: { flex: 1, alignSelf: 'center', width: '100%', maxWidth: 900, backgroundColor: colors.background },
   flex: { flex: 1, minWidth: 0 },
   card: { minHeight: 72, padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  managementSection: { gap: spacing.md, padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+  managementGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  managementCard: { minHeight: 86, flexGrow: 1, flexBasis: 280, minWidth: 0, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surfaceSubtle, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  managementIcon: { width: 44, height: 44, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.infoSoft },
+  adminPanelLink: { minHeight: 48, paddingHorizontal: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  adminPanelLinkText: { ...type.secondaryStrong, color: colors.textSecondary, flex: 1 },
   section: { gap: spacing.sm, padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
   sectionTitle: { ...type.sectionTitle, color: colors.text },
   title: { ...type.cardTitle, color: colors.text },
@@ -434,7 +462,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   homeButton: { minHeight: 60, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
   homeText: { ...type.button, color: colors.textSecondary, fontSize: 16 },
   headerAction: { minWidth: 176, minHeight: 52, justifyContent: 'center' },
-  headerText: { ...type.button, color: colors.textInverse, fontSize: 16 },
+  headerText: { ...type.button, color: colors.brandNavy, fontSize: 16 },
   segmentRow: { flexDirection: 'row', gap: spacing.xs },
   segment: { flex: 1, minHeight: 44, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceSubtle, alignItems: 'center', justifyContent: 'center' },
   segmentActive: { backgroundColor: colors.actionPrimary, borderColor: colors.actionPrimary },

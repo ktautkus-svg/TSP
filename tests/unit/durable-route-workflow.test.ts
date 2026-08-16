@@ -15,6 +15,7 @@ import {
   ReplaceDraftStops,
   RouteCommandError,
   SaveSelectedRouteCandidate,
+  UpdateDraftRouteLocations,
   UpdateDraftStop,
   type DraftStopInput,
 } from '../../src/application/routes/route-commands';
@@ -134,6 +135,25 @@ describe('durable route workflow', () => {
     expect(request.routeId).toBe(routeId);
     expect(request.stops.map((item) => item.id)).toEqual(['stop-1', 'stop-2']);
     expect(request.workdayEndAt).toBeUndefined();
+  });
+
+  it('uses changed draft start and end coordinates for the next optimization', async () => {
+    const { db } = createDb();
+    const routeId = await draftWithStops(db);
+    const klaipedaEndpoint = {
+      originalAddress: 'Naujoji Uosto g. 24, Klaipėda',
+      geocodingQuery: 'Naujoji Uosto g. 24, Klaipėda',
+      normalizedAddress: 'Naujoji Uosto g. 24, Klaipėda, Lietuva',
+      latitude: 55.7103,
+      longitude: 21.1281,
+    };
+    await new UpdateDraftRouteLocations(db).execute(routeId, klaipedaEndpoint, klaipedaEndpoint);
+
+    const persisted = await new RouteRepository(db).getWithStops(routeId);
+    const request = buildOptimizationRequestFromRoute(persisted!.route, persisted!.stops);
+
+    expect(request.startLocation).toMatchObject({ address: klaipedaEndpoint.normalizedAddress, latitude: 55.7103, longitude: 21.1281 });
+    expect(request.endLocation).toMatchObject({ address: klaipedaEndpoint.normalizedAddress, latitude: 55.7103, longitude: 21.1281 });
   });
 
   it('allows several draft routes so another driver route can be prepared in parallel', async () => {

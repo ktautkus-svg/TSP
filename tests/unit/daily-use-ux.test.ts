@@ -112,12 +112,13 @@ describe('Daily Use menu and Dashboard contract', () => {
 
   it('keeps every detailed Settings section collapsed by default', () => {
     const settings = source('src/app/settings/index.tsx');
+    const stackNavigation = source('src/components/stack-navigation.tsx');
     expect(settings).toContain('const [openSection, setOpenSection] = useState<SettingsSection | null>(null)');
     for (const section of ['appearance', 'navigation', 'gateway', 'data']) {
       expect(settings).toContain(`openSection === '${section}'`);
     }
     expect(settings).toContain('Duomenys ir atsarginė kopija');
-    expect(settings).toContain('← Pradžios meniu');
-    expect(settings).toContain('headerText: { ...type.button, color: colors.textInverse');
+    expect(stackNavigation).toContain("router.replace('/' as Href)");
+    expect(stackNavigation).toContain('>Pradžia<');
   });
 });

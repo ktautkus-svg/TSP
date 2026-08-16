@@ -2,6 +2,11 @@ import { pbkdf2Sync, randomBytes, randomUUID, timingSafeEqual, createHash } from
 import { Firestore } from '@google-cloud/firestore';
 import { normalizeRegionCode, uniqueRegionCodes } from '../src/domain/route-code.js';
 import { calculateCompositeRouteProgress } from '../src/application/routes/composite-route-progress.js';
+import {
+  DEFAULT_ROUTE_PRICE_SETTINGS,
+  normalizeRoutePriceSettings,
+  type RoutePriceSettings,
+} from '../src/application/routes/route-price.js';
 
 export const EMPLOYEE_ROLES = ['admin', 'dispatcher', 'driver', 'quality'] as const;
 export type EmployeeRole = (typeof EMPLOYEE_ROLES)[number];
@@ -199,9 +204,27 @@ export class EmployeeAuthStore {
   private readonly assignments = this.db.collection('tsp_assignments');
   private readonly vehicles = this.db.collection('tsp_vehicles');
   private readonly fuelReports = this.db.collection('tsp_fuel_reports');
+  private readonly settings = this.db.collection('tsp_settings');
 
   async hasUsers(): Promise<boolean> {
     return !(await this.users.limit(1).get()).empty;
+  }
+
+  async getRoutePriceSettings(): Promise<RoutePriceSettings> {
+    const document = await this.settings.doc('route-pricing').get();
+    return document.exists
+      ? normalizeRoutePriceSettings(document.data())
+      : normalizeRoutePriceSettings(DEFAULT_ROUTE_PRICE_SETTINGS);
+  }
+
+  async updateRoutePriceSettings(input: unknown, updatedBy: string): Promise<RoutePriceSettings> {
+    const settings = normalizeRoutePriceSettings(input);
+    await this.settings.doc('route-pricing').set({
+      ...settings,
+      updatedAt: new Date().toISOString(),
+      updatedBy,
+    });
+    return settings;
   }
 
   async migrateLegacyAdmin(input: {
@@ -552,12 +575,18 @@ export class EmployeeAuthStore {
     return publicProfile(stored);
   }
 
-  async updateUser(userId: string, input: { displayName?: string; role?: EmployeeRole; disabled?: boolean; pin?: string; permissions?: Partial<DriverPermissions>; email?: string; phone?: string }): Promise<EmployeeProfile> {
+  async updateUser(userId: string, input: { username?: string; displayName?: string; role?: EmployeeRole; disabled?: boolean; pin?: string; permissions?: Partial<DriverPermissions>; email?: string; phone?: string }): Promise<EmployeeProfile> {
     const reference = this.users.doc(safeId(userId));
     const document = await reference.get();
     const current = document.data() as StoredUser | undefined;
     if (!current) throw new EmployeeApiError('USER_NOT_FOUND', 'Darbuotojas nerastas.', 404);
+    const nextUsername = input.username === undefined ? current.username : validateUsername(input.username);
+    const usernameChanged = nextUsername !== current.username;
+    if (usernameChanged && input.pin === undefined) {
+      throw new EmployeeApiError('USERNAME_CHANGE_REQUIRES_PIN', 'Keičiant prisijungimo vardą įveskite dabartinį arba naują PIN.', 400);
+    }
     const patch: Record<string, unknown> = { updatedAt: new Date().toISOString() };
+    if (usernameChanged) patch.username = nextUsername;
     if (input.displayName !== undefined) patch.displayName = validateDisplayName(input.displayName);
     if (input.role !== undefined) {
       if (!EMPLOYEE_ROLES.includes(input.role)) throw new EmployeeApiError('INVALID_ROLE', 'Neleistina darbuotojo rolė.', 400);
@@ -569,18 +598,38 @@ export class EmployeeAuthStore {
     if (input.phone !== undefined) patch.phone = validatePhone(input.phone);
     if (input.pin !== undefined) {
       validatePin(input.pin);
-      const credentials = pinCredentials(current.username, input.pin);
+      const credentials = pinCredentials(nextUsername, input.pin);
       Object.assign(patch, credentials);
-      const sessions = await this.sessions.where('userId', '==', current.id).get();
-      for (const session of sessions.docs) patch[`_revoke_${session.id}`] = true;
+    }
+    const sessions = input.pin !== undefined || usernameChanged
+      ? await this.sessions.where('userId', '==', current.id).get()
+      : null;
+    if (usernameChanged) {
+      const previousUsernameRef = this.usernames.doc(current.username);
+      const nextUsernameRef = this.usernames.doc(nextUsername);
+      await this.db.runTransaction(async (transaction) => {
+        const target = await transaction.get(nextUsernameRef);
+        if (target.exists && target.data()?.userId !== current.id) {
+          throw new EmployeeApiError('USERNAME_EXISTS', 'Toks prisijungimo vardas jau naudojamas.', 409);
+        }
+        transaction.update(reference, patch);
+        transaction.set(nextUsernameRef, { userId: current.id });
+        transaction.delete(previousUsernameRef);
+      });
+    } else if (sessions) {
       const batch = this.db.batch();
-      batch.update(reference, withoutRevokeMarkers(patch));
+      batch.update(reference, patch);
       sessions.docs.forEach((session) => batch.delete(session.ref));
       await batch.commit();
     } else {
       await reference.update(patch);
     }
-    return publicProfile({ ...current, ...withoutRevokeMarkers(patch) } as StoredUser);
+    if (usernameChanged && sessions && !sessions.empty) {
+      const batch = this.db.batch();
+      sessions.docs.forEach((session) => batch.delete(session.ref));
+      await batch.commit();
+    }
+    return publicProfile({ ...current, ...patch } as StoredUser);
   }
 
   async createAssignment(input: {
@@ -1119,8 +1168,4 @@ export function validateSnapshot(snapshot: RouteSnapshot): void {
   if (snapshot.stops.length < 1 || snapshot.stops.length > 500) {
     throw new EmployeeApiError('INVALID_ROUTE_SNAPSHOT', 'Maršrutas turi turėti 1–500 taškų.', 400);
   }
-}
-
-function withoutRevokeMarkers(value: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(value).filter(([key]) => !key.startsWith('_revoke_')));
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -10,7 +10,7 @@ import {
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
-import { useRouter, type Href } from 'expo-router';
+import { Stack, useFocusEffect, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
@@ -52,7 +52,7 @@ import {
 import type { ImportDocument, ImportField, ImportResult, ParsedDelivery } from '@/domain/import/models';
 import type { PlanningMode, RouteEndpoint } from '@/domain/route';
 import { FoundationScreen } from '@/components/foundation-screen';
-import { CameraIcon, ExcelIcon, GalleryIcon, PdfIcon, PencilIcon, RegionIcon, TrashIcon, WindowIcon } from '@/components/app-icons';
+import { CameraIcon, ChevronDownIcon, ChevronRightIcon, ClipboardIcon, ExcelIcon, GalleryIcon, PdfIcon, PencilIcon, RegionIcon, WindowIcon } from '@/components/app-icons';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import { ExcelImportRepository } from '@/database/repositories/excel-import-repository';
 import { readPickedExcelAsset } from '@/infrastructure/import/excel-file-adapter';
@@ -90,6 +90,9 @@ export default function ImportScreen() {
   const [showOnlyExcelProblems, setShowOnlyExcelProblems] = useState(true);
   const [excelProblemIndex, setExcelProblemIndex] = useState(0);
   const [showExcelOptions, setShowExcelOptions] = useState(false);
+  const [showExcelContent, setShowExcelContent] = useState(false);
+  const [showRouteSetup, setShowRouteSetup] = useState(false);
+  const [showPhotoSources, setShowPhotoSources] = useState(false);
   const [showPasteField, setShowPasteField] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState(false);
   const [rememberedExcel, setRememberedExcel] = useState<{
@@ -101,7 +104,7 @@ export default function ImportScreen() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [endMode, setEndMode] = useState<'warehouse' | 'home'>('warehouse');
-  const [startMode, setStartMode] = useState<'vilnius' | 'kretinga'>('vilnius');
+  const [startMode, setStartMode] = useState<'warehouse' | 'kretinga'>('warehouse');
 
   useEffect(() => {
     if (profile.role === 'driver' && !profile.permissions?.canCreateRoutes) router.replace('/' as Href);
@@ -121,7 +124,6 @@ export default function ImportScreen() {
   const creationCommandId = useRef<string | null>(null);
   const excelBytes = useRef<Uint8Array | null>(null);
   const excelAsset = useRef<{ name: string; hash: string } | null>(null);
-  const autoRestoredExcel = useRef(false);
   const selectedStartEndpoint = startMode === 'kretinga' ? kretingaEndpoint : warehouseEndpoint;
   const selectedStartAddress = startMode === 'kretinga' ? KRETINGA_WAREHOUSE_ADDRESS : (warehouseAddress || DEFAULT_WAREHOUSE_ADDRESS);
 
@@ -141,7 +143,8 @@ export default function ImportScreen() {
     return () => { active = false; };
   }, [document, excelPreview, excelRepository, result]);
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
+    let active = true;
     void new GetDefaultLocations(db).execute().then(async ({ warehouse, home }) => {
       const save = new SaveDefaultLocation(db);
       const recover = async (saved: typeof warehouse, kind: 'warehouse' | 'home') => {
@@ -163,6 +166,7 @@ export default function ImportScreen() {
         recover(warehouse, 'warehouse'),
         recover(home, 'home'),
       ]);
+      if (!active) return null;
       const warehouseValue = recoveredWarehouse?.originalAddress ?? '';
       const homeValue = recoveredHome?.originalAddress ?? '';
       setWarehouseAddress(warehouseValue);
@@ -171,12 +175,13 @@ export default function ImportScreen() {
       setHomeEndpoint(recoveredHome);
       return new RouteEndPreference(db).get();
     }).then((preference) => {
-      setEndMode(preference);
+      if (active && preference) setEndMode(preference);
     }).catch((reason) => {
       if (__DEV__) console.warn('DEFAULT_LOCATIONS_LOAD_FAILED', reason);
-      setMessage('Išsaugotų vietų atkurti nepavyko. Galite įvesti vietą ranka.');
+      if (active) setMessage('Išsaugotų vietų atkurti nepavyko. Galite įvesti vietą ranka.');
     });
-  }, [addressResolver, db]);
+    return () => { active = false; };
+  }, [addressResolver, db]));
 
   useEffect(() => {
     void new PlanningModePreference(db).get()
@@ -205,6 +210,7 @@ export default function ImportScreen() {
   }, [addressResolver]);
 
   const capture = async () => {
+    setShowPasteField(false);
     const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) return setMessage('Kameros leidimas nesuteiktas.');
     const selected = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 1 });
@@ -213,6 +219,7 @@ export default function ImportScreen() {
   };
 
   const pickImages = async () => {
+    setShowPasteField(false);
     const selected = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
       allowsMultipleSelection: true,
@@ -244,6 +251,8 @@ export default function ImportScreen() {
   };
 
   const pickPdf = async () => {
+    setShowPhotoSources(false);
+    setShowPasteField(false);
     const selected = await DocumentPicker.getDocumentAsync({
       type: 'application/pdf',
       copyToCacheDirectory: true,
@@ -257,6 +266,8 @@ export default function ImportScreen() {
   };
 
   const pickExcel = async () => {
+    setShowPhotoSources(false);
+    setShowPasteField(false);
     const selected = await DocumentPicker.getDocumentAsync({
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       copyToCacheDirectory: true,
@@ -288,6 +299,21 @@ export default function ImportScreen() {
         return;
       }
       setRememberedExcel(null);
+      // Keep every route sheet from the workbook in SQLite. This lets the
+      // driver plan V.Vasiliauskas, Arnas, Atmintinė, etc. later without
+      // selecting the same physical file again.
+      for (const [index, sheet] of preview.sheets.entries()) {
+        if (sheet.name === preview.selectedSheetName) continue;
+        const existing = await excelRepository.findLatestByFingerprint(read.sha256, sheet.name);
+        if (existing) continue;
+        const sheetPreview = parseLogisticsExcelWorkbook(read.bytes, {
+          importId: `excel-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}`,
+          fileName: asset.name,
+          fileHash: read.sha256,
+          sheetName: sheet.name,
+        });
+        await excelRepository.savePreview(sheetPreview);
+      }
       await openExcelPreview(preview);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Excel failo perskaityti nepavyko.');
@@ -333,6 +359,8 @@ export default function ImportScreen() {
       setShowOnlyExcelProblems(true);
       setExcelProblemIndex(0);
       setShowExcelOptions(false);
+      setShowExcelContent(recoveredResult.requiresReview);
+      setShowRouteSetup(false);
       setMessage(`Atkurtas failas: ${rememberedExcel.preview.fileName}`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Prisiminto Excel atkurti nepavyko.');
@@ -340,16 +368,6 @@ export default function ImportScreen() {
       setBusy(false);
     }
   };
-
-  // If a session is already "in memory" from last time, show it directly
-  // instead of making the driver pick a source again — the explicit
-  // duplicate-file choice (excelDuplicate, two buttons) still applies when
-  // they deliberately re-pick the same file later.
-  useEffect(() => {
-    if (!rememberedExcel || excelDuplicate || autoRestoredExcel.current) return;
-    autoRestoredExcel.current = true;
-    void restoreRememberedExcel();
-  }, [rememberedExcel, excelDuplicate]);
 
   const openExcelPreview = async (preview: ExcelImportPreview, restoredResult?: ImportResult | null) => {
     await excelRepository.savePreview(preview);
@@ -364,6 +382,8 @@ export default function ImportScreen() {
     setShowOnlyExcelProblems(true);
     setExcelProblemIndex(0);
     setShowExcelOptions(false);
+    setShowExcelContent(imported.requiresReview || !preview.mappingRecognized);
+    setShowRouteSetup(false);
     setMessage(preview.mappingRecognized
       ? null
       : 'Stulpelių struktūra neatpažinta. Patikrinkite stulpelių susiejimą.');
@@ -386,14 +406,28 @@ export default function ImportScreen() {
   };
 
   const reparseExcel = async (sheetName?: string, mappingConfirmed = false) => {
-    if (!excelBytes.current || !excelAsset.current || !excelPreview) return;
+    if (!excelPreview) return;
     setBusy(true);
     try {
+      const targetSheet = sheetName ?? excelPreview.selectedSheetName;
+      if (targetSheet !== excelPreview.selectedSheetName && !mappingConfirmed) {
+        const stored = await excelRepository.findLatestByFingerprint(excelPreview.fileHash, targetSheet);
+        if (stored) {
+          await openExcelPreview(stored, await excelRepository.getReviewResult(stored.id));
+          return;
+        }
+      }
+      if (!excelBytes.current || !excelAsset.current) {
+        setMessage('Šis lapas nebuvo išsaugotas senesnio importo metu. Vieną kartą pasirinkite Excel failą dar kartą — nauji importai išsaugos visus jo lapus.');
+        return;
+      }
       const parsed = parseLogisticsExcelWorkbook(excelBytes.current, {
-        importId: excelPreview.id,
+        importId: targetSheet === excelPreview.selectedSheetName
+          ? excelPreview.id
+          : `excel-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
         fileName: excelAsset.current.name,
         fileHash: excelAsset.current.hash,
-        sheetName: sheetName ?? excelPreview.selectedSheetName,
+        sheetName: targetSheet,
         template: { ...LOGISTICS_EXCEL_V1, columns: columnMapping },
       });
       const preview = mappingConfirmed ? { ...parsed, mappingRecognized: true } : parsed;
@@ -684,7 +718,7 @@ export default function ImportScreen() {
       // Po importo pereinama į trumpą prioritetų peržiūrą. Patvirtinti adresai
       // nebetvirtinami antrą kartą, tačiau vairuotojas gali pažymėti kelis
       // prioritetinius taškus arba iškart skaičiuoti maršrutą.
-      router.push({ pathname: '/route/[id]/review', params: { id: created.routeId } });
+      router.push({ pathname: '/route/[id]/review', params: { id: created.routeId, returnTo: 'import' } });
     };
     try {
       await persistAndOpen();
@@ -761,47 +795,109 @@ export default function ImportScreen() {
   // vanish with zero indication anywhere in the UI. Surface them explicitly so
   // "the address was in Excel but never became a stop" is always visible.
   const unresolvedExcelRows = excelPreview?.rows.filter((row) => !row.excluded && !row.normalizedAddress) ?? [];
+  const hasInternalImportStep = Boolean(result || excelDuplicate || document || showPhotoSources || showPasteField);
+
+  const returnToSourceChooser = () => {
+    if (result) {
+      if (excelPreview) setRememberedExcel({ preview: excelPreview, result });
+      setResult(null);
+      setExcelPreview(null);
+      setExcelDuplicate(null);
+      setExpandedExcelGroups([]);
+      setShowExcelContent(false);
+      setShowRouteSetup(false);
+      setMessage(null);
+      return;
+    }
+    if (excelDuplicate) {
+      setExcelDuplicate(null);
+      setMessage(null);
+      return;
+    }
+    if (document) {
+      setDocument(null);
+      setMessage(null);
+      return;
+    }
+    if (showPhotoSources || showPasteField) {
+      setShowPhotoSources(false);
+      setShowPasteField(false);
+      return;
+    }
+    router.back();
+  };
 
   return (
+    <>
+    <Stack.Screen options={{
+      gestureEnabled: false,
+      headerBackVisible: false,
+      headerLeft: () => (
+        <Pressable accessibilityLabel={hasInternalImportStep ? 'Grįžti į importo šaltinius' : 'Grįžti'} accessibilityRole="button" onPress={returnToSourceChooser} style={styles.headerAction}>
+          <Text style={styles.headerText}>{hasInternalImportStep ? '← Šaltiniai' : '← Atgal'}</Text>
+        </Pressable>
+      ),
+    }} />
     <FoundationScreen
       showFoundationNotice={false}
       showHeading={!result}
       title="Importuoti maršrutą"
-      description="Pasirinkite Excel, PDF, nuotrauką arba įklijuokite tekstą.">
+      description="Pasirinkite vieną duomenų šaltinį. Kitame žingsnyje galėsite patikrinti turinį.">
       <View style={styles.content}>
         {!result ? <>
-        <Pressable style={styles.excelPrimaryButton} onPress={pickExcel} testID="pick-excel">
-          <View style={styles.excelIconBadge}><ExcelIcon size={30} color="#FFFFFF" /></View>
-          <View style={styles.excelPrimaryText}>
-            <Text style={styles.excelPrimaryTitle}>Pasirinkti Excel failą</Text>
-            <Text style={styles.excelPrimaryHint}>Pagrindinis maršruto šaltinis (.xlsx)</Text>
-          </View>
-        </Pressable>
-        <Text style={styles.sourceDivider}>Papildomi šaltiniai</Text>
+        <Text style={styles.sourceDivider}>PASIRINKITE ŠALTINĮ</Text>
         <View style={styles.sourceGrid}>
-          <SourceButton styles={styles} title="Fotografuoti" icon={<CameraIcon size={20} />} onPress={capture} />
-          <SourceButton styles={styles} title="Galerija" icon={<GalleryIcon size={20} />} onPress={pickImages} />
-          <SourceButton styles={styles} title="PDF" icon={<PdfIcon size={20} />} onPress={pickPdf} />
+          <Pressable style={styles.excelPrimaryButton} onPress={pickExcel} testID="pick-excel">
+            <View style={styles.sourceIconBadge}><ExcelIcon size={24} /></View>
+            <View style={styles.excelPrimaryText}>
+              <Text style={styles.sourceButtonTitle}>Pasirinkti Excel failą</Text>
+              <Text style={styles.sourceButtonHint}>.xlsx · galima pasirinkti lapą</Text>
+            </View>
+          </Pressable>
+          <SourceButton
+            styles={styles}
+            title="Nuotrauka"
+            description="Kamera arba galerija"
+            icon={<CameraIcon size={24} />}
+            onPress={() => { setShowPhotoSources((current) => !current); setShowPasteField(false); }}
+          />
+          <SourceButton styles={styles} title="PDF dokumentas" description="Vienas dokumentas" icon={<PdfIcon size={24} />} onPress={pickPdf} />
+          <SourceButton
+            styles={styles}
+            title="Įklijuoti tekstą"
+            description="Adresai eilutėmis"
+            icon={<ClipboardIcon size={24} />}
+            onPress={() => { setShowPasteField((current) => !current); setShowPhotoSources(false); }}
+            testID="toggle-paste-field"
+          />
         </View>
+
+        {showPhotoSources ? (
+          <View style={styles.inlineSourcePanel} testID="photo-source-options">
+            <Text style={styles.cardTitle}>Kaip pridėti nuotraukas?</Text>
+            <View style={styles.sourceGrid}>
+              <SourceButton styles={styles} title="Fotografuoti" description="Atidaryti kamerą" icon={<CameraIcon size={22} />} onPress={capture} compact />
+              <SourceButton styles={styles} title="Iš galerijos" description="Iki 10 nuotraukų" icon={<GalleryIcon size={22} />} onPress={pickImages} compact />
+            </View>
+          </View>
+        ) : null}
 
         {rememberedExcel && !excelDuplicate ? (
           <View style={styles.card} testID="remembered-excel-card">
-            <Text style={styles.cardTitle}>Prisimintas Excel</Text>
+            <Text style={styles.cardTitle}>Anksčiau įkeltas Excel</Text>
             <Text style={styles.helper}>
               {rememberedExcel.preview.fileName} · {rememberedExcel.preview.selectedSheetName} · {rememberedExcel.preview.summary.physicalStopCount} taškų
             </Text>
+            <Text style={styles.helper}>Failo iš naujo kelti nereikia — galite tęsti šio arba kito jo lapo planavimą.</Text>
             <Pressable style={styles.primaryButton} onPress={() => { void restoreRememberedExcel(); }} testID="restore-remembered-excel">
-              <Text style={styles.primaryText}>Naudoti prisimintą failą</Text>
+              <Text style={styles.primaryText}>Tęsti iš šio Excel</Text>
             </Pressable>
             <Pressable style={styles.secondaryButton} onPress={() => setRememberedExcel(null)}>
-              <Text style={styles.secondaryText}>Atmesti</Text>
+              <Text style={styles.secondaryText}>Rinktis kitą failą</Text>
             </Pressable>
           </View>
         ) : null}
 
-        <Pressable style={styles.pasteToggleLink} onPress={() => setShowPasteField((current) => !current)} testID="toggle-paste-field">
-          <Text style={styles.linkTextSmall}>{showPasteField ? 'Slėpti teksto įklijavimą' : 'Įklijuoti tekstą / OCR (antrinis)'}</Text>
-        </Pressable>
         {showPasteField ? (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Įklijuoti tekstą</Text>
@@ -818,31 +914,77 @@ export default function ImportScreen() {
           </View>
         ) : null}
 
-        {document ? <Text style={styles.fileText}>{document.fileName} · {document.pageCount} psl.</Text> : null}
-        <Pressable disabled={!document || busy} style={[styles.primaryButton, (!document || busy) && styles.disabled]} onPress={analyze}>
-          {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>Atpažinti dokumentą</Text>}
-        </Pressable>
+        {document ? (
+          <View style={styles.selectedFileCard}>
+            <View style={styles.selectedFileRow}>
+              {document.kind === 'pdf' ? <PdfIcon size={24} /> : <GalleryIcon size={24} />}
+              <View style={styles.selectedFileText}>
+                <Text numberOfLines={1} style={styles.fileText}>{document.fileName}</Text>
+                <Text style={styles.compactMeta}>{document.pageCount} psl. · paruošta atpažinimui</Text>
+              </View>
+              <Pressable accessibilityLabel="Pašalinti pasirinktą dokumentą" onPress={() => setDocument(null)} style={styles.clearFileButton}>
+                <Text style={styles.clearFileText}>×</Text>
+              </Pressable>
+            </View>
+            <Pressable disabled={busy} style={[styles.primaryButton, busy && styles.disabled]} onPress={analyze}>
+              {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>Atpažinti dokumentą</Text>}
+            </Pressable>
+          </View>
+        ) : null}
         </> : (
-          <Pressable style={styles.changeFileButton} onPress={() => {
-            setResult(null);
-            setExcelPreview(null);
-            setExcelDuplicate(null);
-            setExpandedExcelGroups([]);
-            setMessage(null);
-          }}>
-            <Text style={styles.secondaryText}>Pasirinkti kitą failą</Text>
-          </Pressable>
+          <View style={styles.importFileCard} testID="selected-import-file">
+            <View style={styles.selectedFileRow}>
+              <View style={styles.sourceIconBadge}>{excelPreview ? <ExcelIcon size={24} /> : <ClipboardIcon size={24} />}</View>
+              <View style={styles.selectedFileText}>
+                <Text numberOfLines={1} style={styles.fileText}>{excelPreview?.fileName ?? document?.fileName ?? 'Importuoti duomenys'}</Text>
+                <Text style={styles.compactMeta}>
+                  {excelPreview
+                    ? `${excelPreview.selectedSheetName} · ${excelPreview.summary.physicalStopCount} tšk. · ${formatWeight(excelPreview.summary.totalWeightGrams)}`
+                    : `${result.deliveries.length} pristatymo taškų`}
+                </Text>
+              </View>
+              <Pressable style={styles.changeFileButton} onPress={returnToSourceChooser} testID="change-import-source">
+                <Text style={styles.linkText}>Keisti</Text>
+              </Pressable>
+            </View>
+            {excelPreview ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ expanded: showExcelContent }}
+                onPress={() => { setShowExcelContent((current) => !current); setShowRouteSetup(false); }}
+                style={styles.accordionHeader}
+                testID="toggle-excel-content">
+                <View style={styles.accordionText}>
+                  <Text style={styles.accordionTitle}>Peržiūrėti failo turinį</Text>
+                  <Text style={excelProblemCount > 0 ? styles.issueText : styles.accordionMeta}>
+                    {excelProblemCount > 0 ? `${excelProblemCount} taškus reikia patikrinti` : `${excelPreview.groups.length} pristatymo taškų · suskleista`}
+                  </Text>
+                </View>
+                {showExcelContent ? <ChevronDownIcon color={colors.textMuted} /> : <ChevronRightIcon color={colors.textMuted} />}
+              </Pressable>
+            ) : null}
+          </View>
         )}
         {message ? <Text style={styles.message}>{message}</Text> : null}
 
         {result && (!excelPreview || excelProblemCount === 0) ? (
           <View style={styles.routeSetupTop} testID="route-setup-top">
-            <View style={styles.setupHeaderRow}>
-              <Text style={styles.setupTitle}>Maršruto sąranka</Text>
-              <Text style={styles.setupCount}>
-                {(excelPreview?.summary.physicalStopCount ?? result.deliveries.length)} tšk. · {excelPreview ? formatWeight(excelPreview.summary.totalWeightGrams) : '—'}
-              </Text>
-            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ expanded: showRouteSetup }}
+              onPress={() => { setShowRouteSetup((current) => !current); setShowExcelContent(false); }}
+              style={styles.accordionHeader}
+              testID="toggle-route-setup">
+              <View style={styles.accordionText}>
+                <Text style={styles.setupTitle}>Maršruto nustatymai</Text>
+                <Text numberOfLines={2} style={styles.accordionMeta}>
+                  {planningDate} · {planningTime}{'\n'}{selectedStartAddress} → {endMode === 'home' ? homeAddress : selectedStartAddress}
+                </Text>
+              </View>
+              {showRouteSetup ? <ChevronDownIcon color={colors.textMuted} /> : <ChevronRightIcon color={colors.textMuted} />}
+            </Pressable>
+
+            {showRouteSetup ? <>
 
             <Pressable style={styles.setupRow} onPress={() => setEditingSchedule((current) => !current)} testID="toggle-schedule-edit">
               <View style={styles.setupRowText}>
@@ -858,15 +1000,17 @@ export default function ImportScreen() {
                 <View style={styles.endSwitchRow} testID="start-location-choice">
                   <Pressable
                     disabled={!warehouseEndpoint?.latitude}
-                    onPress={() => setStartMode('vilnius')}
-                    style={[styles.endSwitchOption, startMode === 'vilnius' && styles.endSwitchOptionActive, !warehouseEndpoint?.latitude && styles.disabled]}>
-                    <Text style={[styles.endSwitchText, startMode === 'vilnius' && styles.endSwitchTextActive]}>Vilnius</Text>
+                    onPress={() => setStartMode('warehouse')}
+                    style={[styles.endSwitchOption, startMode === 'warehouse' && styles.endSwitchOptionActive, !warehouseEndpoint?.latitude && styles.disabled]}>
+                    <Text style={[styles.endSwitchText, startMode === 'warehouse' && styles.endSwitchTextActive]}>Numatytasis sandėlis</Text>
+                    <Text numberOfLines={2} style={styles.endSwitchAddress}>{warehouseAddress || DEFAULT_WAREHOUSE_ADDRESS}</Text>
                   </Pressable>
                   <Pressable
                     disabled={!kretingaEndpoint?.latitude}
                     onPress={() => setStartMode('kretinga')}
                     style={[styles.endSwitchOption, startMode === 'kretinga' && styles.endSwitchOptionActive, !kretingaEndpoint?.latitude && styles.disabled]}>
-                    <Text style={[styles.endSwitchText, startMode === 'kretinga' && styles.endSwitchTextActive]}>Kretinga</Text>
+                    <Text style={[styles.endSwitchText, startMode === 'kretinga' && styles.endSwitchTextActive]}>Kretingos sandėlis</Text>
+                    <Text numberOfLines={2} style={styles.endSwitchAddress}>{KRETINGA_WAREHOUSE_ADDRESS}</Text>
                   </Pressable>
                 </View>
                 <View style={styles.scheduleRow}>
@@ -979,18 +1123,13 @@ export default function ImportScreen() {
                 ) : null}
               </View>
             ) : null}
+            </> : null}
 
             <View style={styles.setupActions}>
               <Pressable
                 disabled={busy}
                 style={[styles.cancelSetupButton, busy && styles.disabled]}
-                onPress={() => {
-                  setResult(null);
-                  setExcelPreview(null);
-                  setExcelDuplicate(null);
-                  setExpandedExcelGroups([]);
-                  setMessage(null);
-                }}
+                onPress={returnToSourceChooser}
                 testID="cancel-route-setup">
                 <Text style={styles.cancelSetupText}>Atšaukti</Text>
               </Pressable>
@@ -1014,13 +1153,10 @@ export default function ImportScreen() {
           </View>
         ) : null}
 
-        {excelPreview ? (
+        {excelPreview && showExcelContent ? (
           <>
             <View style={styles.compactSummary}>
-              <Text style={styles.summaryText}>{excelPreview.summary.physicalStopCount} taškų · {formatWeight(excelPreview.summary.totalWeightGrams)}</Text>
-              <Text style={excelProblemCount > 0 ? styles.issueText : styles.successText}>
-                {excelProblemCount > 0 ? `Patikrinkite ${excelProblemCount} ${excelProblemCount === 1 ? 'adresą' : 'adresus'}` : 'Paruošta planuoti'}
-              </Text>
+              <Text style={styles.summaryText}>Failo lapas ir adresai</Text>
               {excelPreview.sheets.length > 1 ? (
                 <View style={styles.optionsPanel} testID="excel-sheet-picker">
                   <Text style={styles.label}>Excel lapas ({excelPreview.sheets.length} tinkami)</Text>
@@ -1195,6 +1331,7 @@ export default function ImportScreen() {
         ) : null}
       </View>
     </FoundationScreen>
+    </>
   );
 }
 
@@ -1300,11 +1437,22 @@ function DeliveryEditor(props: {
   );
 }
 
-function SourceButton({ styles, title, icon, onPress }: { styles: ReturnType<typeof createStyles>; title: string; icon: ReactNode; onPress: () => void }) {
+function SourceButton({ styles, title, description, icon, onPress, compact = false, testID }: {
+  styles: ReturnType<typeof createStyles>;
+  title: string;
+  description: string;
+  icon: ReactNode;
+  onPress: () => void;
+  compact?: boolean;
+  testID?: string;
+}) {
   return (
-    <Pressable style={styles.sourceButton} onPress={onPress}>
-      {icon}
-      <Text style={styles.sourceButtonText}>{title}</Text>
+    <Pressable accessibilityRole="button" style={[styles.sourceButton, compact && styles.sourceButtonCompact]} onPress={onPress} testID={testID}>
+      <View style={styles.sourceIconBadge}>{icon}</View>
+      <View style={styles.sourceButtonCopy}>
+        <Text style={styles.sourceButtonTitle}>{title}</Text>
+        <Text style={styles.sourceButtonHint}>{description}</Text>
+      </View>
     </Pressable>
   );
 }
@@ -1560,24 +1708,43 @@ function mappingLabel(key: keyof ExcelColumnMapping): string {
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   content: { gap: spacing.md, paddingBottom: spacing.md },
   excelPrimaryButton: {
+    flexGrow: 1,
+    flexBasis: '47%',
+    minWidth: 150,
+    minHeight: 88,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.info,
+    backgroundColor: colors.infoSoft,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
-    minHeight: 76,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.lg,
-    backgroundColor: colors.actionPrimary,
+    gap: spacing.sm,
   },
-  excelIconBadge: { width: 50, height: 50, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.actionPrimaryPressed },
   excelPrimaryText: { flex: 1, minWidth: 0 },
-  excelPrimaryTitle: { ...type.sectionTitle, color: colors.textInverse },
-  excelPrimaryHint: { ...type.secondary, color: colors.textInverse, opacity: 0.78, marginTop: 2 },
   sourceDivider: { ...type.label, color: colors.textMuted, marginTop: spacing.xs },
   sourceGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  sourceButton: { flexGrow: 1, minWidth: '30%', minHeight: 46, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: spacing.sm },
-  sourceButtonText: { ...type.secondaryStrong, color: colors.textSecondary },
+  sourceButton: { flexGrow: 1, flexBasis: '47%', minWidth: 150, minHeight: 88, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md },
+  sourceButtonCompact: { minHeight: 68 },
+  sourceIconBadge: { width: 42, height: 42, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  sourceButtonCopy: { flex: 1, minWidth: 0 },
+  sourceButtonTitle: { ...type.bodyStrong, color: colors.text },
+  sourceButtonHint: { ...type.meta, color: colors.textMuted, marginTop: 2 },
+  inlineSourcePanel: { padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceSubtle, borderWidth: 1, borderColor: colors.border, gap: spacing.sm },
+  selectedFileCard: { padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.md },
+  importFileCard: { padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
+  selectedFileRow: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  selectedFileText: { flex: 1, minWidth: 0 },
+  clearFileButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border },
+  clearFileText: { ...type.sectionTitle, color: colors.textMuted },
+  accordionHeader: { minHeight: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
+  accordionText: { flex: 1, minWidth: 0 },
+  accordionTitle: { ...type.bodyStrong, color: colors.text },
+  accordionMeta: { ...type.meta, color: colors.textMuted, marginTop: 2 },
+  headerAction: { minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.sm },
+  headerText: { ...type.secondaryStrong, color: colors.brandNavy },
   card: { padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
-  routeSetupTop: { padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.info, backgroundColor: colors.surface, gap: spacing.sm },
+  routeSetupTop: { padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
   scheduleRow: { flexDirection: 'row', gap: spacing.sm },
   scheduleField: { flex: 1, minWidth: 0, gap: 4 },
   fieldCaption: { ...type.meta, color: colors.textMuted },
@@ -1641,10 +1808,11 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   switchThumb: { width: 22, height: 22, borderRadius: radius.pill, backgroundColor: colors.textInverse },
   switchThumbOn: { alignSelf: 'flex-end' },
   endSwitchRow: { flexDirection: 'row', gap: spacing.xs },
-  endSwitchOption: { flex: 1, minHeight: 40, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+  endSwitchOption: { flex: 1, minHeight: 64, paddingHorizontal: spacing.xs, paddingVertical: spacing.xs, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
   endSwitchOptionActive: { borderColor: colors.info, backgroundColor: colors.infoSoft },
   endSwitchText: { ...type.secondaryStrong, color: colors.textMuted },
   endSwitchTextActive: { color: colors.info },
+  endSwitchAddress: { ...type.meta, color: colors.textMuted, textAlign: 'center', marginTop: 2 },
   setupActions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs },
   cancelSetupButton: { flex: 1, minHeight: 52, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
   cancelSetupText: { ...type.button, color: colors.textSecondary },
@@ -1656,7 +1824,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   compactEditor: { gap: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm },
   endpointText: { ...type.bodyStrong, color: colors.text, paddingVertical: spacing.xs },
   confirmedEndpoint: { ...type.meta, color: colors.success },
-  changeFileButton: { minHeight: 44, alignSelf: 'flex-start', justifyContent: 'center', paddingHorizontal: spacing.sm },
+  changeFileButton: { minHeight: 44, alignSelf: 'center', justifyContent: 'center', paddingHorizontal: spacing.sm },
   successText: { ...type.bodyStrong, color: colors.success },
   optionsToggle: { minHeight: 44, justifyContent: 'center', alignItems: 'flex-start' },
   optionsPanel: { gap: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm },

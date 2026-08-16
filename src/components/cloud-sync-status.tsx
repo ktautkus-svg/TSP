@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
@@ -26,7 +27,7 @@ const compactLabels = {
 export function CloudSyncStatus({ compact = false }: { compact?: boolean }) {
   const { status, error, attention, requestSync } = useRouteCloudSync();
   const { colors } = useTheme();
-  const styles = createStyles(colors);
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const retryable = status === 'error' || status === 'offline';
   const label = compact ? compactLabels[status] : labels[status];
   const content = (

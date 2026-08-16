@@ -4,9 +4,9 @@ import { Stack, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
 import { importAssignmentSnapshot } from '@/application/auth/route-assignment-sync';
+import { effectiveAssignmentStatus, isActiveAssignment } from '@/application/auth/route-assignment-status';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { resolveRouteDestination } from '@/application/routes/route-navigation';
-import { BrandHeader } from '@/components/brand-header';
 import { ScreenContainer } from '@/components/screen-container';
 import { employeeApi, type EmployeeProfile, type ServerRouteAssignment } from '@/infrastructure/auth/employee-session';
 import { radius, spacing, type } from '@/ui/tokens';
@@ -32,7 +32,7 @@ export default function ExecuteRouteScreen() {
       employeeApi<{ users: EmployeeProfile[] }>('/api/admin/users'),
       employeeApi<{ assignments: ServerRouteAssignment[] }>('/api/admin/assignments'),
     ]);
-    const availableAssignments = assignmentsResponse.assignments.filter((assignment) => !['completed', 'cancelled'].includes(assignment.status));
+    const availableAssignments = assignmentsResponse.assignments.filter(isActiveAssignment);
     const availableDriverIds = new Set(availableAssignments.map((assignment) => assignment.driverId));
     const availableDrivers = usersResponse.users.filter((user) => user.role === 'driver' && !user.disabled && availableDriverIds.has(user.id));
     setDrivers(availableDrivers);
@@ -48,14 +48,17 @@ export default function ExecuteRouteScreen() {
     void load().catch((reason) => setError(reason instanceof Error ? reason.message : 'Duomenų gauti nepavyko.')).finally(() => setBusy(false));
   }, [load, profile.role, router]);
 
-  const driverAssignments = assignments.filter((assignment) => assignment.driverId === selectedDriverId);
+  const driverAssignments = useMemo(
+    () => assignments.filter((assignment) => assignment.driverId === selectedDriverId),
+    [assignments, selectedDriverId],
+  );
   const selectedAssignment = driverAssignments.find((assignment) => assignment.id === selectedAssignmentId) ?? driverAssignments[0] ?? null;
 
   useEffect(() => {
     setSelectedAssignmentId((current) => driverAssignments.some((assignment) => assignment.id === current)
       ? current
       : driverAssignments[0]?.id ?? '');
-  }, [selectedDriverId, assignments]);
+  }, [driverAssignments]);
 
   const execute = async () => {
     if (!selectedAssignment || busy) return;
@@ -78,8 +81,7 @@ export default function ExecuteRouteScreen() {
   };
 
   return <SafeAreaView style={styles.safeArea}>
-    <Stack.Screen options={{ headerBackVisible: true, title: 'Vykdyti maršrutą' }} />
-    <BrandHeader />
+    <Stack.Screen options={{ title: 'Vykdyti maršrutą' }} />
     <ScreenContainer>
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.heading}>
@@ -101,7 +103,7 @@ export default function ExecuteRouteScreen() {
             <Text style={styles.sectionTitle}>2. Maršrutas</Text>
             <View style={styles.grid}>{driverAssignments.map((assignment) => <Pressable key={assignment.id} onPress={() => setSelectedAssignmentId(assignment.id)} style={[styles.choice, selectedAssignment?.id === assignment.id && styles.choiceSelected]}>
               <Text style={styles.cardTitle}>{formatDate(String(assignment.routeSnapshot.route.date ?? ''))}</Text>
-              <Text style={styles.helper}>{Number(assignment.routeSnapshot.route.total_stops ?? 0)} taškų · {statusLabel(assignment.status)}</Text>
+              <Text style={styles.helper}>{Number(assignment.routeSnapshot.route.total_stops ?? 0)} taškų · {statusLabel(effectiveAssignmentStatus(assignment))}</Text>
             </Pressable>)}</View>
           </View>
           <Pressable accessibilityLabel="Vykdyti pasirinktą maršrutą" accessibilityRole="button" disabled={!selectedAssignment || busy} onPress={() => void execute()} style={[styles.executeButton, (!selectedAssignment || busy) && styles.disabled]}>
@@ -118,8 +120,8 @@ function formatDate(value: string): string {
   return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('lt-LT', { dateStyle: 'long' }).format(date);
 }
 
-function statusLabel(status: ServerRouteAssignment['status']): string {
-  return ({ assigned: 'Priskirtas', downloaded: 'Parsiųstas', in_progress: 'Vykdomas' } as Partial<Record<ServerRouteAssignment['status'], string>>)[status] ?? status;
+function statusLabel(status: string): string {
+  return ({ assigned: 'Priskirtas', downloaded: 'Parsiųstas', in_progress: 'Vykdomas' } as Record<string, string>)[status] ?? status;
 }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({

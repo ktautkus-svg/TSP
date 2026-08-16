@@ -278,6 +278,12 @@ export class CreateDraftRouteWithStops extends RouteCommandBase {
               status: 'draft',
               planningMode: input.planningMode ?? null,
             });
+          } else {
+            // An interrupted import may leave a valid zero-stop draft behind. When
+            // recovering it, the current route setup is authoritative: the driver
+            // may have changed the warehouse, return point, date, or planning mode
+            // before retrying the import.
+            await updateRecoveredDraftRoute(this.db, routeId, input, now);
           }
           for (const [index, stop] of input.stops.entries()) {
             await insertStop(this.db, routeId, generatedStopIds[index]!, stop, now, this.idFactory);
@@ -791,6 +797,33 @@ async function insertDraftRoute(
     JSON.stringify(input.endLocation ?? input.startLocation),
     input.plannedDepartureAt ?? null,
     input.sourceImportAuditId ?? null,
+  );
+}
+
+async function updateRecoveredDraftRoute(
+  db: SQLiteDatabase,
+  routeId: string,
+  input: CreateDraftRouteInput,
+  now: string,
+): Promise<void> {
+  await db.runAsync(
+    `UPDATE routes SET
+      date = ?,
+      planning_mode = ?,
+      start_location_json = ?,
+      end_location_json = ?,
+      planned_departure_at = ?,
+      source_import_audit_id = ?,
+      updated_at = ?
+    WHERE id = ? AND status = 'draft'`,
+    input.date ?? now.slice(0, 10),
+    input.planningMode ?? null,
+    JSON.stringify(input.startLocation),
+    JSON.stringify(input.endLocation ?? input.startLocation),
+    input.plannedDepartureAt ?? null,
+    input.sourceImportAuditId ?? null,
+    now,
+    routeId,
   );
 }
 

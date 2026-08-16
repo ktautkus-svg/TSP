@@ -1,6 +1,9 @@
 FROM node:24-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
+# npm ci vykdo postinstall, todėl šis scenarijus turi būti konteineryje dar
+# prieš kopijuojant likusį projekto kodą.
+COPY scripts/sync-leaflet-css.mjs ./scripts/sync-leaflet-css.mjs
 RUN npm ci
 COPY . .
 RUN if [ -f .env.docker ]; then tr -d '\r' < .env.docker > .env; fi && \

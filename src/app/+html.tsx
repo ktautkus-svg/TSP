@@ -23,12 +23,9 @@ export default function RootHtml({ children }: PropsWithChildren) {
         />
         <link rel="manifest" href="/manifest.webmanifest" />
         <link rel="apple-touch-icon" sizes="180x180" href="/tsp-apple-touch-icon.png" />
-        <link
-          rel="stylesheet"
-          href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-          crossOrigin=""
-        />
+        {/* Served from our own origin so the service worker can precache it and
+            the map still renders offline. Copied by scripts/sync-leaflet-css.mjs. */}
+        <link rel="stylesheet" href="/leaflet.css" />
         <ScrollViewStyleReset />
         <style dangerouslySetInnerHTML={{ __html: `
           html, body, #root { width: 100vw; min-width: 0; min-height: 100%; max-width: 100vw; background: #F7F9FC; overflow-x: hidden; }

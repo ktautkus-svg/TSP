@@ -13,7 +13,8 @@ import Svg, {
 } from 'react-native-svg';
 
 import { fonts } from '@/ui/tokens';
-import { stitchCockpitTheme } from '@/theme';
+import { cockpitColorsFor } from '@/theme';
+import { useTheme } from '@/ui/theme';
 
 export interface InstrumentGaugeProps {
   /** Amount already handed over. Drives the needle and the progress arc. */
@@ -26,7 +27,7 @@ export interface InstrumentGaugeProps {
   readonly size?: number;
 }
 
-const cockpit = stitchCockpitTheme.colors;
+type CockpitPalette = ReturnType<typeof cockpitColorsFor>;
 
 const VIEW = 240;
 const CENTER = 120;
@@ -100,6 +101,9 @@ export function InstrumentGauge({
   title,
   size: requestedSize,
 }: InstrumentGaugeProps) {
+  const { scheme } = useTheme();
+  const cockpit = cockpitColorsFor(scheme);
+  const styles = useMemo(() => createStyles(cockpit), [cockpit]);
   const { width } = useWindowDimensions();
   const responsiveSize = width < 700
     ? Math.min(164, Math.max(108, (Math.min(width, 480) - 92) / 2))
@@ -306,7 +310,7 @@ export function InstrumentGauge({
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (cockpit: CockpitPalette) => StyleSheet.create({
   wrapper: { flex: 1, minWidth: 0, maxWidth: '46%', alignItems: 'center' },
   title: { color: cockpit.onSurface, fontFamily: fonts.heading, fontSize: 12, letterSpacing: 0.8, marginBottom: 3 },
   shadow: {

@@ -4,7 +4,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo
 import { useSQLiteContext } from 'expo-sqlite';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
-import { pushRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
+import { markRouteDeletedForCloud } from '@/application/sync/route-cloud-sync';
 
 import { ActivateRoute, CancelDraftRoute, ReopenRouteForPlanning } from '@/application/routes/route-commands';
 import { resolveRoute } from '@/application/routes/route-navigation';
@@ -132,6 +132,10 @@ export default function LoadingScreen() {
       // possible and the confirmation is requested again when online.
     }
   }, [online, profile.role]);
+
+  const openDispatcherAssignment = () => {
+    router.replace({ pathname: '/dispatcher', params: { routeId } } as Href);
+  };
 
   useFocusEffect(useCallback(() => { void load(); void loadFuel(); }, [load, loadFuel]));
 
@@ -353,15 +357,15 @@ export default function LoadingScreen() {
     }
   };
 
-  const cancelPlannedRoute = () => {
+  const deletePlannedRoute = () => {
     if (bulkInFlight.current) return;
     Alert.alert(
-      'Atšaukti ir grįžti į pradžią?',
-      'Maršrutas bus atšauktas. Iš pradžios galėsite kurti naują maršrutą.',
+      'Ištrinti maršrutą?',
+      'Šis suplanuotas maršrutas bus pašalintas. Tada grįšite į naujo maršruto kūrimą.',
       [
-        { text: 'Ne', style: 'cancel' },
+        { text: 'Palikti', style: 'cancel' },
         {
-          text: 'Taip, atšaukti',
+          text: 'Ištrinti',
           style: 'destructive',
           onPress: () => {
             bulkInFlight.current = true;
@@ -369,13 +373,13 @@ export default function LoadingScreen() {
             setBulkBusy(true);
             void new CancelDraftRoute(db).execute(routeId)
               .then(async () => {
-                await pushRouteAssignmentProgress(db, routeId).catch(() => undefined);
+                await markRouteDeletedForCloud(db, routeId);
                 await requestSync('mutation');
-                router.replace('/' as Href);
+                router.replace('/import' as Href);
               })
               .catch((reason) => {
                 selfCancelled.current = false;
-                Alert.alert('Maršrutas neatšauktas', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
+                Alert.alert('Maršrutas neištrintas', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
               })
               .finally(() => {
                 bulkInFlight.current = false;
@@ -399,6 +403,9 @@ export default function LoadingScreen() {
           <Text style={styles.summaryText}>Pristatymo taškai: {route.totalStops}</Text>
           <Text style={styles.summaryText}>Bendras svoris: {formatWeightKg(route.totalWeightKg)} kg</Text>
           <Text style={styles.summaryText}>Planuotas atstumas: {route.estimatedDistanceKm === null ? '—' : `${route.estimatedDistanceKm.toFixed(1)} km`}</Text>
+          <Text style={styles.summaryText}>Sandėlis / pradžia: {route.startLocation?.normalizedAddress ?? route.startLocation?.originalAddress ?? 'Nenurodyta'}</Text>
+          <Text style={styles.summaryText}>Maršruto pabaiga: {route.endLocation?.normalizedAddress ?? route.endLocation?.originalAddress ?? 'Nenurodyta'}</Text>
+          {profile.role !== 'driver' ? <Text style={styles.scheduleHint}>Sandėlis jau įrašytas šiame maršrute — priskyrimo lange jo papildomai rinktis nereikia.</Text> : null}
           {clockLabel(route.plannedDepartureAt) ? (
             <Text style={styles.departureBadge} testID="planned-departure-label">
               Planuojamas išvykimas {clockLabel(route.plannedDepartureAt)}
@@ -424,18 +431,21 @@ export default function LoadingScreen() {
         </Pressable> : <Pressable
           disabled={bulkBusy || !online}
           style={[styles.plannedPrimaryButton, (bulkBusy || !online) && styles.disabled]}
-          onPress={() => router.replace({ pathname: '/dispatcher', params: { routeId } })}
+          onPress={openDispatcherAssignment}
           testID="assign-planned-route">
           <TruckIcon size={22} color="#FFFFFF" />
           <Text style={styles.plannedPrimaryText}>Priskirti maršrutą</Text>
         </Pressable>}
         {profile.role !== 'driver' || profile.permissions?.canReorderAssignedRoute ? <Pressable disabled={bulkBusy} style={[styles.plannedSecondaryButton, bulkBusy && styles.disabled]} onPress={() => { void editPlannedRoute(); }} testID="edit-planned-route">
           <PencilIcon size={19} color={colors.brandNavy} />
-          <Text style={styles.plannedSecondaryText}>Grįžti į redagavimą</Text>
+          <Text style={styles.plannedSecondaryText}>Redaguoti maršrutą</Text>
         </Pressable> : null}
-        {profile.role !== 'driver' || profile.permissions?.canCancelRoute ? <Pressable disabled={bulkBusy} style={[styles.plannedCancelButton, bulkBusy && styles.disabled]} onPress={cancelPlannedRoute} testID="cancel-planned-route">
+        {profile.role !== 'driver' ? <Pressable disabled={bulkBusy} style={[styles.plannedSecondaryButton, bulkBusy && styles.disabled]} onPress={() => router.replace('/import' as Href)} testID="plan-another-route">
+          <Text style={styles.plannedSecondaryText}>Tęsti nepriskyrus</Text>
+        </Pressable> : null}
+        {profile.role !== 'driver' || profile.permissions?.canCancelRoute ? <Pressable disabled={bulkBusy} style={[styles.plannedCancelButton, bulkBusy && styles.disabled]} onPress={deletePlannedRoute} testID="delete-planned-route">
           <CrossIcon size={19} color={colors.danger} />
-          <Text style={styles.plannedCancelText}>Atšaukti</Text>
+          <Text style={styles.plannedCancelText}>Ištrinti maršrutą</Text>
         </Pressable> : null}
       </FoundationScreen>
     );

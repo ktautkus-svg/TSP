@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 
@@ -6,7 +7,8 @@ import { driverNowCopy } from '@/data/driver-ui';
 import type { RoutingLocation } from '@/domain/routing/models';
 import type { DeliveryStop, Route } from '@/domain/route';
 import { useElapsedRouteTime } from '@/hooks/use-elapsed-route-time';
-import { stitchTheme } from '@/theme';
+import { stitchColorsFor } from '@/theme';
+import { useTheme } from '@/ui/theme';
 import { fonts, radius, spacing, type } from '@/ui/tokens';
 import type { RouteProgress } from '@/application/routes/route-workday';
 
@@ -20,6 +22,9 @@ export interface DriverNowDashboardProps {
 }
 
 export function DriverNowDashboard({ route, routeLabel, progress, stops, onContinue, onOpenMap }: DriverNowDashboardProps) {
+  const { scheme } = useTheme();
+  const palette = stitchColorsFor(scheme).driverNow;
+  const styles = useMemo(() => createStyles(palette), [palette]);
   const elapsed = useElapsedRouteTime({ startedAt: route.startedAt });
   const nearbyStops = stops.filter((stop) => stop.deliveryStatus === 'pending').slice(0, 3);
   const map = routeMap(route, stops);
@@ -38,26 +43,26 @@ export function DriverNowDashboard({ route, routeLabel, progress, stops, onConti
         <View style={[styles.progressFill, { width: `${deliveryPercent}%` }]} />
       </View>
       <View style={styles.metrics}>
-        <Metric icon="weight" label={driverNowCopy.remainingWeight} value={`${formatMetric(progress.remainingKnownWeightKg)} kg`} />
-        <Metric icon="pin" label={driverNowCopy.points} value={`${progress.remainingStops} / ${progress.totalStops}`} />
-        <Metric icon="route" label={driverNowCopy.remainingDistance} value={`${formatMetric(progress.preliminaryRemainingDistanceKm)} km`} />
-        <Metric icon="timer" label={driverNowCopy.elapsedTime} value={elapsed} />
+        <Metric palette={palette} styles={styles} icon="weight" label={driverNowCopy.remainingWeight} value={`${formatMetric(progress.remainingKnownWeightKg)} kg`} />
+        <Metric palette={palette} styles={styles} icon="pin" label={driverNowCopy.points} value={`${progress.remainingStops} / ${progress.totalStops}`} />
+        <Metric palette={palette} styles={styles} icon="route" label={driverNowCopy.remainingDistance} value={`${formatMetric(progress.preliminaryRemainingDistanceKm)} km`} />
+        <Metric palette={palette} styles={styles} icon="timer" label={driverNowCopy.elapsedTime} value={elapsed} />
       </View>
     </View>
 
     <Pressable accessibilityLabel={driverNowCopy.mapAction} accessibilityRole="button" onPress={onOpenMap} style={styles.mapCard}>
-      {map ? <RouteMapView compact allowStraightLineFallback startLocation={map.start} orderedStops={map.stops} endLocation={map.end} /> : <View style={styles.mapEmpty}><MapIcon /><Text style={styles.mapEmptyText}>{driverNowCopy.noCoordinates}</Text></View>}
+      {map ? <RouteMapView compact allowStraightLineFallback startLocation={map.start} orderedStops={map.stops} endLocation={map.end} /> : <View style={styles.mapEmpty}><MapIcon palette={palette} /><Text style={styles.mapEmptyText}>{driverNowCopy.noCoordinates}</Text></View>}
       <View style={styles.mapAction}><Text style={styles.mapActionText}>{driverNowCopy.mapAction}</Text><Text style={styles.chevron}>›</Text></View>
     </Pressable>
 
     <View style={styles.stopsSection}>
       <Text style={styles.sectionTitle}>{driverNowCopy.nearbyStops}</Text>
-      {nearbyStops.map((stop) => <StopPreview key={stop.id} stop={stop} />)}
+      {nearbyStops.map((stop) => <StopPreview key={stop.id} palette={palette} styles={styles} stop={stop} />)}
     </View>
 
     <Pressable accessibilityLabel={driverNowCopy.continueRoute} accessibilityRole="button" onPress={onContinue} style={({ pressed }) => [styles.continueButton, pressed && styles.continuePressed]}>
       <Text style={styles.continueText}>{driverNowCopy.continueRoute}</Text>
-      <NavigationIcon />
+      <NavigationIcon palette={palette} />
     </Pressable>
   </View>;
 }
@@ -66,36 +71,41 @@ interface MetricProps {
   readonly icon: 'weight' | 'pin' | 'route' | 'timer';
   readonly label: string;
   readonly value: string;
+  readonly palette: DriverPalette;
+  readonly styles: DriverStyles;
 }
 
-function Metric({ icon, label, value }: MetricProps) {
+function Metric({ icon, label, value, palette, styles }: MetricProps) {
   return <View style={styles.metric}>
-    <DashboardIcon kind={icon} />
+    <DashboardIcon kind={icon} palette={palette} />
     <View style={styles.metricCopy}><Text style={styles.metricLabel}>{label}</Text><Text style={styles.metricValue}>{value}</Text></View>
   </View>;
 }
 
 interface StopPreviewProps {
   readonly stop: DeliveryStop;
+  readonly palette: DriverPalette;
+  readonly styles: DriverStyles;
 }
 
-function StopPreview({ stop }: StopPreviewProps) {
+function StopPreview({ stop, palette, styles }: StopPreviewProps) {
   const order = stop.activeOrder ?? stop.optimizedOrder ?? stop.originalOrder;
   const window = [shortTime(stop.deliveryTimeFrom), shortTime(stop.deliveryTimeTo)].filter(Boolean).join('–');
   return <View style={[styles.stopCard, window && styles.stopTimed]}>
     <View style={styles.stopNumber}><Text style={styles.stopNumberText}>{order}</Text></View>
     <View style={styles.stopCopy}><Text style={styles.stopAddress}>{stop.address || stop.normalizedAddress || stop.originalAddress}</Text><Text style={styles.stopWeight}>{stop.weightKg === null ? 'Svoris nenurodytas' : `${formatMetric(stop.weightKg)} kg`}</Text></View>
-    {window ? <View style={styles.stopWindow}><DashboardIcon kind="timer" size={15} /><Text style={styles.stopWindowText}>{window}</Text></View> : null}
+    {window ? <View style={styles.stopWindow}><DashboardIcon kind="timer" palette={palette} size={15} /><Text style={styles.stopWindowText}>{window}</Text></View> : null}
   </View>;
 }
 
 interface DashboardIconProps {
   readonly kind: 'weight' | 'pin' | 'route' | 'timer';
   readonly size?: number;
+  readonly palette: DriverPalette;
 }
 
-function DashboardIcon({ kind, size = 22 }: DashboardIconProps) {
-  const color = stitchTheme.driverNow.muted;
+function DashboardIcon({ kind, size = 22, palette }: DashboardIconProps) {
+  const color = palette.muted;
   return <Svg accessibilityLabel="" height={size} viewBox="0 0 24 24" width={size}>
     {kind === 'weight' ? <Path d="M7 8a5 5 0 0 1 10 0h1.2l2 12H3.8l2-12Zm3 0h4a2 2 0 0 0-4 0Z" fill={color} fillRule="evenodd" /> : null}
     {kind === 'pin' ? <Path d="M12 22s7-6.4 7-13a7 7 0 1 0-14 0c0 6.6 7 13 7 13Zm0-9.6A3.4 3.4 0 1 0 12 5.6a3.4 3.4 0 0 0 0 6.8Z" fill={color} fillRule="evenodd" /> : null}
@@ -104,12 +114,12 @@ function DashboardIcon({ kind, size = 22 }: DashboardIconProps) {
   </Svg>;
 }
 
-function MapIcon() {
-  return <Svg accessibilityLabel="" height={42} viewBox="0 0 24 24" width={42}><Path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3Zm6-3v15m6-12v15" fill="none" stroke={stitchTheme.driverNow.routeBlue} strokeLinejoin="round" strokeWidth={1.5} /></Svg>;
+function MapIcon({ palette }: { readonly palette: DriverPalette }) {
+  return <Svg accessibilityLabel="" height={42} viewBox="0 0 24 24" width={42}><Path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3Zm6-3v15m6-12v15" fill="none" stroke={palette.routeBlue} strokeLinejoin="round" strokeWidth={1.5} /></Svg>;
 }
 
-function NavigationIcon() {
-  return <Svg accessibilityLabel="" height={21} viewBox="0 0 24 24" width={21}><Path d="m12 3 7 17-7-4-7 4Z" fill="none" stroke={stitchTheme.driverNow.surface} strokeLinejoin="round" strokeWidth={2} /></Svg>;
+function NavigationIcon({ palette }: { readonly palette: DriverPalette }) {
+  return <Svg accessibilityLabel="" height={21} viewBox="0 0 24 24" width={21}><Path d="m12 3 7 17-7-4-7 4Z" fill="none" stroke={palette.surface} strokeLinejoin="round" strokeWidth={2} /></Svg>;
 }
 
 function routeMap(route: Route, stops: DeliveryStop[]): { start: RoutingLocation; stops: RoutingLocation[]; end: RoutingLocation } | null {
@@ -141,9 +151,10 @@ function formatRouteDate(value: string): string {
   return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('lt-LT', { weekday: 'long', month: 'long', day: 'numeric' }).format(date);
 }
 
-const palette = stitchTheme.driverNow;
+type DriverPalette = ReturnType<typeof stitchColorsFor>['driverNow'];
+type DriverStyles = ReturnType<typeof createStyles>;
 
-const styles = StyleSheet.create({
+const createStyles = (palette: DriverPalette) => StyleSheet.create({
   dashboard: { width: '100%', maxWidth: 520, alignSelf: 'center', gap: spacing.lg },
   routeCard: { borderWidth: 1, borderColor: palette.border, borderRadius: radius.md, backgroundColor: palette.surface, padding: spacing.md, gap: spacing.md },
   routeHeading: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing.md },

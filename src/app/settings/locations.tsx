@@ -111,11 +111,7 @@ export default function LocationSettingsScreen() {
 
   return (
     <>
-    <Stack.Screen options={{
-      gestureEnabled: false,
-      headerBackVisible: false,
-      headerLeft: () => <Pressable onPress={goSettings} style={styles.headerAction}><Text style={styles.headerText}>← Nustatymai</Text></Pressable>,
-    }} />
+    <Stack.Screen options={{ gestureEnabled: false }} />
     <FoundationScreen showFoundationNotice={false} title="Numatytosios vietos" description="Šios vietos saugomos įrenginyje. Jos nėra pakeičiamos testiniu adresu.">
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <View style={styles.card}>
@@ -188,6 +184,6 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   backButton: { minHeight: 48, alignItems: 'center', justifyContent: 'center' },
   backText: { ...type.button, color: colors.textSecondary },
   headerAction: { minWidth: 96, minHeight: 44, justifyContent: 'center' },
-  headerText: { ...type.button, color: colors.textInverse },
+  headerText: { ...type.button, color: colors.brandNavy },
   error: { ...type.secondaryStrong, color: colors.danger },
 });

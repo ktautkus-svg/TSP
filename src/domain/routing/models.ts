@@ -85,7 +85,15 @@ export type RouteOptimizationRequest = {
   trafficMode: TrafficMode;
   workdayEndAt?: string;
   maxIterations: number;
+  /** Local-search budget for a single heuristic seed. */
   maxCalculationMs: number;
+  /**
+   * Ceiling for the whole `optimize()` call. `maxCalculationMs` only bounds one
+   * seed, so without this the real cost is seedCount x maxCalculationMs. Every
+   * seed is still evaluated once (cheap); only the local-search refinement is
+   * cut short once the shared budget is spent. Defaults to 3x maxCalculationMs.
+   */
+  maxTotalCalculationMs?: number;
   randomSeeds: number[];
 };
 

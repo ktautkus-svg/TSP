@@ -4,7 +4,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 import Svg, { Circle, Path } from 'react-native-svg';
 
 import { LocalAccessService } from '@/application/auth/local-access';
-import { LocalAccessContext } from '@/application/auth/local-access-context';
+import { LocalAccessContext, type LocalAccessContextValue } from '@/application/auth/local-access-context';
 import {
   bootstrapEmployeeAdmin,
   EmployeeClientError,
@@ -18,8 +18,12 @@ import {
 import { pullAssignedRoutes } from '@/application/auth/route-assignment-sync';
 import { saveGatewayDeviceSecret } from '@/infrastructure/gateway/device-auth';
 import { TspBrand } from '@/components/tsp-brand';
-import { stitchTheme } from '@/theme';
-import { colors, fonts, radius, spacing, type } from '@/ui/tokens';
+import { stitchColorsFor } from '@/theme';
+import { useTheme } from '@/ui/theme';
+import type { ColorPalette } from '@/ui/theme-palette';
+import { fonts, radius, spacing, type } from '@/ui/tokens';
+
+type LoginPalette = ReturnType<typeof stitchColorsFor>['login'];
 
 type GateMode = 'bootstrap' | 'login';
 
@@ -29,6 +33,9 @@ export interface LocalAccessGateProps {
 
 export function LocalAccessGate({ children }: LocalAccessGateProps) {
   const db = useSQLiteContext();
+  const { colors, scheme } = useTheme();
+  const login = stitchColorsFor(scheme).login;
+  const styles = useMemo(() => createStyles(colors, login), [colors, login]);
   const service = useMemo(() => new LocalAccessService(db), [db]);
   const [loading, setLoading] = useState(true);
   const [configured, setConfigured] = useState(false);
@@ -124,7 +131,7 @@ export function LocalAccessGate({ children }: LocalAccessGateProps) {
     }
   };
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     await logoutEmployee();
     setUnlocked(false);
     setProfile(null);
@@ -133,7 +140,17 @@ export function LocalAccessGate({ children }: LocalAccessGateProps) {
     setDisplayName('');
     setPin('');
     setConfirmPin('');
-  };
+  }, []);
+
+  /**
+   * Memoised so the provider does not hand a fresh object to every consumer on
+   * each render of the gate: this context wraps the whole application, so an
+   * unstable value re-renders every screen.
+   */
+  const accessValue = useMemo<LocalAccessContextValue | null>(
+    () => (profile ? { username: profile.username, profile, online, logout } : null),
+    [logout, online, profile],
+  );
 
   if (loading) return <View style={styles.screen}><ActivityIndicator color={colors.accent} size="large" /></View>;
   if (!unlocked || !profile) {
@@ -150,21 +167,21 @@ export function LocalAccessGate({ children }: LocalAccessGateProps) {
             value={displayName}
             onChangeText={setDisplayName}
             placeholder="Vardas ir pavardė"
-            placeholderTextColor="#708078"
+            placeholderTextColor={colors.textSubtle}
             style={styles.input}
             testID="employee-display-name"
           /> : null}
           <View style={styles.field}>
             <Text style={styles.label}>PRISIJUNGIMO VARDAS</Text>
             <View style={!bootstrap ? styles.loginInputShell : undefined}>
-              {!bootstrap ? <LoginFieldIcon kind="person" /> : null}
+              {!bootstrap ? <LoginFieldIcon kind="person" palette={login} /> : null}
               <TextInput
                 value={username}
                 onChangeText={setUsername}
                 autoCapitalize="none"
                 autoCorrect={false}
                 placeholder={bootstrap ? 'Vartotojo vardas' : 'Vardas'}
-                placeholderTextColor={bootstrap ? colors.textSubtle : stitchTheme.login.muted}
+                placeholderTextColor={bootstrap ? colors.textSubtle : login.muted}
                 style={[styles.input, !bootstrap && styles.loginInput]}
                 testID="login-username"
               />
@@ -173,14 +190,14 @@ export function LocalAccessGate({ children }: LocalAccessGateProps) {
           <View style={styles.field}>
             <Text style={styles.label}>PIN KODAS</Text>
             <View style={!bootstrap ? styles.loginInputShell : undefined}>
-              {!bootstrap ? <LoginFieldIcon kind="pin" /> : null}
+              {!bootstrap ? <LoginFieldIcon kind="pin" palette={login} /> : null}
               <TextInput
                 value={pin}
                 onChangeText={(value) => setPin(value.replace(/\D/g, '').slice(0, 8))}
                 keyboardType="number-pad"
                 secureTextEntry={!pinVisible}
                 placeholder="••••"
-                placeholderTextColor={bootstrap ? colors.textSubtle : stitchTheme.login.muted}
+                placeholderTextColor={bootstrap ? colors.textSubtle : login.muted}
                 style={[styles.input, !bootstrap && styles.loginInput]}
                 testID="login-pin"
               />
@@ -189,7 +206,7 @@ export function LocalAccessGate({ children }: LocalAccessGateProps) {
                 accessibilityRole="button"
                 onPress={() => setPinVisible((visible) => !visible)}
                 style={styles.eyeButton}>
-                <LoginFieldIcon kind={pinVisible ? 'eye' : 'eyeOff'} />
+                <LoginFieldIcon kind={pinVisible ? 'eye' : 'eyeOff'} palette={login} />
               </Pressable> : null}
             </View>
           </View>
@@ -199,7 +216,7 @@ export function LocalAccessGate({ children }: LocalAccessGateProps) {
             keyboardType="number-pad"
             secureTextEntry
             placeholder="Pakartokite PIN"
-            placeholderTextColor="#708078"
+            placeholderTextColor={colors.textSubtle}
             style={styles.input}
             testID="login-pin-confirm"
           /> : null}
@@ -212,7 +229,7 @@ export function LocalAccessGate({ children }: LocalAccessGateProps) {
               autoCorrect={false}
               secureTextEntry
               placeholder="Įrenginio aktyvavimo raktas"
-              placeholderTextColor="#708078"
+              placeholderTextColor={colors.textSubtle}
               style={styles.input}
               testID="gateway-device-key"
             />
@@ -227,12 +244,7 @@ export function LocalAccessGate({ children }: LocalAccessGateProps) {
   }
 
   return (
-    <LocalAccessContext.Provider value={{
-      username: profile.username,
-      profile,
-      online,
-      logout,
-    }}>
+    <LocalAccessContext.Provider value={accessValue}>
       {children}
     </LocalAccessContext.Provider>
   );
@@ -240,10 +252,11 @@ export function LocalAccessGate({ children }: LocalAccessGateProps) {
 
 export interface LoginFieldIconProps {
   readonly kind: 'person' | 'pin' | 'eye' | 'eyeOff';
+  readonly palette: LoginPalette;
 }
 
-function LoginFieldIcon({ kind }: LoginFieldIconProps) {
-  const color = stitchTheme.login.muted;
+function LoginFieldIcon({ kind, palette }: LoginFieldIconProps) {
+  const color = palette.muted;
   return <Svg accessibilityLabel="" height={22} viewBox="0 0 24 24" width={22}>
     {kind === 'person' ? <><Circle cx={12} cy={8} fill="none" r={3.5} stroke={color} strokeWidth={1.8} /><Path d="M5 20c.8-4.5 3.2-6.7 7-6.7s6.2 2.2 7 6.7Z" fill="none" stroke={color} strokeLinejoin="round" strokeWidth={1.8} /></> : null}
     {kind === 'pin' ? <><Circle cx={7} cy={6} fill={color} r={1.5} /><Circle cx={12} cy={6} fill={color} r={1.5} /><Circle cx={17} cy={6} fill={color} r={1.5} /><Circle cx={7} cy={11} fill={color} r={1.5} /><Circle cx={12} cy={11} fill={color} r={1.5} /><Circle cx={17} cy={11} fill={color} r={1.5} /><Circle cx={7} cy={16} fill={color} r={1.5} /><Circle cx={12} cy={16} fill={color} r={1.5} /><Circle cx={7} cy={21} fill={color} r={1.5} /></> : null}
@@ -252,27 +265,27 @@ function LoginFieldIcon({ kind }: LoginFieldIconProps) {
   </Svg>;
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ColorPalette, login: LoginPalette) => StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', padding: spacing.lg, gap: spacing.xl },
-  loginScreen: { backgroundColor: stitchTheme.login.background, gap: 44 },
+  loginScreen: { backgroundColor: login.background, gap: 44 },
   bootstrapScreen: { backgroundColor: colors.brandNavy },
   brand: { alignItems: 'center', gap: 2 },
   loginBrand: { marginBottom: spacing.sm },
   card: { width: '100%', maxWidth: 420, paddingHorizontal: spacing.lg, paddingVertical: spacing.md, borderRadius: radius.lg, backgroundColor: colors.surface, gap: spacing.md },
-  loginCard: { maxWidth: 438, paddingHorizontal: 0, paddingVertical: 0, borderRadius: 0, backgroundColor: stitchTheme.login.background, gap: spacing.lg },
+  loginCard: { maxWidth: 438, paddingHorizontal: 0, paddingVertical: 0, borderRadius: 0, backgroundColor: login.background, gap: spacing.lg },
   bootstrapCard: { padding: spacing.lg },
   title: { ...type.pageTitle, fontSize: 22, lineHeight: 27, color: colors.text },
   helper: { ...type.body, color: colors.textMuted },
   field: { gap: spacing.sm },
-  label: { ...type.label, color: stitchTheme.login.text },
-  loginInputShell: { minHeight: 56, borderWidth: 1, borderColor: stitchTheme.login.border, borderRadius: 4, backgroundColor: stitchTheme.login.surface, paddingLeft: spacing.md, flexDirection: 'row', alignItems: 'center' },
+  label: { ...type.label, color: login.text },
+  loginInputShell: { minHeight: 56, borderWidth: 1, borderColor: login.border, borderRadius: 4, backgroundColor: login.surface, paddingLeft: spacing.md, flexDirection: 'row', alignItems: 'center' },
   input: { minHeight: 52, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radius.md, paddingHorizontal: spacing.md, color: colors.text, backgroundColor: colors.surface, fontSize: 16, fontFamily: fonts.body },
-  loginInput: { flex: 1, minWidth: 0, borderWidth: 0, borderRadius: 0, backgroundColor: 'transparent', color: stitchTheme.login.text, paddingLeft: spacing.sm },
+  loginInput: { flex: 1, minWidth: 0, borderWidth: 0, borderRadius: 0, backgroundColor: 'transparent', color: login.text, paddingLeft: spacing.sm },
   eyeButton: { minWidth: 48, minHeight: 54, alignItems: 'center', justifyContent: 'center' },
   button: { minHeight: 54, borderRadius: radius.md, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  loginButton: { minHeight: 56, borderRadius: 4, borderBottomWidth: 3, borderBottomColor: stitchTheme.login.accent, backgroundColor: stitchTheme.login.primary },
+  loginButton: { minHeight: 56, borderRadius: 4, borderBottomWidth: 3, borderBottomColor: login.accent, backgroundColor: login.primary },
   buttonText: { ...type.button, fontSize: 16, color: colors.textInverse },
   loginButtonText: { fontSize: 17, letterSpacing: 0.2 },
-  error: { ...type.secondary, fontFamily: fonts.headingSemiBold, color: stitchTheme.login.error },
+  error: { ...type.secondary, fontFamily: fonts.headingSemiBold, color: login.error },
   disabled: { opacity: 0.55 },
 });

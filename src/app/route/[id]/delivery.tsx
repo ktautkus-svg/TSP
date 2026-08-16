@@ -52,11 +52,11 @@ import { GatewayGeocodingProvider } from '@/infrastructure/routing/providers/gat
 import { DELIVERY_FAILURE_REASONS, deliveryMatchesFilter, type DeliveryFailureReason } from '@/domain/delivery-failure';
 import type { DeliveryFilter, DeliveryStop, Route, RouteEndpoint } from '@/domain/route';
 import { colors as instrumentColors, fonts, radius, spacing, type } from '@/ui/tokens';
-import { stitchCockpitTheme } from '@/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { formatWeightKg } from '@/ui/format-weight';
 import { failedDeliveryLabel, userVisibleStopNote } from '@/ui/route-labels';
 import { arrivalWindowStatus, deliveryWindowValue, durationLabel, etaLabel, legLabel, offlineEtaLabel, scheduleLabel, windowLabel, windowUrgencyColor } from '@/ui/route-eta-labels';
+import { useForegroundInterval } from '@/hooks/use-foreground-interval';
 
 function ScheduleDot({ stop, colors, routeDate }: { stop?: DeliveryStop | null; colors: ColorPalette; routeDate?: string | null }) {
   const color = windowUrgencyColor(stop, routeDate);
@@ -65,6 +65,9 @@ function ScheduleDot({ stop, colors, routeDate }: { stop?: DeliveryStop | null; 
 }
 
 type DeliveryView = 'dashboard' | 'stops';
+
+/** Live progress pull cadence while the screen is in the foreground. */
+const LIVE_REFRESH_INTERVAL_MS = 10_000;
 
 // Whichever of deliveredAt/failedAt is set is when the stop was resolved.
 function recalcTimestamp(stop: DeliveryStop): string | null {
@@ -175,10 +178,7 @@ export default function DeliveryScreen() {
     await load();
   }, [db, load, online, profile]);
 
-  useEffect(() => {
-    const timer = setInterval(() => { void refreshFromServer(); }, 10_000);
-    return () => clearInterval(timer);
-  }, [refreshFromServer]);
+  useForegroundInterval(useCallback(() => { void refreshFromServer(); }, [refreshFromServer]), LIVE_REFRESH_INTERVAL_MS);
 
   useEffect(() => {
     setActiveView(view === 'stops' ? 'stops' : 'dashboard');
@@ -596,7 +596,11 @@ export default function DeliveryScreen() {
     <>
     <Stack.Screen options={{ gestureEnabled: false, headerBackVisible: false, headerShown: false }} />
     <View style={[styles.routeApp, wideLayout && styles.routeAppWide]}>
-      <BrandHeader onMenuPress={() => setMenuOpen(true)} />
+      <BrandHeader
+        onBackPress={() => router.canGoBack() ? router.back() : router.replace('/' as Href)}
+        onHomePress={() => router.replace('/' as Href)}
+        onMenuPress={() => setMenuOpen(true)}
+      />
       <View style={styles.routeMain}>
       <FoundationScreen edgeToEdge showFoundationNotice={false} showHeading={false} title="Pristatymai" description="">
         <View style={[styles.routeContent, wideLayout && styles.routeContentWide]}>
@@ -1084,7 +1088,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     paddingTop: 1,
     paddingHorizontal: 14,
     paddingBottom: 4,
-    backgroundColor: stitchCockpitTheme.colors.surface,
+    backgroundColor: colors.surface,
   },
   gaugeRow: {
     width: '100%',
@@ -1102,16 +1106,16 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     paddingHorizontal: 5,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: stitchCockpitTheme.colors.outlineVariant,
-    backgroundColor: stitchCockpitTheme.colors.surfaceMuted,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceMuted,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 2,
   },
-  gaugeCenterLabel: { color: stitchCockpitTheme.colors.onSurfaceVariant, fontFamily: fonts.headingSemiBold, fontSize: 8, textAlign: 'center', letterSpacing: 0.3 },
-  gaugeCenterValue: { color: stitchCockpitTheme.colors.onSurface, fontFamily: fonts.headingExtraBold, fontSize: 17, lineHeight: 21, textAlign: 'center' },
-  gaugeCenterUnit: { color: stitchCockpitTheme.colors.onSurfaceVariant, fontFamily: fonts.headingSemiBold, fontSize: 9, lineHeight: 11, textAlign: 'center' },
-  gaugeCenterDivider: { width: '100%', height: 1, marginVertical: 5, backgroundColor: stitchCockpitTheme.colors.outlineVariant },
+  gaugeCenterLabel: { color: colors.textSecondary, fontFamily: fonts.headingSemiBold, fontSize: 8, textAlign: 'center', letterSpacing: 0.3 },
+  gaugeCenterValue: { color: colors.text, fontFamily: fonts.headingExtraBold, fontSize: 17, lineHeight: 21, textAlign: 'center' },
+  gaugeCenterUnit: { color: colors.textSecondary, fontFamily: fonts.headingSemiBold, fontSize: 9, lineHeight: 11, textAlign: 'center' },
+  gaugeCenterDivider: { width: '100%', height: 1, marginVertical: 5, backgroundColor: colors.border },
   routeMetrics: { flexDirection: 'row', paddingHorizontal: 14, borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
   routeMetricCard: {
     flex: 1,

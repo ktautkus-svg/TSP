@@ -94,11 +94,7 @@ export default function RouteHistoryDetailScreen() {
 
   return (
     <>
-    <Stack.Screen options={{
-      gestureEnabled: false,
-      headerBackVisible: false,
-      headerLeft: () => <Pressable onPress={goHistory} style={styles.headerAction}><Text style={styles.headerText}>← Maršrutai</Text></Pressable>,
-    }} />
+    <Stack.Screen options={{ gestureEnabled: false }} />
     <View style={styles.screen}>
     <FoundationScreen showFoundationNotice={false} title={route ? `Maršrutas ${route.date}` : 'Maršruto istorija'} description="Užbaigto maršruto istorija yra tik skaitoma.">
       {error ? <Text style={styles.failure}>{error}</Text> : null}
@@ -197,5 +193,5 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   homeButton: { minHeight: 52, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
   homeText: { ...type.button, color: colors.textSecondary },
   headerAction: { minWidth: 84, minHeight: 44, justifyContent: 'center' },
-  headerText: { ...type.button, color: colors.textInverse },
+  headerText: { ...type.button, color: colors.brandNavy },
 });

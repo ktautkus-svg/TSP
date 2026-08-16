@@ -30,7 +30,10 @@ describe('premium route dashboard', () => {
     expect(gauge).toContain('{unit}');
     expect(gauge).toContain('stroke="url(#bezel)"');
     expect(gauge).toContain('stroke="url(#progress)"');
-    expect(gauge).toContain("import { stitchCockpitTheme } from '@/theme'");
+    // Still the approved cockpit palette from '@/theme', but resolved per colour
+    // scheme so the gauge is readable in dark mode instead of being locked light.
+    expect(gauge).toContain("import { cockpitColorsFor } from '@/theme'");
+    expect(gauge).toContain('const cockpit = cockpitColorsFor(scheme)');
     expect(gauge).toContain('useGrouping: false');
     expect(gauge).toContain('fontFamily={fonts.headingExtraBold}');
     expect(gauge).toContain('fontSize={readoutFontSize}');
@@ -84,7 +87,7 @@ describe('premium route dashboard', () => {
 
   it('matches the compact continuous dashboard while preserving route actions', () => {
     const delivery = source('src/app/route/[id]/delivery.tsx');
-    expect(delivery).toContain('<BrandHeader onMenuPress');
+    expect(delivery).toContain('onMenuPress={() => setMenuOpen(true)}');
     expect(delivery).not.toContain('ŠIANDIENOS MARŠRUTAS');
     expect(delivery).toContain('<RoadProgressBar');
     expect(delivery).toContain('calculateCompositeRouteProgress');

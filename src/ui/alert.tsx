@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Alert as RNAlert, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useTheme } from '@/ui/theme';
@@ -56,14 +56,14 @@ export function AlertHost() {
     return () => { listeners.delete(setRequest); };
   }, []);
 
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
   if (Platform.OS !== 'web' || !request) return null;
 
   const dismiss = (button?: AlertButton) => {
     publish(null);
     button?.onPress?.();
   };
-
-  const styles = createStyles(colors);
 
   return (
     <Modal animationType="fade" transparent visible onRequestClose={() => dismiss()}>

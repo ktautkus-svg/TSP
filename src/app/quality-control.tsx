@@ -4,9 +4,11 @@ import { Stack, useRouter, type Href } from 'expo-router';
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { AccountMenuSheet } from '@/components/account-menu-sheet';
+import { BackIcon, HomeIcon } from '@/components/app-icons';
 import { TspBrand } from '@/components/tsp-brand';
 import { classifyDeliveryWindow, minutesLate } from '@/domain/delivery-window-timing';
 import { employeeApi, type QualityRouteMonitor, type QualityStopMonitor } from '@/infrastructure/auth/employee-session';
+import { useForegroundInterval } from '@/hooks/use-foreground-interval';
 import { formatWeightKg } from '@/ui/format-weight';
 import { qualityBrandRed, qualityControlColors as colors } from '@/ui/quality-control-palette';
 import { fonts, radius, spacing, type } from '@/ui/tokens';
@@ -30,6 +32,8 @@ export default function QualityControlScreen() {
   const router = useRouter();
   const { profile, online } = useLocalAccess();
   const { width } = useWindowDimensions();
+  // `colors` is the fixed quality-control palette imported at module scope, not
+  // a themed value, so it is intentionally not a dependency here.
   const styles = useMemo(() => createStyles(colors), []);
   const [routes, setRoutes] = useState<QualityRouteMonitor[]>([]);
   const [lastRefreshedAt, setLastRefreshedAt] = useState<string | null>(null);
@@ -59,15 +63,20 @@ export default function QualityControlScreen() {
     }
   }, [online]);
 
+  const allowed = ['quality', 'admin', 'dispatcher'].includes(profile.role);
+
   useEffect(() => {
-    if (!['quality', 'admin', 'dispatcher'].includes(profile.role)) {
+    if (!allowed) {
       router.replace('/' as Href);
       return;
     }
     void load(true);
-    const timer = setInterval(() => { void load(false); }, REFRESH_INTERVAL_MS);
-    return () => clearInterval(timer);
-  }, [load, profile.role, router]);
+  }, [allowed, load, router]);
+
+  useForegroundInterval(
+    useCallback(() => { if (allowed) void load(false); }, [allowed, load]),
+    REFRESH_INTERVAL_MS,
+  );
 
   const today = localDateKey(new Date());
   const visible = routes.filter((route) => route.status !== 'completed' || route.date === today);
@@ -88,14 +97,22 @@ export default function QualityControlScreen() {
   return <SafeAreaView style={styles.safeArea}>
     <Stack.Screen options={{ headerShown: false }} />
     <View style={styles.header}>
+      <Pressable accessibilityLabel="Atgal" accessibilityRole="button" onPress={() => router.canGoBack() ? router.back() : router.replace('/' as Href)} style={styles.headerNavButton}>
+        <BackIcon size={22} color={colors.primary} />
+      </Pressable>
       <View style={styles.headerIdentity}>
         <TspBrand compact inverse={false} />
-        <View style={styles.headerDivider} />
-        <Text numberOfLines={1} style={styles.headerContext}>KOKYBĖS KONTROLĖ</Text>
+        {!mobile ? <View style={styles.headerDivider} /> : null}
+        {!mobile ? <Text numberOfLines={1} style={styles.headerContext}>KOKYBĖS KONTROLĖ</Text> : null}
       </View>
-      <Pressable accessibilityLabel="Atidaryti paskyros meniu" accessibilityRole="button" onPress={() => setAccountMenuOpen(true)} style={({ pressed }) => [styles.accountButton, pressed && styles.accountButtonPressed]}>
-        <Text style={styles.accountInitials}>{initials(profile.displayName)}</Text>
-      </Pressable>
+      <View style={styles.headerActions}>
+        <Pressable accessibilityLabel="Į pradžią" accessibilityRole="button" onPress={() => router.replace('/' as Href)} style={styles.headerNavButton}>
+          <HomeIcon size={21} color={colors.primary} />
+        </Pressable>
+        <Pressable accessibilityLabel="Atidaryti paskyros meniu" accessibilityRole="button" onPress={() => setAccountMenuOpen(true)} style={({ pressed }) => [styles.accountButton, pressed && styles.accountButtonPressed]}>
+          <Text style={styles.accountInitials}>{initials(profile.displayName)}</Text>
+        </Pressable>
+      </View>
     </View>
     <AccountMenuSheet visible={accountMenuOpen} onClose={() => setAccountMenuOpen(false)} />
 
@@ -290,6 +307,8 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background },
   header: { minHeight: 68, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border, borderTopWidth: 3, borderTopColor: qualityBrandRed, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
   headerIdentity: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  headerNavButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   headerDivider: { width: 1, height: 30, backgroundColor: colors.border },
   headerContext: { flexShrink: 1, ...type.label, fontFamily: fonts.heading, color: colors.primary, letterSpacing: 0.7 },
   accountButton: { width: 44, height: 44, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary }, accountButtonPressed: { backgroundColor: colors.primaryDark, transform: [{ scale: 0.96 }] }, accountInitials: { ...type.secondaryStrong, color: colors.textInverse },

@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import { TspBrand } from '@/components/tsp-brand';
 import { colors, spacing, type } from '@/ui/tokens';
@@ -8,11 +8,13 @@ export interface StackBrandTitleProps {
 }
 
 export function StackBrandTitle({ title }: StackBrandTitleProps) {
+  const { width } = useWindowDimensions();
+  const showTitle = width >= 760;
   return (
     <View style={styles.row}>
       <TspBrand compact inverse={false} />
-      {title ? <View style={styles.divider} /> : null}
-      {title ? <Text numberOfLines={1} style={styles.title}>{title}</Text> : null}
+      {title && showTitle ? <View style={styles.divider} /> : null}
+      {title && showTitle ? <Text numberOfLines={1} style={styles.title}>{title}</Text> : null}
     </View>
   );
 }

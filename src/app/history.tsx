@@ -16,12 +16,12 @@ import { fonts, radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { useLocalAccess } from '@/application/auth/local-access-context';
-import { pullAssignedRoutes } from '@/application/auth/route-assignment-sync';
+import { pullAssignedRoutes, pushCompletedRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
 
 export default function RoutesScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
-  const { profile } = useLocalAccess();
+  const { profile, online } = useLocalAccess();
   const { colors } = useTheme();
   const { width } = useWindowDimensions();
   const wideLayout = width >= 720;
@@ -37,6 +37,11 @@ export default function RoutesScreen() {
     let mounted = true;
     const refresh = async () => {
       if (profile.role === 'driver') {
+        if (online) {
+          await pushCompletedRouteAssignmentProgress(db).catch((reason) => {
+            if (__DEV__) console.warn('ROUTES_COMPLETION_PUSH_FAILED', reason);
+          });
+        }
         await pullAssignedRoutes(db, profile).catch((reason) => {
           if (__DEV__) console.warn('ROUTES_ASSIGNMENT_PULL_FAILED', reason);
         });
@@ -58,7 +63,7 @@ export default function RoutesScreen() {
       if (mounted) setError(reason instanceof Error ? reason.message : 'Maršrutų atkurti nepavyko.');
     });
     return () => { mounted = false; };
-  }, [db, profile.id, profile.role, repository]));
+  }, [db, online, profile, repository]));
 
   const goHome = () => router.replace('/' as Href);
   const openOperationalRoute = (route: Route) => {
@@ -72,12 +77,7 @@ export default function RoutesScreen() {
 
   return (
     <>
-      <Stack.Screen options={{
-        gestureEnabled: false,
-        headerBackVisible: false,
-        headerLeft: () => <Pressable accessibilityLabel="Grįžti į skydelį" accessibilityRole="button" onPress={goHome} style={styles.headerAction}><Text style={styles.headerText}>← Skydelis</Text></Pressable>,
-        headerRight: () => null,
-      }} />
+      <Stack.Screen options={{ gestureEnabled: false }} />
       <View style={[styles.screen, { maxWidth: contentWidth }]}>
         <FoundationScreen contentMaxWidth={contentWidth} showFoundationNotice={false} title="Maršrutai" description="Aktyvūs, būsimi ir ankstesni jūsų maršrutai vienoje vietoje.">
           {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -167,6 +167,6 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   homeButton: { minHeight: 52, borderWidth: 1, borderRadius: radius.md, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
   homeText: { ...type.button, color: colors.textSecondary },
   headerAction: { minWidth: 96, minHeight: 44, justifyContent: 'center' },
-  headerText: { color: colors.textInverse, fontFamily: fonts.heading },
+  headerText: { color: colors.brandNavy, fontFamily: fonts.heading },
   error: { color: colors.danger, fontFamily: fonts.headingSemiBold },
 });

@@ -185,15 +185,25 @@ export class TripSheetRepository {
        JOIN vehicles ON vehicles.id = trip_sheets.vehicle_id
        ORDER BY trip_sheets.date DESC, trip_sheets.created_at DESC`,
     );
-    const result: TripSheetWithRoutes[] = [];
-    for (const row of rows) {
-      const links = await this.db.getAllAsync<{ route_id: string }>(
-        'SELECT route_id FROM trip_sheet_routes WHERE trip_sheet_id = ? ORDER BY route_order',
-        row.id,
-      );
-      result.push({ ...mapTripSheet(row), routeIds: links.map((link) => link.route_id), vehicleName: row.vehicle_name });
+    if (rows.length === 0) return [];
+
+    // One query for every link instead of one per trip sheet: the previous
+    // per-row lookup made listing a few months of history hundreds of queries.
+    const links = await this.db.getAllAsync<{ trip_sheet_id: string; route_id: string }>(
+      'SELECT trip_sheet_id, route_id FROM trip_sheet_routes ORDER BY trip_sheet_id, route_order',
+    );
+    const routeIdsBySheet = new Map<string, string[]>();
+    for (const link of links) {
+      const existing = routeIdsBySheet.get(link.trip_sheet_id);
+      if (existing) existing.push(link.route_id);
+      else routeIdsBySheet.set(link.trip_sheet_id, [link.route_id]);
     }
-    return result;
+
+    return rows.map((row) => ({
+      ...mapTripSheet(row),
+      routeIds: routeIdsBySheet.get(row.id) ?? [],
+      vehicleName: row.vehicle_name,
+    }));
   }
 
   async syncCompletedDate(date: string, now = new Date().toISOString()): Promise<TripSheetWithRoutes> {

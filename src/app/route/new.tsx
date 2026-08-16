@@ -95,7 +95,7 @@ export default function NewRouteScreen() {
       stops: manualAddressesToDraftStops(parsedResult.points.map((point) => point.fullAddress)),
     });
     void requestSync('mutation');
-    router.push({ pathname: '/route/[id]/review', params: { id: created.routeId } });
+    router.push({ pathname: '/route/[id]/review', params: { id: created.routeId, returnTo: 'manual' } });
   };
 
   const handleReview = async () => {

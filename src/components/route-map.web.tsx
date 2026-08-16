@@ -76,7 +76,9 @@ export function RouteMapView({
   const { colors } = useTheme();
   const { width } = useWindowDimensions();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const mapHeight = compact ? 190 : width >= 1024 ? 540 : width >= 720 ? 430 : 330;
+  // Keep the existing map interaction and reduce only its vertical footprint
+  // by roughly one centimetre, leaving page surface available for scrolling.
+  const mapHeight = compact ? 190 : width >= 1024 ? 500 : width >= 720 ? 390 : 330;
   const routePoints = useMemo(() => (
     encodedPolyline
       ? decodePolyline(encodedPolyline)

@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
-import { Stack, useFocusEffect, useRouter, type Href } from 'expo-router';
+import { Stack, useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
@@ -17,7 +17,6 @@ type DisplayTripSheet = ServerTripSheet & { source: 'server' | 'local' };
 
 export default function TripSheetScreen() {
   const db = useSQLiteContext();
-  const router = useRouter();
   const { profile, online } = useLocalAccess();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -71,15 +70,9 @@ export default function TripSheetScreen() {
     if (Platform.OS === 'web' && typeof window !== 'undefined') window.print();
     else setMessage('PDF arba spausdinimą atidarykite interneto naršyklėje.');
   };
-  const goHome = () => router.replace('/' as Href);
-
   return (
     <>
-      <Stack.Screen options={{
-        gestureEnabled: false, headerBackVisible: false,
-        headerLeft: () => <Pressable onPress={goHome} style={styles.headerAction}><Text style={styles.headerText}>← Pradžia</Text></Pressable>,
-        headerRight: () => null,
-      }} />
+      <Stack.Screen options={{ gestureEnabled: false, title: 'Kelionės lapai' }} />
       <FoundationScreen showFoundationNotice={false} title="Kelionės lapai" description={profile.role === 'driver'
         ? 'Jūsų užbaigtų maršrutų faktiniai darbo duomenys.'
         : 'Visų vairuotojų užbaigti maršrutai, odometrai ir automobiliai.'}>
@@ -169,7 +162,7 @@ function formatTime(value: string | null): string { if (!value) return '—'; co
 function formatMoney(value: number): string { return `${new Intl.NumberFormat('lt-LT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)} €`; }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
-  headerAction: { minWidth: 120, minHeight: 48, justifyContent: 'center' }, headerText: { ...type.button, color: colors.textInverse },
+  headerAction: { minWidth: 120, minHeight: 48, justifyContent: 'center' }, headerText: { ...type.button, color: colors.brandNavy },
   actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   primaryButton: { flexGrow: 1, minWidth: 150, minHeight: 52, borderRadius: radius.md, backgroundColor: colors.actionPrimary, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md }, primaryText: { ...type.button, color: colors.textInverse },
   secondaryButton: { flexGrow: 1, minWidth: 150, minHeight: 52, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md }, secondaryText: { ...type.button, color: colors.textSecondary },

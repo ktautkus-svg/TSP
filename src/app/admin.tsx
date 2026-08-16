@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
-import { Stack, useRouter, type Href } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
 import { assignRouteToDriver } from '@/application/auth/route-assignment-sync';
@@ -36,6 +36,7 @@ type RouteChoice = { id: string; date: string; status: string; total_stops: numb
 
 export default function AdminScreen() {
   const router = useRouter();
+  const { section: requestedSection } = useLocalSearchParams<{ section?: string }>();
   const db = useSQLiteContext();
   const { username, profile, online, logout } = useLocalAccess();
   const { requestSync } = useRouteCloudSync();
@@ -58,6 +59,7 @@ export default function AdminScreen() {
   const [newPhone, setNewPhone] = useState('');
   const [newRole, setNewRole] = useState<EmployeeRole>('driver');
   const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
+  const [editEmployeeUsername, setEditEmployeeUsername] = useState('');
   const [editEmployeeName, setEditEmployeeName] = useState('');
   const [editEmployeeRole, setEditEmployeeRole] = useState<EmployeeRole>('driver');
   const [editEmployeePin, setEditEmployeePin] = useState('');
@@ -81,6 +83,7 @@ export default function AdminScreen() {
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
+  const focus = requestedSection === 'employees' || requestedSection === 'fleet' ? requestedSection : null;
 
   const load = useCallback(async () => {
     const [routeCount, active, completed, stops, localRoutes] = await Promise.all([
@@ -112,6 +115,9 @@ export default function AdminScreen() {
   }, [db, online, profile.role]);
 
   useEffect(() => { void load().catch((reason) => setMessage(reason instanceof Error ? reason.message : 'Duomenų nuskaityti nepavyko.')); }, [load]);
+  useEffect(() => {
+    if (focus) setExpandedSection(focus);
+  }, [focus]);
 
   const run = async (action: () => Promise<void>) => {
     if (busy) return;
@@ -218,6 +224,7 @@ export default function AdminScreen() {
 
   const selectEmployee = (employee: EmployeeProfile) => {
     setSelectedEmployeeId(employee.id);
+    setEditEmployeeUsername(employee.username);
     setEditEmployeeName(employee.displayName);
     setEditEmployeeRole(employee.role);
     setEditEmployeePin('');
@@ -228,6 +235,7 @@ export default function AdminScreen() {
   const saveEmployee = () => run(async () => {
     if (!selectedEmployeeId) throw new Error('Pasirinkite darbuotoją.');
     const patch: Record<string, unknown> = {
+      username: editEmployeeUsername,
       displayName: editEmployeeName,
       role: editEmployeeRole,
       email: editEmployeeEmail,
@@ -238,7 +246,7 @@ export default function AdminScreen() {
       method: 'PATCH', body: JSON.stringify(patch),
     });
     setEditEmployeePin('');
-    setMessage('Darbuotojo duomenys atnaujinti.');
+    setMessage('Darbuotojo duomenys ir prisijungimo vardas atnaujinti.');
     await load();
   });
 
@@ -316,7 +324,6 @@ export default function AdminScreen() {
       autoCapitalize="none" placeholder={placeholder} placeholderTextColor={colors.textMuted} style={styles.input} />
   );
 
-  const goHome = () => router.replace('/' as Href);
   const toggleSection = (section: string) => setExpandedSection((current) => current === section ? null : section);
   const selectedEmployee = users.find((employee) => employee.id === selectedEmployeeId) ?? null;
   const selectedAssignmentDriver = users.find((employee) => employee.id === selectedDriverId) ?? null;
@@ -325,27 +332,27 @@ export default function AdminScreen() {
 
   return (
     <>
-      <Stack.Screen options={{
-        gestureEnabled: false, headerBackVisible: false,
-        headerLeft: () => <Pressable onPress={goHome} style={styles.headerAction}><Text style={styles.headerText}>← Pradžios meniu</Text></Pressable>,
-        headerRight: () => null,
-      }} />
-      <FoundationScreen contentMaxWidth={desktop ? 1440 : tablet ? 980 : undefined} showFoundationNotice={false} title="Administratoriaus panelė" description="Darbuotojai, automobiliai ir maršrutų priskyrimai.">
-        <View style={styles.card} testID="admin-account-summary">
+      <Stack.Screen options={{ gestureEnabled: false }} />
+      <FoundationScreen
+        contentMaxWidth={focus ? 900 : desktop ? 1440 : tablet ? 980 : undefined}
+        showFoundationNotice={false}
+        title={focus === 'employees' ? 'Vairuotojai ir darbuotojai' : focus === 'fleet' ? 'Automobiliai' : 'Administratoriaus panelė'}
+        description={focus === 'employees' ? 'Redaguokite darbuotojo duomenis, PIN ir vairuotojo leidimus.' : focus === 'fleet' ? 'Redaguokite automobilio numerį, modelį, keliamąją galią ir priskyrimą.' : 'Darbuotojai, automobiliai ir maršrutų priskyrimai.'}>
+        {!focus ? <View style={styles.card} testID="admin-account-summary">
           <Text style={styles.title}>{profile.displayName}</Text>
           <Text style={styles.username}>@{username} · {roleLabel(profile.role)}</Text>
           <Text style={styles.meta}>{online ? 'Serveris pasiekiamas ✓' : 'Veikiama neprisijungus · valdymo pakeitimai negalimi'}</Text>
-        </View>
+        </View> : null}
 
-        <View style={styles.metrics}>
+        {!focus ? <View style={styles.metrics}>
           <Metric label="Maršrutai" value={counts?.routes} styles={styles} />
           <Metric label="Aktyvūs" value={counts?.activeRoutes} styles={styles} />
           <Metric label="Užbaigti" value={counts?.completedRoutes} styles={styles} />
           <Metric label="Taškai" value={counts?.stops} styles={styles} />
-        </View>
+        </View> : null}
 
         {profile.role === 'admin' ? <View style={[styles.workspace, desktop && styles.workspaceDesktop]}>
-          <View style={styles.column}>
+          <View style={[styles.column, focus === 'fleet' && styles.hidden]}>
           <View style={styles.card} testID="employee-create-form">
             <CollapsibleHeader title="Naujas darbuotojas" expanded={expandedSection === 'employee-create'} onPress={() => toggleSection('employee-create')} styles={styles} />
             {expandedSection === 'employee-create' ? <>
@@ -365,7 +372,7 @@ export default function AdminScreen() {
           </View>
 
           <View style={styles.card} testID="employee-list">
-            <CollapsibleHeader title={`Darbuotojai (${users.length})`} expanded={expandedSection === 'employees'} onPress={() => toggleSection('employees')} styles={styles} />
+            <CollapsibleHeader title={`Vairuotojai ir darbuotojai (${users.length})`} expanded={expandedSection === 'employees'} onPress={() => toggleSection('employees')} styles={styles} />
             {expandedSection === 'employees' ? <>
             {users.map((employee) => <View key={employee.id} style={styles.employeeBlock}>
               <View style={styles.listRow}>
@@ -377,9 +384,10 @@ export default function AdminScreen() {
               </View>
               {selectedEmployeeId === employee.id ? <View style={styles.editor} testID="employee-edit-form">
               <View style={styles.editorHeading}>
-                <View style={styles.listContent}><Text style={styles.title}>Redaguoti darbuotoją</Text><Text style={styles.meta}>Prisijungimo vardas nekeičiamas. Tuščias PIN paliks dabartinį.</Text></View>
+                <View style={styles.listContent}><Text style={styles.title}>Redaguoti darbuotoją</Text><Text style={styles.meta}>Keičiant prisijungimo vardą būtina įvesti PIN. Jis gali likti toks pats. Kituose įrenginiuose reikės prisijungti iš naujo.</Text></View>
                 <Pressable accessibilityLabel="Uždaryti darbuotojo redagavimą" accessibilityRole="button" onPress={() => setSelectedEmployeeId('')} style={styles.closeButton}><Text style={styles.closeButtonText}>×</Text></Pressable>
               </View>
+              {input(editEmployeeUsername, setEditEmployeeUsername, 'Prisijungimo vardas')}
               {input(editEmployeeName, setEditEmployeeName, 'Vardas ir pavardė')}
               <TextInput autoCapitalize="none" autoComplete="email" keyboardType="email-address" value={editEmployeeEmail} onChangeText={setEditEmployeeEmail} placeholder="El. paštas" placeholderTextColor={colors.textMuted} style={styles.input} />
               <TextInput autoComplete="tel" keyboardType="phone-pad" value={editEmployeePhone} onChangeText={setEditEmployeePhone} placeholder="Telefonas" placeholderTextColor={colors.textMuted} style={styles.input} />
@@ -406,8 +414,8 @@ export default function AdminScreen() {
           </View>
 
           </View>
-          <View style={styles.column}>
-          <View style={styles.card} testID="route-assignment-form">
+          <View style={[styles.column, focus === 'employees' && styles.hidden]}>
+          <View style={[styles.card, Boolean(focus) && styles.hidden]} testID="route-assignment-form">
             <CollapsibleHeader title="Priskirti maršrutą vairuotojui" expanded={expandedSection === 'route-assignment'} onPress={() => toggleSection('route-assignment')} styles={styles} />
             {expandedSection === 'route-assignment' ? <>
             <Text style={styles.sectionLabel}>1. Vairuotojas</Text>
@@ -452,7 +460,7 @@ export default function AdminScreen() {
             </> : null}
           </View>
 
-          <View style={styles.card} testID="route-management">
+          <View style={[styles.card, Boolean(focus) && styles.hidden]} testID="route-management">
             <CollapsibleHeader title={`Aktyvių maršrutų valdymas (${routes.length})`} expanded={expandedSection === 'route-management'} onPress={() => toggleSection('route-management')} styles={styles} />
             {expandedSection === 'route-management' ? <>
             <Text style={styles.meta}>Atšaukite arba visam laikui ištrinkite kabantį maršrutą prieš kurdami naują.</Text>
@@ -471,7 +479,7 @@ export default function AdminScreen() {
             </> : null}
           </View>
 
-          <View style={styles.card} testID="fleet-vehicle-management">
+          <View style={[styles.card, focus === 'employees' && styles.hidden]} testID="fleet-vehicle-management">
             <CollapsibleHeader title={`Automobilių parkas (${vehicles.length})`} expanded={expandedSection === 'fleet'} onPress={() => toggleSection('fleet')} styles={styles} />
             {expandedSection === 'fleet' ? <>
             <Text style={styles.meta}>Maksimalus svoris rodo leistiną krovinio svorį. Miestas automobiliams nesaugomas.</Text>
@@ -528,7 +536,7 @@ export default function AdminScreen() {
             </> : null}
           </View>
 
-          <View style={styles.card} testID="fuel-report-management">
+          <View style={[styles.card, Boolean(focus) && styles.hidden]} testID="fuel-report-management">
             <CollapsibleHeader title={`Kuro likučio pakeitimai (${fuelReports.filter((report) => report.status === 'pending').length})`} expanded={expandedSection === 'fuel-reports'} onPress={() => toggleSection('fuel-reports')} styles={styles} />
             {expandedSection === 'fuel-reports' ? <>
               <Text style={styles.meta}>Pirmasis automobilio kuro likutis priimamas automatiškai. Vėlesnį neatitikimą patvirtina administratorius.</Text>
@@ -548,7 +556,7 @@ export default function AdminScreen() {
           </View>
         </View> : <View style={styles.card}><Text style={styles.title}>Administratoriaus teisės reikalingos</Text><Text style={styles.meta}>Darbuotojų valdymą mato tik administratorius.</Text></View>}
 
-        <View style={styles.card}>
+        {!focus ? <View style={styles.card}>
           <CollapsibleHeader title="Keisti savo PIN" expanded={expandedSection === 'pin'} onPress={() => toggleSection('pin')} styles={styles} />
           {expandedSection === 'pin' ? <>
           {input(currentPin, (value) => setCurrentPin(value.replace(/\D/g, '').slice(0, 8)), 'Dabartinis PIN', true)}
@@ -556,12 +564,14 @@ export default function AdminScreen() {
           {input(confirmPin, (value) => setConfirmPin(value.replace(/\D/g, '').slice(0, 8)), 'Pakartokite naują PIN', true)}
           <Pressable disabled={busy || !online} style={[styles.primaryButton, (busy || !online) && styles.disabled]} onPress={() => void changePin()}><Text style={styles.primaryText}>Pakeisti PIN</Text></Pressable>
           </> : null}
-        </View>
+        </View> : null}
 
         {message ? <Text accessibilityRole="alert" style={styles.message}>{message}</Text> : null}
-        <Pressable style={styles.primaryButton} onPress={() => router.push('/dispatcher' as Href)}><Text style={styles.primaryText}>Atidaryti dispečerio skydelį</Text></Pressable>
-        <Pressable style={styles.secondaryButton} onPress={() => router.push('/settings' as Href)}><Text style={styles.secondaryText}>Nustatymai ir atsarginė kopija</Text></Pressable>
-        <Pressable style={styles.lockButton} onPress={() => { void logout(); }}><Text style={styles.lockText}>Atsijungti</Text></Pressable>
+        {focus ? <Pressable style={styles.secondaryButton} onPress={() => router.replace('/settings' as Href)}><Text style={styles.secondaryText}>Grįžti į nustatymus</Text></Pressable> : <>
+          <Pressable style={styles.primaryButton} onPress={() => router.push('/dispatcher' as Href)}><Text style={styles.primaryText}>Atidaryti dispečerio skydelį</Text></Pressable>
+          <Pressable style={styles.secondaryButton} onPress={() => router.push('/settings' as Href)}><Text style={styles.secondaryText}>Nustatymai ir atsarginė kopija</Text></Pressable>
+          <Pressable style={styles.lockButton} onPress={() => { void logout(); }}><Text style={styles.lockText}>Atsijungti</Text></Pressable>
+        </>}
       </FoundationScreen>
     </>
   );
@@ -587,6 +597,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   workspace: { gap: spacing.lg },
   workspaceDesktop: { flexDirection: 'row', alignItems: 'flex-start' },
   column: { flex: 1, minWidth: 0, gap: spacing.lg },
+  hidden: { display: 'none' },
   card: { padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
   title: { ...type.sectionTitle, color: colors.text },
   sectionHeader: { minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
@@ -607,7 +618,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   message: { ...type.bodyStrong, color: colors.text, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.infoSoft },
   disabled: { opacity: 0.5 },
   headerAction: { minWidth: 170, minHeight: 48, justifyContent: 'center' },
-  headerText: { ...type.button, color: colors.textInverse },
+  headerText: { ...type.button, color: colors.brandNavy },
   choiceRow: { flexDirection: 'row', gap: spacing.sm },
   choiceColumn: { gap: spacing.xs },
   choice: { flex: 1, minHeight: 46, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },

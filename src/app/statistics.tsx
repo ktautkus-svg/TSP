@@ -66,12 +66,7 @@ export default function StatisticsScreen() {
 
   return (
     <>
-    <Stack.Screen options={{
-      gestureEnabled: false,
-      headerBackVisible: false,
-      headerLeft: () => <Pressable onPress={goHome} style={styles.headerAction}><Text style={styles.headerText}>← Pradžia</Text></Pressable>,
-      headerRight: () => null,
-    }} />
+    <Stack.Screen options={{ gestureEnabled: false }} />
     <View style={styles.screen}>
       <FoundationScreen
         showFoundationNotice={false}
@@ -301,5 +296,5 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   tripSheetText: { ...type.button, color: colors.textInverse, fontSize: 16 },
   homeText: { ...type.button, color: colors.textSecondary },
   headerAction: { minWidth: 84, minHeight: 44, justifyContent: 'center' },
-  headerText: { ...type.button, color: colors.textInverse },
+  headerText: { ...type.button, color: colors.brandNavy },
 });

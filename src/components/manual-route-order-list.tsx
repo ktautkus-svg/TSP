@@ -4,9 +4,9 @@ import { Animated, PanResponder, Platform, Pressable, StyleSheet, Text, View, ty
 import { spacing } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 
-export type ManualOrderItem = { id: string; label: string; weightKg: number | null };
+export type ManualOrderItem = { id: string; label: string; address: string; weightKg: number | null };
 
-const ROW_HEIGHT = 62;
+const ROW_HEIGHT = 82;
 
 // Mobile browsers claim vertical gestures for scrolling before JavaScript sees
 // them, which silently kills dragging inside the surrounding ScrollView. Opting
@@ -109,8 +109,11 @@ function DraggableRow(props: {
         <Text style={{ color: props.priority ? '#fff' : colors.primary, fontWeight: '900' }}>{props.priority ? '★' : '☆'}</Text>
       </Pressable>
       <View style={styles.textBlock}>
-        <Text numberOfLines={2} style={[styles.label, { color: colors.text }]}>{props.index + 1}. {props.item.label}</Text>
-        {props.item.weightKg !== null ? <Text style={[styles.meta, { color: colors.textMuted }]}>{Math.round(props.item.weightKg)} kg</Text> : null}
+        <Text numberOfLines={1} style={[styles.label, { color: colors.text }]}>{props.index + 1}. {props.item.label}</Text>
+        <View style={styles.metaRow}>
+          <Text numberOfLines={2} style={[styles.address, { color: colors.textMuted }]}>{props.item.address}</Text>
+          {props.item.weightKg !== null ? <Text style={[styles.weight, { color: colors.textMuted }]}>{Math.round(props.item.weightKg)} kg</Text> : null}
+        </View>
       </View>
       <View style={styles.stepperColumn}>
         <Pressable
@@ -158,7 +161,9 @@ const styles = StyleSheet.create({
   priority: { width: 40, height: 40, borderWidth: 1, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
   textBlock: { flex: 1, minWidth: 0, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
   label: { fontWeight: '800', lineHeight: 19 },
-  meta: { fontSize: 12, marginTop: 2 },
+  metaRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, marginTop: 2 },
+  address: { flex: 1, minWidth: 0, fontSize: 12, lineHeight: 16 },
+  weight: { flexShrink: 0, fontSize: 12, lineHeight: 16 },
   stepperColumn: { gap: 3, paddingVertical: 4 },
   stepper: { width: 40, height: 26, borderWidth: 1, borderRadius: 7, alignItems: 'center', justifyContent: 'center' },
   stepperDisabled: { opacity: 0.3 },

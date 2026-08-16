@@ -1,8 +1,9 @@
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 
 import { TspBrand } from '@/components/tsp-brand';
 import { CloudSyncStatus } from '@/components/cloud-sync-status';
+import { BackIcon, HomeIcon } from '@/components/app-icons';
 import { colors, spacing } from '@/ui/tokens';
 
 export interface BrandHeaderProps {
@@ -10,6 +11,8 @@ export interface BrandHeaderProps {
   readonly showSyncStatus?: boolean;
   readonly showNotifications?: boolean;
   readonly variant?: 'default' | 'driver';
+  readonly onBackPress?: () => void;
+  readonly onHomePress?: () => void;
 }
 
 export function BrandHeader({
@@ -17,15 +20,26 @@ export function BrandHeader({
   showSyncStatus = true,
   showNotifications = true,
   variant = 'default',
+  onBackPress,
+  onHomePress,
 }: BrandHeaderProps = {}) {
   const driver = variant === 'driver';
+  const { width } = useWindowDimensions();
   return (
     <View style={[styles.header, driver && styles.driverHeader]} testID="brand-header">
+      {onBackPress ? <Pressable accessibilityLabel="Atgal" accessibilityRole="button" onPress={onBackPress} style={styles.navigationButton} testID="brand-header-back">
+        <BackIcon size={22} color={colors.brandNavy} />
+        {width >= 620 ? <Text style={styles.navigationText}>Atgal</Text> : null}
+      </Pressable> : null}
       <View style={[styles.brandRow, driver && styles.driverBrandRow]}>
         <TspBrand inverse={false} />
       </View>
       {!driver ? <View style={styles.headerActions}>
-        {showSyncStatus ? <CloudSyncStatus compact /> : null}
+        {showSyncStatus && width >= 720 ? <CloudSyncStatus compact /> : null}
+        {onHomePress ? <Pressable accessibilityLabel="Į pradžią" accessibilityRole="button" onPress={onHomePress} style={styles.navigationButton} testID="brand-header-home">
+          <HomeIcon size={21} color={colors.brandNavy} />
+          {width >= 620 ? <Text style={styles.navigationText}>Pradžia</Text> : null}
+        </Pressable> : null}
         {showNotifications ? <View style={styles.notification}>
           <Svg width={22} height={22} viewBox="0 0 24 24">
             <Path d="M6 9a6 6 0 0 1 12 0v4l2 3H4l2-3V9Z" fill="none" stroke={colors.brandNavy} strokeWidth={1.8} strokeLinejoin="round" />
@@ -72,4 +86,6 @@ const styles = StyleSheet.create({
   notification: { width: 32, height: 40, alignItems: 'center', justifyContent: 'center' },
   notificationDot: { position: 'absolute', top: 7, right: 3, width: 6, height: 6, borderRadius: 9, backgroundColor: colors.accent },
   profileButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  navigationButton: { minWidth: 44, minHeight: 44, paddingHorizontal: spacing.sm, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs },
+  navigationText: { color: colors.brandNavy, fontWeight: '600' },
 });

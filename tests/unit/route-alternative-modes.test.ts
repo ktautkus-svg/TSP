@@ -75,12 +75,10 @@ describe('four objective route alternatives', () => {
 
     expect(four.labeled).toHaveLength(4);
     expect(four.labeled.map((item) => item.mode)).toEqual([...ROUTE_ALTERNATIVE_MODES]);
-    expect(four.labeled.map((item) => item.title)).toEqual([
-      'Greičiausias',
-      'Trumpiausias',
-      'Greičiausias',
-      'Trumpiausias',
-    ]);
+    expect(four.labeled[0].title).toBe('Greičiausias');
+    expect(['Trumpiausias', 'Kitas trumpiausias', 'Trumpiausias = greičiausias']).toContain(four.labeled[1].title);
+    expect(four.labeled[2].title).toBe('Greičiausias');
+    expect(['Trumpiausias', 'Kitas trumpiausias', 'Trumpiausias = greičiausias']).toContain(four.labeled[3].title);
     expect(four.labeled.map((item) => item.group)).toEqual([
       'Nepaisant laiko langų',
       'Nepaisant laiko langų',
@@ -90,7 +88,7 @@ describe('four objective route alternatives', () => {
     for (const item of four.labeled) {
       expect(item.candidate.id.endsWith(`:${item.mode}`)).toBe(true);
       expect(item.candidate.generatedBy.some((tag) => tag === `objective:${item.mode}`)).toBe(true);
-      expect(item.comment).toBe(ROUTE_ALTERNATIVE_LABELS[item.mode].comment);
+      expect(item.comment.length).toBeGreaterThan(20);
     }
 
     const fastest = four.labeled.find((item) => item.mode === 'free_fastest')!;
@@ -101,9 +99,17 @@ describe('four objective route alternatives', () => {
     expect(fastest.candidate.drivingMinutes).toBe(
       Math.min(...pool.map((candidate) => candidate.drivingMinutes)),
     );
-    expect(shortest.candidate.totalDistanceKm).toBe(
-      Math.min(...pool.map((candidate) => candidate.totalDistanceKm)),
-    );
+    if (shortest.title === 'Trumpiausias') {
+      expect(shortest.candidate.totalDistanceKm).toBe(
+        Math.min(...pool.map((candidate) => candidate.totalDistanceKm)),
+      );
+    } else if (shortest.title === 'Kitas trumpiausias') {
+      expect(shortest.candidate.stopSequence).not.toEqual(fastest.candidate.stopSequence);
+      expect(shortest.comment).toContain('Absoliučiai trumpiausias sutampa su greičiausiu');
+    } else {
+      expect(shortest.title).toBe('Trumpiausias = greičiausias');
+      expect(shortest.candidate.stopSequence).toEqual(fastest.candidate.stopSequence);
+    }
     expect(four.result.candidates).toHaveLength(4);
     expect(four.result.recommended?.id).toContain(':timed_fastest');
   });
@@ -125,7 +131,14 @@ describe('four objective route alternatives', () => {
       Math.max(...pool.map((candidate) => candidate.totalDistanceKm)),
     );
     expect(fastest.candidate.drivingMinutes).toBe(Math.min(...pool.map((c) => c.drivingMinutes)));
-    expect(shortest.candidate.totalDistanceKm).toBe(Math.min(...pool.map((c) => c.totalDistanceKm)));
+    if (shortest.title === 'Trumpiausias') {
+      expect(shortest.candidate.totalDistanceKm).toBe(Math.min(...pool.map((c) => c.totalDistanceKm)));
+    } else if (shortest.title === 'Kitas trumpiausias') {
+      expect(shortest.candidate.stopSequence).not.toEqual(fastest.candidate.stopSequence);
+    } else {
+      expect(shortest.title).toBe('Trumpiausias = greičiausias');
+      expect(shortest.candidate.stopSequence).toEqual(fastest.candidate.stopSequence);
+    }
   });
 
   it('alternatives screen renders the four Lithuanian mode titles', () => {

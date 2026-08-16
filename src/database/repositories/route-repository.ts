@@ -236,7 +236,8 @@ export class RouteRepository {
        WHERE status NOT IN ('completed', 'cancelled') ${ownerClause}
        ORDER BY date,
          CASE status WHEN 'in_progress' THEN 0 WHEN 'loaded' THEN 1 WHEN 'loading' THEN 2 ELSE 3 END,
-         created_at DESC`,
+         created_at DESC,
+         id`,
       ...(ownerEmployeeId ? [ownerEmployeeId, ownerEmployeeId] : []),
     );
     return rows.map(mapRoute);
@@ -278,7 +279,7 @@ export class RouteRepository {
       `SELECT * FROM routes
        WHERE status IN ('completed', 'cancelled')
        ${ownerClause}
-       ORDER BY COALESCE(completed_at, cancelled_at, created_at) DESC LIMIT ?`,
+       ORDER BY COALESCE(completed_at, cancelled_at, created_at) DESC, id LIMIT ?`,
       ...(ownerEmployeeId ? [ownerEmployeeId, ownerEmployeeId] : []),
       limit,
     );

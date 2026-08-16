@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import Constants from 'expo-constants';
 import { Pressable, SafeAreaView, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { Link, useFocusEffect, useRouter, type Href } from 'expo-router';
@@ -11,11 +11,11 @@ import { AccountMenuSheet } from '@/components/account-menu-sheet';
 import { BrandHeader } from '@/components/brand-header';
 import { DriverNowDashboard } from '@/components/driver-now-dashboard';
 import { DriverAppTabs } from '@/components/driver-app-tabs';
+import { DispatchIcon, ExecuteRouteIcon, QualityIcon, RouteIcon, SettingsIcon, TripSheetIcon } from '@/components/app-icons';
 import { ScreenContainer } from '@/components/screen-container';
 import { AppButton, AppCard } from '@/components/ui-primitives';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import type { DeliveryStop, Route } from '@/domain/route';
-import { stitchTheme } from '@/theme';
 import { fonts, radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
@@ -144,11 +144,12 @@ export default function HomeScreen() {
                 <Text style={styles.activeText}>Pasirinkite užduotį. Maršrutai administratoriaus vardu automatiškai nepradedami.</Text>
               </View>
               <View style={styles.adminMenuGrid}>
-                <AdminMenuCard description="Stebėti automobilius, eigą ir nukrypimus realiu laiku" label="Dispečeris" onPress={() => router.push('/dispatcher' as Href)} symbol="D" styles={styles} />
-                <AdminMenuCard description="Matyti visą taškų seką, laikus ir pristatymo kokybę" label="Kokybės kontrolė" onPress={() => router.push('/quality-control' as Href)} symbol="K" styles={styles} />
-                <AdminMenuCard description="Pasirinkti vairuotoją ir laikinai vykdyti jo maršrutą" label="Vykdyti maršrutą" onPress={() => router.push('/execute-route' as Href)} primary symbol="V" styles={styles} />
-                <AdminMenuCard description="Kurti, priskirti, atšaukti ir peržiūrėti maršrutus" label="Maršrutai" onPress={() => router.push('/history' as Href)} symbol="M" styles={styles} />
-                <AdminMenuCard description="Darbuotojai, automobiliai, teisės ir programėlės parinktys" label="Nustatymai" onPress={() => router.push('/settings' as Href)} symbol="N" styles={styles} />
+                <AdminMenuCard description="Automobiliai, eiga ir nukrypimai realiu laiku" icon={<DispatchIcon />} label="Dispečeris" onPress={() => router.push('/dispatcher' as Href)} styles={styles} />
+                <AdminMenuCard description="Taškų seka, laikai ir pristatymo kokybė" icon={<QualityIcon />} label="Kokybės kontrolė" onPress={() => router.push('/quality-control' as Href)} styles={styles} />
+                <AdminMenuCard description="Pasirinkti vairuotoją ir tęsti jo maršrutą" icon={<ExecuteRouteIcon color={colors.info} />} label="Vykdyti maršrutą" onPress={() => router.push('/execute-route' as Href)} styles={styles} />
+                <AdminMenuCard description="Kurti, priskirti ir peržiūrėti maršrutus" icon={<RouteIcon color={colors.info} />} label="Maršrutai" onPress={() => router.push('/history' as Href)} styles={styles} />
+                <AdminMenuCard description="Vairuotojai, automobiliai, vietos ir programėlė" icon={<SettingsIcon />} label="Nustatymai" onPress={() => router.push('/settings' as Href)} styles={styles} />
+                <AdminMenuCard description="Užbaigtų darbų suvestinės, odometrai ir PDF" icon={<TripSheetIcon />} label="Kelionės lapai" onPress={() => router.push('/trip-sheet' as Href)} styles={styles} />
               </View>
             </View>
           ) : profile.role === 'driver' ? active && progress ? (
@@ -278,10 +279,10 @@ function formatMetric(value: number | null | undefined): string {
   return new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(value);
 }
 
-function AdminMenuCard({ label, description, symbol, onPress, primary = false, styles }: {
+function AdminMenuCard({ label, description, icon, onPress, primary = false, styles }: {
   label: string;
   description: string;
-  symbol: string;
+  icon: ReactNode;
   onPress: () => void;
   primary?: boolean;
   styles: ReturnType<typeof createStyles>;
@@ -292,7 +293,7 @@ function AdminMenuCard({ label, description, symbol, onPress, primary = false, s
     onPress={onPress}
     style={({ pressed }) => [styles.adminMenuButton, primary && styles.adminMenuButtonPrimary, pressed && styles.adminMenuButtonPressed]}>
     <View style={[styles.adminMenuSymbol, primary && styles.adminMenuSymbolPrimary]}>
-      <Text style={[styles.adminMenuSymbolText, primary && styles.adminMenuButtonTextPrimary]}>{symbol}</Text>
+      {icon}
     </View>
     <View style={styles.adminMenuButtonBody}>
       <Text style={[styles.adminMenuButtonText, primary && styles.adminMenuButtonTextPrimary]}>{label}</Text>
@@ -305,7 +306,7 @@ function AdminMenuCard({ label, description, symbol, onPress, primary = false, s
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background },
   content: { flexGrow: 1, paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: 96, gap: spacing.md },
-  driverContent: { paddingTop: spacing.sm, backgroundColor: stitchTheme.driverNow.background },
+  driverContent: { paddingTop: spacing.sm, backgroundColor: colors.background },
   eyebrow: { ...type.label, color: colors.textMuted },
   // One card style, one radius, one hairline border. No shadow: the border is
   // enough separation against a light grey page.
@@ -329,16 +330,15 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   progressFill: { height: '100%', borderRadius: radius.sm, backgroundColor: colors.accent },
   warningText: { ...type.bodyStrong, color: colors.warning },
   pilotExportButton: { minHeight: 44 },
-  adminMenu: { gap: spacing.lg },
+  adminMenu: { gap: spacing.md },
   adminMenuHeading: { gap: spacing.xs },
-  adminMenuTitle: { ...type.pageTitle, color: colors.text, fontSize: 28, lineHeight: 34 },
+  adminMenuTitle: { ...type.pageTitle, color: colors.text, fontSize: 26, lineHeight: 32 },
   adminMenuGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  adminMenuButton: { minWidth: 280, flexBasis: 360, flexGrow: 1, minHeight: 108, paddingHorizontal: spacing.lg, paddingVertical: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  adminMenuButton: { minWidth: 280, flexBasis: 360, flexGrow: 1, minHeight: 88, paddingHorizontal: spacing.md, paddingVertical: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   adminMenuButtonPrimary: { backgroundColor: colors.actionPrimary, borderColor: colors.actionPrimary },
   adminMenuButtonPressed: { opacity: 0.82 },
-  adminMenuSymbol: { width: 46, height: 46, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.infoSoft },
+  adminMenuSymbol: { width: 44, height: 44, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.infoSoft },
   adminMenuSymbolPrimary: { backgroundColor: 'rgba(255,255,255,0.15)' },
-  adminMenuSymbolText: { ...type.sectionTitle, color: colors.info },
   adminMenuButtonBody: { flex: 1, minWidth: 0, gap: 4 },
   adminMenuButtonText: { ...type.cardTitle, color: colors.text },
   adminMenuButtonTextPrimary: { color: colors.textInverse },

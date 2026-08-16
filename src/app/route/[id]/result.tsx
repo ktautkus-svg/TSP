@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
@@ -13,12 +13,14 @@ import { spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { useLocalAccess } from '@/application/auth/local-access-context';
-import { pushCompletedRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
+import { pushRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
+import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 import { employeeApi, type CompensationBreakdown, type ServerTripSheet } from '@/infrastructure/auth/employee-session';
 
 export default function RouteResultScreen() {
   const db = useSQLiteContext();
   const { profile, online } = useLocalAccess();
+  const { requestSync } = useRouteCloudSync();
   const router = useRouter();
   const { id: routeId = '' } = useLocalSearchParams<{ id: string }>();
   const { colors } = useTheme();
@@ -51,27 +53,32 @@ export default function RouteResultScreen() {
   }, [repository, routeId, router]));
 
   useFocusEffect(useCallback(() => {
+    if (!online || profile.role !== 'driver') return undefined;
+    let active = true;
+    void pushRouteAssignmentProgress(db, routeId)
+      .catch((reason) => {
+        if (__DEV__) console.warn('COMPLETED_ASSIGNMENT_SYNC_FAILED', reason);
+      })
+      .then(() => active ? requestSync('mutation') : undefined);
+    return () => { active = false; };
+  }, [db, online, profile.role, requestSync, routeId]));
+
+  useFocusEffect(useCallback(() => {
     if (!online || (profile.role === 'driver' && !profile.permissions?.canViewCompensation)) return undefined;
     let mounted = true;
     void (async () => {
-      if (profile.role === 'driver') await pushCompletedRouteAssignmentProgress(db);
       const response = await employeeApi<{ tripSheets: ServerTripSheet[] }>('/api/trip-sheets');
       const sheet = response.tripSheets.find((item) => item.routeId === routeId);
       if (mounted) setCompensation(sheet?.compensation ?? null);
     })().catch(() => undefined);
     return () => { mounted = false; };
-  }, [db, online, profile.permissions?.canViewCompensation, profile.role, routeId]));
+  }, [online, profile.permissions?.canViewCompensation, profile.role, routeId]));
 
   const goHome = () => router.replace('/' as Href);
 
   return (
     <>
-      <Stack.Screen options={{
-        gestureEnabled: false,
-        headerBackVisible: false,
-        headerLeft: () => <Pressable onPress={goHome} style={styles.headerAction}><Text style={styles.headerText}>← Pradžia</Text></Pressable>,
-        headerRight: () => null,
-      }} />
+      <Stack.Screen options={{ gestureEnabled: false, title: 'Maršruto rezultatas' }} />
       <FoundationScreen showFoundationNotice={false} title="Maršrutas užbaigtas" description="Darbo dienos rezultatas išsaugotas istorijoje.">
         {error ? <Text style={styles.error}>{error}</Text> : null}
         {route ? (
@@ -103,7 +110,7 @@ export default function RouteResultScreen() {
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   headerAction: { minWidth: 84, minHeight: 44, justifyContent: 'center' },
-  headerText: { ...type.button, color: colors.textInverse },
+  headerText: { ...type.button, color: colors.brandNavy },
   error: { ...type.secondaryStrong, color: colors.danger },
   compensation: { padding: spacing.lg, borderRadius: 16, borderWidth: 1, borderColor: colors.success, backgroundColor: colors.surface, gap: spacing.xs },
   compensationLabel: { ...type.label, color: colors.success },

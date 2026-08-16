@@ -29,12 +29,14 @@ import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { Alert } from '@/ui/alert';
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
-import { pushRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
+import { useLocalAccess } from '@/application/auth/local-access-context';
+import { pushRouteAssignmentProgress, pushRouteAssignmentRevision } from '@/application/auth/route-assignment-sync';
 
 export default function RouteAlternativesScreen() {
   const router = useRouter();
   const db = useSQLiteContext();
   const { requestSync, revision: syncRevision } = useRouteCloudSync();
+  const { profile } = useLocalAccess();
   const { id: routeId = '' } = useLocalSearchParams<{ id: string }>();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -63,6 +65,7 @@ export default function RouteAlternativesScreen() {
   // /history. Without this flag the screen's own status guard races the
   // intended navigation and sometimes dumps the driver into history instead.
   const selfCancelled = useRef(false);
+  const screenFocused = useRef(false);
 
   const calculate = useCallback(async () => {
     if (!routeId || startedForRoute.current === routeId) return;
@@ -97,6 +100,7 @@ export default function RouteAlternativesScreen() {
   }, [calculate]);
 
   useFocusEffect(useCallback(() => {
+    screenFocused.current = true;
     let active = true;
     void repository.getById(routeId).then((current) => {
       if (!active || !current || current.status === 'draft' || selfCancelled.current) return;
@@ -110,11 +114,11 @@ export default function RouteAlternativesScreen() {
       if (__DEV__) console.warn('ALTERNATIVES_FOCUS_GUARD_FAILED', reason);
       if (active) setError(reason instanceof Error ? reason.message : 'Maršruto būsenos patikrinti nepavyko.');
     });
-    return () => { active = false; };
+    return () => { active = false; screenFocused.current = false; };
   }, [repository, routeId, router]));
 
   useEffect(() => {
-    if (syncRevision === 0) return;
+    if (syncRevision === 0 || !screenFocused.current) return;
     void repository.getById(routeId).then((current) => {
       if (!current || current.status === 'draft' || selfCancelled.current) return;
       const destination = resolveRoute(current);
@@ -153,7 +157,7 @@ export default function RouteAlternativesScreen() {
   }, [request, selectedCandidate]);
 
   const saveSelectedRoute = async () => {
-    if (!result || !selectedId || savingRef.current) return;
+    if (!result || !selectedId || !selectedCandidate || savingRef.current) return;
     savingRef.current = true;
     setSaving(true);
     setError(null);
@@ -170,7 +174,9 @@ export default function RouteAlternativesScreen() {
         return;
       }
       await new SaveSelectedRouteCandidate(db).execute(routeId, result.requestId, selectedId);
-      void requestSync('mutation');
+      await verifyPersistedSequence(repository, routeId, selectedCandidate.stopSequence);
+      await pushRouteAssignmentRevision(db, routeId, profile.role !== 'driver');
+      await requestSync('mutation');
       router.replace({ pathname: '/route/[id]/loading', params: { id: routeId } });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Maršruto išsaugoti nepavyko.');
@@ -267,8 +273,8 @@ export default function RouteAlternativesScreen() {
   };
   recalculateManualSequenceRef.current = recalculateManualSequence;
 
-  const useManualSequence = async () => {
-    if (!request || !result || !manualCandidate || manualSaving) return;
+  const applyManualSequence = async () => {
+    if (!request || !result || manualOrder.length === 0 || manualSaving) return;
     setManualSaving(true);
     setError(null);
     try {
@@ -283,25 +289,33 @@ export default function RouteAlternativesScreen() {
         } as Href);
         return;
       }
+      const latestManualCandidate = evaluateCandidate({
+        stopSequence: manualOrder,
+        generatedBy: ['manual_reorder'],
+        request,
+        matrix: result.matrix,
+      });
       const manualResult: RouteOptimizationResult = {
         requestId: `${routeId}-manual-${Date.now()}`,
-        provider: manualCandidate.provider,
+        provider: latestManualCandidate.provider,
         executionMode: result.executionMode,
         generatedAt: new Date().toISOString(),
         matrixFetchedAt: result.matrixFetchedAt,
         matrix: result.matrix,
-        feasibleRouteFound: manualCandidate.feasible,
-        recommended: manualCandidate,
+        feasibleRouteFound: latestManualCandidate.feasible,
+        recommended: latestManualCandidate,
         alternatives: [],
         diagnosticCandidate: null,
-        candidates: [manualCandidate],
+        candidates: [latestManualCandidate],
         conflictingConstraints: [],
         suggestions: [],
-        warnings: manualCandidate.warnings,
+        warnings: latestManualCandidate.warnings,
       };
       await new SQLiteRoutingAuditRepository(db).saveOptimizationRun(routeId, request, manualResult);
-      await new SaveSelectedRouteCandidate(db).execute(routeId, manualResult.requestId, manualCandidate.id);
-      void requestSync('mutation');
+      await new SaveSelectedRouteCandidate(db).execute(routeId, manualResult.requestId, latestManualCandidate.id);
+      await verifyPersistedSequence(repository, routeId, manualOrder);
+      await pushRouteAssignmentRevision(db, routeId, profile.role !== 'driver');
+      await requestSync('mutation');
       router.replace({ pathname: '/route/[id]/loading', params: { id: routeId } });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Rankinės sekos išsaugoti nepavyko.');
@@ -454,7 +468,12 @@ export default function RouteAlternativesScreen() {
             Žvaigždute pažymėkite vieną ar kelis prioritetinius taškus. Eiliškumą keiskite ▲▼ mygtukais arba tempdami ☰ rankenėlę.
           </Text>
           <ManualRouteOrderList
-            items={manualOrder.map((stopId) => request.stops.find((item) => item.id === stopId)).filter((stop): stop is OptimizationStop => Boolean(stop)).map((stop) => ({ id: stop.id, label: stop.location.label, weightKg: typeof stop.weightKg === 'number' ? stop.weightKg : null }))}
+            items={manualOrder.map((stopId) => request.stops.find((item) => item.id === stopId)).filter((stop): stop is OptimizationStop => Boolean(stop)).map((stop) => ({
+              id: stop.id,
+              label: stop.location.label,
+              address: stop.location.address ?? stop.location.label,
+              weightKg: typeof stop.weightKg === 'number' ? stop.weightKg : null,
+            }))}
             priorityIds={new Set(manualPriorityIds)}
             onTogglePriority={toggleManualPriority}
             onMove={moveManualStop}
@@ -478,7 +497,7 @@ export default function RouteAlternativesScreen() {
               <Pressable
                 disabled={manualSaving}
                 style={[styles.selectButton, manualSaving && styles.disabled]}
-                onPress={() => { void useManualSequence(); }}>
+                onPress={() => { void applyManualSequence(); }}>
                 {manualSaving ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>Naudoti šią seką</Text>}
               </Pressable>
             </View>
@@ -513,6 +532,17 @@ export default function RouteAlternativesScreen() {
       ) : null}
     </FoundationScreen>
   );
+}
+
+async function verifyPersistedSequence(
+  repository: RouteRepository,
+  routeId: string,
+  expected: readonly string[],
+): Promise<void> {
+  const actual = (await repository.getStops(routeId)).map((stop) => stop.id);
+  if (actual.length !== expected.length || actual.some((id, index) => id !== expected[index])) {
+    throw new Error('Pasirinktas eiliškumas nebuvo išsaugotas. Krovimas nepradėtas — patvirtinkite dar kartą.');
+  }
 }
 
 function CandidateCard(props: {

@@ -7,13 +7,41 @@ const home = readFileSync(resolve(root, 'src/app/index.tsx'), 'utf8');
 const execute = readFileSync(resolve(root, 'src/app/execute-route.tsx'), 'utf8');
 const admin = readFileSync(resolve(root, 'src/app/admin.tsx'), 'utf8');
 const quality = readFileSync(resolve(root, 'src/app/quality-control.tsx'), 'utf8');
+const settings = readFileSync(resolve(root, 'src/app/settings/index.tsx'), 'utf8');
+const dispatcher = readFileSync(resolve(root, 'src/app/dispatcher.tsx'), 'utf8');
+const routes = readFileSync(resolve(root, 'src/app/history.tsx'), 'utf8');
+const appLayout = readFileSync(resolve(root, 'src/app/_layout.tsx'), 'utf8');
+const stackNavigation = readFileSync(resolve(root, 'src/components/stack-navigation.tsx'), 'utf8');
 
 describe('administrator workspace navigation', () => {
   it('shows administrator tools instead of automatically continuing a local route', () => {
     expect(home).toContain('testID="admin-home-menu"');
     expect(home).toContain('Kokybės kontrolė');
     expect(home).toContain('Vykdyti maršrutą');
+    expect(home).toContain('Kelionės lapai');
+    expect(home).toContain('TripSheetIcon');
     expect(home).toContain("profile.role === 'admin'\n          ? []");
+  });
+
+  it('opens focused employee and vehicle editors from visible settings shortcuts', () => {
+    expect(settings).toContain('testID="admin-management-shortcuts"');
+    expect(settings).toContain("params: { section: 'employees' }");
+    expect(settings).toContain("params: { section: 'fleet' }");
+    expect(settings).toContain('testID="open-employee-management"');
+    expect(settings).toContain('testID="open-vehicle-management"');
+    expect(admin).toContain("requestedSection === 'employees' || requestedSection === 'fleet'");
+    expect(admin).toContain("if (focus) setExpandedSection(focus)");
+    expect(appLayout).toContain('headerLeft: () => <StackBackButton />');
+  });
+
+  it('keeps a visible deterministic exit inside both route workspaces', () => {
+    expect(dispatcher).toContain('Redaguoti vairuotojus →');
+    expect(dispatcher).toContain('Redaguoti automobilius →');
+    expect(stackNavigation).toContain('router.canGoBack()');
+    expect(stackNavigation).toContain('router.back()');
+    expect(stackNavigation).toContain("router.replace(fallback)");
+    expect(stackNavigation).toContain("router.replace('/' as Href)");
+    expect(routes).not.toContain('routes-back-home');
   });
 
   it('lets an administrator choose a driver assignment before executing it', () => {

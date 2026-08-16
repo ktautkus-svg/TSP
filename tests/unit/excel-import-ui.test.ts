@@ -15,6 +15,7 @@ const manualRouteScreen = readFileSync(resolve(here, '../../src/app/route/new.ts
 const alternativesScreen = readFileSync(resolve(here, '../../src/app/route/[id]/alternatives.tsx'), 'utf8');
 const webMap = readFileSync(resolve(here, '../../src/components/route-map.web.tsx'), 'utf8');
 const manualOrderList = readFileSync(resolve(here, '../../src/components/manual-route-order-list.tsx'), 'utf8');
+const routeOverview = readFileSync(resolve(here, '../../src/app/route/[id]/overview.tsx'), 'utf8');
 
 describe('compact daily Excel UI', () => {
   it('shows the compact problem filter and expands only actionable groups', () => {
@@ -32,6 +33,10 @@ describe('compact daily Excel UI', () => {
     expect(importScreen).toContain('placeholder="04:00"');
     expect(importScreen).toContain('defaultPlanningTime');
     expect(importScreen).toContain('remembered-excel-card');
+    expect(importScreen).toContain('Tęsti iš šio Excel');
+    expect(importScreen).toContain('Failo iš naujo kelti nereikia');
+    expect(importScreen).toContain('for (const [index, sheet] of preview.sheets.entries())');
+    expect(importScreen).toContain('findLatestByFingerprint(excelPreview.fileHash, targetSheet)');
     expect(importScreen).toContain('toggle-paste-field');
     expect(importScreen).toContain("pathname: '/route/[id]/review'");
     expect(importScreen).toContain("result && (!excelPreview || excelProblemCount === 0)");
@@ -46,11 +51,17 @@ describe('compact daily Excel UI', () => {
     expect(importScreen).toContain('switchTrackOn');
   });
 
-  it('leads with Excel and keeps the other import sources secondary', () => {
+  it('shows every import source explicitly with progressive disclosure', () => {
     expect(importScreen).toContain('testID="pick-excel"');
     expect(importScreen).toContain('Pasirinkti Excel failą');
-    expect(importScreen).toContain('Papildomi šaltiniai');
+    expect(importScreen).toContain('PASIRINKITE ŠALTINĮ');
+    expect(importScreen).toContain('Nuotrauka');
+    expect(importScreen).toContain('PDF dokumentas');
+    expect(importScreen).toContain('Įklijuoti tekstą');
     expect(importScreen).toContain('excelPrimaryButton');
+    expect(importScreen).toContain('toggle-excel-content');
+    expect(importScreen).toContain('toggle-route-setup');
+    expect(importScreen).not.toContain('autoRestoredExcel');
   });
 
   it('lets the driver drop whole regions and edit the schedule inline', () => {
@@ -104,7 +115,7 @@ describe('compact daily Excel UI', () => {
     expect(importScreen).toContain('warehouseEndpoint');
     expect(importScreen).toContain('homeEndpoint');
     expect(importScreen).not.toContain('Išsaugota vieta naudojama automatiškai');
-    expect(importScreen).toContain('Patikrinkite ${excelProblemCount}');
+    expect(importScreen).toContain('${excelProblemCount} taškus reikia patikrinti');
     expect(importScreen).toContain("testID=\"create-route-top\"");
     expect(importScreen).not.toContain('Dabartinė vieta');
     expect(importScreen).not.toContain('Paskutinis taškas');
@@ -112,14 +123,37 @@ describe('compact daily Excel UI', () => {
     expect(manualRouteScreen).toContain('savedStartEndpoint');
     expect(manualRouteScreen).toContain('savedEndEndpoint');
     expect(manualRouteScreen).toContain('testID="manual-route-review-top"');
+    expect(importScreen).toContain('useFocusEffect(useCallback(() =>');
+    expect(reviewScreen).toContain('testID="apply-current-warehouse"');
+    expect(reviewScreen).toContain('Naudoti dabartinį sandėlį');
   });
 
-  it('offers both Vilnius and Kretinga as route starts', () => {
+  it('keeps back navigation inside the import and review flow', () => {
+    expect(importScreen).toContain('returnToSourceChooser');
+    expect(importScreen).toContain('← Šaltiniai');
+    expect(importScreen).toContain("returnTo: 'import'");
+    expect(reviewScreen).toContain("<Stack.Screen options={{ gestureEnabled: false, title: 'Adresų patikra' }} />");
+    expect(manualRouteScreen).toContain("returnTo: 'manual'");
+    expect(manualRouteScreen).toContain("pathname: '/route/[id]/review'");
+  });
+
+  it('keeps the full route sequence collapsed until requested', () => {
+    expect(routeOverview).toContain('testID="toggle-route-stops"');
+    expect(routeOverview).toContain('showStops ? stops.map');
+    expect(routeOverview).toContain("profile.role === 'driver' ? <DriverAppTabs");
+  });
+
+  it('offers both the saved warehouse and Kretinga as route starts', () => {
     expect(importScreen).toContain('KRETINGA_WAREHOUSE_ADDRESS');
     expect(importScreen).toContain('testID="start-location-choice"');
-    expect(importScreen).toContain("setStartMode('vilnius')");
+    expect(importScreen).toContain("setStartMode('warehouse')");
     expect(importScreen).toContain("setStartMode('kretinga')");
+    expect(importScreen).toContain('>Numatytasis sandėlis</Text>');
+    expect(importScreen).toContain('>Kretingos sandėlis</Text>');
+    expect(importScreen).toContain("{selectedStartAddress} → {endMode === 'home' ? homeAddress : selectedStartAddress}");
     expect(importScreen).toContain('const startLocation: RouteEndpoint = selectedStartEndpoint');
+    expect(reviewScreen).toContain('canonicalWarehouseAddress');
+    expect(reviewScreen).toContain('endpoint.normalizedAddress');
   });
 
   it('keeps route selection compact and fits the whole route after map resize', () => {
@@ -138,10 +172,16 @@ describe('compact daily Excel UI', () => {
     expect(alternativesScreen).toContain('ManualRouteOrderList');
     expect(alternativesScreen).toContain('manualPriorityIds');
     expect(alternativesScreen).toContain('Perskaičiuoti pagal prioritetus');
+    expect(alternativesScreen).toContain('verifyPersistedSequence');
+    expect(alternativesScreen).toContain('pushRouteAssignmentRevision');
+    expect(alternativesScreen).toContain('stopSequence: manualOrder');
     expect(alternativesScreen).not.toContain('Sutvarkykite taškus rodyklėmis');
     expect(manualOrderList).toContain('PanResponder');
     expect(manualOrderList).toContain('manual-drag-list');
     expect(manualOrderList).toContain('accessibilityRole="checkbox"');
+    expect(alternativesScreen).toContain('address: stop.location.address ?? stop.location.label');
+    expect(manualOrderList).toContain('props.item.address');
+    expect(manualOrderList).toContain('styles.address');
     expect(webMap).toContain('ResizeObserver');
     expect(webMap).toContain('invalidateSize');
     expect(webMap).toContain('fitBounds');
@@ -153,9 +193,13 @@ describe('compact daily Excel UI', () => {
     expect(loadingScreen).toContain("persisted.route.status === 'planned'");
     expect(loadingScreen).toContain('Suplanuotas maršrutas');
     expect(loadingScreen).toContain('testID="begin-loading"');
+    expect(loadingScreen).toContain('testID="assign-planned-route"');
     expect(loadingScreen).toContain('testID="edit-planned-route"');
-    expect(loadingScreen).toContain('testID="cancel-planned-route"');
-    expect(loadingScreen).toContain('Grįžti į redagavimą');
+    expect(loadingScreen).toContain('testID="plan-another-route"');
+    expect(loadingScreen).toContain('testID="delete-planned-route"');
+    expect(loadingScreen).toContain('Redaguoti maršrutą');
+    expect(loadingScreen).toContain('Tęsti nepriskyrus');
+    expect(loadingScreen).toContain('Ištrinti maršrutą');
     expect(loadingScreen).toContain('await new ActivateRoute(db).execute(routeId)');
     expect(loadingScreen).not.toContain("if (persisted.route.status === 'planned') await new ActivateRoute");
     expect(dashboardScreen).toContain('Tęsti suplanuotą maršrutą');

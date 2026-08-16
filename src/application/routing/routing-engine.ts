@@ -28,12 +28,18 @@ export class RoutingEngine implements RouteOptimizer {
       timeoutMs: Math.max(1_000, request.maxCalculationMs * 2),
     });
     const seeds = generateHeuristicSeeds(request, matrix);
+    // One shared wall-clock budget for all seeds. Without it the cost is
+    // seedCount x maxCalculationMs of blocked JS thread, which on a phone means
+    // the driver watches a frozen screen while a route is planned.
+    const deadlineAt =
+      performance.now() + (request.maxTotalCalculationMs ?? request.maxCalculationMs * 3);
     const improved = seeds.map((seed) =>
       improveWithLocalSearch({
         sequence: seed.sequence,
         generatedBy: seed.generatedBy,
         request,
         matrix,
+        deadlineAt,
       }),
     );
     const deduplicated = deduplicate(improved, request);
@@ -218,6 +224,9 @@ function validateRequest(request: RouteOptimizationRequest): void {
   }
   if (request.maxIterations < 1 || request.maxCalculationMs < 1) {
     throw new Error('Skaičiavimo ribos turi būti teigiamos.');
+  }
+  if (request.maxTotalCalculationMs !== undefined && request.maxTotalCalculationMs < request.maxCalculationMs) {
+    throw new Error('Bendras skaičiavimo biudžetas negali būti mažesnis už vieno seed biudžetą.');
   }
   const stopWeight = summarizeStopWeights(request.stops).knownTotalKg;
   if (request.initialLoadKg !== undefined && request.initialLoadKg < stopWeight) {

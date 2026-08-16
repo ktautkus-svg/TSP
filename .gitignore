@@ -10,6 +10,9 @@ node_modules/
 .env.*
 !.env.example
 
+# copied from node_modules by scripts/sync-leaflet-css.mjs
+public/leaflet.css
+
 # Expo
 .expo/
 dist/

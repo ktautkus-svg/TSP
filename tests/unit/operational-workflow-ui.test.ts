@@ -27,7 +27,7 @@ describe('driver operational UI', () => {
     expect(delivery).toContain('ĮVESTI GALUTINĮ ODOMETRĄ');
   });
 
-  it('moves the swipe card, removes celestial decorations and enlarges the desktop map', () => {
+  it('moves the swipe card, removes celestial decorations and keeps map zoom while shortening the map', () => {
     const swipe = read('src/components/swipe-action-card.tsx');
     const road = read('src/components/road-progress-bar.tsx');
     const map = read('src/components/route-map.web.tsx');
@@ -35,6 +35,7 @@ describe('driver operational UI', () => {
     expect(swipe).toContain('PRIDUOTA');
     expect(swipe).toContain('NEPRIDUOTA');
     expect(road).not.toContain('moonGlow');
-    expect(map).toContain('width >= 1024 ? 540');
+    expect(map).toContain('width >= 1024 ? 500');
+    expect(map).toMatch(/\n\s+scrollWheelZoom\s*\n/);
   });
 });
