@@ -1086,10 +1086,12 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   dashboardSecondaryWide: { flex: 0.92, minWidth: 320, gap: spacing.md },
   gaugePanel: {
     width: '100%',
-    paddingTop: 1,
+    marginTop: -1,
+    paddingTop: 5,
     paddingHorizontal: 14,
     paddingBottom: 4,
     backgroundColor: colors.surface,
+    zIndex: 2,
   },
   gaugeRow: {
     width: '100%',

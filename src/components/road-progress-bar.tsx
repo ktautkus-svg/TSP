@@ -131,50 +131,51 @@ export function RoadProgressBar({
           <View pointerEvents="none" style={styles.windshieldTopShade} />
           <View pointerEvents="none" style={styles.windshieldPillarLeft} />
           <View pointerEvents="none" style={styles.windshieldPillarRight} />
-          <View pointerEvents="none" style={styles.dashboardEdge} />
+          <Svg pointerEvents="none" preserveAspectRatio="none" style={styles.cockpitCowl} viewBox="0 0 430 96">
+            <Defs>
+              <LinearGradient id="dashboardSurface" x1="0" y1="0" x2="0" y2="1">
+                <Stop offset="0" stopColor={cockpit.metalMid} />
+                <Stop offset="0.18" stopColor={cockpit.metalDark} />
+                <Stop offset="1" stopColor={cockpit.primaryDark} />
+              </LinearGradient>
+              <LinearGradient id="steeringProgress" x1="0" y1="0" x2="1" y2="0">
+                <Stop offset="0" stopColor={cockpit.primaryDark} />
+                <Stop offset="0.6" stopColor={cockpit.primary} />
+                <Stop offset="1" stopColor={cockpit.routeBright} />
+              </LinearGradient>
+            </Defs>
+            <Path
+              d="M 0 70 Q 215 8 430 70 L 430 96 L 0 96 Z"
+              fill="url(#dashboardSurface)"
+            />
+            <Path
+              d="M 18 69 Q 215 16 412 69"
+              fill="none"
+              stroke={cockpit.metalLight}
+              strokeLinecap="round"
+              strokeWidth={10}
+            />
+            <Path
+              d="M 18 69 Q 215 16 412 69"
+              fill="none"
+              stroke="url(#steeringProgress)"
+              strokeDasharray={`${Math.max(1, displayedProgress * ARC_LENGTH)} ${ARC_LENGTH}`}
+              strokeLinecap="round"
+              strokeWidth={7}
+            />
+          </Svg>
+          <View pointerEvents="none" style={styles.progressReadout}>
+            <Text style={styles.percent}>{Math.round(clamped * 100)}%</Text>
+            {breakdown ? <Text numberOfLines={1} style={styles.breakdown}>
+              Taškai {percent(breakdown.stopsFraction)} · Svoris {percent(breakdown.weightFraction)} · Kelias {percent(breakdown.distanceFraction)}
+            </Text> : null}
+          </View>
           {completed ? (
             <View pointerEvents="none" style={styles.completedMessage} testID="route-completed-windshield-message">
               <Text style={styles.completedMessageText}>GERO POILSIO!</Text>
             </View>
           ) : null}
         </View>
-      </View>
-      <View style={styles.instrumentBridge}>
-        <View pointerEvents="none" style={styles.cockpitCowl} />
-        <Svg pointerEvents="none" preserveAspectRatio="none" style={styles.arc} viewBox="0 0 430 62">
-          <Defs>
-            <LinearGradient id="steeringMetal" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0" stopColor={cockpit.white} />
-              <Stop offset="0.38" stopColor={cockpit.metalMid} />
-              <Stop offset="0.72" stopColor={cockpit.metalLight} />
-              <Stop offset="1" stopColor={cockpit.metalDark} />
-            </LinearGradient>
-            <LinearGradient id="steeringProgress" x1="0" y1="0" x2="1" y2="0">
-              <Stop offset="0" stopColor={cockpit.primaryDark} />
-              <Stop offset="0.6" stopColor={cockpit.primary} />
-              <Stop offset="1" stopColor={cockpit.routeBright} />
-            </LinearGradient>
-          </Defs>
-          <Path
-            d="M 18 56 Q 215 -10 412 56"
-            fill="none"
-            stroke="url(#steeringMetal)"
-            strokeLinecap="round"
-            strokeWidth={12}
-          />
-          <Path
-            d="M 18 56 Q 215 -10 412 56"
-            fill="none"
-            stroke="url(#steeringProgress)"
-            strokeDasharray={`${Math.max(1, displayedProgress * ARC_LENGTH)} ${ARC_LENGTH}`}
-            strokeLinecap="round"
-            strokeWidth={8}
-          />
-        </Svg>
-        <Text style={styles.percent}>{Math.round(clamped * 100)}%</Text>
-        {breakdown ? <Text numberOfLines={1} style={styles.breakdown}>
-          Taškai {percent(breakdown.stopsFraction)} · Svoris {percent(breakdown.weightFraction)} · Kelias {percent(breakdown.distanceFraction)}
-        </Text> : null}
       </View>
     </View>
   );
@@ -220,59 +221,74 @@ const createStyles = (cockpit: CockpitPalette) => StyleSheet.create({
   container: {
     width: '100%',
     overflow: 'hidden',
-    backgroundColor: cockpit.background,
+    backgroundColor: cockpit.metalDark,
   },
   windshieldArea: {
     width: '100%',
     alignItems: 'center',
+    paddingTop: 8,
+    paddingHorizontal: 10,
     backgroundColor: cockpit.metalDark,
   },
   windshieldShell: {
     width: '100%',
     maxWidth: 520,
-    aspectRatio: 2.25,
+    aspectRatio: 1.95,
     position: 'relative',
     overflow: 'hidden',
-    backgroundColor: cockpit.background,
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+    backgroundColor: cockpit.metalDark,
   },
-  roadImage: { position: 'absolute', inset: 0, width: '100%', height: '100%' },
+  roadImage: {
+    position: 'absolute',
+    top: 12,
+    right: 18,
+    bottom: 4,
+    left: 18,
+    width: undefined,
+    height: undefined,
+  },
   windshieldTopShade: {
     position: 'absolute',
     top: 0,
     right: 0,
     left: 0,
-    height: 10,
+    height: 16,
     backgroundColor: cockpit.metalDark,
-    opacity: 0.32,
   },
   windshieldPillarLeft: {
     position: 'absolute',
-    top: -8,
-    bottom: 12,
-    left: -9,
-    width: 19,
+    top: 4,
+    bottom: 14,
+    left: -12,
+    width: 38,
     backgroundColor: cockpit.metalDark,
-    transform: [{ rotate: '-4deg' }],
+    transform: [{ rotate: '-5deg' }],
   },
   windshieldPillarRight: {
     position: 'absolute',
-    top: -8,
-    right: -9,
-    bottom: 12,
-    width: 19,
+    top: 4,
+    right: -12,
+    bottom: 14,
+    width: 38,
     backgroundColor: cockpit.metalDark,
-    transform: [{ rotate: '4deg' }],
+    transform: [{ rotate: '5deg' }],
   },
-  dashboardEdge: {
+  cockpitCowl: {
     position: 'absolute',
     right: 0,
     bottom: 0,
     left: 0,
-    height: 18,
-    borderTopWidth: 1,
-    borderTopColor: cockpit.metalMid,
-    backgroundColor: cockpit.metalDark,
-    opacity: 0.96,
+    width: '100%',
+    height: 96,
+  },
+  progressReadout: {
+    position: 'absolute',
+    right: 44,
+    bottom: 8,
+    left: 44,
+    alignItems: 'center',
   },
   completedMessage: {
     position: 'absolute',
@@ -288,38 +304,18 @@ const createStyles = (cockpit: CockpitPalette) => StyleSheet.create({
     fontSize: 24,
     letterSpacing: 1.2,
   },
-  instrumentBridge: {
-    height: 64,
-    position: 'relative',
-    marginTop: -22,
-    justifyContent: 'flex-end',
-    zIndex: 2,
-    backgroundColor: 'transparent',
-  },
-  cockpitCowl: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    left: 0,
-    height: 24,
-    borderTopWidth: 1,
-    borderTopColor: cockpit.metalMid,
-    backgroundColor: cockpit.metalDark,
-  },
-  arc: { position: 'absolute', left: 0, right: 0, top: 2, width: '100%', height: 62 },
   percent: {
-    alignSelf: 'center',
-    marginBottom: 0,
-    color: cockpit.onSurface,
+    color: cockpit.white,
     fontFamily: fonts.headingExtraBold,
-    fontSize: 16,
+    fontSize: 17,
+    lineHeight: 20,
   },
   breakdown: {
-    alignSelf: 'center',
-    marginBottom: 2,
-    color: cockpit.onSurface,
+    maxWidth: '100%',
+    color: cockpit.metalLight,
     fontFamily: fonts.headingSemiBold,
-    fontSize: 10,
+    fontSize: 9,
+    lineHeight: 12,
     letterSpacing: 0.15,
   },
 });

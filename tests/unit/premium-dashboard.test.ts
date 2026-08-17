@@ -77,6 +77,9 @@ describe('premium route dashboard', () => {
     expect(road).toContain('styles.windshieldPillarLeft');
     expect(road).toContain('styles.windshieldPillarRight');
     expect(road).toContain('styles.cockpitCowl');
+    expect(road).toContain('M 0 70 Q 215 8 430 70');
+    expect(road).toContain('styles.progressReadout');
+    expect(road).not.toContain('styles.instrumentBridge');
     expect(road).toContain('28_000');
     expect(road).toContain('Animated.Image');
     expect(road).toContain('setDisplayedSceneKey(selectedSceneKey)');
