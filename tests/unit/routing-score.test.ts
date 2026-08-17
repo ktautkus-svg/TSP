@@ -54,12 +54,36 @@ describe('exact load-distance objective', () => {
 });
 
 describe('normalized multi-criteria scoring', () => {
-  it('normalizes all equal components to zero and caps outliers', () => {
+  it('normalizes against the fixed caps, not the spread of the pool', () => {
     const left = candidate('left', true, { distance: 10 });
     const right = candidate('right', true, { distance: 10 });
     const scored = normalizeAndScoreCandidates([left, right], DEFAULT_ROUTING_SCORING);
-    expect(scored[0].normalizedScoreComponents.distance).toBe(0);
-    expect(scored[1].totalScore).toBe(0);
+    const cap = DEFAULT_ROUTING_SCORING.normalizationCaps.distance;
+    expect(scored[0].normalizedScoreComponents.distance).toBeCloseTo(10 / cap, 10);
+    expect(scored[1].totalScore).toBeCloseTo(
+      (10 / cap) * DEFAULT_ROUTING_SCORING.weights.distance,
+      10,
+    );
+  });
+
+  it('scores a candidate the same regardless of what else is in the pool', () => {
+    const subject = candidate('subject', true, { distance: 100 });
+    const alone = normalizeAndScoreCandidates([subject], DEFAULT_ROUTING_SCORING)[0];
+    // A wildly worse candidate used to stretch the min-max range and shrink the
+    // effective weight of distance for everyone else.
+    const crowded = normalizeAndScoreCandidates(
+      [subject, candidate('outlier', true, { distance: 5_000 })],
+      DEFAULT_ROUTING_SCORING,
+    )[0];
+    expect(crowded.totalScore).toBe(alone.totalScore);
+  });
+
+  it('caps a component that runs past its normalization ceiling', () => {
+    const overshoot = candidate('overshoot', true, {
+      distance: DEFAULT_ROUTING_SCORING.normalizationCaps.distance * 3,
+    });
+    const scored = normalizeAndScoreCandidates([overshoot], DEFAULT_ROUTING_SCORING)[0];
+    expect(scored.normalizedScoreComponents.distance).toBe(1);
   });
 
   it('always ranks a feasible route before an infeasible cheap route', () => {
@@ -88,6 +112,8 @@ function candidate(
     provider: 'test',
     stopSequence: [id],
     generatedBy: ['test'],
+    effectiveDepartureAt: '2026-06-15T07:00:00.000Z',
+    departureShiftMinutes: 0,
     schedules: [],
     legs: [],
     totalDistanceKm: raw.distance,

@@ -17,6 +17,7 @@ const SCORE_KEYS: RoutingScoreKey[] = [
   'endLocationConvenience',
   'maneuvers',
   'userPreferences',
+  'lateness',
 ];
 
 export function cappedObjective(
@@ -31,23 +32,31 @@ export function cappedObjective(
   }, 0);
 }
 
+/**
+ * Scores every candidate against the FIXED normalization caps, never against
+ * the spread of the current candidate pool.
+ *
+ * Min–max normalisation over the pool used to be used here, and it silently
+ * rewrote the weight table: whichever criterion happened to have the widest
+ * spread got the full 0..1 range and its nominal weight, while a criterion
+ * where every candidate sat near its cap collapsed towards zero influence.
+ * A single bad candidate (e.g. a random seed the time budget never got to
+ * refine) stretched the distance axis far enough to make real kilometre
+ * differences between sane routes almost invisible. Worse, local search
+ * hill-climbs on `cappedObjective`, so ranking and search were optimising
+ * two different functions and the search winner could lose the ranking.
+ *
+ * With absolute caps, `totalScore` equals `cappedObjective` exactly, the score
+ * means the same thing between runs, and the pool composition no longer moves
+ * the answer.
+ */
 export function normalizeAndScoreCandidates(
   candidates: RouteCandidate[],
   config: RoutingScoringConfig,
 ): RouteCandidate[] {
-  const feasible = candidates.filter((candidate) => candidate.feasible);
-  const bounds = Object.fromEntries(
-    SCORE_KEYS.map((key) => {
-      const values = feasible.map((candidate) =>
-        Math.min(candidate.rawScoreComponents[key], config.normalizationCaps[key]),
-      );
-      return [key, { min: Math.min(...values), max: Math.max(...values) }];
-    }),
-  ) as Record<RoutingScoreKey, { min: number; max: number }>;
-
   return candidates.map((candidate) => {
     validateComponents(candidate.rawScoreComponents);
-    if (!candidate.feasible || feasible.length === 0) {
+    if (!candidate.feasible) {
       return {
         ...candidate,
         normalizedScoreComponents: zeroComponents(),
@@ -56,12 +65,8 @@ export function normalizeAndScoreCandidates(
     }
     const normalized = zeroComponents();
     for (const key of SCORE_KEYS) {
-      const capped = Math.min(
-        candidate.rawScoreComponents[key],
-        config.normalizationCaps[key],
-      );
-      const { min, max } = bounds[key];
-      normalized[key] = max === min ? 0 : (capped - min) / (max - min);
+      const cap = config.normalizationCaps[key];
+      normalized[key] = cap > 0 ? Math.min(candidate.rawScoreComponents[key] / cap, 1) : 0;
     }
     const totalScore = SCORE_KEYS.reduce(
       (sum, key) => sum + normalized[key] * config.weights[key],
@@ -106,10 +111,16 @@ export function compareCandidates(
 // by minute let a geographically absurd sequence win purely because it shaved a
 // couple of minutes off one window. Lateness is therefore compared in coarse
 // bands, so only materially worse schedules outrank a sane, drivable route.
+//
+// `rank.totalLateMinutes` / `rank.maximumSingleStopLateMinutes` already hold
+// per-stop excess-beyond-tolerance minutes (raw lateness minus the stop's
+// latenessToleranceMinutes / priorityLatenessToleranceMinutes, floored at 0 —
+// see constraint-evaluator.ts), so a value of 0 here means "within tolerance",
+// not "exactly on time".
 const LATENESS_BAND_MINUTES = 30;
 
-function latenessBand(minutes: number): number {
-  return Math.ceil(Math.max(0, minutes) / LATENESS_BAND_MINUTES);
+function latenessBand(excessMinutes: number): number {
+  return excessMinutes > 0 ? 1 + Math.floor(excessMinutes / LATENESS_BAND_MINUTES) : 0;
 }
 
 function criticalTuple(rank: CriticalRank): number[] {
@@ -134,6 +145,7 @@ export function zeroComponents(): RawScoreComponents {
     endLocationConvenience: 0,
     maneuvers: 0,
     userPreferences: 0,
+    lateness: 0,
   };
 }
 
