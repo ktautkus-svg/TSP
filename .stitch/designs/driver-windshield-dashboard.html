@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+
+<html lang="lt"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>LogiTrack Pro - Vairavimo skydelis</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "primary-fixed-dim": "#b1c5ff",
+                        "surface-container-highest": "#e2e2e5",
+                        "secondary-fixed-dim": "#ffb77d",
+                        "on-primary-fixed-variant": "#00419e",
+                        "on-primary-container": "#a5bdff",
+                        "primary-fixed": "#dae2ff",
+                        "on-error-container": "#93000a",
+                        "on-secondary-container": "#603100",
+                        "surface-container-low": "#f3f3f6",
+                        "surface-variant": "#e2e2e5",
+                        "surface-dim": "#dadadc",
+                        "on-tertiary-fixed": "#380d00",
+                        "tertiary-fixed-dim": "#ffb59a",
+                        "on-tertiary-fixed-variant": "#802900",
+                        "outline": "#737784",
+                        "inverse-surface": "#2f3133",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-container": "#eeeef0",
+                        "surface": "#f9f9fc",
+                        "secondary-fixed": "#ffdcc3",
+                        "on-tertiary-container": "#ffaa8a",
+                        "on-surface-variant": "#434653",
+                        "primary-container": "#0047ab",
+                        "on-tertiary": "#ffffff",
+                        "inverse-on-surface": "#f0f0f3",
+                        "secondary-container": "#fd8b00",
+                        "on-primary": "#ffffff",
+                        "on-surface": "#1a1c1e",
+                        "on-error": "#ffffff",
+                        "tertiary": "#651f00",
+                        "surface-container-high": "#e8e8ea",
+                        "on-secondary-fixed": "#2f1500",
+                        "primary": "#00327d",
+                        "on-primary-fixed": "#001946",
+                        "error": "#ba1a1a",
+                        "on-secondary-fixed-variant": "#6e3900",
+                        "inverse-primary": "#b1c5ff",
+                        "tertiary-fixed": "#ffdbcf",
+                        "outline-variant": "#c3c6d5",
+                        "on-background": "#1a1c1e",
+                        "tertiary-container": "#8b2e01",
+                        "secondary": "#904d00",
+                        "on-secondary": "#ffffff",
+                        "surface-tint": "#2559bd",
+                        "error-container": "#ffdad6",
+                        "surface-bright": "#f9f9fc",
+                        "background": "#f9f9fc"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "spacing": {
+                        "unit": "4px",
+                        "lg": "24px",
+                        "margin-desktop": "48px",
+                        "xs": "4px",
+                        "md": "16px",
+                        "gutter": "24px",
+                        "margin-mobile": "16px",
+                        "sm": "8px",
+                        "xl": "32px"
+                    },
+                    "fontFamily": {
+                        "label-caps": ["Hanken Grotesk"],
+                        "display-lg": ["Hanken Grotesk"],
+                        "data-mono": ["JetBrains Mono"],
+                        "headline-lg-mobile": ["Hanken Grotesk"],
+                        "body-lg": ["Hanken Grotesk"],
+                        "title-md": ["Hanken Grotesk"],
+                        "body-sm": ["Hanken Grotesk"],
+                        "headline-lg": ["Hanken Grotesk"]
+                    },
+                    "fontSize": {
+                        "label-caps": ["12px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "700" }],
+                        "display-lg": ["48px", { "lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "data-mono": ["14px", { "lineHeight": "20px", "fontWeight": "500" }],
+                        "headline-lg-mobile": ["24px", { "lineHeight": "32px", "fontWeight": "600" }],
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "title-md": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "body-sm": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "600" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .windshield-clip {
+            clip-path: polygon(5% 0%, 95% 0%, 100% 100%, 0% 100%);
+        }
+        .gauge-arc {
+            stroke-dasharray: 251.2;
+            stroke-dashoffset: 0;
+            transform: rotate(135deg);
+            transform-origin: 50% 50%;
+        }
+        .crossfade-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+        }
+        .crossfade-image {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: opacity 1.5s ease-in-out;
+        }
+        .crossfade-image.active {
+            opacity: 1;
+        }
+        .crossfade-image.inactive {
+            opacity: 0;
+        }
+    </style>
+</head>
+<body class="bg-surface-container-lowest text-on-surface font-body-lg min-h-screen flex flex-col pt-14 pb-16">
+<!-- TopNavBar -->
+<nav class="bg-surface-container-lowest border-b border-outline-variant fixed top-0 left-0 w-full z-50 flex justify-between items-center px-margin-mobile md:px-margin-desktop h-14">
+<div class="flex items-center space-x-4">
+<button class="text-on-surface-variant hover:bg-surface-container-low transition-colors duration-200 ease-in-out rounded-full p-2">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">menu</span>
+</button>
+<img alt="TSP Logo" class="h-8" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDWHQCo1fPbZEu-5tK8H2rMhgb5nbxAgs7-jdehHaQ6iUyPb2OsN7Z_EHWq4tIyDHIrDznysNhDTf9a6BrWD8XeKJhRocjmyGYGahyyhrvA3zH7b3Cqhwtwoq9t82_hyNboQJ0Ha_QASPsBJvk8EhPk0zdYbvs_zGBwP1m3hf38RW5WfR0W_T4c1U-3insUD60Ng1r6BrMcBv3vIygDB-kBfb8XkItU9vZDHVwG8DjYPfykaO9eTlB7T1Ulz04hSTYKeWTDdBIOp7I"/>
+</div>
+<div class="flex items-center space-x-2">
+<button class="text-on-surface-variant hover:bg-surface-container-low transition-colors duration-200 ease-in-out rounded-full p-2">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">notifications</span>
+</button>
+<button class="text-on-surface-variant hover:bg-surface-container-low transition-colors duration-200 ease-in-out rounded-full p-2">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">settings</span>
+</button>
+<div class="w-8 h-8 rounded-full bg-surface-variant flex items-center justify-center overflow-hidden">
+<img alt="Driver profile avatar" class="w-full h-full object-cover" data-alt="A professional headshot of a truck driver in uniform, clean-cut, neutral background." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCo8vBQA_HiEseAdxx9FlHyJODNiZize5CD5rKBxfSErwR3lowcIQlEI5ahoV2CxVR-YoAIiGbr1_BxT1hG_l9_KeSfMOdMyKz4jY__UTWV57iQSlomp0qZ-NhAUfNc8DXVVkFvf7ESz7l7IboHSni7pAumhaEngAFFA8qmqUQubB_4XlcsXeZLdVwmJsiAgmD589SsjGZYMTEARZ74mKrbEGkgJeY659ru9kjIXAnTOj6Gb9XdKqQ72OS-GSLwDOD4f0bRB_Wci0k"/>
+</div>
+</div>
+</nav>
+<!-- Main Content -->
+<main class="flex-grow flex justify-center p-4">
+<div class="w-full max-w-[560px] flex flex-col gap-6">
+<!-- Windshield Viewport -->
+<div class="relative w-full h-48 bg-surface-container-highest rounded-lg overflow-hidden windshield-clip border-2 border-surface-variant">
+<div class="crossfade-container" id="windshield-crossfade">
+<img alt="Windshield view of highway" class="crossfade-image active" src="https://lh3.googleusercontent.com/aida-public/AB6AXuANjjNoYrZBNq-kJKXGymBOH8vzlEiIy2-XPFUyzut_-5422X4FpdY4X5LNaE_gVYs42lDtzwNjp9tsotL7Y2xuhqZ0L72MQhYtqSPnsSE4JmUJWtt4Ad_mJcOY5f-Dy3fpyDfmrN01Efu2KmOKe3QI54sSFuGLMjbM58vx3lR5opixT1o0d2K1hNYl7VwPvRNF9yT5n4OyXNpZ9cqJSG0MXEE2_kOO2lEhHgvZwP4GvI7CKiwLYcR2Mm_Il9J2zCMNETL9Et7KLtc"/>
+<img alt="Alternative windshield view" class="crossfade-image inactive" src="https://lh3.googleusercontent.com/aida/AP1WRLuo9fUAk3hUEeMN6V-H94dq61GgyR4FllZBPONTIYs3NCt_Y5k6ELZdte3rVWc3u3KqGQqjsnyjv6mEQG6-SsL_0mOleoNGmX3nFP2hviCkYvWz0ZaiVGZEzyKhFuWq4ygqgnIGHoteIZZM8njhbwLlgCUASTU63mHUDV2BjL0SDCmAK4kOU7Ip-dzVWMyJBZukmL2RB_keE7CpRvCrCJ1Acu_sOkRO3IHie5ureFx4Q8_ERL2B1nGQENE"/>
+</div>
+<!-- Dashboard edge -->
+<div class="absolute bottom-0 w-full h-4 bg-surface-container-lowest border-t border-outline-variant shadow-[0_-2px_4px_rgba(0,0,0,0.1)]"></div>
+<!-- Weather Caption -->
+<div class="absolute bottom-6 right-4 px-2 py-1 bg-inverse-surface/80 text-inverse-on-surface font-label-caps rounded flex items-center gap-1 backdrop-blur-sm">
+<span class="material-symbols-outlined text-[14px]">light_mode</span>
+                    GIEDRA
+                </div>
+</div>
+<!-- Progress Arc -->
+<div class="flex flex-col items-center">
+<div class="w-full max-w-sm px-4">
+<div class="flex justify-between items-end mb-1">
+<span class="font-label-caps text-on-surface-variant">MARŠRUTO PROGRESAS</span>
+<span class="font-title-md text-primary font-bold">75%</span>
+</div>
+<div class="h-2 w-full bg-surface-container-highest rounded-full overflow-hidden">
+<div class="h-full bg-primary rounded-full w-[75%]"></div>
+</div>
+</div>
+<div class="mt-2 text-on-surface-variant font-data-mono text-center">
+                    Taškai: 12 • Svoris: 230 kg • Kelias: 195,7 km
+                </div>
+</div>
+<!-- Instrument Cluster & Telemetry -->
+<div class="flex justify-between items-center bg-surface p-4 rounded-xl border border-outline-variant">
+<!-- Left Gauge (Weight) -->
+<div class="flex flex-col items-center w-1/3">
+<div class="relative w-24 h-24">
+<svg class="w-full h-full" viewbox="0 0 100 100">
+<!-- Background Arc -->
+<path d="M 20 80 A 40 40 0 1 1 80 80" fill="none" stroke="#e2e2e5" stroke-linecap="round" stroke-width="8"></path>
+<!-- Value Arc -->
+<path d="M 20 80 A 40 40 0 0 1 80 20" fill="none" stroke="#00327d" stroke-linecap="round" stroke-width="8"></path>
+<!-- Needle (rotated slightly) -->
+<g transform="rotate(30, 50, 50)">
+<line stroke="#1a1c1e" stroke-linecap="round" stroke-width="2" x1="50" x2="20" y1="50" y2="50"></line>
+<circle cx="50" cy="50" fill="#1a1c1e" r="4"></circle>
+</g>
+</svg>
+<div class="absolute inset-0 flex flex-col items-center justify-center pt-4">
+<span class="font-headline-lg-mobile text-on-surface leading-none">230</span>
+<span class="font-label-caps text-on-surface-variant mt-1">KG</span>
+</div>
+</div>
+<span class="font-label-caps text-on-surface-variant mt-2 text-center w-full">SVORIS</span>
+</div>
+<!-- Center Telemetry -->
+<div class="flex flex-col items-center justify-center w-1/3 space-y-4 px-2 border-x border-outline-variant/30">
+<div class="text-center">
+<div class="font-label-caps text-on-surface-variant mb-1">LAIKAS</div>
+<div class="font-title-md text-on-surface font-bold">7:47</div>
+</div>
+<div class="w-8 h-px bg-outline-variant/50"></div>
+<div class="text-center">
+<div class="font-label-caps text-on-surface-variant mb-1">NUVAŽIUOTA</div>
+<div class="font-data-mono text-on-surface font-bold">195,7 <span class="text-sm font-normal">km</span></div>
+</div>
+</div>
+<!-- Right Gauge (Stops) -->
+<div class="flex flex-col items-center w-1/3">
+<div class="relative w-24 h-24">
+<svg class="w-full h-full" viewbox="0 0 100 100">
+<path d="M 20 80 A 40 40 0 1 1 80 80" fill="none" stroke="#e2e2e5" stroke-linecap="round" stroke-width="8"></path>
+<path d="M 20 80 A 40 40 0 0 1 30 30" fill="none" stroke="#00327d" stroke-linecap="round" stroke-width="8"></path>
+<g transform="rotate(-45, 50, 50)">
+<line stroke="#1a1c1e" stroke-linecap="round" stroke-width="2" x1="50" x2="20" y1="50" y2="50"></line>
+<circle cx="50" cy="50" fill="#1a1c1e" r="4"></circle>
+</g>
+</svg>
+<div class="absolute inset-0 flex flex-col items-center justify-center pt-4">
+<span class="font-headline-lg-mobile text-on-surface leading-none">3</span>
+<span class="font-label-caps text-on-surface-variant mt-1">/12</span>
+</div>
+</div>
+<span class="font-label-caps text-on-surface-variant mt-2 text-center w-full">TAŠKAI</span>
+</div>
+</div>
+<!-- Lower Strip -->
+<div class="flex gap-4">
+<div class="flex-1 bg-surface-container-lowest border border-outline-variant rounded-lg p-3 flex flex-col justify-center">
+<div class="flex items-center gap-1 text-on-surface-variant mb-1">
+<span class="material-symbols-outlined text-[16px]">distance</span>
+<span class="font-label-caps">IKI ARTIMIAUSIOS</span>
+</div>
+<div class="font-title-md text-on-surface font-bold">44,4 km</div>
+</div>
+<div class="flex-1 bg-surface-container-lowest border border-outline-variant rounded-lg p-3 flex flex-col justify-center">
+<div class="flex items-center gap-1 text-on-surface-variant mb-1">
+<span class="material-symbols-outlined text-[16px]">schedule</span>
+<span class="font-label-caps">LAIKAS</span>
+</div>
+<div class="font-title-md text-on-surface font-bold">48 min.</div>
+</div>
+</div>
+</div>
+</main>
+<!-- BottomNavBar -->
+<nav class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center h-16 px-2 pb-safe bg-surface-container-lowest border-t border-outline-variant md:hidden">
+<button class="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-full px-4 py-1 active:scale-95 transition-transform duration-150">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">dashboard</span>
+<span class="font-label-caps mt-1">Dashboard</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-high px-4 py-1 active:scale-95 transition-transform duration-150 rounded-lg">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">local_shipping</span>
+<span class="font-label-caps mt-1">Shipments</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-high px-4 py-1 active:scale-95 transition-transform duration-150 rounded-lg">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">groups</span>
+<span class="font-label-caps mt-1">Fleet</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-high px-4 py-1 active:scale-95 transition-transform duration-150 rounded-lg">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">person</span>
+<span class="font-label-caps mt-1">Profile</span>
+</button>
+</nav>
+<script>
+        // Simple crossfade logic
+        const images = document.querySelectorAll('#windshield-crossfade img');
+        let currentIndex = 0;
+
+        function crossfade() {
+            images[currentIndex].classList.remove('active');
+            images[currentIndex].classList.add('inactive');
+            
+            currentIndex = (currentIndex + 1) % images.length;
+            
+            images[currentIndex].classList.remove('inactive');
+            images[currentIndex].classList.add('active');
+        }
+
+        // Run crossfade every 5 seconds
+        setInterval(crossfade, 5000);
+    </script>
+</body></html>
