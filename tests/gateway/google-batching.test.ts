@@ -45,12 +45,17 @@ function createMultiStopRequest(stopCount: number): GatewayMatrixRequest {
 }
 
 describe('Google Route Matrix batching / chunking', () => {
-  it('moves stale live-traffic departure time into the future before calling Google', async () => {
+  // Was: "moves stale live-traffic departure time into the future". That kept the
+  // matrix on TRAFFIC_AWARE, which bills every one of the n^2 elements at the
+  // Compute Route Matrix Pro rate. The matrix is now always TRAFFIC_UNAWARE and
+  // traffic is applied once to the selected route through computeRoutes instead.
+  it('stays traffic-unaware even when the caller asks for live traffic', async () => {
     const request = { ...createMultiStopRequest(1), trafficMode: 'live' as const };
     const baseFetcher = createCompleteMatrixFetcher();
     const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
-      const body = JSON.parse(String(init?.body)) as { departureTime: string };
-      expect(Date.parse(body.departureTime)).toBeGreaterThan(Date.now());
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      expect(body.routingPreference).toBe('TRAFFIC_UNAWARE');
+      expect(body).not.toHaveProperty('departureTime');
       return baseFetcher(url, init);
     });
 

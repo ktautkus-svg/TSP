@@ -24,6 +24,7 @@ import { GatewayPolylineProvider } from '@/infrastructure/routing/providers/gate
 import { FallbackTravelCostProvider } from '@/infrastructure/routing/providers/fallback-travel-cost-provider';
 import { GoogleTravelCostProvider, HereTravelCostProvider } from '@/infrastructure/routing/providers/gateway-travel-cost-provider';
 import { SyntheticTravelCostProvider } from '@/infrastructure/routing/providers/synthetic-travel-cost-provider';
+import { PlanningRunTravelCostProvider } from '@/infrastructure/routing/providers/planning-run-travel-cost-provider';
 import { clockLabel, durationLabel } from '@/ui/route-eta-labels';
 import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
@@ -697,10 +698,23 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   manualResultCard: { gap: spacing.sm, marginTop: spacing.sm },
 });
 
+/**
+ * One planning run, one paid matrix.
+ *
+ * PlanningRunTravelCostProvider must wrap the fallback chain, not sit inside it:
+ * buildRouteAlternatives runs the engine twice and both runs have to land on the
+ * same purchase. Wrapped this way they share a single in-flight request, and
+ * duplicate delivery addresses are collapsed before Google ever sees them.
+ *
+ * A fresh instance per planning action is deliberate - nothing about the matrix
+ * outlives the run that paid for it.
+ */
 function createTravelProvider() {
-  return new FallbackTravelCostProvider([
-    new GoogleTravelCostProvider(),
-    new HereTravelCostProvider(),
-    new SyntheticTravelCostProvider('linear'),
-  ]);
+  return new PlanningRunTravelCostProvider(
+    new FallbackTravelCostProvider([
+      new GoogleTravelCostProvider(),
+      new HereTravelCostProvider(),
+      new SyntheticTravelCostProvider('linear'),
+    ]),
+  );
 }

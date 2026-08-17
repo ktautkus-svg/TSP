@@ -7,11 +7,7 @@ import type {
   ProviderFetchOptions,
   ProviderFetchResult,
 } from '../types';
-import {
-  fetchProviderJson,
-  invalidProviderPayload,
-  normalizeGoogleDepartureAt,
-} from './adapter-utils';
+import { fetchProviderJson, invalidProviderPayload } from './adapter-utils';
 
 type GoogleMatrixElement = {
   originIndex?: number;
@@ -60,6 +56,18 @@ export class GoogleMatrixAdapter implements MatrixProviderAdapter {
     const totalSize = locations.length;
     const started = performance.now();
 
+    // Structured, address-free cost telemetry. Element count is what Google
+    // bills, so it is recorded before the request rather than inferred later.
+    logMatrixRequest({
+      matrix_provider: 'google',
+      planning_run_id: request.planningRunId ?? null,
+      origins_count: totalSize,
+      destinations_count: totalSize,
+      matrix_elements: totalSize * totalSize,
+      routing_preference: 'TRAFFIC_UNAWARE',
+      chunk_requests: Math.ceil(totalSize / this.chunkSize) ** 2,
+    });
+
     const locationChunks: { locations: RoutingLocation[]; startIndex: number }[] = [];
     for (let i = 0; i < totalSize; i += this.chunkSize) {
       locationChunks.push({
@@ -76,11 +84,22 @@ export class GoogleMatrixAdapter implements MatrixProviderAdapter {
           origins: originChunk.locations.map(toGoogleWaypoint),
           destinations: destChunk.locations.map(toGoogleWaypoint),
           travelMode: 'DRIVE',
-          routingPreference:
-            request.trafficMode === 'none' ? 'TRAFFIC_UNAWARE' : 'TRAFFIC_AWARE',
-          ...(request.trafficMode === 'none'
-            ? {}
-            : { departureTime: normalizeGoogleDepartureAt(request.departureAt) }),
+          // Always TRAFFIC_UNAWARE, whatever the caller asked for.
+          //
+          // TRAFFIC_AWARE bills every element at the Compute Route Matrix Pro
+          // rate, and the matrix is an all-pairs grid: a 17-location plan is 289
+          // elements, every one of them priced up. It bought nothing useful
+          // either - the optimizer only needs the relative cost between stops to
+          // order them, and live traffic on pairs the truck will never drive
+          // does not change that ordering.
+          //
+          // Traffic is applied once, afterwards, to the SELECTED route only, via
+          // computeRoutes in google-routes-adapter.ts. That is one request
+          // instead of n^2 elements.
+          //
+          // departureTime is deliberately omitted: with TRAFFIC_UNAWARE it is
+          // ignored, and sending it invites a later edit to "restore" traffic.
+          routingPreference: 'TRAFFIC_UNAWARE',
           languageCode: request.language,
           regionCode: request.regionCode,
           units: 'METRIC',
@@ -102,8 +121,20 @@ export class GoogleMatrixAdapter implements MatrixProviderAdapter {
       Math.max(1, this.options.maxConcurrency ?? 2),
     );
     const responseMs = performance.now() - started;
-
-    return normalizeGoogleMatrixChunks(chunkResults, request, totalSize, responseMs);
+    const result = normalizeGoogleMatrixChunks(chunkResults, request, totalSize, responseMs);
+    logMatrixRequest({
+      matrix_provider: 'google',
+      planning_run_id: request.planningRunId ?? null,
+      origins_count: totalSize,
+      destinations_count: totalSize,
+      matrix_elements: totalSize * totalSize,
+      routing_preference: 'TRAFFIC_UNAWARE',
+      billable_elements: result.billableElementCount ?? 0,
+      external_requests: result.externalRequestCount ?? 0,
+      success: true,
+      duration_ms: Math.round(responseMs),
+    });
+    return result;
   }
 
   private async fetchChunk(
@@ -317,6 +348,12 @@ export function normalizeGoogleMatrix(
 
 function allLocations(request: GatewayMatrixRequest): RoutingLocation[] {
   return [request.startLocation, ...request.stops, request.endLocation];
+}
+
+/** Cost telemetry. Never carries addresses, coordinates or keys. */
+function logMatrixRequest(fields: Record<string, unknown>): void {
+  // eslint-disable-next-line no-console
+  console.log(JSON.stringify({ event: 'google_matrix_request', ...fields }));
 }
 
 function toGoogleWaypoint(location: RoutingLocation) {

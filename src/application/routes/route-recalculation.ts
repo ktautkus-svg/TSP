@@ -9,6 +9,7 @@ import { SQLiteRoutingAuditRepository } from '@/infrastructure/routing/persisten
 import { FallbackTravelCostProvider } from '@/infrastructure/routing/providers/fallback-travel-cost-provider';
 import { GoogleTravelCostProvider, HereTravelCostProvider } from '@/infrastructure/routing/providers/gateway-travel-cost-provider';
 import { SyntheticTravelCostProvider } from '@/infrastructure/routing/providers/synthetic-travel-cost-provider';
+import { PlanningRunTravelCostProvider } from '@/infrastructure/routing/providers/planning-run-travel-cost-provider';
 import { persistCandidateEtas, RefreshRouteEtas } from './route-eta';
 
 export type RouteRecalculationProposal = {
@@ -87,11 +88,15 @@ export class ProposeRemainingRouteRecalculation {
       ),
       initialLoadKg: remainingStops.reduce((sum, stop) => sum + (stop.weightKg ?? 0), 0),
     };
-    const provider = new FallbackTravelCostProvider([
-      new GoogleTravelCostProvider(),
-      new HereTravelCostProvider(),
-      new SyntheticTravelCostProvider('linear'),
-    ]);
+    // Same rule mid-route as when planning: one recalculation buys one matrix,
+    // and repeated taps on "recalculate" cannot each start their own.
+    const provider = new PlanningRunTravelCostProvider(
+      new FallbackTravelCostProvider([
+        new GoogleTravelCostProvider(),
+        new HereTravelCostProvider(),
+        new SyntheticTravelCostProvider('linear'),
+      ]),
+    );
     const result = await new RoutingEngine(provider).optimize(request);
     const next = result.recommended;
     if (!next) throw new Error('Naujas įvykdomas variantas nerastas. Esama seka nekeičiama.');

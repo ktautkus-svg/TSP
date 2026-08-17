@@ -21,6 +21,8 @@ export type GatewayMatrixRequest = {
   vehicle: VehicleRoutingProfile;
   language: 'lt-LT';
   regionCode: 'LT';
+  /** Ties every matrix request to one planning run in the cost logs. */
+  planningRunId?: string | null;
 };
 
 export type GatewayPolylineRequest = {
