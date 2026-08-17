@@ -8,7 +8,7 @@ import { resolveRoute, type ResolvedRouteDestination } from '@/application/route
 import { CancelDraftRoute, SaveSelectedRouteCandidate } from '@/application/routes/route-commands';
 import { extractOrderedLocationsFromCandidate } from '@/application/routing/route-polyline-service';
 import {
-  buildFourObjectiveAlternatives,
+  buildRouteAlternatives,
   type LabeledRouteAlternative,
 } from '@/application/routing/route-alternative-modes';
 import { RoutingEngine } from '@/application/routing/routing-engine';
@@ -86,7 +86,7 @@ export default function RouteAlternativesScreen() {
       }
       const nextRequest = buildOptimizationRequestFromRoute(persisted.route, persisted.stops);
       const provider = createTravelProvider();
-      const four = await buildFourObjectiveAlternatives(new RoutingEngine(provider), nextRequest);
+      const four = await buildRouteAlternatives(new RoutingEngine(provider), nextRequest);
       await new SQLiteRoutingAuditRepository(db).saveOptimizationRun(routeId, four.request, four.result);
       setRequest(four.request);
       setResult(four.result);
@@ -242,7 +242,7 @@ export default function RouteAlternativesScreen() {
           ? { ...stop, priority: 10, preferEarly: true }
           : { ...stop, priority: 1, preferEarly: false }),
       };
-      const four = await buildFourObjectiveAlternatives(new RoutingEngine(createTravelProvider()), prioritizedRequest);
+      const four = await buildRouteAlternatives(new RoutingEngine(createTravelProvider()), prioritizedRequest);
       await new SQLiteRoutingAuditRepository(db).saveOptimizationRun(routeId, four.request, four.result);
       setRequest(four.request);
       setResult(four.result);
@@ -516,6 +516,16 @@ export default function RouteAlternativesScreen() {
           ) : null}
         </View>
       ) : null}
+      {result && result.executionMode !== 'real' ? (
+        <View style={styles.errorCard}>
+          <Text style={styles.error}>⚠️ Maršrutas suplanuotas be realių kelių duomenų</Text>
+          <Text style={styles.description}>
+            Nepavyko pasiekti Google ir HERE, todėl atstumai apskaičiuoti tiesiomis linijomis — be upių,
+            vienpusių gatvių ir greitkelių. Eiliškumas gali būti netikslus. Patikrinkite ryšį ir
+            perskaičiuokite prieš išvažiuodami.
+          </Text>
+        </View>
+      ) : null}
       {result && !result.feasibleRouteFound && result.conflictingConstraints.length > 0 ? (
         <View style={styles.warningCard}>
           <Text style={styles.warningTitle}>⚠️ Pastaba dėl ribų</Text>
@@ -585,6 +595,7 @@ function CandidateCard(props: {
   const firstDelivery = clockLabel(props.candidate.schedules[0]?.serviceStartAt);
   const lastDelivery = clockLabel(props.candidate.schedules.at(-1)?.departureAt);
   const waitingMinutes = Math.round(props.candidate.waitingMinutes);
+  const shiftMinutes = Math.round(props.candidate.departureShiftMinutes);
 
   return (
     <View style={[styles.card, props.recommended && styles.recommended, props.selected && styles.selected]}>
@@ -601,6 +612,12 @@ function CandidateCard(props: {
           <Text style={styles.scheduleLine} testID={`candidate-schedule-${props.candidate.id}`}>
             {departure ? `Išvykimas ${departure} · ` : ''}1-as pristatymas {firstDelivery}
             {lastDelivery ? ` · paskutinis ${lastDelivery}` : ''}
+          </Text>
+        ) : null}
+        {shiftMinutes > 0 ? (
+          <Text style={styles.scheduleHint} testID={`candidate-shift-${props.candidate.id}`}>
+            Išvykti {durationLabel(shiftMinutes)} vėliau nei planuota — pirmas taškas
+            anksčiau neatsidaro, tad sandėlyje palaukti pigiau nei prie durų.
           </Text>
         ) : null}
         {waitingMinutes > 0 ? (

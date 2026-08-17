@@ -167,7 +167,7 @@ describe('compact daily Excel UI', () => {
   });
 
   it('keeps route selection compact and fits the whole route after map resize', () => {
-    expect(alternativesScreen).toContain('buildFourObjectiveAlternatives');
+    expect(alternativesScreen).toContain('buildRouteAlternatives');
     expect(alternativesScreen).toContain('item.title');
     expect(alternativesScreen).toContain('item.comment');
     expect(alternativesScreen).toContain('testID="save-selected-route-top"');

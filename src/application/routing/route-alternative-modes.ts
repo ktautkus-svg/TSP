@@ -7,10 +7,17 @@ import type {
   RouteOptimizer,
 } from '@/domain/routing/models';
 
-// A real 2x2: each objective (fastest / shortest) is offered both with the
-// delivery windows honoured and with them ignored, so the driver compares like
-// with like instead of four picks that can collapse onto the same sequence.
+// The engine's own pick, followed by a real 2x2: each objective (fastest /
+// shortest) is offered both with the delivery windows honoured and with them
+// ignored, so the driver compares like with like instead of picks that can
+// collapse onto the same sequence.
+//
+// `balanced` leads because the four objective picks are deliberate extremes —
+// each one is an argmin on a single number. Without it nothing on the screen
+// ever reflected the weighting (load, direction, priority stops, lateness) that
+// the engine spends its whole search budget on.
 export const ROUTE_ALTERNATIVE_MODES = [
+  'balanced',
   'free_fastest',
   'free_shortest',
   'timed_fastest',
@@ -23,6 +30,12 @@ export const ROUTE_ALTERNATIVE_LABELS: Record<
   RouteAlternativeMode,
   { title: string; group: string; objective: string; comment: string }
 > = {
+  balanced: {
+    title: 'Subalansuotas',
+    group: 'Rekomenduojama',
+    objective: 'balanced',
+    comment: 'Įvertinti kilometrai, laikas, kryptis, krovinio svoris ir prioritetiniai taškai.',
+  },
   free_fastest: {
     title: 'Greičiausias',
     group: 'Nepaisant laiko langų',
@@ -79,7 +92,17 @@ function splitTotalBudget(
   };
 }
 
-/** Rebuild a request so required windows match the chosen planning mode. */
+/**
+ * Rebuild a request so required windows match the chosen planning mode.
+ *
+ * The timed variant used to promote EVERY informational window to a required
+ * one, which made the two modes all-or-nothing: the same delivery times the
+ * driver typed either dictated the whole route or did not exist. A window is
+ * now only binding if it was marked required at import (both "from" and "to"
+ * given). The rest still shape the plan — `evaluateCandidate` models the wait
+ * at the door and charges `informationalTimeMismatch` for missing them — but
+ * they never generate lateness or a violation.
+ */
 export function requestForPlanningMode(
   request: RouteOptimizationRequest,
   planningMode: PlanningMode,
@@ -90,16 +113,19 @@ export function requestForPlanningMode(
     stops: request.stops.map((stop) => ({
       ...stop,
       requiredTimeWindow:
-        planningMode === 'with_time_windows'
-          ? stop.requiredTimeWindow ?? stop.informationalTimeWindow
-          : undefined,
+        planningMode === 'with_time_windows' ? stop.requiredTimeWindow : undefined,
     })),
   };
 }
 
+// "Fastest" is when the driver gets to go home, not how many minutes the engine
+// was turning. Sorting on drivingMinutes alone ignored waiting, so with time
+// windows on, the card labelled Greičiausias could finish 24 minutes after the
+// card next to it (measured on a 16-stop route: 92 driving / 416 total against
+// 95 driving / 392 total).
 const byFastest = (left: RouteCandidate, right: RouteCandidate) =>
-  left.drivingMinutes - right.drivingMinutes
-  || left.totalWorkMinutes - right.totalWorkMinutes
+  left.totalWorkMinutes - right.totalWorkMinutes
+  || left.drivingMinutes - right.drivingMinutes
   || left.totalDistanceKm - right.totalDistanceKm;
 
 const byShortest = (left: RouteCandidate, right: RouteCandidate) =>
@@ -107,9 +133,10 @@ const byShortest = (left: RouteCandidate, right: RouteCandidate) =>
   || left.drivingMinutes - right.drivingMinutes
   || left.totalWorkMinutes - right.totalWorkMinutes;
 
-export function selectFourObjectiveAlternatives(
+export function selectRouteAlternatives(
   timed: RouteOptimizationResult,
   geo: RouteOptimizationResult,
+  planningMode: PlanningMode,
 ): LabeledRouteAlternative[] {
   const timedFallback =
     timed.recommended ?? timed.diagnosticCandidate ?? firstFeasible(timed.candidates) ?? timed.candidates[0];
@@ -133,7 +160,20 @@ export function selectFourObjectiveAlternatives(
     ? pickBestDistinct(timedPool, byShortest, timedFastest)
     : absoluteTimedShortest;
 
-  const picks: Array<{ mode: RouteAlternativeMode; candidate: RouteCandidate; duplicateWinner: boolean; alternateShown: boolean }> = [
+  // The balanced pick comes from the run that matches how the route is planned,
+  // so it answers the same question the driver set up rather than a second one.
+  const balancedRun = planningMode === 'with_time_windows' ? timed : geo;
+  const balanced =
+    balancedRun.recommended
+    ?? (planningMode === 'with_time_windows' ? timedFallback : geoFallback);
+
+  const picks: {
+    mode: RouteAlternativeMode;
+    candidate: RouteCandidate;
+    duplicateWinner: boolean;
+    alternateShown: boolean;
+  }[] = [
+    { mode: 'balanced', candidate: balanced, duplicateWinner: false, alternateShown: false },
     { mode: 'free_fastest', candidate: freeFastest, duplicateWinner: false, alternateShown: false },
     {
       mode: 'free_shortest',
@@ -168,10 +208,11 @@ export function selectFourObjectiveAlternatives(
 }
 
 /**
- * Runs the engine twice (honour windows vs ignore) and returns four labeled,
- * clearly different objective picks ready for the alternatives screen.
+ * Runs the engine twice (honour windows vs ignore) and returns the labeled
+ * picks ready for the alternatives screen: the engine's balanced recommendation
+ * first, then four single-objective extremes to compare it against.
  */
-export async function buildFourObjectiveAlternatives(
+export async function buildRouteAlternatives(
   engine: RouteOptimizer,
   request: RouteOptimizationRequest,
 ): Promise<FourObjectiveAlternatives> {
@@ -184,18 +225,19 @@ export async function buildFourObjectiveAlternatives(
     engine.optimize(timedRequest),
     engine.optimize(geoRequest),
   ]);
-  const labeled = selectFourObjectiveAlternatives(timed, geo);
+  const planningMode = request.planningMode;
+  const labeled = selectRouteAlternatives(timed, geo, planningMode);
   const candidates = labeled.map((item) => item.candidate);
-  const defaultMode: RouteAlternativeMode =
-    request.planningMode === 'with_time_windows' ? 'timed_fastest' : 'free_fastest';
+  // The balanced pick is what the driver gets unless he deliberately reaches for
+  // an extreme, so it is also what the screen preselects.
   const recommended =
-    labeled.find((item) => item.mode === defaultMode)?.candidate
+    labeled.find((item) => item.mode === 'balanced')?.candidate
     ?? candidates[0]
     ?? null;
 
   const generatedAt = new Date().toISOString();
   const result: RouteOptimizationResult = {
-    requestId: `${request.routeId}-four-${generatedAt}`,
+    requestId: `${request.routeId}-alt-${generatedAt}`,
     provider: geo.provider || timed.provider,
     executionMode: geo.executionMode,
     generatedAt,
@@ -249,6 +291,16 @@ function sameSequence(left: RouteCandidate, right: RouteCandidate): boolean {
 
 function stampMode(candidate: RouteCandidate, mode: RouteAlternativeMode, comment = ROUTE_ALTERNATIVE_LABELS[mode].comment): RouteCandidate {
   const label = ROUTE_ALTERNATIVE_LABELS[mode];
+  // The balanced pick already carries the engine's real explanations (why this
+  // sequence beat the baseline on load, direction, windows). Prefixing a canned
+  // line would bury them.
+  if (mode === 'balanced') {
+    return {
+      ...candidate,
+      id: `${candidate.id}:${mode}`,
+      generatedBy: [...new Set([...candidate.generatedBy, `objective:${mode}`])],
+    };
+  }
   const honoursWindows = mode.startsWith('timed_');
   const isShortest = label.objective === 'shortest';
   const explanation: ExplanationEvidence = {

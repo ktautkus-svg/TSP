@@ -3,9 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
   ROUTE_ALTERNATIVE_LABELS,
   ROUTE_ALTERNATIVE_MODES,
-  buildFourObjectiveAlternatives,
+  buildRouteAlternatives,
   requestForPlanningMode,
-  selectFourObjectiveAlternatives,
+  selectRouteAlternatives,
 } from '../../src/application/routing/route-alternative-modes';
 import { RoutingEngine } from '../../src/application/routing/routing-engine';
 import { createBaseRequest } from '../../src/domain/routing/scenarios';
@@ -13,14 +13,17 @@ import { SyntheticTravelCostProvider } from '../../src/infrastructure/routing/pr
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-describe('four objective route alternatives', () => {
-  it('exposes a fastest/shortest x with/without-windows 2x2', () => {
+describe('route alternatives', () => {
+  it('leads with the balanced pick, then a fastest/shortest x with/without-windows 2x2', () => {
     expect(ROUTE_ALTERNATIVE_MODES).toEqual([
+      'balanced',
       'free_fastest',
       'free_shortest',
       'timed_fastest',
       'timed_shortest',
     ]);
+    expect(ROUTE_ALTERNATIVE_LABELS.balanced.title).toBe('Subalansuotas');
+    expect(ROUTE_ALTERNATIVE_LABELS.balanced.group).toBe('Rekomenduojama');
     expect(ROUTE_ALTERNATIVE_LABELS.free_fastest.title).toBe('Greičiausias');
     expect(ROUTE_ALTERNATIVE_LABELS.free_shortest.title).toBe('Trumpiausias');
     expect(ROUTE_ALTERNATIVE_LABELS.timed_fastest.title).toBe('Greičiausias');
@@ -32,19 +35,29 @@ describe('four objective route alternatives', () => {
     }
   });
 
-  it('toggles required windows when switching planning mode', () => {
+  it('keeps genuinely required windows binding without promoting informational ones', () => {
     const request = createBaseRequest(3);
-    request.stops[0].informationalTimeWindow = {
-      from: '2026-06-15T08:00:00.000Z',
-      to: '2026-06-15T12:00:00.000Z',
-    };
+    const window = { from: '2026-06-15T08:00:00.000Z', to: '2026-06-15T12:00:00.000Z' };
+    // Stop 0: a delivery time the driver typed, never marked required.
+    request.stops[0].informationalTimeWindow = window;
     request.stops[0].requiredTimeWindow = undefined;
+    // Stop 1: imported with both ends, so it really is binding.
+    request.stops[1].informationalTimeWindow = window;
+    request.stops[1].requiredTimeWindow = window;
+
     const timed = requestForPlanningMode(request, 'with_time_windows');
     const geo = requestForPlanningMode(request, 'ignore_time_windows');
+
     expect(timed.planningMode).toBe('with_time_windows');
-    expect(timed.stops[0].requiredTimeWindow).toEqual(request.stops[0].informationalTimeWindow);
+    // The whole point of the middle ground: an informational window shapes the
+    // plan (waiting + mismatch penalty) but never becomes a rule.
+    expect(timed.stops[0].requiredTimeWindow).toBeUndefined();
+    expect(timed.stops[0].informationalTimeWindow).toEqual(window);
+    expect(timed.stops[1].requiredTimeWindow).toEqual(window);
+
     expect(geo.planningMode).toBe('ignore_time_windows');
     expect(geo.stops[0].requiredTimeWindow).toBeUndefined();
+    expect(geo.stops[1].requiredTimeWindow).toBeUndefined();
   });
 
   it('selects one candidate per objective mode with mode-stamped ids', async () => {
@@ -71,15 +84,17 @@ describe('four objective route alternatives', () => {
     });
 
     const engine = new RoutingEngine(new SyntheticTravelCostProvider('asymmetric'));
-    const four = await buildFourObjectiveAlternatives(engine, request);
+    const four = await buildRouteAlternatives(engine, request);
 
-    expect(four.labeled).toHaveLength(4);
+    expect(four.labeled).toHaveLength(5);
     expect(four.labeled.map((item) => item.mode)).toEqual([...ROUTE_ALTERNATIVE_MODES]);
-    expect(four.labeled[0].title).toBe('Greičiausias');
-    expect(['Trumpiausias', 'Kitas trumpiausias', 'Trumpiausias = greičiausias']).toContain(four.labeled[1].title);
-    expect(four.labeled[2].title).toBe('Greičiausias');
-    expect(['Trumpiausias', 'Kitas trumpiausias', 'Trumpiausias = greičiausias']).toContain(four.labeled[3].title);
+    expect(four.labeled[0].title).toBe('Subalansuotas');
+    expect(four.labeled[1].title).toBe('Greičiausias');
+    expect(['Trumpiausias', 'Kitas trumpiausias', 'Trumpiausias = greičiausias']).toContain(four.labeled[2].title);
+    expect(four.labeled[3].title).toBe('Greičiausias');
+    expect(['Trumpiausias', 'Kitas trumpiausias', 'Trumpiausias = greičiausias']).toContain(four.labeled[4].title);
     expect(four.labeled.map((item) => item.group)).toEqual([
+      'Rekomenduojama',
       'Nepaisant laiko langų',
       'Nepaisant laiko langų',
       'Pagal laiko langus',
@@ -96,8 +111,10 @@ describe('four objective route alternatives', () => {
     const geo = await engine.optimize(requestForPlanningMode(request, 'ignore_time_windows'));
     const geoPool = geo.candidates.filter((candidate) => candidate.feasible);
     const pool = geoPool.length > 0 ? geoPool : geo.candidates;
-    expect(fastest.candidate.drivingMinutes).toBe(
-      Math.min(...pool.map((candidate) => candidate.drivingMinutes)),
+    // "Fastest" means finishing first, so it is the minimum total work time —
+    // driving plus service plus any waiting at a closed door.
+    expect(fastest.candidate.totalWorkMinutes).toBe(
+      Math.min(...pool.map((candidate) => candidate.totalWorkMinutes)),
     );
     if (shortest.title === 'Trumpiausias') {
       expect(shortest.candidate.totalDistanceKm).toBe(
@@ -110,27 +127,28 @@ describe('four objective route alternatives', () => {
       expect(shortest.title).toBe('Trumpiausias = greičiausias');
       expect(shortest.candidate.stopSequence).toEqual(fastest.candidate.stopSequence);
     }
-    expect(four.result.candidates).toHaveLength(4);
-    expect(four.result.recommended?.id).toContain(':timed_fastest');
+    expect(four.result.candidates).toHaveLength(5);
+    // The balanced pick is preselected; the four extremes are there to compare against.
+    expect(four.result.recommended?.id).toContain(':balanced');
   });
 
-  it('keeps fastest as min driving and shortest as min km from the geo pool', async () => {
+  it('keeps fastest as min finish time and shortest as min km from the geo pool', async () => {
     const request = createBaseRequest(6);
     const engine = new RoutingEngine(new SyntheticTravelCostProvider('city_traffic'));
     const timed = await engine.optimize(requestForPlanningMode(request, 'with_time_windows'));
     const geo = await engine.optimize(requestForPlanningMode(request, 'ignore_time_windows'));
-    const labeled = selectFourObjectiveAlternatives(timed, geo);
+    const labeled = selectRouteAlternatives(timed, geo, request.planningMode);
     const fastest = labeled.find((item) => item.mode === 'free_fastest')!;
     const shortest = labeled.find((item) => item.mode === 'free_shortest')!;
     const geoFeasible = geo.candidates.filter((candidate) => candidate.feasible);
     const pool = geoFeasible.length > 0 ? geoFeasible : geo.candidates;
-    expect(fastest.candidate.drivingMinutes).toBeLessThanOrEqual(
-      Math.max(...pool.map((candidate) => candidate.drivingMinutes)),
+    expect(fastest.candidate.totalWorkMinutes).toBeLessThanOrEqual(
+      Math.max(...pool.map((candidate) => candidate.totalWorkMinutes)),
     );
     expect(shortest.candidate.totalDistanceKm).toBeLessThanOrEqual(
       Math.max(...pool.map((candidate) => candidate.totalDistanceKm)),
     );
-    expect(fastest.candidate.drivingMinutes).toBe(Math.min(...pool.map((c) => c.drivingMinutes)));
+    expect(fastest.candidate.totalWorkMinutes).toBe(Math.min(...pool.map((c) => c.totalWorkMinutes)));
     if (shortest.title === 'Trumpiausias') {
       expect(shortest.candidate.totalDistanceKm).toBe(Math.min(...pool.map((c) => c.totalDistanceKm)));
     } else if (shortest.title === 'Kitas trumpiausias') {
@@ -143,7 +161,7 @@ describe('four objective route alternatives', () => {
 
   it('alternatives screen renders the four Lithuanian mode titles', () => {
     const screen = readFileSync(resolve(__dirname, '../../src/app/route/[id]/alternatives.tsx'), 'utf8');
-    expect(screen).toContain('buildFourObjectiveAlternatives');
+    expect(screen).toContain('buildRouteAlternatives');
     expect(screen).toContain('item.title');
     expect(screen).toContain('item.comment');
     expect(screen).toContain('durationLabel(props.candidate.totalWorkMinutes)');

@@ -49,6 +49,19 @@ export class ProposeRemainingRouteRecalculation {
     const remainingStops = persisted.stops.filter((stop) => stop.deliveryStatus === 'pending');
     const remainingIds = remainingStops.map((stop) => stop.id);
     const plannedDepartureAt = normalizeProviderDepartureAt(this.clock());
+    const priorityOrdered = remainingStops
+      .filter((stop) => stop.priorityFirst)
+      .sort((left, right) =>
+        (left.priorityRank ?? Number.MAX_SAFE_INTEGER) - (right.priorityRank ?? Number.MAX_SAFE_INTEGER)
+        || left.originalOrder - right.originalOrder
+        || left.id.localeCompare(right.id));
+    const priorityRankById = new Map(priorityOrdered.map((stop, index) => [stop.id, index + 1]));
+    const nextPriorityIdById = new Map(
+      priorityOrdered
+        .map((stop, index) => [stop.id, priorityOrdered[index + 1]?.id] as const)
+        .filter((entry): entry is readonly [string, string] => entry[1] !== undefined)
+        .map(([id, nextId]) => [id, [nextId]]),
+    );
     // Built from the CURRENT persisted stops (not the frozen `original.stops`
     // snapshot) so a stop added after the route already started — via
     // AddStopDuringDelivery — is included in the re-optimized remaining route.
@@ -62,7 +75,16 @@ export class ProposeRemainingRouteRecalculation {
         latitude: currentStop.latitude,
         longitude: currentStop.longitude,
       },
-      stops: remainingStops.map((stop) => buildOptimizationStop(stop, persisted.route, plannedDepartureAt)),
+      // Ranks are rebuilt here, not carried over: mid-route the priority stops
+      // already delivered are gone, so the chain has to be re-formed over what
+      // is actually left. Calling buildOptimizationStop without them dropped
+      // deliverBefore entirely and let the remaining priority stops drift apart.
+      stops: remainingStops.map((stop) =>
+        buildOptimizationStop(stop, persisted.route, plannedDepartureAt, {
+          priorityRank: priorityRankById.get(stop.id) ?? 0,
+          deliverBeforeStopIds: nextPriorityIdById.get(stop.id) ?? [],
+        }),
+      ),
       initialLoadKg: remainingStops.reduce((sum, stop) => sum + (stop.weightKg ?? 0), 0),
     };
     const provider = new FallbackTravelCostProvider([
