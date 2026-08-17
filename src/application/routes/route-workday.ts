@@ -1041,6 +1041,82 @@ export class SetNextPendingStop extends WorkdayCommand {
   }
 }
 
+export class ReorderRemainingStops extends WorkdayCommand {
+  /**
+   * Saves the driver's complete manual order for all still-pending stops.
+   * Resolved stops keep their historical positions and are never moved.
+   */
+  async execute(routeId: string, orderedStopIds: string[]): Promise<{ idempotent: boolean; orderedStopIds: string[] }> {
+    const route = await this.route(routeId);
+    if (route.status !== 'in_progress') {
+      throw new RouteCommandError('INVALID_ROUTE_STATE', 'Likusių taškų eiliškumą galima keisti tik vykdomame maršrute.');
+    }
+    const stops = await this.routes.getStops(routeId);
+    const pending = stops.filter((stop) => stop.deliveryStatus === 'pending');
+    const existing = pending.map((stop) => stop.id).sort();
+    const requested = [...orderedStopIds].sort();
+    if (existing.length !== requested.length || existing.some((id, index) => id !== requested[index])) {
+      throw new RouteCommandError('INVALID_STOP', 'Naujoje eilėje turi būti visi ir tik dar nepristatyti maršruto taškai.');
+    }
+    const before = pending.map((stop) => stop.id);
+    if (before.every((id, index) => id === orderedStopIds[index])) {
+      return { idempotent: true, orderedStopIds: before };
+    }
+    const byId = new Map(pending.map((stop) => [stop.id, stop]));
+    const reordered = orderedStopIds.map((id) => byId.get(id)!);
+    const usedRows = await this.db.getAllAsync<{ active_order: number }>(
+      "SELECT active_order FROM delivery_stops WHERE route_id = ? AND delivery_status <> 'pending' AND active_order IS NOT NULL",
+      routeId,
+    );
+    const used = new Set(usedRows.map((row) => row.active_order));
+    const available: number[] = [];
+    for (let order = 1; available.length < reordered.length; order += 1) {
+      if (!used.has(order)) available.push(order);
+    }
+    const now = this.clock();
+    await this.db.withTransactionAsync(async () => {
+      await this.db.runAsync(
+        "UPDATE delivery_stops SET active_order = active_order + 1000000 WHERE route_id = ? AND delivery_status = 'pending'",
+        routeId,
+      );
+      let previous = mostRecentResolvedStop(stops) ?? route.startLocation;
+      for (const [index, stop] of reordered.entries()) {
+        const distanceKm = distanceBetween(previous, stop);
+        const durationMinutes = distanceKm === null ? null : Math.max(1, Math.round(distanceKm / 55 * 60));
+        await this.db.runAsync(
+          `UPDATE delivery_stops SET active_order = ?, leg_distance_km = ?,
+           leg_duration_minutes = ?, eta_approximate = 1, updated_at = ?
+           WHERE id = ? AND route_id = ?`,
+          available[index],
+          distanceKm,
+          durationMinutes,
+          now,
+          stop.id,
+          routeId,
+        );
+        previous = stop;
+      }
+      await this.db.runAsync(
+        'UPDATE routes SET active_sequence_snapshot_at = ?, updated_at = ? WHERE id = ?',
+        now,
+        now,
+        routeId,
+      );
+      await this.db.runAsync(
+        `INSERT INTO route_order_snapshots (id, route_id, kind, ordered_stop_ids_json, created_at)
+         VALUES (?, ?, 'manual', ?, ?)`,
+        this.idFactory('snapshot'),
+        routeId,
+        JSON.stringify(orderedStopIds),
+        now,
+      );
+      await this.journal(routeId, null, 'remaining_stops_reordered', { orderedStopIds: before }, { orderedStopIds });
+    });
+    await new RefreshRouteEtas(this.db, this.clock).execute(routeId);
+    return { idempotent: false, orderedStopIds };
+  }
+}
+
 export class ConfirmRouteReturnArrival extends WorkdayCommand {
   async execute(routeId: string): Promise<{ idempotent: boolean; arrivedAt: string }> {
     const route = await this.route(routeId);

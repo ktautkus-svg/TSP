@@ -200,6 +200,15 @@ describe('compact daily Excel UI', () => {
     expect(webMap).toContain("position: 'absolute'");
   });
 
+  it('opens a real remaining-stop order editor for an active route', () => {
+    expect(routeOverview).toContain('active-route-order-editor');
+    expect(routeOverview).toContain('save-active-route-order');
+    expect(routeOverview).toContain('ReorderRemainingStops');
+    expect(routeOverview).toContain('ManualRouteOrderList');
+    expect(routeOverview).toContain('showPriority={false}');
+    expect(routeOverview).toContain("route.status === 'in_progress'");
+  });
+
   it('keeps a confirmed route planned until the driver explicitly starts loading', () => {
     expect(loadingScreen).toContain("persisted.route.status === 'planned'");
     expect(loadingScreen).toContain('Suplanuotas maršrutas');

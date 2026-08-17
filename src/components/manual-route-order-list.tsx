@@ -20,6 +20,7 @@ export function ManualRouteOrderList(props: {
   priorityIds: ReadonlySet<string>;
   onTogglePriority: (id: string) => void;
   onMove: (id: string, targetIndex: number) => void;
+  showPriority?: boolean;
 }) {
   return (
     <View style={styles.list} testID="manual-drag-list">
@@ -30,6 +31,7 @@ export function ManualRouteOrderList(props: {
           index={index}
           count={props.items.length}
           priority={props.priorityIds.has(item.id)}
+          showPriority={props.showPriority !== false}
           onTogglePriority={props.onTogglePriority}
           onMove={props.onMove}
         />
@@ -43,6 +45,7 @@ function DraggableRow(props: {
   index: number;
   count: number;
   priority: boolean;
+  showPriority: boolean;
   onTogglePriority: (id: string) => void;
   onMove: (id: string, targetIndex: number) => void;
 }) {
@@ -100,14 +103,14 @@ function DraggableRow(props: {
         },
         dragging && { borderColor: colors.info, backgroundColor: colors.infoSoft },
       ]}>
-      <Pressable
+      {props.showPriority ? <Pressable
         accessibilityRole="checkbox"
         accessibilityState={{ checked: props.priority }}
         onPress={() => props.onTogglePriority(props.item.id)}
         style={[styles.priority, { borderColor: colors.primary }, props.priority && { backgroundColor: colors.primary }]}
         testID={`manual-priority-${props.item.id}`}>
         <Text style={{ color: props.priority ? '#fff' : colors.primary, fontWeight: '900' }}>{props.priority ? '★' : '☆'}</Text>
-      </Pressable>
+      </Pressable> : null}
       <View style={styles.textBlock}>
         <Text numberOfLines={1} style={[styles.label, { color: colors.text }]}>{props.index + 1}. {props.item.label}</Text>
         <View style={styles.metaRow}>

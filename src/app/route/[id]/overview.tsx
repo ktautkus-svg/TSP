@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
-import { pullAssignedRoutes } from '@/application/auth/route-assignment-sync';
+import { pullAssignedRoutes, pushRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
 import { DEFAULT_ROUTE_PRICE_SETTINGS, estimatePreliminaryRoutePrice, normalizeRoutePriceSettings, type RoutePriceSettings } from '@/application/routes/route-price';
 import { ReopenRouteForPlanning } from '@/application/routes/route-commands';
 import { resolveRoute } from '@/application/routes/route-navigation';
@@ -20,6 +20,8 @@ import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { Alert } from '@/ui/alert';
+import { ReorderRemainingStops } from '@/application/routes/route-workday';
+import { ManualRouteOrderList } from '@/components/manual-route-order-list';
 
 export default function RouteOverviewScreen() {
   const db = useSQLiteContext();
@@ -34,6 +36,9 @@ export default function RouteOverviewScreen() {
   const [stops, setStops] = useState<DeliveryStop[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [showStops, setShowStops] = useState(false);
+  const [editingOrder, setEditingOrder] = useState(false);
+  const [pendingOrder, setPendingOrder] = useState<string[]>([]);
+  const [savingOrder, setSavingOrder] = useState(false);
   const [assignment, setAssignment] = useState<ServerRouteAssignment | null>(null);
   const [priceSettings, setPriceSettings] = useState<RoutePriceSettings>(() => normalizeRoutePriceSettings(DEFAULT_ROUTE_PRICE_SETTINGS));
   const managementMode = mode === 'management' && ['admin', 'dispatcher'].includes(profile.role);
@@ -100,8 +105,45 @@ export default function RouteOverviewScreen() {
       }
       return;
     }
-    const destination = resolveRoute(route);
-    router.replace({ pathname: destination.pathname, params: { ...destination.params, view: 'stops' } } as Href);
+    if (route.status === 'in_progress') {
+      const pending = stops.filter((stop) => stop.deliveryStatus === 'pending');
+      if (pending.length < 2) {
+        Alert.alert('Eiliškumo keisti nereikia', 'Liko mažiau nei du nepristatyti taškai.');
+        return;
+      }
+      setPendingOrder(pending.map((stop) => stop.id));
+      setEditingOrder(true);
+    }
+  };
+  const movePendingStop = (stopId: string, targetIndex: number) => {
+    setPendingOrder((current) => {
+      const index = current.indexOf(stopId);
+      if (index < 0 || targetIndex < 0 || targetIndex >= current.length) return current;
+      const next = [...current];
+      next.splice(index, 1);
+      next.splice(targetIndex, 0, stopId);
+      return next;
+    });
+  };
+  const savePendingOrder = async () => {
+    if (!route || savingOrder) return;
+    setSavingOrder(true);
+    try {
+      await new ReorderRemainingStops(db).execute(route.id, pendingOrder);
+      await pushRouteAssignmentProgress(db, route.id).catch((reason) => {
+        if (__DEV__) console.error('ROUTE_ORDER_PROGRESS_PUSH_FAILED', reason);
+      });
+      await requestSync('mutation');
+      const persisted = await repository.getWithStops(route.id);
+      setRoute(persisted?.route ?? route);
+      setStops(persisted?.stops ?? stops);
+      setEditingOrder(false);
+      setShowStops(true);
+    } catch (reason) {
+      Alert.alert('Eiliškumo išsaugoti nepavyko', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
+    } finally {
+      setSavingOrder(false);
+    }
   };
   const canEditOrder = profile.role !== 'driver' || profile.permissions?.canReorderAssignedRoute;
   const terminal = route ? ['completed', 'cancelled'].includes(route.status) : false;
@@ -137,8 +179,36 @@ export default function RouteOverviewScreen() {
         </View> : null}
         <View style={styles.actions}>
           {!managementMode ? <Pressable style={styles.primaryButton} onPress={begin}><Text style={styles.primaryText}>{terminal ? 'Peržiūrėti rezultatą' : route.status === 'in_progress' ? 'Tęsti maršrutą' : 'Pradėti maršrutą'}</Text></Pressable> : null}
-          {!managementMode && canEditOrder && !['completed', 'cancelled'].includes(route.status) ? <Pressable style={styles.secondaryButton} onPress={() => void editOrder()} testID="edit-route-order"><Text style={styles.secondaryText}>Redaguoti eiliškumą</Text></Pressable> : null}
+          {!managementMode && canEditOrder && ['planned', 'in_progress'].includes(route.status) ? <Pressable style={styles.secondaryButton} onPress={() => void editOrder()} testID="edit-route-order"><Text style={styles.secondaryText}>Redaguoti eiliškumą</Text></Pressable> : null}
         </View>
+        {editingOrder ? <View style={styles.orderEditor} testID="active-route-order-editor">
+          <View style={styles.orderEditorHeading}>
+            <View style={styles.orderHeaderCopy}>
+              <Text style={styles.sectionLabel}>LIKĘ NEPRISTATYTI TAŠKAI</Text>
+              <Text style={styles.orderEditorTitle}>Pakeiskite eiliškumą</Text>
+              <Text style={styles.orderSummary}>Tempkite už rankenėlės arba naudokite rodykles. Jau užbaigti taškai nekeičiami.</Text>
+            </View>
+            <Pressable accessibilityLabel="Uždaryti eiliškumo redagavimą" onPress={() => setEditingOrder(false)} style={styles.editorClose}><Text style={styles.editorCloseText}>×</Text></Pressable>
+          </View>
+          <ManualRouteOrderList
+            items={pendingOrder.map((stopId) => stops.find((stop) => stop.id === stopId)).filter((stop): stop is DeliveryStop => Boolean(stop)).map((stop) => ({
+              id: stop.id,
+              label: stop.recipient || stop.normalizedAddress || stop.originalAddress,
+              address: stop.normalizedAddress ?? stop.originalAddress,
+              weightKg: stop.weightKg,
+            }))}
+            priorityIds={new Set<string>()}
+            onTogglePriority={() => undefined}
+            onMove={movePendingStop}
+            showPriority={false}
+          />
+          <View style={styles.orderEditorActions}>
+            <Pressable disabled={savingOrder} onPress={() => setEditingOrder(false)} style={styles.editorSecondary}><Text style={styles.secondaryText}>Atšaukti</Text></Pressable>
+            <Pressable disabled={savingOrder} onPress={() => { void savePendingOrder(); }} style={[styles.editorPrimary, savingOrder && styles.disabled]} testID="save-active-route-order">
+              {savingOrder ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.primaryText}>Išsaugoti eiliškumą</Text>}
+            </Pressable>
+          </View>
+        </View> : null}
         <Pressable
           accessibilityRole="button"
           accessibilityState={{ expanded: showStops }}
@@ -182,6 +252,15 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   managementItem: { flexGrow: 1, flexBasis: 220, minWidth: 0, gap: 4 },
   managementValue: { ...type.bodyStrong, color: colors.text },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }, primaryButton: { flex: 1, minWidth: 180, minHeight: 54, borderRadius: radius.md, backgroundColor: colors.actionPrimary, alignItems: 'center', justifyContent: 'center' }, primaryText: { ...type.button, color: colors.textInverse }, secondaryButton: { flex: 1, minWidth: 180, minHeight: 54, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' }, secondaryText: { ...type.button, color: colors.text },
+  orderEditor: { padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.info, backgroundColor: colors.surface, gap: spacing.md },
+  orderEditorHeading: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
+  orderEditorTitle: { ...type.sectionTitle, color: colors.text, marginTop: 2 },
+  editorClose: { width: 44, height: 44, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
+  editorCloseText: { ...type.sectionTitle, color: colors.textSecondary, fontSize: 24 },
+  orderEditorActions: { flexDirection: 'row', gap: spacing.sm },
+  editorSecondary: { flex: 1, minHeight: 50, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
+  editorPrimary: { flex: 1, minHeight: 50, borderRadius: radius.md, backgroundColor: colors.actionPrimary, alignItems: 'center', justifyContent: 'center' },
+  disabled: { opacity: 0.5 },
   orderHeader: { minHeight: 58, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   orderHeaderCopy: { flex: 1, minWidth: 0 },
   sectionLabel: { ...type.label, color: colors.textMuted },

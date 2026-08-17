@@ -25,6 +25,7 @@ import {
   MarkStopUnloaded,
   parseOdometer,
   ReverseStopOrder,
+  ReorderRemainingStops,
   SaveCompletionOdometerDraft,
   SaveStartOdometer,
   SetNextPendingStop,
@@ -663,6 +664,31 @@ describe('active route next stop', () => {
     expect(stops.map((item) => item.deliveryStatus)).toEqual(['pending', 'pending']);
     expect(adapter.raw.prepare("SELECT COUNT(*) AS count FROM action_journal WHERE action_type = 'next_pending_stop_changed'").get())
       .toMatchObject({ count: 1 });
+  });
+
+  it('saves the complete remaining order without moving an already delivered stop', async () => {
+    const { adapter, db } = createDb();
+    await startedRoute(db);
+    await new MarkStopDelivered(db).execute('route-1', 'stop-1');
+    const { stopId: addedStopId } = await new AddStopDuringDelivery(db).execute('route-1', {
+      originalAddress: 'Katedros a. 4, Vilnius',
+      normalizedAddress: 'Katedros a. 4, Vilnius, Lietuva',
+      latitude: 54.6841,
+      longitude: 25.2876,
+      weightKg: 12.5,
+      recipient: 'Naujas klientas',
+    });
+
+    await expect(new ReorderRemainingStops(db, () => '2026-08-03T10:05:00.000Z').execute('route-1', [addedStopId, 'stop-2']))
+      .resolves.toMatchObject({ idempotent: false, orderedStopIds: [addedStopId, 'stop-2'] });
+
+    const stops = await new RouteRepository(db).getStops('route-1');
+    expect(stops.map((item) => item.id)).toEqual(['stop-1', addedStopId, 'stop-2']);
+    expect(stops[0]?.deliveryStatus).toBe('delivered');
+    expect(adapter.raw.prepare("SELECT COUNT(*) AS count FROM action_journal WHERE action_type = 'remaining_stops_reordered'").get())
+      .toMatchObject({ count: 1 });
+    expect(adapter.raw.prepare("SELECT COUNT(*) AS count FROM route_order_snapshots WHERE route_id = 'route-1' AND kind = 'manual' AND ordered_stop_ids_json = ?")
+      .get(JSON.stringify([addedStopId, 'stop-2']))).toMatchObject({ count: 1 });
   });
 });
 
