@@ -1,4 +1,4 @@
-import type { RouteOptimizationRequest } from '../models';
+import type { Coordinates, RouteOptimizationRequest } from '../models';
 import { haversineKm, segmentsIntersect, turnAngleDegrees } from './geo';
 
 export type DirectionalityResult = {
@@ -52,21 +52,24 @@ export function evaluateDirectionality(
     }
   }
 
-  const axisLat = request.endLocation.latitude - request.startLocation.latitude;
-  const axisLng = request.endLocation.longitude - request.startLocation.longitude;
-  const axisLengthSquared = axisLat ** 2 + axisLng ** 2;
+  // Backtracking is measured by projecting every node onto the route's main
+  // axis. Taking that axis as start -> end collapses to zero length whenever the
+  // driver returns to where he set off, which is the normal case here — and a
+  // zero-length axis silently switched the whole term off, leaving the most
+  // driver-legible part of the penalty at 0 for every round trip. When start and
+  // end coincide, use start -> farthest stop instead: for an out-and-back run
+  // that is the axis a human reads off the map anyway.
+  const axis = directionAxis(locations, request.startLocation, request.endLocation);
   let backtrackingKm = 0;
-  if (axisLengthSquared > 0) {
+  if (axis) {
     let previousProjection = 0;
     for (const location of locations.slice(1)) {
       const projection =
-        ((location.latitude - request.startLocation.latitude) * axisLat +
-          (location.longitude - request.startLocation.longitude) * axisLng) /
-        axisLengthSquared;
+        ((location.latitude - request.startLocation.latitude) * axis.lat +
+          (location.longitude - request.startLocation.longitude) * axis.lng) /
+        axis.lengthSquared;
       if (projection < previousProjection) {
-        backtrackingKm +=
-          (previousProjection - projection) *
-          haversineKm(request.startLocation, request.endLocation);
+        backtrackingKm += (previousProjection - projection) * axis.lengthKm;
       }
       previousProjection = projection;
     }
@@ -91,4 +94,37 @@ export function evaluateDirectionality(
     crossingCount,
     endRegressionKm,
   };
+}
+
+type DirectionAxis = { lat: number; lng: number; lengthSquared: number; lengthKm: number };
+
+/**
+ * The line the route is meant to run along. Normally start -> end; for a round
+ * trip (end within a few hundred metres of start) that vector is degenerate, so
+ * the farthest node on the route stands in for the far end.
+ */
+function directionAxis(
+  locations: Coordinates[],
+  startLocation: Coordinates,
+  endLocation: Coordinates,
+): DirectionAxis | null {
+  const direct = axisFrom(startLocation, endLocation);
+  if (direct) return direct;
+
+  const farthest = locations.reduce<{ location: Coordinates; km: number } | null>(
+    (best, location) => {
+      const km = haversineKm(startLocation, location);
+      return best === null || km > best.km ? { location, km } : best;
+    },
+    null,
+  );
+  return farthest ? axisFrom(startLocation, farthest.location) : null;
+}
+
+function axisFrom(from: Coordinates, to: Coordinates): DirectionAxis | null {
+  const lat = to.latitude - from.latitude;
+  const lng = to.longitude - from.longitude;
+  const lengthSquared = lat ** 2 + lng ** 2;
+  if (lengthSquared <= 0) return null;
+  return { lat, lng, lengthSquared, lengthKm: haversineKm(from, to) };
 }
