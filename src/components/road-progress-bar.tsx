@@ -128,6 +128,9 @@ export function RoadProgressBar({
             source={scenes[displayedSceneKey]}
             style={[styles.roadImage, { opacity: sceneOpacity }]}
           />
+          <View pointerEvents="none" style={styles.windshieldTopShade} />
+          <View pointerEvents="none" style={styles.windshieldPillarLeft} />
+          <View pointerEvents="none" style={styles.windshieldPillarRight} />
           <View pointerEvents="none" style={styles.dashboardEdge} />
           {completed ? (
             <View pointerEvents="none" style={styles.completedMessage} testID="route-completed-windshield-message">
@@ -137,6 +140,7 @@ export function RoadProgressBar({
         </View>
       </View>
       <View style={styles.instrumentBridge}>
+        <View pointerEvents="none" style={styles.cockpitCowl} />
         <Svg pointerEvents="none" preserveAspectRatio="none" style={styles.arc} viewBox="0 0 430 62">
           <Defs>
             <LinearGradient id="steeringMetal" x1="0" y1="0" x2="0" y2="1">
@@ -221,36 +225,54 @@ const createStyles = (cockpit: CockpitPalette) => StyleSheet.create({
   windshieldArea: {
     width: '100%',
     alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingTop: 8,
-    paddingBottom: 4,
-    backgroundColor: cockpit.surface,
+    backgroundColor: cockpit.metalDark,
   },
   windshieldShell: {
-    width: '96%',
+    width: '100%',
     maxWidth: 520,
-    aspectRatio: 2.45,
+    aspectRatio: 2.25,
     position: 'relative',
     overflow: 'hidden',
-    borderWidth: 2,
-    borderColor: cockpit.metalDark,
-    borderTopLeftRadius: 10,
-    borderTopRightRadius: 10,
-    borderBottomLeftRadius: 5,
-    borderBottomRightRadius: 5,
     backgroundColor: cockpit.background,
   },
   roadImage: { position: 'absolute', inset: 0, width: '100%', height: '100%' },
+  windshieldTopShade: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    left: 0,
+    height: 10,
+    backgroundColor: cockpit.metalDark,
+    opacity: 0.32,
+  },
+  windshieldPillarLeft: {
+    position: 'absolute',
+    top: -8,
+    bottom: 12,
+    left: -9,
+    width: 19,
+    backgroundColor: cockpit.metalDark,
+    transform: [{ rotate: '-4deg' }],
+  },
+  windshieldPillarRight: {
+    position: 'absolute',
+    top: -8,
+    right: -9,
+    bottom: 12,
+    width: 19,
+    backgroundColor: cockpit.metalDark,
+    transform: [{ rotate: '4deg' }],
+  },
   dashboardEdge: {
     position: 'absolute',
     right: 0,
     bottom: 0,
     left: 0,
-    height: 8,
+    height: 18,
     borderTopWidth: 1,
     borderTopColor: cockpit.metalMid,
     backgroundColor: cockpit.metalDark,
-    opacity: 0.92,
+    opacity: 0.96,
   },
   completedMessage: {
     position: 'absolute',
@@ -267,12 +289,24 @@ const createStyles = (cockpit: CockpitPalette) => StyleSheet.create({
     letterSpacing: 1.2,
   },
   instrumentBridge: {
-    height: 68,
+    height: 64,
     position: 'relative',
+    marginTop: -22,
     justifyContent: 'flex-end',
-    backgroundColor: cockpit.surface,
+    zIndex: 2,
+    backgroundColor: 'transparent',
   },
-  arc: { position: 'absolute', left: 0, right: 0, top: 0, width: '100%', height: 62 },
+  cockpitCowl: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    left: 0,
+    height: 24,
+    borderTopWidth: 1,
+    borderTopColor: cockpit.metalMid,
+    backgroundColor: cockpit.metalDark,
+  },
+  arc: { position: 'absolute', left: 0, right: 0, top: 2, width: '100%', height: 62 },
   percent: {
     alignSelf: 'center',
     marginBottom: 0,

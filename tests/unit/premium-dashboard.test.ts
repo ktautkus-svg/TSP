@@ -74,6 +74,9 @@ describe('premium route dashboard', () => {
     expect(road).toContain('setSceneClock(Date.now())');
     expect(road).toContain('testID="route-front-windshield"');
     expect(road).toContain('styles.windshieldShell');
+    expect(road).toContain('styles.windshieldPillarLeft');
+    expect(road).toContain('styles.windshieldPillarRight');
+    expect(road).toContain('styles.cockpitCowl');
     expect(road).toContain('28_000');
     expect(road).toContain('Animated.Image');
     expect(road).toContain('setDisplayedSceneKey(selectedSceneKey)');
