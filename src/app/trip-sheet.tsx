@@ -5,7 +5,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { pushCompletedRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
-import { calculateTripFuelEnd } from '@/application/trip-sheet/fuel-balance';
+import { buildFuelLedger, type FuelLedgerDay } from '@/application/trip-sheet/fuel-balance';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { TripSheetRepository, type TripSheetWithRoutes } from '@/database/repositories/trip-sheet-repository';
 import { employeeApi, type ServerFuelEntry, type ServerTripSheet } from '@/infrastructure/auth/employee-session';
@@ -23,12 +23,16 @@ type DailyTripRow = {
   startOdometer: number | null;
   endOdometer: number | null;
   distanceKm: number | null;
+  /** 'odometer' once the readings are in, 'planned' until then. */
+  distanceSource: 'odometer' | 'planned' | null;
   fuelNorm: number | null;
   fuelConsumed: number | null;
   fuelAdded: number | null;
   fuelStart: number | null;
   fuelEnd: number | null;
+  fuelMissing: FuelLedgerDay['missing'];
   compensationEur: number | null;
+  compensationPreliminary: boolean;
   assignmentId: string;
   tripSheetId: string;
   source: DisplayTripSheet['source'];
@@ -281,13 +285,34 @@ function MonthlyTripSheet({ group, compact, onAddFuel, savingFuel, styles }: {
             <Text style={styles.routeAddress}>{row.startAddress} → {row.endAddress}</Text>
             <View style={styles.mobileDayMetrics}>
               <Metric label="ODOMETRAS" value={`${formatNumber(row.startOdometer)} → ${formatNumber(row.endOdometer)}`} styles={styles} />
-              <Metric label="NUVAŽIUOTA" value={`${formatNumber(row.distanceKm)} km`} styles={styles} />
+              <Metric
+                label={row.distanceSource === 'planned' ? 'NUVAŽIUOTA (PLANUOTA)' : 'NUVAŽIUOTA'}
+                value={`${formatNumber(row.distanceKm)} km`}
+                styles={styles}
+              />
               <Metric label="KURO PRADŽIOJE" value={row.fuelStart === null ? '—' : `${formatNumber(row.fuelStart)} l`} styles={styles} />
               <Metric label="ĮPILTA" value={`${formatNumber(row.fuelAdded)} l`} styles={styles} />
-              <Metric label="SUNAUDOTA" value={row.fuelConsumed === null ? '—' : `${formatNumber(row.fuelConsumed)} l`} styles={styles} />
+              <Metric
+                label={row.fuelNorm === null ? 'SUNAUDOTA' : `SUNAUDOTA (${formatNumber(row.fuelNorm)} l/100 km)`}
+                value={row.fuelConsumed === null ? '—' : `${formatNumber(row.fuelConsumed)} l`}
+                styles={styles}
+              />
               <Metric label="LIKO" value={row.fuelEnd === null ? '—' : `${formatNumber(row.fuelEnd)} l`} styles={styles} />
-              {row.compensationEur !== null ? <Metric label="ATLYGIS" value={formatMoney(row.compensationEur)} styles={styles} /> : null}
+              {row.compensationEur !== null ? <Metric
+                label={row.compensationPreliminary ? 'ATLYGIS (PRELIMINARUS)' : 'ATLYGIS'}
+                value={formatMoney(row.compensationEur)}
+                styles={styles}
+              /> : null}
             </View>
+            {fuelMissingHint(row.fuelMissing) ? (
+              <Text style={styles.meta}>{fuelMissingHint(row.fuelMissing)}</Text>
+            ) : null}
+            {row.fuelEnd !== null && row.fuelEnd < 0 ? (
+              <Text accessibilityRole="alert" style={styles.formError}>
+                Likutis išėjo neigiamas ({formatNumber(row.fuelEnd)} l) — greičiausiai neįvestas kuro papildymas
+                arba netikslus odometro rodmuo.
+              </Text>
+            ) : null}
             {row.fuelEntries.length > 0 ? <View style={styles.fuelEntries}>
               <Text style={styles.fuelEntriesTitle}>KURO PAPILDYMAI</Text>
               {row.fuelEntries.map((entry) => <View key={entry.id} style={styles.fuelEntryRow}>
@@ -342,36 +367,82 @@ function buildMonthlyGroups(sheets: DisplayTripSheet[]): MonthlyTripGroup[] {
 function buildDailyRows(sheets: DisplayTripSheet[]): DailyTripRow[] {
   const byDate = new Map<string, DisplayTripSheet[]>();
   for (const sheet of sheets) byDate.set(sheet.date, [...(byDate.get(sheet.date) ?? []), sheet]);
-  const rows = [...byDate.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([date, daySheets]) => {
-    const distanceValues = daySheets.map((sheet) => sheet.actualDistanceKm ?? sheet.plannedDistanceKm).filter((value): value is number => value !== null);
-    const distanceKm = distanceValues.length > 0 ? distanceValues.reduce((sum, value) => sum + value, 0) : null;
+  const days = [...byDate.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([date, daySheets]) => {
+    const startOdometer = minimum(daySheets.map((sheet) => sheet.startOdometer));
+    const endOdometer = maximum(daySheets.map((sheet) => sheet.endOdometer));
+    // The odometer is the truth once both readings are in; the planned figure
+    // only stands in until the driver closes the day.
+    const odometerKm = startOdometer !== null && endOdometer !== null && endOdometer >= startOdometer
+      ? endOdometer - startOdometer
+      : null;
+    const plannedValues = daySheets
+      .map((sheet) => sheet.actualDistanceKm ?? sheet.plannedDistanceKm)
+      .filter((value): value is number => value !== null);
+    const plannedKm = plannedValues.length > 0 ? plannedValues.reduce((sum, value) => sum + value, 0) : null;
+    const distanceKm = odometerKm ?? plannedKm;
     const fuelNorm = daySheets.find((sheet) => sheet.fuelNormLitersPer100Km !== null)?.fuelNormLitersPer100Km ?? null;
-    const fuelConsumed = distanceKm !== null && fuelNorm !== null ? distanceKm * fuelNorm / 100 : null;
-    const fuelStart = daySheets.find((sheet) => sheet.vehicle?.fuelRemainingLiters !== null && sheet.vehicle?.fuelRemainingLiters !== undefined)?.vehicle?.fuelRemainingLiters ?? null;
     const fuelEntries = daySheets.flatMap((sheet) => sheet.fuelEntries).sort((left, right) => left.filledAt.localeCompare(right.filledAt));
-    const fuelAdded = fuelEntries.reduce((sum, entry) => sum + entry.liters, 0);
+    const compensation = daySheets.find((sheet) => sheet.compensation)?.compensation ?? null;
     const targetSheet = daySheets[daySheets.length - 1]!;
     return {
       date,
       routeNumbers: [...new Set(daySheets.flatMap((sheet) => sheet.routeNumbers))],
       startAddress: daySheets[0]?.startAddress ?? 'Pradžia nenurodyta',
       endAddress: daySheets[daySheets.length - 1]?.endAddress ?? 'Pabaiga nenurodyta',
-      startOdometer: minimum(daySheets.map((sheet) => sheet.startOdometer)),
-      endOdometer: maximum(daySheets.map((sheet) => sheet.endOdometer)),
+      startOdometer,
+      endOdometer,
       distanceKm,
+      distanceSource: odometerKm !== null ? ('odometer' as const) : plannedKm !== null ? ('planned' as const) : null,
       fuelNorm,
-      fuelConsumed,
-      fuelAdded,
-      fuelStart,
-      fuelEnd: calculateTripFuelEnd(fuelStart, fuelAdded, fuelConsumed),
-      compensationEur: daySheets.find((sheet) => sheet.compensation)?.compensation?.totalNetEur ?? null,
+      fuelAdded: fuelEntries.reduce((sum, entry) => sum + entry.liters, 0),
+      compensationEur: compensation?.totalNetEur ?? null,
+      compensationPreliminary: compensation?.preliminary ?? true,
       assignmentId: targetSheet.assignmentId,
       tripSheetId: targetSheet.id,
       source: targetSheet.source,
       fuelEntries,
     };
   });
-  return rows;
+
+  // The tank balance is a running total across the month, not a per-day figure:
+  // each day opens on what the previous day left. The opening reading is the
+  // approved balance dated on or before the first day of this period — an
+  // administrator's correction, or the driver's confirmed reading. Only when no
+  // anchor exists that early does it fall back to the vehicle's current
+  // remaining litres, which is right for the running month but not for an old one.
+  const firstAnchor = days[0]
+    ? sheets.filter((sheet) => sheet.date === days[0]!.date).map((sheet) => sheet.fuelAnchor).find(Boolean) ?? null
+    : null;
+  const openingLiters = firstAnchor?.liters
+    ?? sheets
+      .map((sheet) => sheet.vehicle?.fuelRemainingLiters)
+      .find((value): value is number => value !== null && value !== undefined)
+    ?? null;
+  const ledger = buildFuelLedger(
+    days.map((day) => ({
+      date: day.date,
+      distanceKm: day.distanceKm,
+      fuelNormLPer100Km: day.fuelNorm,
+      addedLiters: day.fuelAdded,
+    })),
+    openingLiters,
+  );
+
+  return days.map((day, index) => ({
+    ...day,
+    fuelConsumed: ledger[index]!.consumedLiters,
+    fuelStart: ledger[index]!.startLiters,
+    fuelEnd: ledger[index]!.endLiters,
+    fuelMissing: ledger[index]!.missing,
+  }));
+}
+
+/** Says which entry is missing, so an empty balance is not just a bare dash. */
+function fuelMissingHint(missing: FuelLedgerDay['missing']): string | null {
+  if (missing === 'no_odometer') return 'Likutis neskaičiuojamas: neįvesti šios dienos odometro rodmenys.';
+  if (missing === 'no_norm') return 'Likutis neskaičiuojamas: automobiliui nenustatyta kuro norma (l/100 km).';
+  if (missing === 'no_opening') return 'Likutis neskaičiuojamas: nežinomas kuro likutis laikotarpio pradžioje.';
+  return null;
 }
 
 function minimum(values: Array<number | null>): number | null { const present = values.filter((value): value is number => value !== null); return present.length > 0 ? Math.min(...present) : null; }
