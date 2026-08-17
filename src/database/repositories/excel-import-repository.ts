@@ -29,8 +29,49 @@ type ExcelRowDb = {
   excluded: number;
 };
 
+export type ExcelSheetSession = {
+  id: string;
+  fileHash: string;
+  fileName: string;
+  sheetName: string;
+  status: 'review' | 'ready' | 'routed';
+  stopCount: number;
+  totalWeightGrams: number;
+  finalRouteId: string | null;
+  updatedAt: string;
+};
+
 export class ExcelImportRepository {
   constructor(private readonly db: SQLiteDatabase) {}
+
+  async getActiveBatchFileHashes(): Promise<string[]> {
+    const row = await this.db.getFirstAsync<{ value: string }>(
+      "SELECT value FROM app_preferences WHERE key = 'excel_import_active_batch'",
+    );
+    if (!row) return [];
+    try {
+      const parsed = JSON.parse(row.value) as unknown;
+      return Array.isArray(parsed)
+        ? parsed.filter((value): value is string => typeof value === 'string' && value.length > 0)
+        : [];
+    } catch {
+      return [];
+    }
+  }
+
+  async saveActiveBatchFileHashes(fileHashes: readonly string[]): Promise<void> {
+    const values = [...new Set(fileHashes.filter(Boolean))];
+    if (values.length === 0) {
+      await this.db.runAsync("DELETE FROM app_preferences WHERE key = 'excel_import_active_batch'");
+      return;
+    }
+    await this.db.runAsync(
+      `INSERT INTO app_preferences (key, value, updated_at) VALUES ('excel_import_active_batch', ?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+      JSON.stringify(values),
+      new Date().toISOString(),
+    );
+  }
 
   async savePreview(preview: ExcelImportPreview): Promise<void> {
     const now = new Date().toISOString();
@@ -99,6 +140,49 @@ export class ExcelImportRepository {
     };
   }
 
+  async listSheetSessions(fileHashes?: readonly string[]): Promise<ExcelSheetSession[]> {
+    if (fileHashes && fileHashes.length === 0) return [];
+    const placeholders = fileHashes?.map(() => '?').join(', ');
+    const rows = await this.db.getAllAsync<{
+      id: string;
+      file_hash: string;
+      file_name: string;
+      sheet_name: string;
+      status: ExcelSheetSession['status'];
+      summary_json: string;
+      final_route_id: string | null;
+      updated_at: string;
+    }>(
+      `SELECT id, file_hash, file_name, sheet_name, status, summary_json, final_route_id, updated_at
+       FROM excel_import_sessions
+       WHERE status <> 'abandoned'${placeholders ? ` AND file_hash IN (${placeholders})` : ''}
+       ORDER BY file_name COLLATE NOCASE, created_at, sheet_name COLLATE NOCASE`,
+      ...(fileHashes ?? []),
+    );
+    return rows.map((row) => {
+      const summary = JSON.parse(row.summary_json) as { physicalStopCount?: number; totalWeightGrams?: number };
+      return {
+        id: row.id,
+        fileHash: row.file_hash,
+        fileName: row.file_name,
+        sheetName: row.sheet_name,
+        status: row.status,
+        stopCount: Number(summary.physicalStopCount ?? 0),
+        totalWeightGrams: Number(summary.totalWeightGrams ?? 0),
+        finalRouteId: row.final_route_id,
+        updatedAt: row.updated_at,
+      };
+    });
+  }
+
+  async abandonSession(importSessionId: string): Promise<void> {
+    await this.db.runAsync(
+      `UPDATE excel_import_sessions SET status = 'abandoned', updated_at = ? WHERE id = ?`,
+      new Date().toISOString(),
+      importSessionId,
+    );
+  }
+
   async getReviewResult(importSessionId: string): Promise<ImportResult | null> {
     const row = await this.db.getFirstAsync<{ review_result_json: string | null }>(
       'SELECT review_result_json FROM excel_import_sessions WHERE id = ?',
@@ -109,7 +193,11 @@ export class ExcelImportRepository {
 
   async saveReviewResult(importSessionId: string, result: ImportResult): Promise<void> {
     await this.db.runAsync(
-      `UPDATE excel_import_sessions SET review_result_json = ?, status = ?, updated_at = ? WHERE id = ?`,
+      `UPDATE excel_import_sessions
+       SET review_result_json = ?,
+           status = CASE WHEN status = 'routed' THEN 'routed' ELSE ? END,
+           updated_at = ?
+       WHERE id = ?`,
       JSON.stringify(result),
       result.requiresReview ? 'review' : 'ready',
       new Date().toISOString(),

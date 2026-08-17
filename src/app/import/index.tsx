@@ -54,7 +54,7 @@ import type { PlanningMode, RouteEndpoint } from '@/domain/route';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { CameraIcon, ChevronDownIcon, ChevronRightIcon, ClipboardIcon, ExcelIcon, GalleryIcon, PdfIcon, PencilIcon, RegionIcon, WindowIcon } from '@/components/app-icons';
 import { RouteRepository } from '@/database/repositories/route-repository';
-import { ExcelImportRepository } from '@/database/repositories/excel-import-repository';
+import { ExcelImportRepository, type ExcelSheetSession } from '@/database/repositories/excel-import-repository';
 import { readPickedExcelAsset } from '@/infrastructure/import/excel-file-adapter';
 import { ExpoImageTransformAdapter } from '@/infrastructure/import/expo-image-transform-adapter';
 import { GatewayAddressResolver } from '@/infrastructure/import/gateway-address-resolver';
@@ -98,6 +98,8 @@ export default function ImportScreen() {
     preview: ExcelImportPreview;
     result: ImportResult | null;
   } | null>(null);
+  const [excelSheetBatch, setExcelSheetBatch] = useState<ExcelSheetSession[]>([]);
+  const [excelBatchHashes, setExcelBatchHashes] = useState<string[]>([]);
   const [movingExcelLineId, setMovingExcelLineId] = useState<string | null>(null);
   const [columnMapping, setColumnMapping] = useState<ExcelColumnMapping>(LOGISTICS_EXCEL_V1.columns);
   const [busy, setBusy] = useState(false);
@@ -123,6 +125,7 @@ export default function ImportScreen() {
   const creationCommandId = useRef<string | null>(null);
   const excelBytes = useRef<Uint8Array | null>(null);
   const excelAsset = useRef<{ name: string; hash: string } | null>(null);
+  const excelBatchAssets = useRef(new Map<string, { name: string; bytes: Uint8Array }>());
   const selectedStartEndpoint = startMode === 'kretinga' ? kretingaEndpoint : startMode === 'warehouse' ? warehouseEndpoint : null;
   const selectedStartAddress = startMode === 'kretinga'
     ? KRETINGA_WAREHOUSE_ADDRESS
@@ -135,9 +138,23 @@ export default function ImportScreen() {
 
   useEffect(() => {
     let active = true;
-    // Remember last Excel session as an optional card — do not auto-open the full review.
-    void excelRepository.getLatestReview().then((restored) => {
-      if (!active || !restored || result || document || excelPreview) return;
+    // Restore the whole workbook batch after returning from route planning so
+    // the next sheet is selectable without uploading the file again.
+    void excelRepository.getActiveBatchFileHashes().then(async (fileHashes) => {
+      if (!active || result || document || excelPreview) return;
+      if (fileHashes.length > 0) {
+        const sessions = await excelRepository.listSheetSessions(fileHashes);
+        if (!active) return;
+        if (sessions.length > 0) {
+          setExcelBatchHashes(fileHashes);
+          setExcelSheetBatch(sessions);
+          setRememberedExcel(null);
+          return;
+        }
+        await excelRepository.saveActiveBatchFileHashes([]);
+      }
+      const restored = await excelRepository.getLatestReview();
+      if (!active || !restored) return;
       setRememberedExcel(restored);
     }).catch((reason) => {
       if (__DEV__) console.warn('EXCEL_IMPORT_REMEMBER_FAILED', reason);
@@ -184,6 +201,18 @@ export default function ImportScreen() {
     });
     return () => { active = false; };
   }, [addressResolver, db]));
+
+  useFocusEffect(useCallback(() => {
+    let active = true;
+    if (excelBatchHashes.length > 0) {
+      void excelRepository.listSheetSessions(excelBatchHashes).then((sessions) => {
+        if (active) setExcelSheetBatch(sessions);
+      }).catch((reason) => {
+        if (__DEV__) console.warn('EXCEL_BATCH_REFRESH_FAILED', reason);
+      });
+    }
+    return () => { active = false; };
+  }, [excelBatchHashes, excelRepository]));
 
   useEffect(() => {
     void new PlanningModePreference(db).get()
@@ -273,50 +302,51 @@ export default function ImportScreen() {
     const selected = await DocumentPicker.getDocumentAsync({
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       copyToCacheDirectory: true,
-      multiple: false,
+      multiple: true,
     });
     if (selected.canceled) return;
     setBusy(true);
     setMessage('Skaitomi Excel langeliai…');
     try {
-      const asset = selected.assets[0];
-      const read = await readPickedExcelAsset(asset);
-      excelBytes.current = read.bytes;
-      excelAsset.current = { name: asset.name, hash: read.sha256 };
-      const preview = parseLogisticsExcelWorkbook(read.bytes, {
-        importId: `excel-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-        fileName: asset.name,
-        fileHash: read.sha256,
-      });
-      setColumnMapping(preview.mapping);
-      const duplicate = await excelRepository.findLatestByFingerprint(read.sha256, preview.selectedSheetName);
-      if (duplicate) {
-        // Same file already in audit — offer restore without forcing a fresh blank import.
-        setExcelDuplicate(duplicate);
-        setRememberedExcel({
-          preview: duplicate,
-          result: await excelRepository.getReviewResult(duplicate.id),
-        });
-        setMessage('Šis failas jau buvo importuotas. Galite atkurti ankstesnę peržiūrą arba pradėti naują dieną.');
-        return;
-      }
-      setRememberedExcel(null);
-      // Keep every route sheet from the workbook in SQLite. This lets the
-      // driver plan V.Vasiliauskas, Arnas, Atmintinė, etc. later without
-      // selecting the same physical file again.
-      for (const [index, sheet] of preview.sheets.entries()) {
-        if (sheet.name === preview.selectedSheetName) continue;
-        const existing = await excelRepository.findLatestByFingerprint(read.sha256, sheet.name);
-        if (existing) continue;
-        const sheetPreview = parseLogisticsExcelWorkbook(read.bytes, {
-          importId: `excel-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}`,
+      const hashes = new Set(excelBatchHashes);
+      for (const asset of selected.assets) {
+        const read = await readPickedExcelAsset(asset);
+        hashes.add(read.sha256);
+        excelBatchAssets.current.set(read.sha256, { name: asset.name, bytes: read.bytes });
+        excelBytes.current = read.bytes;
+        excelAsset.current = { name: asset.name, hash: read.sha256 };
+        const preview = parseLogisticsExcelWorkbook(read.bytes, {
+          importId: `excel-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
           fileName: asset.name,
           fileHash: read.sha256,
-          sheetName: sheet.name,
         });
-        await excelRepository.savePreview(sheetPreview);
+        setColumnMapping(preview.mapping);
+        // Save every eligible route sheet before opening any one of them. This
+        // makes the workbook itself the first planning screen and keeps the
+        // remaining work available after the first route has been created.
+        for (const [index, sheet] of preview.sheets.entries()) {
+          const existing = await excelRepository.findLatestByFingerprint(read.sha256, sheet.name);
+          if (existing) continue;
+          const sheetPreview = sheet.name === preview.selectedSheetName
+            ? preview
+            : parseLogisticsExcelWorkbook(read.bytes, {
+              importId: `excel-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}`,
+              fileName: asset.name,
+              fileHash: read.sha256,
+              sheetName: sheet.name,
+            });
+          await excelRepository.savePreview(sheetPreview);
+        }
       }
-      await openExcelPreview(preview);
+      setRememberedExcel(null);
+      setExcelDuplicate(null);
+      setExcelPreview(null);
+      setResult(null);
+      const batchHashes = [...hashes];
+      setExcelBatchHashes(batchHashes);
+      await excelRepository.saveActiveBatchFileHashes(batchHashes);
+      setExcelSheetBatch(await excelRepository.listSheetSessions(batchHashes));
+      setMessage(null);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Excel failo perskaityti nepavyko.');
     } finally {
@@ -713,7 +743,6 @@ export default function ImportScreen() {
         },
         stops: [...baseStops, ...manualStops],
       });
-      if (excelPreview) await excelRepository.markRouted(excelPreview.id, created.routeId);
       void requestSync('mutation');
       // Po importo pereinama į trumpą prioritetų peržiūrą. Patvirtinti adresai
       // nebetvirtinami antrą kartą, tačiau vairuotojas gali pažymėti kelis
@@ -798,17 +827,20 @@ export default function ImportScreen() {
   // vanish with zero indication anywhere in the UI. Surface them explicitly so
   // "the address was in Excel but never became a stop" is always visible.
   const unresolvedExcelRows = excelPreview?.rows.filter((row) => !row.excluded && !row.normalizedAddress) ?? [];
-  const hasInternalImportStep = Boolean(result || excelDuplicate || document || showPhotoSources || showPasteField);
+  const hasInternalImportStep = Boolean(result || excelDuplicate || document || showPhotoSources || showPasteField || excelSheetBatch.length > 0);
 
   const returnToSourceChooser = () => {
     if (result) {
-      if (excelPreview) setRememberedExcel({ preview: excelPreview, result });
+      if (excelPreview && excelBatchHashes.length === 0) setRememberedExcel({ preview: excelPreview, result });
       setResult(null);
       setExcelPreview(null);
       setExcelDuplicate(null);
       setExpandedExcelGroups([]);
       setShowExcelContent(false);
       setMessage(null);
+      if (excelBatchHashes.length > 0) {
+        void excelRepository.listSheetSessions(excelBatchHashes).then(setExcelSheetBatch);
+      }
       return;
     }
     if (excelDuplicate) {
@@ -826,7 +858,43 @@ export default function ImportScreen() {
       setShowPasteField(false);
       return;
     }
+    if (excelSheetBatch.length > 0) {
+      setExcelSheetBatch([]);
+      setExcelBatchHashes([]);
+      void excelRepository.saveActiveBatchFileHashes([]);
+      setMessage(null);
+      return;
+    }
     router.back();
+  };
+
+  const openExcelSheet = async (sheet: ExcelSheetSession) => {
+    setBusy(true);
+    try {
+      const preview = await excelRepository.getPreview(sheet.id);
+      if (!preview) throw new Error('Excel lapo duomenys nerasti.');
+      const asset = excelBatchAssets.current.get(sheet.fileHash);
+      if (asset) {
+        excelBytes.current = asset.bytes;
+        excelAsset.current = { name: asset.name, hash: sheet.fileHash };
+      }
+      setColumnMapping(preview.mapping);
+      await openExcelPreview(preview, await excelRepository.getReviewResult(sheet.id));
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Excel lapo atidaryti nepavyko.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeExcelSheet = async (sheet: ExcelSheetSession) => {
+    await excelRepository.abandonSession(sheet.id);
+    const next = await excelRepository.listSheetSessions(excelBatchHashes);
+    setExcelSheetBatch(next);
+    if (next.length === 0) {
+      setExcelBatchHashes([]);
+      await excelRepository.saveActiveBatchFileHashes([]);
+    }
   };
 
   return (
@@ -846,7 +914,44 @@ export default function ImportScreen() {
       title="Importuoti maršrutą"
       description="Pasirinkite vieną duomenų šaltinį. Kitame žingsnyje galėsite patikrinti turinį.">
       <View style={styles.content}>
-        {!result ? <>
+        {!result ? (excelSheetBatch.length > 0 ? (
+          <View style={styles.sheetQueue} testID="excel-sheet-queue">
+            <View style={styles.sheetQueueHeader}>
+              <View style={styles.sheetQueueCopy}>
+                <Text style={styles.sheetQueueTitle}>Pasirinkite planuojamą Excel lapą</Text>
+                <Text style={styles.helper}>Žaliai pažymėti jau suplanuoti lapai. Rudi dar laukia planavimo.</Text>
+              </View>
+              <Pressable disabled={busy} style={styles.secondaryButton} onPress={pickExcel} testID="add-more-excel-files">
+                <Text style={styles.secondaryText}>+ Pridėti Excel</Text>
+              </Pressable>
+            </View>
+            {groupExcelSheetSessions(excelSheetBatch).map((file) => (
+              <View key={file.fileHash} style={styles.sheetFileCard}>
+                <View style={styles.sheetFileHeader}>
+                  <View style={styles.sourceIconBadge}><ExcelIcon size={22} /></View>
+                  <Text numberOfLines={1} style={styles.fileText}>{file.fileName}</Text>
+                </View>
+                <View style={styles.sheetList}>
+                  {file.sheets.map((sheet) => {
+                    const routed = sheet.status === 'routed';
+                    return <View key={sheet.id} style={[styles.sheetRow, routed ? styles.sheetRowRouted : styles.sheetRowWaiting]}>
+                      <Pressable disabled={busy} onPress={() => { void openExcelSheet(sheet); }} style={styles.sheetOpenButton} testID={`open-excel-sheet-${sheet.id}`}>
+                        <View style={styles.sheetRowCopy}>
+                          <Text style={styles.sheetName}>{sheet.sheetName}</Text>
+                          <Text style={styles.sheetMeta}>{sheet.stopCount} taškų · {formatWeight(sheet.totalWeightGrams)}</Text>
+                        </View>
+                        <Text style={[styles.sheetStatus, routed ? styles.sheetStatusRouted : styles.sheetStatusWaiting]}>{routed ? 'Suplanuotas' : sheet.status === 'review' ? 'Reikia patikrinti' : 'Laukia planavimo'}</Text>
+                      </Pressable>
+                      <Pressable accessibilityLabel={`Pašalinti lapą ${sheet.sheetName}`} onPress={() => { void removeExcelSheet(sheet); }} style={styles.sheetDeleteButton} testID={`delete-excel-sheet-${sheet.id}`}>
+                        <Text style={styles.sheetDeleteText}>×</Text>
+                      </Pressable>
+                    </View>;
+                  })}
+                </View>
+              </View>
+            ))}
+          </View>
+        ) : <>
         <Text style={styles.sourceDivider}>PASIRINKITE ŠALTINĮ</Text>
         <View style={styles.sourceGrid}>
           <Pressable style={styles.excelPrimaryButton} onPress={pickExcel} testID="pick-excel">
@@ -933,7 +1038,7 @@ export default function ImportScreen() {
             </Pressable>
           </View>
         ) : null}
-        </> : (
+        </>) : (
           <View style={styles.importFileCard} testID="selected-import-file">
             <View style={styles.selectedFileRow}>
               <View style={styles.sourceIconBadge}>{excelPreview ? <ExcelIcon size={24} /> : <ClipboardIcon size={24} />}</View>
@@ -1689,6 +1794,16 @@ function regionSummaries(preview: ExcelImportPreview): RegionSummary[] {
   return [...byCode.values()].sort((left, right) => left.code.localeCompare(right.code));
 }
 
+function groupExcelSheetSessions(sessions: ExcelSheetSession[]): Array<{ fileHash: string; fileName: string; sheets: ExcelSheetSession[] }> {
+  const files = new Map<string, { fileHash: string; fileName: string; sheets: ExcelSheetSession[] }>();
+  for (const sheet of sessions) {
+    const file = files.get(sheet.fileHash) ?? { fileHash: sheet.fileHash, fileName: sheet.fileName, sheets: [] };
+    file.sheets.push(sheet);
+    files.set(sheet.fileHash, file);
+  }
+  return [...files.values()];
+}
+
 function mappingLabel(key: keyof ExcelColumnMapping): string {
   const labels: Record<keyof ExcelColumnMapping, string> = {
     orderNumber: 'Užsakymo numeris',
@@ -1721,6 +1836,25 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   excelPrimaryText: { flex: 1, minWidth: 0 },
   sourceDivider: { ...type.label, color: colors.textMuted, marginTop: spacing.xs },
   sourceGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  sheetQueue: { gap: spacing.md },
+  sheetQueueHeader: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
+  sheetQueueCopy: { flex: 1, minWidth: 260 },
+  sheetQueueTitle: { ...type.sectionTitle, color: colors.text },
+  sheetFileCard: { padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
+  sheetFileHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  sheetList: { gap: spacing.xs },
+  sheetRow: { flexDirection: 'row', alignItems: 'stretch', borderRadius: radius.md, borderWidth: 1, overflow: 'hidden' },
+  sheetRowRouted: { borderColor: colors.success, backgroundColor: colors.accentSoft },
+  sheetRowWaiting: { borderColor: colors.warning, backgroundColor: colors.warningSoft },
+  sheetOpenButton: { flex: 1, minWidth: 0, minHeight: 64, padding: spacing.sm, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
+  sheetRowCopy: { flex: 1, minWidth: 0 },
+  sheetName: { ...type.bodyStrong, color: colors.text },
+  sheetMeta: { ...type.meta, color: colors.textMuted, marginTop: 2 },
+  sheetStatus: { ...type.label, textAlign: 'right' },
+  sheetStatusRouted: { color: colors.success },
+  sheetStatusWaiting: { color: colors.warning },
+  sheetDeleteButton: { width: 48, alignItems: 'center', justifyContent: 'center', borderLeftWidth: 1, borderLeftColor: colors.border },
+  sheetDeleteText: { fontSize: 26, lineHeight: 28, color: colors.textMuted },
   sourceButton: { flexGrow: 1, flexBasis: '47%', minWidth: 150, minHeight: 88, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md },
   sourceButtonCompact: { minHeight: 68 },
   sourceIconBadge: { width: 42, height: 42, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },

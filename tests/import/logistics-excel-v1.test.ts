@@ -243,6 +243,37 @@ describe('Excel import persistence and ShipmentLine history', () => {
     expect(restored?.result?.deliveries[0]?.selectedAddress).not.toBeNull();
   });
 
+  it('persists a multi-sheet planning queue and keeps completed sheets routed', async () => {
+    const first = parseFixture('session-batch-first');
+    const second = {
+      ...parseFixture('session-batch-second'),
+      fileHash: first.fileHash,
+      fileName: first.fileName,
+      selectedSheetName: 'R80',
+    };
+    const repository = new ExcelImportRepository(db);
+    await repository.savePreview(first);
+    await repository.savePreview(second);
+    await repository.saveActiveBatchFileHashes([first.fileHash]);
+    let id = 0;
+    const created = await new CreateDraftRouteWithStops(db, undefined, (prefix) => `${prefix}-batch-${++id}`).execute({
+      commandId: 'excel-command-batch', startLocation: endpoint, endLocation: endpoint,
+      importSource: { type: 'excel', originalText: null, imageReference: null },
+      stops: excelPreviewToDraftStops(first, confirmAddresses(first).deliveries),
+    });
+    await repository.markRouted(first.id, created.routeId);
+    await repository.saveReviewResult(first.id, confirmAddresses(first));
+
+    expect(await repository.getActiveBatchFileHashes()).toEqual([first.fileHash]);
+    const sessions = await repository.listSheetSessions([first.fileHash]);
+    expect(sessions).toHaveLength(2);
+    expect(sessions.find((session) => session.id === first.id)).toMatchObject({ status: 'routed', finalRouteId: created.routeId });
+    expect(sessions.find((session) => session.id === second.id)).toMatchObject({ status: 'review', sheetName: 'R80' });
+
+    await repository.abandonSession(second.id);
+    expect(await repository.listSheetSessions([first.fileHash])).toHaveLength(1);
+  });
+
   it('persists audited manual corrections', async () => {
     const preview = parseFixture('session-correction');
     const repository = new ExcelImportRepository(db);

@@ -17,6 +17,7 @@ import { FoundationScreen } from '@/components/foundation-screen';
 import { RouteMapView } from '@/components/route-map';
 import { ManualRouteOrderList } from '@/components/manual-route-order-list';
 import { RouteRepository } from '@/database/repositories/route-repository';
+import { ExcelImportRepository } from '@/database/repositories/excel-import-repository';
 import type { OptimizationStop, RouteCandidate, RouteOptimizationRequest, RouteOptimizationResult, RoutePolylineResult } from '@/domain/routing/models';
 import { SQLiteRoutingAuditRepository } from '@/infrastructure/routing/persistence/sqlite-routing-audit-repository';
 import { GatewayPolylineProvider } from '@/infrastructure/routing/providers/gateway-polyline-provider';
@@ -175,6 +176,9 @@ export default function RouteAlternativesScreen() {
       }
       await new SaveSelectedRouteCandidate(db).execute(routeId, result.requestId, selectedId);
       await verifyPersistedSequence(repository, routeId, selectedCandidate.stopSequence);
+      if (current.sourceImportAuditId) {
+        await new ExcelImportRepository(db).markRouted(current.sourceImportAuditId, routeId);
+      }
       await pushRouteAssignmentRevision(db, routeId, profile.role !== 'driver');
       await requestSync('mutation');
       router.replace({ pathname: '/route/[id]/loading', params: { id: routeId } });

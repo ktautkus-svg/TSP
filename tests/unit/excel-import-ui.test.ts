@@ -36,6 +36,11 @@ describe('compact daily Excel UI', () => {
     expect(importScreen).toContain('Tęsti iš šio Excel');
     expect(importScreen).toContain('Failo iš naujo kelti nereikia');
     expect(importScreen).toContain('for (const [index, sheet] of preview.sheets.entries())');
+    expect(importScreen).toContain('multiple: true');
+    expect(importScreen).toContain('testID="excel-sheet-queue"');
+    expect(importScreen).toContain('Pasirinkite planuojamą Excel lapą');
+    expect(importScreen).toContain("routed ? 'Suplanuotas'");
+    expect(importScreen).toContain('saveActiveBatchFileHashes');
     expect(importScreen).toContain('findLatestByFingerprint(excelPreview.fileHash, targetSheet)');
     expect(importScreen).toContain('toggle-paste-field');
     expect(importScreen).toContain("pathname: '/route/[id]/review'");
@@ -178,6 +183,7 @@ describe('compact daily Excel UI', () => {
     expect(alternativesScreen).toContain('manualPriorityIds');
     expect(alternativesScreen).toContain('Perskaičiuoti pagal prioritetus');
     expect(alternativesScreen).toContain('verifyPersistedSequence');
+    expect(alternativesScreen).toContain('markRouted(current.sourceImportAuditId, routeId)');
     expect(alternativesScreen).toContain('pushRouteAssignmentRevision');
     expect(alternativesScreen).toContain('stopSequence: manualOrder');
     expect(alternativesScreen).not.toContain('Sutvarkykite taškus rodyklėmis');
