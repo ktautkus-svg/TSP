@@ -397,6 +397,13 @@ export default function RouteAlternativesScreen() {
       {candidates.length > 0 ? (
         <View style={styles.topActions}>
           <Pressable
+            disabled={saving || cancelling}
+            style={[styles.secondaryButton, (saving || cancelling) && styles.disabled]}
+            onPress={() => router.replace({ pathname: '/route/[id]/review', params: { id: routeId } })}
+            testID="change-warehouse-or-stops">
+            <Text style={styles.secondaryText}>Keisti sandėlį arba taškus</Text>
+          </Pressable>
+          <Pressable
             disabled={!selectedId || saving || cancelling}
             style={[styles.primaryButton, (!selectedId || saving || cancelling) && styles.disabled]}
             onPress={saveSelectedRoute}

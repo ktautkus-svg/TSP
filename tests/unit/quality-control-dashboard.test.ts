@@ -52,6 +52,18 @@ describe('quality control dashboard', () => {
     expect(route.stops[0]).toMatchObject({ sequence: 1, status: 'delivered', deliveredAt: '2026-08-12T08:05:00.000Z' });
   });
 
+  it('recovers a missing mapped region from the preserved Excel row and still ignores S codes', () => {
+    const legacy = assignment();
+    legacy.routeSnapshot.shipmentLines = legacy.routeSnapshot.shipmentLines.map((line) => ({
+      ...line,
+      route_code: null,
+      raw_row_json: JSON.stringify({ A: line.order_number, F: 'R80', G: 'S01' }),
+    }));
+    const route = buildQualityRouteMonitor(legacy, legacy.vehicle);
+    expect(route.routeNumbers).toEqual(['R80']);
+    expect(route.nextStop?.routeNumber).toBe('R80');
+  });
+
   it('exposes a dedicated read-only endpoint and isolates the quality role in navigation', () => {
     expect(apiSource).toContain("pathname === '/api/quality/routes'");
     expect(apiSource).toContain("requireRole(profile, ['quality', 'admin', 'dispatcher'])");

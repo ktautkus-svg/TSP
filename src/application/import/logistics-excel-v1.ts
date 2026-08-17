@@ -12,6 +12,7 @@ import {
   type ExcelWorkbookSheet,
   type LogisticsExcelTemplate,
 } from '@/domain/import/excel-models';
+import { normalizeRegionCode } from '@/domain/route-code';
 
 type WorkbookRow = { rowNumber: number; cells: Record<string, ExcelCellValue> };
 type WorkbookSheetData = { name: string; rows: WorkbookRow[] };
@@ -27,7 +28,6 @@ export type ParseLogisticsExcelOptions = {
 
 const STREET_MARKER = /\b(?:g\.|gatv(?:ė|e)|pr\.|prospekt(?:as|o)|pl\.|plentas|kelias|takas|tak\.|al\.|alėja|aikšt(?:ė|e)|a\.|skg\.)\s*\d/iu;
 const ORDER_NUMBER = /^\p{L}{1,3}\d{5,}[\p{L}\d-]*$/iu;
-const ROUTE_CODE = /^[A-Z]{1,3}\d{2,4}$/iu;
 /** First three rows are contact/header noise; route sheets need more than that. */
 const MIN_ROUTE_SHEET_ROWS = 4;
 const IGNORED_SHEET_NAMES = new Set([
@@ -335,8 +335,7 @@ function parseSourceRow(
   if (weight.issue) issueCodes.push(weight.issue);
   if (time.issue) issueCodes.push(time.issue);
   const recipient = supplierRecipient.cleaned ?? recipientFromCompanyText(supplierD.cleaned);
-  const routeCodeRaw = mapping.routeCode ? cellText(row, mapping.routeCode) : null;
-  const routeCode = routeCodeRaw && ROUTE_CODE.test(routeCodeRaw.trim()) ? routeCodeRaw.trim().toUpperCase() : routeCodeRaw?.trim() || null;
+  const routeCode = detectRouteCode(row, mapping.routeCode);
 
   return {
     id: `${importId}:row:${row.rowNumber}`,
@@ -503,6 +502,16 @@ function xmlAttribute(tag: string, name: string): string | null {
 function normalizeSheetTarget(target: string): string {
   const normalized = target.replace(/\\/g, '/').replace(/^\//, '');
   return normalized.startsWith('xl/') ? normalized : `xl/${normalized.replace(/^\.\//, '')}`;
+}
+
+function detectRouteCode(row: WorkbookRow, mappedColumn: string | null): string | null {
+  const mapped = normalizeRegionCode(cellText(row, mappedColumn));
+  if (mapped) return mapped;
+  for (const value of Object.values(row.cells)) {
+    const code = normalizeRegionCode(value);
+    if (code) return code;
+  }
+  return null;
 }
 
 function cellText(row: WorkbookRow, column: string | null): string | null {

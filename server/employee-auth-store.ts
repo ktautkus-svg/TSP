@@ -1,6 +1,6 @@
 import { pbkdf2Sync, randomBytes, randomUUID, timingSafeEqual, createHash } from 'node:crypto';
 import { Firestore } from '@google-cloud/firestore';
-import { normalizeRegionCode, uniqueRegionCodes } from '../src/domain/route-code.js';
+import { regionCodeFromSource, uniqueRegionCodes } from '../src/domain/route-code.js';
 import { calculateCompositeRouteProgress } from '../src/application/routes/composite-route-progress.js';
 import {
   DEFAULT_ROUTE_PRICE_SETTINGS,
@@ -1049,7 +1049,7 @@ export function buildQualityRouteMonitor(assignment: RouteAssignment, vehicle: F
   const stopRegions = new Map<string, string>();
   for (const line of shipmentLines) {
     const stopId = optionalText(line.delivery_stop_id);
-    const region = normalizeRegionCode(line.route_code);
+    const region = regionCodeFromSource(line);
     if (stopId && region && !stopRegions.has(stopId)) stopRegions.set(stopId, region);
   }
   const monitorStops: QualityStopMonitor[] = stops.map((stop, index) => {

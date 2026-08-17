@@ -91,7 +91,6 @@ export default function ImportScreen() {
   const [excelProblemIndex, setExcelProblemIndex] = useState(0);
   const [showExcelOptions, setShowExcelOptions] = useState(false);
   const [showExcelContent, setShowExcelContent] = useState(false);
-  const [showRouteSetup, setShowRouteSetup] = useState(false);
   const [showPhotoSources, setShowPhotoSources] = useState(false);
   const [showPasteField, setShowPasteField] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState(false);
@@ -104,7 +103,7 @@ export default function ImportScreen() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [endMode, setEndMode] = useState<'warehouse' | 'home'>('warehouse');
-  const [startMode, setStartMode] = useState<'warehouse' | 'kretinga'>('warehouse');
+  const [startMode, setStartMode] = useState<'warehouse' | 'kretinga' | null>(null);
 
   useEffect(() => {
     if (profile.role === 'driver' && !profile.permissions?.canCreateRoutes) router.replace('/' as Href);
@@ -124,11 +123,14 @@ export default function ImportScreen() {
   const creationCommandId = useRef<string | null>(null);
   const excelBytes = useRef<Uint8Array | null>(null);
   const excelAsset = useRef<{ name: string; hash: string } | null>(null);
-  const selectedStartEndpoint = startMode === 'kretinga' ? kretingaEndpoint : warehouseEndpoint;
-  const selectedStartAddress = startMode === 'kretinga' ? KRETINGA_WAREHOUSE_ADDRESS : (warehouseAddress || DEFAULT_WAREHOUSE_ADDRESS);
+  const selectedStartEndpoint = startMode === 'kretinga' ? kretingaEndpoint : startMode === 'warehouse' ? warehouseEndpoint : null;
+  const selectedStartAddress = startMode === 'kretinga'
+    ? KRETINGA_WAREHOUSE_ADDRESS
+    : startMode === 'warehouse' ? (warehouseAddress || DEFAULT_WAREHOUSE_ADDRESS) : 'Sandėlis nepasirinktas';
 
   useEffect(() => {
     creationCommandId.current = null;
+    setStartMode(null);
   }, [result?.auditId]);
 
   useEffect(() => {
@@ -360,7 +362,6 @@ export default function ImportScreen() {
       setExcelProblemIndex(0);
       setShowExcelOptions(false);
       setShowExcelContent(recoveredResult.requiresReview);
-      setShowRouteSetup(false);
       setMessage(`Atkurtas failas: ${rememberedExcel.preview.fileName}`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Prisiminto Excel atkurti nepavyko.');
@@ -383,7 +384,6 @@ export default function ImportScreen() {
     setExcelProblemIndex(0);
     setShowExcelOptions(false);
     setShowExcelContent(imported.requiresReview || !preview.mappingRecognized);
-    setShowRouteSetup(false);
     setMessage(preview.mappingRecognized
       ? null
       : 'Stulpelių struktūra neatpažinta. Patikrinkite stulpelių susiejimą.');
@@ -770,15 +770,18 @@ export default function ImportScreen() {
     }
   };
 
-  const routeCreationBlockers = getRouteCreationBlockers({
-    result,
-    excelPreview,
-    planningMode,
-    warehouseEndpoint: selectedStartEndpoint,
-    homeEndpoint,
-    endMode,
-    manuallyResolvedRowIds: new Set(Object.keys(manualRowResolutions)),
-  });
+  const routeCreationBlockers = [
+    ...(startMode === null ? ['Pasirinkite sandėlį, iš kurio prasidės maršrutas.'] : []),
+    ...getRouteCreationBlockers({
+      result,
+      excelPreview,
+      planningMode,
+      warehouseEndpoint: selectedStartEndpoint,
+      homeEndpoint,
+      endMode,
+      manuallyResolvedRowIds: new Set(Object.keys(manualRowResolutions)),
+    }),
+  ];
   const readyForRoute = routeCreationBlockers.length === 0;
   const excelDeliveriesById = new Map(result?.deliveries.map((delivery) => [delivery.id, delivery]) ?? []);
   const excelProblemCount = excelPreview?.groups.filter((group) =>
@@ -805,7 +808,6 @@ export default function ImportScreen() {
       setExcelDuplicate(null);
       setExpandedExcelGroups([]);
       setShowExcelContent(false);
-      setShowRouteSetup(false);
       setMessage(null);
       return;
     }
@@ -951,7 +953,7 @@ export default function ImportScreen() {
               <Pressable
                 accessibilityRole="button"
                 accessibilityState={{ expanded: showExcelContent }}
-                onPress={() => { setShowExcelContent((current) => !current); setShowRouteSetup(false); }}
+                onPress={() => setShowExcelContent((current) => !current)}
                 style={styles.accordionHeader}
                 testID="toggle-excel-content">
                 <View style={styles.accordionText}>
@@ -969,22 +971,35 @@ export default function ImportScreen() {
 
         {result && (!excelPreview || excelProblemCount === 0) ? (
           <View style={styles.routeSetupTop} testID="route-setup-top">
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ expanded: showRouteSetup }}
-              onPress={() => { setShowRouteSetup((current) => !current); setShowExcelContent(false); }}
-              style={styles.accordionHeader}
-              testID="toggle-route-setup">
+            <View style={styles.accordionHeader} testID="route-setup-visible">
               <View style={styles.accordionText}>
                 <Text style={styles.setupTitle}>Maršruto nustatymai</Text>
                 <Text numberOfLines={2} style={styles.accordionMeta}>
                   {planningDate} · {planningTime}{'\n'}{selectedStartAddress} → {endMode === 'home' ? homeAddress : selectedStartAddress}
                 </Text>
               </View>
-              {showRouteSetup ? <ChevronDownIcon color={colors.textMuted} /> : <ChevronRightIcon color={colors.textMuted} />}
-            </Pressable>
+            </View>
 
-            {showRouteSetup ? <>
+            <View style={styles.warehouseChoiceBlock} testID="start-location-choice">
+              <Text style={styles.setupRowLabel}>1. PASIRINKITE MARŠRUTO PRADŽIOS SANDĖLĮ</Text>
+              <Text style={styles.setupRowMeta}>Sandėlis įrašomas prieš kuriant ir optimizuojant maršrutą.</Text>
+              <View style={styles.endSwitchRow}>
+                <Pressable
+                  disabled={!warehouseEndpoint?.latitude}
+                  onPress={() => setStartMode('warehouse')}
+                  style={[styles.endSwitchOption, startMode === 'warehouse' && styles.endSwitchOptionActive, !warehouseEndpoint?.latitude && styles.disabled]}>
+                  <Text style={[styles.endSwitchText, startMode === 'warehouse' && styles.endSwitchTextActive]}>Numatytasis sandėlis</Text>
+                  <Text numberOfLines={2} style={styles.endSwitchAddress}>{warehouseAddress || DEFAULT_WAREHOUSE_ADDRESS}</Text>
+                </Pressable>
+                <Pressable
+                  disabled={!kretingaEndpoint?.latitude}
+                  onPress={() => setStartMode('kretinga')}
+                  style={[styles.endSwitchOption, startMode === 'kretinga' && styles.endSwitchOptionActive, !kretingaEndpoint?.latitude && styles.disabled]}>
+                  <Text style={[styles.endSwitchText, startMode === 'kretinga' && styles.endSwitchTextActive]}>Kretingos sandėlis</Text>
+                  <Text numberOfLines={2} style={styles.endSwitchAddress}>{KRETINGA_WAREHOUSE_ADDRESS}</Text>
+                </Pressable>
+              </View>
+            </View>
 
             <Pressable style={styles.setupRow} onPress={() => setEditingSchedule((current) => !current)} testID="toggle-schedule-edit">
               <View style={styles.setupRowText}>
@@ -997,22 +1012,6 @@ export default function ImportScreen() {
 
             {editingSchedule ? (
               <View style={styles.setupEditPanel}>
-                <View style={styles.endSwitchRow} testID="start-location-choice">
-                  <Pressable
-                    disabled={!warehouseEndpoint?.latitude}
-                    onPress={() => setStartMode('warehouse')}
-                    style={[styles.endSwitchOption, startMode === 'warehouse' && styles.endSwitchOptionActive, !warehouseEndpoint?.latitude && styles.disabled]}>
-                    <Text style={[styles.endSwitchText, startMode === 'warehouse' && styles.endSwitchTextActive]}>Numatytasis sandėlis</Text>
-                    <Text numberOfLines={2} style={styles.endSwitchAddress}>{warehouseAddress || DEFAULT_WAREHOUSE_ADDRESS}</Text>
-                  </Pressable>
-                  <Pressable
-                    disabled={!kretingaEndpoint?.latitude}
-                    onPress={() => setStartMode('kretinga')}
-                    style={[styles.endSwitchOption, startMode === 'kretinga' && styles.endSwitchOptionActive, !kretingaEndpoint?.latitude && styles.disabled]}>
-                    <Text style={[styles.endSwitchText, startMode === 'kretinga' && styles.endSwitchTextActive]}>Kretingos sandėlis</Text>
-                    <Text numberOfLines={2} style={styles.endSwitchAddress}>{KRETINGA_WAREHOUSE_ADDRESS}</Text>
-                  </Pressable>
-                </View>
                 <View style={styles.scheduleRow}>
                   <View style={styles.scheduleField}>
                     <Text style={styles.fieldCaption}>Data</Text>
@@ -1123,8 +1122,6 @@ export default function ImportScreen() {
                 ) : null}
               </View>
             ) : null}
-            </> : null}
-
             <View style={styles.setupActions}>
               <Pressable
                 disabled={busy}
@@ -1745,6 +1742,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   headerText: { ...type.secondaryStrong, color: colors.brandNavy },
   card: { padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
   routeSetupTop: { padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
+  warehouseChoiceBlock: { gap: spacing.sm, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.info, backgroundColor: colors.infoSoft },
   scheduleRow: { flexDirection: 'row', gap: spacing.sm },
   scheduleField: { flex: 1, minWidth: 0, gap: 4 },
   fieldCaption: { ...type.meta, color: colors.textMuted },

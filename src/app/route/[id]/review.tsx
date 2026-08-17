@@ -274,17 +274,29 @@ export default function RouteReviewScreen() {
     }
   };
 
-  const applyDefaultWarehouse = async () => {
-    if (!route || !defaultWarehouse || running) return;
+  const applyWarehouse = async (choice: 'default' | 'kretinga') => {
+    if (!route || running) return;
     setRunning(true);
     setError(null);
     try {
       if (await redirectStalePlanningScreen()) return;
+      let nextWarehouse = choice === 'default' ? defaultWarehouse : null;
+      if (choice === 'kretinga') {
+        if (isKretingaWarehouse(route.startLocation) && route.startLocation?.latitude !== null && route.startLocation?.longitude !== null) {
+          nextWarehouse = route.startLocation;
+        } else {
+          const response = await provider.geocode(KRETINGA_WAREHOUSE_ADDRESS);
+          const selected = response.result ?? response.alternatives[0] ?? null;
+          if (!selected) throw new Error('Kretingos sandėlio adreso rasti nepavyko.');
+          nextWarehouse = routeEndpointFromGeocode(KRETINGA_WAREHOUSE_ADDRESS, selected, KRETINGA_WAREHOUSE_ADDRESS);
+        }
+      }
+      if (!nextWarehouse) throw new Error('Numatytasis sandėlis nenustatytas.');
       const returnedToStart = sameEndpoint(route.startLocation, route.endLocation);
       await new UpdateDraftRouteLocations(db).execute(
         routeId,
-        defaultWarehouse,
-        returnedToStart ? defaultWarehouse : route.endLocation ?? defaultWarehouse,
+        nextWarehouse,
+        returnedToStart ? nextWarehouse : route.endLocation ?? nextWarehouse,
       );
       setCandidates((current) => ({ ...current, start: [], ...(returnedToStart ? { end: [] } : {}) }));
       await reload();
@@ -409,11 +421,6 @@ export default function RouteReviewScreen() {
   const knownWeightKg = stops.reduce((total, stop) => total + (stop.weightKg ?? 0), 0);
   const confirmedStops = stops.filter((stop) => stop.addressValidationState === 'auto_confirmed').length;
   const canCalculate = startReady && endReady && allReady;
-  const warehouseChanged = Boolean(
-    defaultWarehouse &&
-    !isKretingaWarehouse(route?.startLocation) &&
-    !sameEndpoint(route?.startLocation, defaultWarehouse),
-  );
   const visibleStops = allReady
     ? stops
     : stops.filter((stop) => stop.addressValidationState !== 'auto_confirmed');
@@ -457,12 +464,29 @@ export default function RouteReviewScreen() {
           <Text style={styles.planMetricLabel}>PATVIRTINTA</Text>
         </View>
       </View>
-      <AppButton
-        disabled={!canCalculate}
-        label="Optimizuoti maršrutą"
-        onPress={goToAlternatives}
-      />
       <View style={styles.card}>
+        <View style={styles.warehouseChoice} testID="review-warehouse-choice">
+          <Text style={styles.warehouseChoiceTitle}>Pasirinkite sandėlį prieš optimizuodami</Text>
+          <Text style={styles.auditText}>Sandėlį galima pakeisti ir po optimizavimo, kol maršruto variantas dar nepatvirtintas.</Text>
+          <View style={styles.warehouseChoiceRow}>
+            <Pressable
+              disabled={running || !defaultWarehouse}
+              onPress={() => { void applyWarehouse('default'); }}
+              style={[styles.warehouseChoiceButton, sameEndpoint(route.startLocation, defaultWarehouse) && styles.warehouseChoiceButtonActive, (running || !defaultWarehouse) && styles.disabled]}
+              testID="apply-current-warehouse">
+              <Text style={[styles.warehouseChoiceButtonTitle, sameEndpoint(route.startLocation, defaultWarehouse) && styles.warehouseChoiceButtonTitleActive]}>Numatytasis sandėlis</Text>
+              <Text numberOfLines={2} style={styles.auditText}>{defaultWarehouse?.normalizedAddress ?? defaultWarehouse?.originalAddress ?? 'Nenustatytas'}</Text>
+            </Pressable>
+            <Pressable
+              disabled={running}
+              onPress={() => { void applyWarehouse('kretinga'); }}
+              style={[styles.warehouseChoiceButton, isKretingaWarehouse(route.startLocation) && styles.warehouseChoiceButtonActive, running && styles.disabled]}
+              testID="apply-kretinga-warehouse">
+              <Text style={[styles.warehouseChoiceButtonTitle, isKretingaWarehouse(route.startLocation) && styles.warehouseChoiceButtonTitleActive]}>Kretingos sandėlis</Text>
+              <Text numberOfLines={2} style={styles.auditText}>{KRETINGA_WAREHOUSE_ADDRESS}</Text>
+            </Pressable>
+          </View>
+        </View>
         <Text style={styles.heading}>Maršruto pradžia</Text>
         <Text style={styles.query}>{route.startLocation?.normalizedAddress ?? route.startLocation?.originalAddress}</Text>
         <StateLabel styles={styles} ready={startReady} state={startReady ? 'auto_confirmed' : 'unconfirmed'} />
@@ -475,20 +499,13 @@ export default function RouteReviewScreen() {
         {candidates.end?.map((candidate) => (
           <Candidate styles={styles} key={candidate.normalizedAddress} candidate={candidate} onPress={() => selectEnd(candidate)} />
         ))}
-        {warehouseChanged ? (
-          <View style={styles.locationChangeNotice} testID="warehouse-location-changed">
-            <Text style={styles.locationChangeTitle}>Šis juodraštis dar naudoja ankstesnę pradžios vietą.</Text>
-            <Text style={styles.auditText}>Dabartinis sandėlis: {defaultWarehouse?.normalizedAddress ?? defaultWarehouse?.originalAddress}</Text>
-            <Pressable
-              disabled={running}
-              onPress={() => { void applyDefaultWarehouse(); }}
-              style={[styles.secondaryButton, running && styles.disabled]}
-              testID="apply-current-warehouse">
-              <Text style={styles.secondaryText}>Naudoti dabartinį sandėlį</Text>
-            </Pressable>
-          </View>
-        ) : null}
       </View>
+
+      <AppButton
+        disabled={!canCalculate || running}
+        label="Optimizuoti maršrutą"
+        onPress={goToAlternatives}
+      />
 
       {!canCalculate ? <AppButton label="Patikrinti nepatvirtintus adresus" loading={running} onPress={geocodeAll} variant="route" /> : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -521,7 +538,7 @@ export default function RouteReviewScreen() {
 
       {/* Repeated at the bottom so a long stop list never forces a scroll back up. */}
       <AppButton
-        disabled={!canCalculate}
+        disabled={!canCalculate || running}
         label="Optimizuoti maršrutą"
         onPress={goToAlternatives}
         testID="optimize-route-bottom"
@@ -774,6 +791,13 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   twoColumns: { gap: spacing.sm },
   input: { minHeight: 46, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderStrong, paddingHorizontal: spacing.md, color: colors.text, backgroundColor: colors.surfaceSubtle, ...type.body },
   auditText: { ...type.meta, color: colors.textMuted },
+  warehouseChoice: { gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.info, backgroundColor: colors.infoSoft },
+  warehouseChoiceTitle: { ...type.bodyStrong, color: colors.text },
+  warehouseChoiceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  warehouseChoiceButton: { flex: 1, minWidth: 220, minHeight: 74, justifyContent: 'center', gap: 4, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface },
+  warehouseChoiceButtonActive: { borderColor: colors.info, borderWidth: 2, backgroundColor: colors.surfaceElevated },
+  warehouseChoiceButtonTitle: { ...type.secondaryStrong, color: colors.textSecondary },
+  warehouseChoiceButtonTitleActive: { color: colors.info },
   ready: { ...type.meta, color: colors.success },
   warning: { ...type.meta, color: colors.warning },
   error: { ...type.secondaryStrong, color: colors.danger },
@@ -781,8 +805,6 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   secondaryText: { ...type.button, color: colors.textSecondary },
   candidate: { padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.info, backgroundColor: colors.infoSoft },
   candidateText: { ...type.secondaryStrong, color: colors.text },
-  locationChangeNotice: { gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.warningSoft },
-  locationChangeTitle: { ...type.secondaryStrong, color: colors.text },
   priorityButton: { minHeight: 44, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.sm },
   priorityButtonActive: { backgroundColor: colors.warningSoft, borderColor: colors.warning },
   priorityText: { ...type.secondaryStrong, color: colors.textMuted },

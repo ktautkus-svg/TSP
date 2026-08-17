@@ -60,7 +60,7 @@ describe('compact daily Excel UI', () => {
     expect(importScreen).toContain('Įklijuoti tekstą');
     expect(importScreen).toContain('excelPrimaryButton');
     expect(importScreen).toContain('toggle-excel-content');
-    expect(importScreen).toContain('toggle-route-setup');
+    expect(importScreen).toContain('testID="route-setup-visible"');
     expect(importScreen).not.toContain('autoRestoredExcel');
   });
 
@@ -125,7 +125,7 @@ describe('compact daily Excel UI', () => {
     expect(manualRouteScreen).toContain('testID="manual-route-review-top"');
     expect(importScreen).toContain('useFocusEffect(useCallback(() =>');
     expect(reviewScreen).toContain('testID="apply-current-warehouse"');
-    expect(reviewScreen).toContain('Naudoti dabartinį sandėlį');
+    expect(reviewScreen).toContain('testID="apply-kretinga-warehouse"');
   });
 
   it('keeps back navigation inside the import and review flow', () => {
@@ -146,6 +146,7 @@ describe('compact daily Excel UI', () => {
   it('offers both the saved warehouse and Kretinga as route starts', () => {
     expect(importScreen).toContain('KRETINGA_WAREHOUSE_ADDRESS');
     expect(importScreen).toContain('testID="start-location-choice"');
+    expect(importScreen).toContain("startMode === null ? ['Pasirinkite sandėlį");
     expect(importScreen).toContain("setStartMode('warehouse')");
     expect(importScreen).toContain("setStartMode('kretinga')");
     expect(importScreen).toContain('>Numatytasis sandėlis</Text>');
@@ -154,6 +155,10 @@ describe('compact daily Excel UI', () => {
     expect(importScreen).toContain('const startLocation: RouteEndpoint = selectedStartEndpoint');
     expect(reviewScreen).toContain('canonicalWarehouseAddress');
     expect(reviewScreen).toContain('endpoint.normalizedAddress');
+    expect(reviewScreen).toContain('testID="review-warehouse-choice"');
+    expect(reviewScreen).toContain('Pasirinkite sandėlį prieš optimizuodami');
+    expect(alternativesScreen).toContain('testID="change-warehouse-or-stops"');
+    expect(alternativesScreen).toContain('Keisti sandėlį arba taškus');
   });
 
   it('keeps route selection compact and fits the whole route after map resize', () => {

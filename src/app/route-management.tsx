@@ -18,6 +18,7 @@ import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { ChevronDownIcon, ChevronRightIcon, TrashIcon } from '@/components/app-icons';
 import { employeeApi, type EmployeeProfile, type ServerFleetVehicle, type ServerRouteAssignment } from '@/infrastructure/auth/employee-session';
+import { uniqueRegionCodes } from '@/domain/route-code';
 import { Alert } from '@/ui/alert';
 import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
@@ -559,9 +560,7 @@ function routeCodesLabel(value: string | null): string {
   return [...new Set(codes)].join(' · ') || 'Regiono kodas nenurodytas';
 }
 function assignmentRouteLabel(assignment: ServerRouteAssignment): string {
-  const regionCodes = [...new Set(assignment.routeSnapshot.shipmentLines
-    .map((line) => String(line.route_code ?? '').trim().toUpperCase())
-    .filter((code) => /^[A-Z]\d{2}$/.test(code)))];
+  const regionCodes = uniqueRegionCodes(assignment.routeSnapshot.shipmentLines);
   const date = String(assignment.routeSnapshot.route.date ?? assignment.assignedAt.slice(0, 10));
   const stops = Number(assignment.routeSnapshot.route.total_stops ?? assignment.routeSnapshot.stops.length);
   return `${regionCodes.join(' · ') || 'Regiono kodas nenurodytas'} · ${formatDate(date)} · ${stops} taškų`;
