@@ -6,6 +6,7 @@ import {
   MATRIX_CHUNK_SIZE,
   MAX_MATRIX_ELEMENTS_PER_PLAN,
   MAX_STOPS_IN_SINGLE_REQUEST,
+  MAX_STOPS_PER_PLAN,
   planMatrixRequests,
 } from '../../src/domain/routing/matrix-limits';
 import type { GatewayMatrixRequest } from '../../gateway/types';
@@ -98,10 +99,11 @@ describe('Google 625 elementų riba', () => {
     }
   });
 
-  it('kiekvienas gabalas telpa į 625 net ir dideliame maršrute', async () => {
+  it('kiekvienas gabalas telpa į 625 ir prie didžiausio leidžiamo maršruto', async () => {
     const { fetcher, bodies } = chunkFetcher();
+    // 25 taškai = 27 mazgai: didžiausias, kurį riba dar praleidžia.
     await new GoogleMatrixAdapter('key', fetcher as unknown as typeof fetch, MATRIX_CHUNK_SIZE)
-      .fetchMatrix(request(46), new AbortController().signal);
+      .fetchMatrix(request(MAX_STOPS_PER_PLAN), new AbortController().signal);
 
     expect(fetcher).toHaveBeenCalledTimes(4);
     for (const body of bodies) {
@@ -111,17 +113,42 @@ describe('Google 625 elementų riba', () => {
     }
   });
 
-  it('viršijus vieno planavimo elementų lubas atsisakoma, o ne siunčiama tyliai', async () => {
+  // Riba uždėta ties 729 = 27x27 = 25 pristatymo taškai + startas + pabaiga.
+  // Google ima UŽ ELEMENTĄ, tad 24 taškai (4 užklausos, 676 elementai) kainuoja
+  // apie 8 % daugiau nei 23 taškai (1 užklausa, 625), o ne keturis kartus.
+  it.each([
+    [23, 625, 1],
+    [24, 676, 4],
+    [25, 729, 4],
+  ])('%i taškų leidžiama: %i elementų per %i užklausą(-as)', async (stops, elements, requests) => {
     const { fetcher } = chunkFetcher();
-    const tooBig = planMatrixRequests(60);
-    expect(tooBig.billableElements).toBeGreaterThan(MAX_MATRIX_ELEMENTS_PER_PLAN);
+    const result = await new GoogleMatrixAdapter('key', fetcher as unknown as typeof fetch, MATRIX_CHUNK_SIZE)
+      .fetchMatrix(request(stops), new AbortController().signal);
+
+    expect(result.billableElementCount).toBe(elements);
+    expect(fetcher).toHaveBeenCalledTimes(requests);
+    expect(elements).toBeLessThanOrEqual(MAX_MATRIX_ELEMENTS_PER_PLAN);
+  });
+
+  it('26 taškai blokuojami dar prieš bet kokią Google užklausą', async () => {
+    const { fetcher } = chunkFetcher();
+    // 26 + startas + pabaiga = 28 mazgai = 784 elementai > 729.
+    expect(planMatrixRequests(28).billableElements).toBe(784);
+    expect(planMatrixRequests(28).withinPlanLimit).toBe(false);
 
     await expect(
       new GoogleMatrixAdapter('key', fetcher as unknown as typeof fetch, MATRIX_CHUNK_SIZE)
-        .fetchMatrix(request(58), new AbortController().signal),
+        .fetchMatrix(request(26), new AbortController().signal),
     ).rejects.toThrow(/limitas viršytas/i);
 
     // Svarbiausia: nė viena mokama užklausa neišėjo.
     expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('riba atitinka pilną 25 taškų maršrutą', () => {
+    expect(MAX_MATRIX_ELEMENTS_PER_PLAN).toBe(729);
+    expect(MAX_STOPS_PER_PLAN).toBe(25);
+    expect(planMatrixRequests(27).billableElements).toBe(MAX_MATRIX_ELEMENTS_PER_PLAN);
+    expect(planMatrixRequests(27).withinPlanLimit).toBe(true);
   });
 });

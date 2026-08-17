@@ -65,10 +65,13 @@ describe('Google Route Matrix batching / chunking', () => {
     expect(fetcher).toHaveBeenCalledOnce();
   });
 
+  // Sizes stay under MAX_MATRIX_ELEMENTS_PER_PLAN (729 = 25 stops + start + end),
+  // which is the largest grid the gateway will now buy. 24 and 25 stops already
+  // span four chunks, so chunk reconstruction is still fully exercised.
   it.each([
     [20, 1],
-    [30, 4],
-    [40, 4],
+    [24, 4],
+    [25, 4],
   ])('reconstructs a complete %i-stop matrix from %i chunk requests', async (stopCount, expectedRequests) => {
     const request = createMultiStopRequest(stopCount);
     const fetcher = createCompleteMatrixFetcher();
@@ -85,7 +88,7 @@ describe('Google Route Matrix batching / chunking', () => {
   });
 
   it('reuses final chunk results without another provider call', async () => {
-    const request = createMultiStopRequest(30);
+    const request = createMultiStopRequest(25);
     const fetcher = createCompleteMatrixFetcher();
     const adapter = new GoogleMatrixAdapter('test-api-key', fetcher as typeof fetch, 25, {
       cache: new MemoryGatewayResponseCache(),
@@ -103,7 +106,7 @@ describe('Google Route Matrix batching / chunking', () => {
   });
 
   it('keeps provider concurrency within the configured limit', async () => {
-    const request = createMultiStopRequest(40);
+    const request = createMultiStopRequest(25);
     let active = 0;
     let maximumActive = 0;
     const base = createCompleteMatrixFetcher();

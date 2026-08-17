@@ -19,20 +19,33 @@ export const MATRIX_CHUNK_SIZE = 25;
 /**
  * Elements one planning run may buy in total, across every chunk.
  *
- * Above 25 nodes the grid has to be split, and the split is quadratic: 26 nodes
- * is already 4 requests. The ceiling is set at 50x50 so a real driver's day
- * (comfortably under 48 stops) still plans, while a runaway import cannot
- * quietly spend thousands of elements. Crossing it is an error, never a silent
- * fan-out.
+ * 729 is 27x27: 25 delivery stops plus a start and an end. That covers a full
+ * ordinary route, and stops there on purpose. Past 25 stops the answer is not a
+ * bigger matrix but a different shape - two trips, or a split route - so the
+ * ceiling refuses rather than quietly buying a grid several times the size.
+ *
+ * Note on what this actually controls. Google bills computeRouteMatrix PER
+ * ELEMENT, not per request. Crossing 25 nodes forces the grid to be split into
+ * more HTTP requests, but that split is close to cost-neutral: 23 stops is 625
+ * elements in 1 request, 24 stops is 676 elements in 4 requests - four times the
+ * requests for roughly eight percent more money. So this ceiling is about total
+ * elements, which is the thing that costs, and the request count is reported
+ * only so the fan-out is never a surprise.
  */
-export const MAX_MATRIX_ELEMENTS_PER_PLAN = 2_500;
+export const MAX_MATRIX_ELEMENTS_PER_PLAN = 729;
+
+/** Delivery stops that fit under the per-plan ceiling, start and end included. */
+export const MAX_STOPS_PER_PLAN = 25;
 
 export type MatrixRequestPlan = {
   /** Unique places going into the grid, including start and end. */
   nodes: number;
-  /** Real HTTP calls to computeRouteMatrix this will cost. */
+  /**
+   * Real HTTP calls to computeRouteMatrix. Reported so the fan-out past 25 nodes
+   * is visible - NOT a cost multiplier: billing is per element.
+   */
   httpRequests: number;
-  /** Elements Google bills, summed over every chunk. */
+  /** What Google actually charges for: elements, summed over every chunk. */
   billableElements: number;
   /** True when the whole grid fits in one request. */
   singleRequest: boolean;
@@ -57,5 +70,8 @@ export function planMatrixRequests(nodes: number): MatrixRequestPlan {
   };
 }
 
-/** Largest delivery-stop count that still fits in one request, start and end included. */
+/**
+ * Largest delivery-stop count that still fits in ONE request, start and end
+ * included. Going past it costs more requests, not meaningfully more money.
+ */
 export const MAX_STOPS_IN_SINGLE_REQUEST = MATRIX_CHUNK_SIZE - 2;

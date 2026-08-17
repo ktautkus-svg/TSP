@@ -264,14 +264,24 @@ describe('D2 · realios HTTP užklausos, ne tik loginis kvietimas', () => {
     }
   });
 
-  it('per didelis maršrutas atmetamas nepirkus nė vienos matricos', async () => {
+  it('26 taškai atmetami nepirkus nė vienos matricos', async () => {
     const { provider, calls } = countingProvider();
     const planning = new PlanningRunTravelCostProvider(provider, 'plan-toobig', () => {});
-    // 58 taškai + 2 = 60 mazgų = 3600 elementų > MAX_MATRIX_ELEMENTS_PER_PLAN.
-    await expect(planning.getMatrix(matrixRequestFor(createBaseRequest(58))))
-      .rejects.toThrow(/leidžiama 2500|matricos elementų/i);
+    // 26 taškai + startas + pabaiga = 28 mazgai = 784 elementai > 729.
+    await expect(planning.getMatrix(matrixRequestFor(createBaseRequest(26))))
+      .rejects.toThrow(/leidžiama 729/i);
     expect(calls).toHaveLength(0);
     expect(planning.getStats().matrixCalls).toBe(0);
+  });
+
+  it('25 taškai – pilnas įprastas maršrutas – vis dar praleidžiami', async () => {
+    const { provider, calls } = countingProvider();
+    const planning = new PlanningRunTravelCostProvider(provider, 'plan-max', () => {});
+    await planning.getMatrix(matrixRequestFor(createBaseRequest(25)));
+
+    expect(calls).toHaveLength(1);
+    expect(planning.getStats().uniqueLocations).toBe(27);
+    expect(planning.getStats().billedElements).toBe(729);
   });
 
   it('dubliuoti adresai gali sugrąžinti maršrutą į vieną užklausą', async () => {

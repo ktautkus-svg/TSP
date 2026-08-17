@@ -6,7 +6,11 @@ import type {
   TravelMatrix,
 } from '@/domain/routing/models';
 
-import { MAX_MATRIX_ELEMENTS_PER_PLAN, planMatrixRequests } from '@/domain/routing/matrix-limits';
+import {
+  MAX_MATRIX_ELEMENTS_PER_PLAN,
+  MAX_STOPS_PER_PLAN,
+  planMatrixRequests,
+} from '@/domain/routing/matrix-limits';
 
 /** One planning action may buy at most this many matrices from a provider. */
 export const MAX_MATRIX_CALLS_PER_PLAN = 1;
@@ -25,7 +29,11 @@ export type PlanningRunStats = {
   /**
    * Real computeRouteMatrix HTTP calls this run will cost. One logical matrix is
    * NOT one request: Google caps a request at 625 elements, so anything past 25
-   * nodes is split into ceil(n/25)^2 chunks, each of them billed.
+   * nodes is split into ceil(n/25)^2 chunks.
+   *
+   * This is a visibility figure, not a cost multiplier - billing is per element,
+   * so four requests for 676 elements cost about eight percent more than one
+   * request for 625, not four times as much.
    */
   httpRequests: number;
 };
@@ -112,9 +120,10 @@ export class PlanningRunTravelCostProvider implements TravelCostProvider {
     const plan = planMatrixRequests(unique.locations.length);
     if (!plan.withinPlanLimit) {
       throw new Error(
-        `Šis maršrutas pareikalautų ${plan.billableElements} matricos elementų `
-        + `(${plan.httpRequests} Google užklausos), o vienam planavimui leidžiama `
-        + `${MAX_MATRIX_ELEMENTS_PER_PLAN}. Sumažinkite taškų skaičių arba skaidykite maršrutą.`,
+        `Šis maršrutas pareikalautų ${plan.billableElements} matricos elementų, `
+        + `o vienam planavimui leidžiama ${MAX_MATRIX_ELEMENTS_PER_PLAN} `
+        + `(iki ${MAX_STOPS_PER_PLAN} pristatymo taškų). `
+        + 'Didesnį maršrutą reikia skaidyti į kelis reisus.',
       );
     }
 
@@ -227,7 +236,22 @@ function unreachable(): MatrixCell {
   };
 }
 
+/**
+ * The three numbers are deliberately separate: how many matrices the run asked
+ * for, how many HTTP calls that turned into, and how many elements Google will
+ * charge for. Only the last one is money.
+ */
 function defaultStatsLog(stats: PlanningRunStats): void {
   // eslint-disable-next-line no-console
-  console.log(JSON.stringify({ event: 'planning_run_matrix', ...stats }));
+  console.log(JSON.stringify({
+    event: 'planning_run_matrix',
+    planning_run_id: stats.planningRunId,
+    logical_matrix_calls: stats.matrixCalls,
+    actual_http_requests: stats.httpRequests,
+    billable_elements: stats.billedElements,
+    requested_locations: stats.requestedLocations,
+    unique_locations: stats.uniqueLocations,
+    elements_saved_by_deduplication: stats.savedElements,
+    blocked_calls: stats.blockedCalls,
+  }));
 }
