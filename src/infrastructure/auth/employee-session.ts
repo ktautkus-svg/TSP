@@ -4,6 +4,15 @@ import type { EmployeePermissions } from '@/application/auth/employee-permission
 export const EMPLOYEE_ROLES = ['admin', 'dispatcher', 'driver', 'quality'] as const;
 export type EmployeeRole = (typeof EMPLOYEE_ROLES)[number];
 
+/** Mirrors the server's DriverCompensationRates. */
+export type DriverCompensationRates = {
+  type: 'fixed' | 'variable';
+  fixedDailyNetEur: number;
+  perKmEur: number;
+  perKgEur: number;
+  perStopEur: number;
+};
+
 export type EmployeeProfile = {
   id: string;
   username: string;
@@ -13,6 +22,8 @@ export type EmployeeProfile = {
   permissions?: EmployeePermissions;
   email?: string | null;
   phone?: string | null;
+  /** null or missing means this driver is paid on the default rates. */
+  compensation?: DriverCompensationRates | null;
 };
 
 export type EmployeeSession = {
@@ -38,6 +49,8 @@ export type ServerFleetVehicle = {
   registrationNumber: string;
   model: string;
   maximumPayloadKg: number;
+  /** Litres per 100 km, set when editing the vehicle; null falls back to an estimate. */
+  fuelNormLPer100Km?: number | null;
   assignedDriverId: string | null;
   fuelRemainingLiters?: number | null;
   fuelUpdatedAt?: string | null;
@@ -47,13 +60,14 @@ export type ServerFleetVehicle = {
 };
 
 export type ServerFleetVehicleSnapshot = Pick<ServerFleetVehicle, 'id' | 'registrationNumber' | 'model' | 'maximumPayloadKg'> & {
+  fuelNormLPer100Km?: number | null;
   fuelRemainingLiters?: number | null;
   fuelUpdatedAt?: string | null;
   assignmentRevision?: number;
 };
 
 export type CompensationBreakdown = {
-  rates: { fixedDailyNetEur: number; perKmEur: number; perKgEur: number; perStopEur: number };
+  rates: DriverCompensationRates;
   distanceKm: number;
   distanceSource: 'planned' | 'odometer';
   weightKg: number;
@@ -66,6 +80,11 @@ export type CompensationBreakdown = {
   preliminary: boolean;
 };
 
+export type FuelAnchor = {
+  liters: number;
+  effectiveAt: string;
+};
+
 export type FuelReport = {
   id: string;
   driverId: string;
@@ -73,6 +92,10 @@ export type FuelReport = {
   vehicleId: string;
   registrationNumber: string;
   assignmentRevision: number;
+  /** The day the tank held this much, which is what anchors a period's opening balance. */
+  effectiveAt?: string;
+  kind?: 'driver_report' | 'admin_correction';
+  note?: string | null;
   previousLiters: number | null;
   reportedLiters: number;
   status: 'approved' | 'pending' | 'rejected';
@@ -119,6 +142,8 @@ export type ServerTripSheet = {
   driverName: string;
   vehicle: ServerFleetVehicleSnapshot | null;
   fuelNormLitersPer100Km: number | null;
+  /** Approved balance the period opens on; null until an anchor is confirmed. */
+  fuelAnchor?: FuelAnchor | null;
   startOdometer: number | null;
   endOdometer: number | null;
   actualDistanceKm: number | null;

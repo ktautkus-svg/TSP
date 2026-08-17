@@ -7,6 +7,7 @@ import {
   EmployeeAuthStore,
   DRIVER_PERMISSION_KEYS,
   MANAGEMENT_PERMISSION_KEYS,
+  type DriverCompensationRates,
   type EmployeePermissionKey,
   type EmployeeProfile,
   type EmployeeRole,
@@ -132,6 +133,9 @@ export async function handleEmployeeApi(
         registrationNumber: stringField(body, 'registrationNumber'),
         model: stringField(body, 'model'),
         maximumPayloadKg: numberField(body, 'maximumPayloadKg'),
+        fuelNormLPer100Km: body.fuelNormLPer100Km === undefined || body.fuelNormLPer100Km === null
+          ? null
+          : numberField(body, 'fuelNormLPer100Km'),
       });
       return send(response, 201, { vehicle }, requestId);
     }
@@ -139,12 +143,16 @@ export async function handleEmployeeApi(
     if (vehicleMatch && request.method === 'PATCH') {
       requireManagementPermission(profile, 'canManageVehicles');
       const body = parseObject(await readBody(request, 64_000));
-      const hasVehicleFields = body.registrationNumber !== undefined || body.model !== undefined || body.maximumPayloadKg !== undefined;
+      const hasVehicleFields = body.registrationNumber !== undefined || body.model !== undefined
+        || body.maximumPayloadKg !== undefined || body.fuelNormLPer100Km !== undefined;
       let vehicle = hasVehicleFields
         ? await store.updateVehicle(vehicleMatch[1], {
           registrationNumber: optionalString(body, 'registrationNumber'),
           model: optionalString(body, 'model'),
           maximumPayloadKg: body.maximumPayloadKg === undefined ? undefined : numberField(body, 'maximumPayloadKg'),
+          fuelNormLPer100Km: body.fuelNormLPer100Km === undefined
+            ? undefined
+            : body.fuelNormLPer100Km === null ? null : numberField(body, 'fuelNormLPer100Km'),
         })
         : null;
       if (body.assignedDriverId !== undefined) {
@@ -175,6 +183,7 @@ export async function handleEmployeeApi(
         permissions: permissionPatch(body.permissions),
         email: optionalString(body, 'email'),
         phone: optionalString(body, 'phone'),
+        compensation: compensationPatch(body.compensation),
       });
       return send(response, 200, { user }, requestId);
     }
@@ -264,6 +273,17 @@ export async function handleEmployeeApi(
       requireRole(profile, ['admin']);
       const report = await store.reviewFuelReport(decodeURIComponent(fuelReviewMatch[1]), profile, fuelReviewMatch[2] === 'approve');
       return send(response, 200, { report }, requestId);
+    }
+    if (pathname === '/api/admin/fuel-corrections' && request.method === 'POST') {
+      requireRole(profile, ['admin']);
+      const body = parseObject(await readBody(request, 8_000));
+      const report = await store.correctFuelBalance(profile, {
+        vehicleId: stringField(body, 'vehicleId'),
+        liters: numberField(body, 'liters'),
+        effectiveAt: stringField(body, 'effectiveAt'),
+        note: optionalString(body, 'note') ?? null,
+      });
+      return send(response, 201, { report }, requestId);
     }
     if (pathname === '/api/quality/routes' && request.method === 'GET') {
       requireRole(profile, ['quality', 'admin', 'dispatcher']);
@@ -363,6 +383,23 @@ function permissionPatch(value: unknown): Record<EmployeePermissionKey, boolean>
   }
   const source = value as Record<string, unknown>;
   return Object.fromEntries([...DRIVER_PERMISSION_KEYS, ...MANAGEMENT_PERMISSION_KEYS].map((key) => [key, source[key] === true])) as Record<EmployeePermissionKey, boolean>;
+}
+
+/** `null` clears the driver's own rates and returns them to the defaults. */
+function compensationPatch(value: unknown): DriverCompensationRates | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw new EmployeeApiError('INVALID_COMPENSATION', 'Neteisingi atlygio tarifai.', 400);
+  }
+  const source = value as Record<string, unknown>;
+  return {
+    type: source.type === 'fixed' ? 'fixed' : 'variable',
+    fixedDailyNetEur: numberField(source, 'fixedDailyNetEur'),
+    perKmEur: numberField(source, 'perKmEur'),
+    perKgEur: numberField(source, 'perKgEur'),
+    perStopEur: numberField(source, 'perStopEur'),
+  };
 }
 
 function sessionToken(request: IncomingMessage): string {

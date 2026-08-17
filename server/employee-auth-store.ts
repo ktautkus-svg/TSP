@@ -20,6 +20,8 @@ export type EmployeeProfile = {
   permissions: EmployeePermissions;
   email: string | null;
   phone: string | null;
+  /** null means this driver has no agreed rates yet and the defaults apply. */
+  compensation: DriverCompensationRates | null;
 };
 
 export const DRIVER_PERMISSION_KEYS = [
@@ -62,6 +64,27 @@ export const DEFAULT_COMPENSATION_RATES = {
   perStopEur: 0.65,
 } as const;
 
+/**
+ * What one driver is paid, net, for a day's work. Entered per driver, because
+ * the arrangement differs: some are on a flat daily figure, others on a base
+ * plus piece rates. Every driver used to be scored on DEFAULT_COMPENSATION_RATES
+ * regardless of what was actually agreed with them.
+ *
+ * 'fixed' pays fixedDailyNetEur and ignores the piece rates entirely.
+ */
+export type DriverCompensationRates = {
+  type: 'fixed' | 'variable';
+  fixedDailyNetEur: number;
+  perKmEur: number;
+  perKgEur: number;
+  perStopEur: number;
+};
+
+export const DEFAULT_DRIVER_COMPENSATION: DriverCompensationRates = {
+  type: 'variable',
+  ...DEFAULT_COMPENSATION_RATES,
+};
+
 export type RouteAssignment = {
   id: string;
   routeId: string;
@@ -81,6 +104,12 @@ export type FleetVehicle = {
   registrationNumber: string;
   model: string;
   maximumPayloadKg: number;
+  /**
+   * Litres per 100 km for this specific vehicle, entered when editing it.
+   * null means it was never set, and the norm falls back to the registration
+   * table in route-price.ts and then to a payload-based estimate.
+   */
+  fuelNormLPer100Km: number | null;
   assignedDriverId: string | null;
   fuelRemainingLiters: number | null;
   fuelUpdatedAt: string | null;
@@ -91,10 +120,10 @@ export type FleetVehicle = {
 
 export type FleetVehicleSnapshot = Pick<FleetVehicle,
   'id' | 'registrationNumber' | 'model' | 'maximumPayloadKg'
-> & Partial<Pick<FleetVehicle, 'fuelRemainingLiters' | 'fuelUpdatedAt' | 'assignmentRevision'>>;
+> & Partial<Pick<FleetVehicle, 'fuelNormLPer100Km' | 'fuelRemainingLiters' | 'fuelUpdatedAt' | 'assignmentRevision'>>;
 
 export type CompensationBreakdown = {
-  rates: typeof DEFAULT_COMPENSATION_RATES;
+  rates: DriverCompensationRates;
   distanceKm: number;
   distanceSource: 'planned' | 'odometer';
   weightKg: number;
@@ -120,6 +149,22 @@ export type FuelReport = {
   reportedAt: string;
   reviewedAt: string | null;
   reviewedBy: string | null;
+  /**
+   * The day the tank actually held this much — not when it was typed in. This
+   * is what lets a correction act as the opening balance of a period: the trip
+   * sheet anchors each month on the newest approved figure dated on or before
+   * its first day.
+   */
+  effectiveAt: string;
+  /** 'admin_correction' is entered by an administrator and approved on the spot. */
+  kind: 'driver_report' | 'admin_correction';
+  note: string | null;
+};
+
+/** The approved balance a period starts from. */
+export type FuelAnchor = {
+  liters: number;
+  effectiveAt: string;
 };
 
 export type FuelStatus = {
@@ -160,6 +205,8 @@ export type ServerTripSheet = {
   driverName: string;
   vehicle: FleetVehicleSnapshot | null;
   fuelNormLitersPer100Km: number | null;
+  /** Approved balance this day's period opens on; null when none is confirmed yet. */
+  fuelAnchor?: FuelAnchor | null;
   startOdometer: number | null;
   endOdometer: number | null;
   actualDistanceKm: number | null;
@@ -386,10 +433,12 @@ export class EmployeeAuthStore {
     registrationNumber: string;
     model: string;
     maximumPayloadKg: number;
+    fuelNormLPer100Km?: number | null;
   }): Promise<FleetVehicle> {
     const registrationNumber = validateRegistrationNumber(input.registrationNumber);
     const model = validateVehicleModel(input.model);
     const maximumPayloadKg = validateMaximumPayload(input.maximumPayloadKg);
+    const fuelNormLPer100Km = validateFuelNorm(input.fuelNormLPer100Km);
     const reference = this.vehicles.doc(registrationNumber);
     const now = new Date().toISOString();
     const vehicle: FleetVehicle = {
@@ -397,6 +446,7 @@ export class EmployeeAuthStore {
       registrationNumber,
       model,
       maximumPayloadKg,
+      fuelNormLPer100Km,
       assignedDriverId: null,
       fuelRemainingLiters: null,
       fuelUpdatedAt: null,
@@ -456,6 +506,7 @@ export class EmployeeAuthStore {
     registrationNumber?: string;
     model?: string;
     maximumPayloadKg?: number;
+    fuelNormLPer100Km?: number | null;
   }): Promise<FleetVehicle> {
     const vehicleId = validateVehicleId(vehicleIdInput);
     const currentRef = this.vehicles.doc(vehicleId);
@@ -474,6 +525,9 @@ export class EmployeeAuthStore {
       const maximumPayloadKg = input.maximumPayloadKg === undefined
         ? current.maximumPayloadKg
         : validateMaximumPayload(input.maximumPayloadKg);
+      const fuelNormLPer100Km = input.fuelNormLPer100Km === undefined
+        ? current.fuelNormLPer100Km
+        : validateFuelNorm(input.fuelNormLPer100Km);
       const updatedAt = new Date().toISOString();
       updated = {
         ...current,
@@ -481,6 +535,7 @@ export class EmployeeAuthStore {
         registrationNumber,
         model,
         maximumPayloadKg,
+        fuelNormLPer100Km,
         updatedAt,
       };
 
@@ -544,6 +599,9 @@ export class EmployeeAuthStore {
       reportedAt: now,
       reviewedAt: status === 'approved' ? now : null,
       reviewedBy: status === 'approved' ? profile.id : null,
+      effectiveAt: now,
+      kind: 'driver_report',
+      note: null,
     };
     const batch = this.db.batch();
     batch.create(this.fuelReports.doc(report.id), report);
@@ -555,8 +613,62 @@ export class EmployeeAuthStore {
   async listFuelReports(): Promise<FuelReport[]> {
     const snapshot = await this.fuelReports.get();
     return snapshot.docs
-      .map((document) => document.data() as FuelReport)
+      .map((document) => normalizeFuelReport(document.data() as FuelReport))
       .sort((left, right) => right.reportedAt.localeCompare(left.reportedAt));
+  }
+
+  /**
+   * An administrator writing down what the tank really held on a given day.
+   * The driver-side flow can only report the balance right now, which leaves no
+   * way to open a month on a known figure or to fix a reading after the fact.
+   *
+   * It is recorded as already approved: the administrator entering it IS the
+   * approval, and it stays in the same log as the driver reports so the trail
+   * shows who changed the balance, when, and why.
+   */
+  async correctFuelBalance(reviewer: EmployeeProfile, input: {
+    vehicleId: string;
+    liters: number;
+    effectiveAt: string;
+    note?: string | null;
+  }): Promise<FuelReport> {
+    const liters = validateFuelLiters(input.liters);
+    const effectiveAt = validateEffectiveDate(input.effectiveAt);
+    const vehicleRef = this.vehicles.doc(validateVehicleId(input.vehicleId));
+    const vehicleDocument = await vehicleRef.get();
+    const storedVehicle = vehicleDocument.data() as FleetVehicle | undefined;
+    const vehicle = storedVehicle ? normalizeVehicle(storedVehicle) : null;
+    if (!vehicle) throw new EmployeeApiError('VEHICLE_NOT_FOUND', 'Automobilis nerastas.', 404);
+
+    const now = new Date().toISOString();
+    const report: FuelReport = {
+      id: randomUUID(),
+      driverId: vehicle.assignedDriverId ?? reviewer.id,
+      driverName: reviewer.displayName,
+      vehicleId: vehicle.id,
+      registrationNumber: vehicle.registrationNumber,
+      assignmentRevision: vehicle.assignmentRevision,
+      previousLiters: vehicle.fuelRemainingLiters,
+      reportedLiters: liters,
+      status: 'approved',
+      reportedAt: now,
+      reviewedAt: now,
+      reviewedBy: reviewer.id,
+      effectiveAt,
+      kind: 'admin_correction',
+      note: optionalText(input.note ?? null),
+    };
+
+    const batch = this.db.batch();
+    batch.create(this.fuelReports.doc(report.id), report);
+    // Only move the vehicle's current balance when the correction is not
+    // back-dated behind a newer reading; otherwise it stays purely historical
+    // and just anchors the older period.
+    if (!vehicle.fuelUpdatedAt || effectiveAt >= vehicle.fuelUpdatedAt.slice(0, 10)) {
+      batch.update(vehicleRef, { fuelRemainingLiters: liters, fuelUpdatedAt: now, updatedAt: now });
+    }
+    await batch.commit();
+    return report;
   }
 
   async reviewFuelReport(reportIdInput: string, reviewer: EmployeeProfile, approve: boolean): Promise<FuelReport> {
@@ -612,7 +724,7 @@ export class EmployeeAuthStore {
     return publicProfile(stored);
   }
 
-  async updateUser(userId: string, input: { username?: string; displayName?: string; role?: EmployeeRole; disabled?: boolean; pin?: string; permissions?: Partial<EmployeePermissions>; email?: string; phone?: string }): Promise<EmployeeProfile> {
+  async updateUser(userId: string, input: { username?: string; displayName?: string; role?: EmployeeRole; disabled?: boolean; pin?: string; permissions?: Partial<EmployeePermissions>; email?: string; phone?: string; compensation?: DriverCompensationRates | null }): Promise<EmployeeProfile> {
     const reference = this.users.doc(safeId(userId));
     const document = await reference.get();
     const current = document.data() as StoredUser | undefined;
@@ -633,6 +745,7 @@ export class EmployeeAuthStore {
     if (input.permissions !== undefined) patch.permissions = validatePermissions(input.permissions);
     if (input.email !== undefined) patch.email = validateEmail(input.email);
     if (input.phone !== undefined) patch.phone = validatePhone(input.phone);
+    if (input.compensation !== undefined) patch.compensation = validateCompensationInput(input.compensation);
     if (input.pin !== undefined) {
       validatePin(input.pin);
       const credentials = pinCredentials(nextUsername, input.pin);
@@ -798,16 +911,28 @@ export class EmployeeAuthStore {
       .filter((entry) => visibleAssignmentIds.has(entry.assignmentId));
     const entriesByAssignment = new Map<string, ServerFuelEntry[]>();
     for (const entry of entries) entriesByAssignment.set(entry.assignmentId, [...(entriesByAssignment.get(entry.assignmentId) ?? []), entry]);
+    const fuelReports = (await this.fuelReports.get()).docs
+      .map((document) => normalizeFuelReport(document.data() as FuelReport));
     const sheets = assignments
       .map((assignment) => buildServerTripSheet(assignment, assignment.vehicle ?? currentVehicles.get(assignment.driverId) ?? null))
       .map((sheet) => ({
         ...sheet,
         fuelNormLitersPer100Km: tripSheetFuelNorm(sheet.vehicle, priceSettings),
+        // The balance this day's period opens on, so the ledger no longer has
+        // to assume the vehicle's current reading applied back then too.
+        fuelAnchor: sheet.vehicle ? fuelAnchorFor(fuelReports, sheet.vehicle.id, sheet.date) : null,
         fuelEntries: (entriesByAssignment.get(sheet.assignmentId) ?? []).sort((left, right) => left.filledAt.localeCompare(right.filledAt)),
       }))
       .sort((left, right) => (right.completedAt ?? right.date).localeCompare(left.completedAt ?? left.date));
     const canViewCompensation = profile.role !== 'driver' || profile.permissions.canViewCompensation;
-    return canViewCompensation ? attachDailyCompensation(sheets) : sheets;
+    if (!canViewCompensation) return sheets;
+    const driverIds = new Set(sheets.map((sheet) => sheet.driverId));
+    const rates = new Map<string, DriverCompensationRates | null>();
+    for (const document of (await this.users.get()).docs) {
+      const user = document.data() as StoredUser;
+      if (driverIds.has(user.id)) rates.set(user.id, normalizeCompensation(user.compensation));
+    }
+    return attachDailyCompensation(sheets, rates);
   }
 
   async addFuelEntry(profile: EmployeeProfile, assignmentIdInput: string, input: {
@@ -939,6 +1064,7 @@ function createStoredUser(input: { username: string; displayName: string; role: 
     permissions: { ...DEFAULT_DRIVER_PERMISSIONS, ...DEFAULT_MANAGEMENT_PERMISSIONS },
     email: input.email ?? null,
     phone: input.phone ?? null,
+    compensation: null,
     ...pinCredentials(input.username, input.pin),
     createdAt: now,
     updatedAt: now,
@@ -974,7 +1100,39 @@ function publicProfile(user: StoredUser): EmployeeProfile {
     permissions: validatePermissions(user.permissions),
     email: optionalText(user.email),
     phone: optionalText(user.phone),
+    compensation: normalizeCompensation(user.compensation),
   };
+}
+
+/** Undefined (driver saved before rates existed) and malformed data both mean "use the defaults". */
+export function normalizeCompensation(value: unknown): DriverCompensationRates | null {
+  if (!value || typeof value !== 'object') return null;
+  const source = value as Partial<DriverCompensationRates>;
+  const rate = (input: unknown, fallback: number): number =>
+    typeof input === 'number' && Number.isFinite(input) && input >= 0
+      ? Math.round(input * 1_000) / 1_000
+      : fallback;
+  return {
+    type: source.type === 'fixed' ? 'fixed' : 'variable',
+    fixedDailyNetEur: rate(source.fixedDailyNetEur, DEFAULT_COMPENSATION_RATES.fixedDailyNetEur),
+    perKmEur: rate(source.perKmEur, DEFAULT_COMPENSATION_RATES.perKmEur),
+    perKgEur: rate(source.perKgEur, DEFAULT_COMPENSATION_RATES.perKgEur),
+    perStopEur: rate(source.perStopEur, DEFAULT_COMPENSATION_RATES.perStopEur),
+  };
+}
+
+function validateCompensationInput(value: DriverCompensationRates | null): DriverCompensationRates | null {
+  if (value === null) return null;
+  const normalized = normalizeCompensation(value);
+  if (!normalized) {
+    throw new EmployeeApiError('INVALID_COMPENSATION', 'Neteisingi atlygio tarifai.', 400);
+  }
+  const tooLarge = normalized.fixedDailyNetEur > 1_000 || normalized.perKmEur > 100
+    || normalized.perKgEur > 100 || normalized.perStopEur > 100;
+  if (tooLarge) {
+    throw new EmployeeApiError('INVALID_COMPENSATION', 'Atlygio tarifai atrodo neįprastai dideli.', 400);
+  }
+  return normalized;
 }
 
 function validatePermissions(value: Partial<EmployeePermissions> | undefined): EmployeePermissions {
@@ -1057,6 +1215,8 @@ function vehicleSnapshot(vehicle: FleetVehicle): FleetVehicleSnapshot {
 function normalizeVehicle(vehicle: FleetVehicle): FleetVehicle {
   return {
     ...vehicle,
+    // Vehicles stored before the norm existed have no such field at all.
+    fuelNormLPer100Km: nullableNumber(vehicle.fuelNormLPer100Km),
     fuelRemainingLiters: nullableNumber(vehicle.fuelRemainingLiters),
     fuelUpdatedAt: optionalText(vehicle.fuelUpdatedAt),
     assignmentRevision: finiteNumber(vehicle.assignmentRevision, 0),
@@ -1104,6 +1264,13 @@ export function buildServerTripSheet(assignment: RouteAssignment, vehicle: Fleet
 
 export function tripSheetFuelNorm(vehicle: FleetVehicleSnapshot | null, settings: RoutePriceSettings): number | null {
   if (!vehicle) return null;
+  // The norm entered on the vehicle itself wins. The registration table below
+  // is a seed from "Maršruto kaina.xlsm" and cannot cover a vehicle added
+  // later, which is why an unknown plate used to silently fall through to a
+  // payload guess instead of the real figure.
+  if (typeof vehicle.fuelNormLPer100Km === 'number' && vehicle.fuelNormLPer100Km > 0) {
+    return vehicle.fuelNormLPer100Km;
+  }
   const exact = settings.vehicleCosts[vehicle.registrationNumber.trim().toUpperCase()];
   if (exact) return exact.fuelNormLitersPer100Km;
   const size = vehicle.maximumPayloadKg > settings.fallbackPayloadThresholdsKg.mediumMax
@@ -1112,7 +1279,18 @@ export function tripSheetFuelNorm(vehicle: FleetVehicleSnapshot | null, settings
   return settings.fallbackVehicleCosts[size].fuelNormLitersPer100Km;
 }
 
-export function attachDailyCompensation(sheets: ServerTripSheet[]): ServerTripSheet[] {
+/**
+ * Day's net pay per driver. Distance comes from the odometer as soon as the
+ * route is finished and falls back to the planned figure before that, which is
+ * what `preliminary` and `distanceSource` report.
+ *
+ * `ratesByDriverId` carries what was agreed with each driver; anyone missing
+ * from it is paid on DEFAULT_DRIVER_COMPENSATION.
+ */
+export function attachDailyCompensation(
+  sheets: ServerTripSheet[],
+  ratesByDriverId: Map<string, DriverCompensationRates | null> = new Map(),
+): ServerTripSheet[] {
   const byDriverAndDate = new Map<string, ServerTripSheet[]>();
   for (const sheet of sheets) {
     const key = `${sheet.driverId}:${sheet.date}`;
@@ -1120,16 +1298,20 @@ export function attachDailyCompensation(sheets: ServerTripSheet[]): ServerTripSh
   }
   const compensationByKey = new Map<string, CompensationBreakdown>();
   for (const [key, daySheets] of byDriverAndDate) {
+    const rates = ratesByDriverId.get(daySheets[0]!.driverId) ?? DEFAULT_DRIVER_COMPENSATION;
     const allActual = daySheets.every((sheet) => sheet.actualDistanceKm !== null);
     const distanceKm = daySheets.reduce((sum, sheet) => sum + (sheet.actualDistanceKm ?? sheet.plannedDistanceKm ?? 0), 0);
     const weightKg = daySheets.reduce((sum, sheet) => sum + sheet.totalWeightKg, 0);
     const stops = daySheets.reduce((sum, sheet) => sum + sheet.totalStops, 0);
-    const fixedAmountEur = DEFAULT_COMPENSATION_RATES.fixedDailyNetEur;
-    const distanceAmountEur = money(distanceKm * DEFAULT_COMPENSATION_RATES.perKmEur);
-    const weightAmountEur = money(weightKg * DEFAULT_COMPENSATION_RATES.perKgEur);
-    const stopsAmountEur = money(stops * DEFAULT_COMPENSATION_RATES.perStopEur);
+    // A flat daily arrangement pays the same whatever the day looked like, so
+    // the piece rates are zeroed rather than quietly added on top.
+    const piecework = rates.type === 'variable';
+    const fixedAmountEur = money(rates.fixedDailyNetEur);
+    const distanceAmountEur = piecework ? money(distanceKm * rates.perKmEur) : 0;
+    const weightAmountEur = piecework ? money(weightKg * rates.perKgEur) : 0;
+    const stopsAmountEur = piecework ? money(stops * rates.perStopEur) : 0;
     compensationByKey.set(key, {
-      rates: DEFAULT_COMPENSATION_RATES,
+      rates,
       distanceKm,
       distanceSource: allActual ? 'odometer' : 'planned',
       weightKg,
@@ -1295,6 +1477,45 @@ function validateMaximumPayload(value: number): number {
     throw new EmployeeApiError('INVALID_MAXIMUM_PAYLOAD', 'Maksimalus krovinio svoris turi būti teigiamas skaičius.', 400);
   }
   return Math.round(value);
+}
+
+/** Reports written before corrections existed carry neither a date nor a kind. */
+export function normalizeFuelReport(report: FuelReport): FuelReport {
+  return {
+    ...report,
+    effectiveAt: (optionalText(report.effectiveAt) ?? report.reportedAt).slice(0, 10),
+    kind: report.kind === 'admin_correction' ? 'admin_correction' : 'driver_report',
+    note: optionalText(report.note),
+  };
+}
+
+/**
+ * Newest approved balance dated on or before `onDate` — the figure a period
+ * opens on. Returns null when nothing has been confirmed yet that early.
+ */
+export function fuelAnchorFor(reports: FuelReport[], vehicleId: string, onDate: string): FuelAnchor | null {
+  const applicable = reports
+    .filter((report) => report.vehicleId === vehicleId && report.status === 'approved' && report.effectiveAt <= onDate)
+    .sort((left, right) => right.effectiveAt.localeCompare(left.effectiveAt) || right.reportedAt.localeCompare(left.reportedAt));
+  const anchor = applicable[0];
+  return anchor ? { liters: anchor.reportedLiters, effectiveAt: anchor.effectiveAt } : null;
+}
+
+function validateEffectiveDate(value: string): string {
+  const normalized = String(value ?? '').trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized) || Number.isNaN(Date.parse(normalized))) {
+    throw new EmployeeApiError('INVALID_EFFECTIVE_DATE', 'Nurodykite korekcijos datą formatu YYYY-MM-DD.', 400);
+  }
+  return normalized;
+}
+
+/** null clears the norm and sends the vehicle back to the table/estimate fallback. */
+function validateFuelNorm(value: number | null | undefined): number | null {
+  if (value === null || value === undefined) return null;
+  if (!Number.isFinite(value) || value <= 0 || value > 200) {
+    throw new EmployeeApiError('INVALID_FUEL_NORM', 'Kuro norma turi būti nuo 0 iki 200 l/100 km.', 400);
+  }
+  return Math.round(value * 10) / 10;
 }
 
 function hashToken(token: string): string {

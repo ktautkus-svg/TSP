@@ -54,6 +54,10 @@ export default function AdminScreen() {
   const [assignments, setAssignments] = useState<ServerRouteAssignment[]>([]);
   const [vehicles, setVehicles] = useState<ServerFleetVehicle[]>([]);
   const [fuelReports, setFuelReports] = useState<FuelReport[]>([]);
+  const [correctionVehicleId, setCorrectionVehicleId] = useState('');
+  const [correctionLiters, setCorrectionLiters] = useState('');
+  const [correctionDate, setCorrectionDate] = useState(new Date().toISOString().slice(0, 10));
+  const [correctionNote, setCorrectionNote] = useState('');
   const [routes, setRoutes] = useState<RouteChoice[]>([]);
   const [newName, setNewName] = useState('');
   const [newUsername, setNewUsername] = useState('');
@@ -68,6 +72,13 @@ export default function AdminScreen() {
   const [editEmployeePin, setEditEmployeePin] = useState('');
   const [editEmployeeEmail, setEditEmployeeEmail] = useState('');
   const [editEmployeePhone, setEditEmployeePhone] = useState('');
+  // Empty pay fields mean "no agreement recorded", and the driver falls back to
+  // the default rates rather than to zero.
+  const [editPayType, setEditPayType] = useState<'fixed' | 'variable'>('variable');
+  const [editPayDaily, setEditPayDaily] = useState('');
+  const [editPayPerKm, setEditPayPerKm] = useState('');
+  const [editPayPerKg, setEditPayPerKg] = useState('');
+  const [editPayPerStop, setEditPayPerStop] = useState('');
   const [selectedDriverId, setSelectedDriverId] = useState('');
   const [selectedRouteId, setSelectedRouteId] = useState('');
   const [selectedAssignmentVehicleId, setSelectedAssignmentVehicleId] = useState('');
@@ -75,11 +86,13 @@ export default function AdminScreen() {
   const [newVehicleNumber, setNewVehicleNumber] = useState('');
   const [newVehicleModel, setNewVehicleModel] = useState('');
   const [newVehiclePayload, setNewVehiclePayload] = useState('');
+  const [newVehicleNorm, setNewVehicleNorm] = useState('');
   const [selectedVehicleId, setSelectedVehicleId] = useState('');
   const [selectedVehicleDriverId, setSelectedVehicleDriverId] = useState('');
   const [editVehicleNumber, setEditVehicleNumber] = useState('');
   const [editVehicleModel, setEditVehicleModel] = useState('');
   const [editVehiclePayload, setEditVehiclePayload] = useState('');
+  const [editVehicleNorm, setEditVehicleNorm] = useState('');
   const [currentPin, setCurrentPin] = useState('');
   const [nextPin, setNextPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
@@ -240,6 +253,12 @@ export default function AdminScreen() {
     setEditEmployeePin('');
     setEditEmployeeEmail(employee.email ?? '');
     setEditEmployeePhone(employee.phone ?? '');
+    const pay = employee.compensation;
+    setEditPayType(pay?.type ?? 'variable');
+    setEditPayDaily(pay ? decimalInput(pay.fixedDailyNetEur) : '');
+    setEditPayPerKm(pay ? decimalInput(pay.perKmEur) : '');
+    setEditPayPerKg(pay ? decimalInput(pay.perKgEur) : '');
+    setEditPayPerStop(pay ? decimalInput(pay.perStopEur) : '');
   };
 
   const saveEmployee = () => run(async () => {
@@ -252,6 +271,18 @@ export default function AdminScreen() {
     };
     if (profile.role === 'admin') patch.role = editEmployeeRole;
     if (editEmployeePin.trim()) patch.pin = editEmployeePin;
+    // All four blank sends null, which clears the arrangement and returns this
+    // driver to the default rates instead of paying him nothing.
+    const payFields = [editPayDaily, editPayPerKm, editPayPerKg, editPayPerStop];
+    patch.compensation = payFields.every((field) => !field.trim())
+      ? null
+      : {
+        type: editPayType,
+        fixedDailyNetEur: parseDecimalInput(editPayDaily),
+        perKmEur: parseDecimalInput(editPayPerKm),
+        perKgEur: parseDecimalInput(editPayPerKg),
+        perStopEur: parseDecimalInput(editPayPerStop),
+      };
     await employeeApi(`/api/admin/users/${encodeURIComponent(selectedEmployeeId)}`, {
       method: 'PATCH', body: JSON.stringify(patch),
     });
@@ -268,9 +299,14 @@ export default function AdminScreen() {
     }
     await employeeApi('/api/admin/vehicles', {
       method: 'POST',
-      body: JSON.stringify({ registrationNumber: newVehicleNumber, model: newVehicleModel, maximumPayloadKg }),
+      body: JSON.stringify({
+        registrationNumber: newVehicleNumber,
+        model: newVehicleModel,
+        maximumPayloadKg,
+        fuelNormLPer100Km: parseFuelNorm(newVehicleNorm),
+      }),
     });
-    setNewVehicleNumber(''); setNewVehicleModel(''); setNewVehiclePayload('');
+    setNewVehicleNumber(''); setNewVehicleModel(''); setNewVehiclePayload(''); setNewVehicleNorm('');
     setMessage('Automobilis įtrauktas į parką.');
     await load();
   });
@@ -291,6 +327,9 @@ export default function AdminScreen() {
     setEditVehicleNumber(vehicle.registrationNumber);
     setEditVehicleModel(vehicle.model);
     setEditVehiclePayload(String(vehicle.maximumPayloadKg));
+    setEditVehicleNorm(vehicle.fuelNormLPer100Km === null || vehicle.fuelNormLPer100Km === undefined
+      ? ''
+      : String(vehicle.fuelNormLPer100Km).replace('.', ','));
   };
 
   const saveVehicle = () => run(async () => {
@@ -305,11 +344,32 @@ export default function AdminScreen() {
         registrationNumber: editVehicleNumber,
         model: editVehicleModel,
         maximumPayloadKg,
+        fuelNormLPer100Km: parseFuelNorm(editVehicleNorm),
       }),
     });
     setSelectedVehicleId(response.vehicle.id);
     setEditVehicleNumber(response.vehicle.registrationNumber);
     setMessage('Automobilio duomenys atnaujinti.');
+    await load();
+  });
+
+  const submitFuelCorrection = () => run(async () => {
+    const liters = Number(correctionLiters.replace(',', '.'));
+    if (!correctionVehicleId) throw new Error('Pasirinkite automobilį.');
+    if (!Number.isFinite(liters) || liters < 0) throw new Error('Įveskite likutį litrais.');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(correctionDate)) throw new Error('Įveskite datą formatu YYYY-MM-DD.');
+    await employeeApi('/api/admin/fuel-corrections', {
+      method: 'POST',
+      body: JSON.stringify({
+        vehicleId: correctionVehicleId,
+        liters,
+        effectiveAt: correctionDate,
+        note: correctionNote.trim() || null,
+      }),
+    });
+    setCorrectionLiters('');
+    setCorrectionNote('');
+    setMessage('Kuro likučio korekcija patvirtinta.');
     await load();
   });
 
@@ -485,14 +545,17 @@ export default function AdminScreen() {
                 </View>
                 {selectedVehicleId === vehicle.id ? <View style={styles.editor} testID="vehicle-edit-form">
               <View style={styles.editorHeading}>
-                <View style={styles.listContent}><Text style={styles.title}>Redaguoti automobilį</Text><Text style={styles.meta}>Numeris, modelis ir maksimali krovinio masė.</Text></View>
+                <View style={styles.listContent}><Text style={styles.title}>Redaguoti automobilį</Text><Text style={styles.meta}>Numeris, modelis, maksimali krovinio masė ir kuro norma.</Text></View>
                 <Pressable accessibilityLabel="Uždaryti automobilio redagavimą" accessibilityRole="button" onPress={() => setSelectedVehicleId('')} style={styles.closeButton}><Text style={styles.closeButtonText}>×</Text></Pressable>
               </View>
               {input(editVehicleNumber, (value) => setEditVehicleNumber(value.toUpperCase().replace(/\s/g, '').slice(0, 12)), 'Valstybinis numeris')}
               {input(editVehicleModel, setEditVehicleModel, 'Modelis')}
               <TextInput accessibilityLabel="Maksimalus krovinio svoris" value={editVehiclePayload} onChangeText={(value) => setEditVehiclePayload(value.replace(/[^\d.,]/g, '').slice(0, 8))}
                 keyboardType="decimal-pad" placeholder="Maksimalus krovinio svoris, kg" placeholderTextColor={colors.textMuted} style={styles.input} />
-              {canManageFinancials ? <Pressable accessibilityRole="link" onPress={() => router.push({ pathname: '/financial-settings', params: { returnTo: 'admin' } } as unknown as Href)} style={styles.smallButton}><Text style={styles.smallButtonText}>Keisti kuro normą, draudimą ir kelių mokestį →</Text></Pressable> : null}
+              <TextInput accessibilityLabel="Kuro norma" testID="vehicle-fuel-norm" value={editVehicleNorm} onChangeText={(value) => setEditVehicleNorm(value.replace(/[^\d.,]/g, '').slice(0, 5))}
+                keyboardType="decimal-pad" placeholder="Kuro norma, l/100 km (pvz. 13,9)" placeholderTextColor={colors.textMuted} style={styles.input} />
+              <Text style={styles.meta}>Pagal šią normą kelionės lape skaičiuojamas sunaudotas kuras ir likutis. Palikus tuščią, imamas apytikslis įvertis pagal keliamąją galią.</Text>
+              {canManageFinancials ? <Pressable accessibilityRole="link" onPress={() => router.push({ pathname: '/financial-settings', params: { returnTo: 'admin' } } as unknown as Href)} style={styles.smallButton}><Text style={styles.smallButtonText}>Keisti draudimą ir kelių mokestį →</Text></Pressable> : null}
               <Pressable accessibilityLabel="Išsaugoti automobilio pakeitimus" accessibilityRole="button" disabled={busy || !online} style={[styles.primaryButton, (busy || !online) && styles.disabled]} onPress={() => void saveVehicle()}><Text style={styles.primaryText}>Išsaugoti automobilį</Text></Pressable>
               <Text style={styles.sectionLabel}>Priskirti vairuotojui</Text>
               <View style={styles.choiceColumn}>
@@ -517,6 +580,8 @@ export default function AdminScreen() {
             {input(newVehicleModel, setNewVehicleModel, 'Modelis')}
             <TextInput value={newVehiclePayload} onChangeText={(value) => setNewVehiclePayload(value.replace(/[^\d.,]/g, '').slice(0, 8))}
               keyboardType="decimal-pad" placeholder="Maksimalus krovinio svoris, kg" placeholderTextColor={colors.textMuted} style={styles.input} />
+            <TextInput value={newVehicleNorm} onChangeText={(value) => setNewVehicleNorm(value.replace(/[^\d.,]/g, '').slice(0, 5))}
+              keyboardType="decimal-pad" placeholder="Kuro norma, l/100 km (pvz. 12)" placeholderTextColor={colors.textMuted} style={styles.input} />
             <Pressable disabled={busy || !online} style={[styles.secondaryButton, (busy || !online) && styles.disabled]} onPress={() => void createVehicle()}>
               <Text style={styles.secondaryText}>Pridėti automobilį</Text>
             </Pressable>
@@ -539,6 +604,46 @@ export default function AdminScreen() {
                   <Pressable disabled={busy || !online} onPress={() => void reviewFuel(report, false)} style={styles.dangerButton}><Text style={styles.dangerButtonText}>Atmesti</Text></Pressable>
                 </View>
               </View>)}
+
+              {profile.role === 'admin' ? <View style={styles.listContent} testID="fuel-correction-form">
+                <Text style={styles.sectionLabel}>Įrašyti likučio korekciją</Text>
+                <Text style={styles.meta}>
+                  Naudokite, kai reikia nurodyti likutį laikotarpio pradžioje (pvz. pilnas bakas mėnesio 1 d.)
+                  arba ištaisyti klaidingą rodmenį. Korekcija patvirtinama iš karto ir tampa kelionės lapo
+                  atskaitos tašku nuo nurodytos datos.
+                </Text>
+                <View style={styles.choiceColumn}>
+                  {vehicles.map((vehicle) =>
+                    <Pressable key={vehicle.id} onPress={() => setCorrectionVehicleId(vehicle.id)}
+                      style={[styles.selection, correctionVehicleId === vehicle.id && styles.selectionActive]}>
+                      <Text style={styles.listTitle}>{vehicle.registrationNumber}</Text>
+                      <Text style={styles.meta}>{vehicle.model} · dabar {vehicle.fuelRemainingLiters ?? '—'} l</Text>
+                    </Pressable>)}
+                </View>
+                <TextInput accessibilityLabel="Likutis litrais" value={correctionLiters}
+                  onChangeText={(value) => setCorrectionLiters(value.replace(/[^\d.,]/g, '').slice(0, 6))}
+                  keyboardType="decimal-pad" placeholder="Likutis, l (pvz. 110)" placeholderTextColor={colors.textMuted} style={styles.input} />
+                <TextInput accessibilityLabel="Korekcijos data" value={correctionDate}
+                  onChangeText={(value) => setCorrectionDate(value.replace(/[^\d-]/g, '').slice(0, 10))}
+                  placeholder="Data, YYYY-MM-DD" placeholderTextColor={colors.textMuted} style={styles.input} />
+                <TextInput accessibilityLabel="Korekcijos priežastis" value={correctionNote} onChangeText={setCorrectionNote}
+                  placeholder="Priežastis (nebūtina)" placeholderTextColor={colors.textMuted} style={styles.input} />
+                <Pressable disabled={busy || !online} style={[styles.primaryButton, (busy || !online) && styles.disabled]}
+                  onPress={() => void submitFuelCorrection()}>
+                  <Text style={styles.primaryText}>Patvirtinti korekciją</Text>
+                </Pressable>
+              </View> : null}
+
+              {fuelReports.filter((report) => report.kind === 'admin_correction').slice(0, 5).map((report) =>
+                <View key={report.id} style={styles.routeManagementRow}>
+                  <View style={styles.listContent}>
+                    <Text style={styles.listTitle}>{report.registrationNumber} · {report.reportedLiters} l</Text>
+                    <Text style={styles.meta}>
+                      Korekcija nuo {report.effectiveAt ?? '—'}
+                      {report.note ? ` · ${report.note}` : ''}
+                    </Text>
+                  </View>
+                </View>)}
             </> : null}
           </View>
           </View>
@@ -574,6 +679,27 @@ export default function AdminScreen() {
               {input(editEmployeeName, setEditEmployeeName, 'Vardas ir pavardė')}
               <TextInput autoCapitalize="none" autoComplete="email" keyboardType="email-address" value={editEmployeeEmail} onChangeText={setEditEmployeeEmail} placeholder="El. paštas" placeholderTextColor={colors.textMuted} style={styles.input} />
               <TextInput autoComplete="tel" keyboardType="phone-pad" value={editEmployeePhone} onChangeText={setEditEmployeePhone} placeholder="Telefonas" placeholderTextColor={colors.textMuted} style={styles.input} />
+              {canManageFinancials && editEmployeeRole === 'driver' ? <View style={styles.listContent} testID="driver-pay-rates">
+                <Text style={styles.sectionLabel}>Atlygis (netto)</Text>
+                <View style={styles.choiceRow}>
+                  {([['variable', 'Kintantis'], ['fixed', 'Fiksuotas']] as const).map(([value, label]) =>
+                    <Pressable accessibilityRole="radio" accessibilityState={{ checked: editPayType === value }} key={value}
+                      onPress={() => setEditPayType(value)} style={[styles.choice, editPayType === value && styles.choiceActive]}>
+                      <Text style={styles.choiceText}>{label}</Text>
+                    </Pressable>)}
+                </View>
+                <TextInput accessibilityLabel="Dienos įkainis" value={editPayDaily} onChangeText={(value) => setEditPayDaily(value.replace(/[^\d.,]/g, '').slice(0, 8))}
+                  keyboardType="decimal-pad" placeholder={editPayType === 'fixed' ? 'Dienos atlygis, € (pvz. 60)' : 'Bazė už dieną, € (pvz. 23)'} placeholderTextColor={colors.textMuted} style={styles.input} />
+                {editPayType === 'variable' ? <>
+                  <TextInput accessibilityLabel="Įkainis už kilometrą" value={editPayPerKm} onChangeText={(value) => setEditPayPerKm(value.replace(/[^\d.,]/g, '').slice(0, 8))}
+                    keyboardType="decimal-pad" placeholder="Už km, € (pvz. 0,05)" placeholderTextColor={colors.textMuted} style={styles.input} />
+                  <TextInput accessibilityLabel="Įkainis už kilogramą" value={editPayPerKg} onChangeText={(value) => setEditPayPerKg(value.replace(/[^\d.,]/g, '').slice(0, 8))}
+                    keyboardType="decimal-pad" placeholder="Už kg, € (pvz. 0,006)" placeholderTextColor={colors.textMuted} style={styles.input} />
+                  <TextInput accessibilityLabel="Įkainis už tašką" value={editPayPerStop} onChangeText={(value) => setEditPayPerStop(value.replace(/[^\d.,]/g, '').slice(0, 8))}
+                    keyboardType="decimal-pad" placeholder="Už pristatymo tašką, € (pvz. 0,65)" placeholderTextColor={colors.textMuted} style={styles.input} />
+                </> : <Text style={styles.meta}>Fiksuotas atlygis mokamas už dieną, įkainiai už km, kg ir taškus neskaičiuojami.</Text>}
+                <Text style={styles.meta}>Palikus laukus tuščius, taikomi numatytieji: 23 € + 0,05 €/km + 0,006 €/kg + 0,65 €/tašk.</Text>
+              </View> : null}
               {profile.role === 'admin' ? <View style={styles.choiceRow}>{(['driver', 'dispatcher', 'quality'] as EmployeeRole[]).map((role) =>
                 <Pressable accessibilityLabel={`Rolė ${roleLabel(role)}`} accessibilityRole="radio" accessibilityState={{ checked: editEmployeeRole === role }} key={role} onPress={() => setEditEmployeeRole(role)} style={[styles.choice, editEmployeeRole === role && styles.choiceActive]}>
                   <Text style={[styles.choiceText, editEmployeeRole === role && styles.choiceTextActive]}>{roleLabel(role)}</Text>
@@ -612,6 +738,23 @@ export default function AdminScreen() {
       </Modal>
     </>
   );
+}
+
+function decimalInput(value: number): string {
+  return String(value).replace('.', ',');
+}
+
+function parseDecimalInput(value: string): number {
+  const parsed = Number(value.trim().replace(',', '.'));
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+}
+
+/** Empty clears the norm, so the vehicle goes back to the payload-based estimate. */
+function parseFuelNorm(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number(trimmed.replace(',', '.'));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
 function groupEmployeesByRole(employees: EmployeeProfile[]): Array<{ role: EmployeeRole; title: string; employees: EmployeeProfile[] }> {
