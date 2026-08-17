@@ -37,6 +37,32 @@ function pinIcon(color: string, label: string): L.DivIcon {
   });
 }
 
+/**
+ * Wheel over the map scrolls the page; Ctrl (or Cmd) + wheel zooms the map.
+ *
+ * Leaflet's own handler calls preventDefault on every wheel event, so a map
+ * parked mid-screen ate the scroll and the page looked frozen — on the route
+ * options screen the driver could not reach the choices past it. Turning the
+ * zoom off outright would have thrown away a feature that was deliberately kept
+ * before, so the handler stays and is simply gated on the modifier key.
+ */
+function WheelZoomGuard() {
+  const map = useMap();
+  useEffect(() => {
+    map.scrollWheelZoom.disable();
+    const container = map.getContainer();
+    const onWheel = (event: WheelEvent) => {
+      const wantsZoom = event.ctrlKey || event.metaKey;
+      if (wantsZoom && !map.scrollWheelZoom.enabled()) map.scrollWheelZoom.enable();
+      if (!wantsZoom && map.scrollWheelZoom.enabled()) map.scrollWheelZoom.disable();
+    };
+    // Capture, so the decision is made before Leaflet's own listener runs.
+    container.addEventListener('wheel', onWheel, { capture: true, passive: true });
+    return () => container.removeEventListener('wheel', onWheel, { capture: true });
+  }, [map]);
+  return null;
+}
+
 function FitBounds({ points }: { points: [number, number][] }) {
   const map = useMap();
   useEffect(() => {
@@ -113,12 +139,15 @@ export function RouteMapView({
         <MapContainer
           center={[startLocation.latitude, startLocation.longitude]}
           zoom={12}
+          // Left on, but handed to WheelZoomGuard below, which only lets Leaflet
+          // take the wheel while Ctrl (or Cmd) is held.
           scrollWheelZoom
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}>
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
+          <WheelZoomGuard />
           <FitBounds points={allPoints} />
           {polylinePositions.length > 1 ? (
             <Polyline positions={polylinePositions} pathOptions={{ color: '#2563EB', weight: 4, opacity: 0.85 }} />

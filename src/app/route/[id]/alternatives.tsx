@@ -424,16 +424,6 @@ export default function RouteAlternativesScreen() {
           </Pressable>
         </View>
       ) : null}
-      {orderedLocations ? (
-        <RouteMapView
-          {...orderedLocations}
-          encodedPolyline={polylineResult?.encodedPolyline}
-          totalDistanceKm={selectedCandidate?.totalDistanceKm}
-          totalDurationMinutes={selectedCandidate?.totalWorkMinutes}
-          allowStraightLineFallback={false}
-          polylineError={polylineError}
-        />
-      ) : null}
       {request ? (
         <View style={styles.list}>
           {[...new Set(labeledAlternatives.map((item) => item.group))].map((group) => (
@@ -467,6 +457,19 @@ export default function RouteAlternativesScreen() {
             </View>
           ))}
         </View>
+      ) : null}
+      {/* Below the options, not above them: the driver picks a variant first and
+          then looks at it. A 330px map ahead of the list pushed all five choices
+          off the bottom of the screen. */}
+      {orderedLocations ? (
+        <RouteMapView
+          {...orderedLocations}
+          encodedPolyline={polylineResult?.encodedPolyline}
+          totalDistanceKm={selectedCandidate?.totalDistanceKm}
+          totalDurationMinutes={selectedCandidate?.totalWorkMinutes}
+          allowStraightLineFallback={false}
+          polylineError={polylineError}
+        />
       ) : null}
       {request ? (
         <Pressable style={styles.secondaryButton} onPress={toggleManualMode} testID="toggle-manual-sequencing">
