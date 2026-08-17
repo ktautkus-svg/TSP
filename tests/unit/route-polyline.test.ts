@@ -63,6 +63,7 @@ function mockOptimizationRequest(): RouteOptimizationRequest {
         endLocationConvenience: 1,
         maneuvers: 1,
         userPreferences: 1,
+        lateness: 1,
       },
       normalizationCaps: {
         drivingTime: 120,
@@ -75,11 +76,15 @@ function mockOptimizationRequest(): RouteOptimizationRequest {
         endLocationConvenience: 10,
         maneuvers: 10,
         userPreferences: 10,
+        lateness: 120,
       },
       tolerances: {
         durationMinutes: 5,
         distanceKm: 2,
         requiredWindowMinutes: 0,
+        latenessToleranceMinutes: 15,
+        priorityLatenessToleranceMinutes: 5,
+        maxDepartureShiftMinutes: 60,
       },
     },
     trafficMode: 'live',
@@ -94,6 +99,8 @@ function mockRouteCandidate(stopSequence: string[]): RouteCandidate {
     id: 'candidate-1',
     provider: 'Google Routes',
     stopSequence,
+    effectiveDepartureAt: '2026-06-15T07:00:00.000Z',
+    departureShiftMinutes: 0,
     generatedBy: ['nearest_neighbor'],
     schedules: [],
     legs: [],
@@ -128,6 +135,7 @@ function mockRouteCandidate(stopSequence: string[]): RouteCandidate {
       endLocationConvenience: 0,
       maneuvers: 0,
       userPreferences: 0,
+      lateness: 0,
     },
     normalizedScoreComponents: {
       drivingTime: 0.2,
@@ -140,6 +148,7 @@ function mockRouteCandidate(stopSequence: string[]): RouteCandidate {
       endLocationConvenience: 0,
       maneuvers: 0,
       userPreferences: 0,
+      lateness: 0,
     },
     totalScore: 0.625,
     localSearch: {

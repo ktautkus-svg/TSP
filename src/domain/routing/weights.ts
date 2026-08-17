@@ -10,6 +10,12 @@ export function numericWeightKg(weightKg: number | null): number {
   return weightKg ?? 0;
 }
 
+// Matches the convention set by buildOptimizationStop (route-request-builder.ts):
+// priorityFirst stops get priority > 1, everything else defaults to 1.
+export function isPriorityStop(stop: OptimizationStop): boolean {
+  return stop.priority > 1;
+}
+
 export function summarizeStopWeights(stops: OptimizationStop[]): StopWeightSummary {
   return stops.reduce<StopWeightSummary>(
     (summary, stop) => ({

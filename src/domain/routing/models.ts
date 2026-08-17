@@ -60,7 +60,8 @@ export type RoutingScoreKey =
   | 'directionality'
   | 'endLocationConvenience'
   | 'maneuvers'
-  | 'userPreferences';
+  | 'userPreferences'
+  | 'lateness';
 
 export type RoutingScoringConfig = {
   weights: Record<RoutingScoreKey, number>;
@@ -69,6 +70,16 @@ export type RoutingScoringConfig = {
     durationMinutes: number;
     distanceKm: number;
     requiredWindowMinutes: number;
+    /** Minutes a non-priority stop may run late before it costs a criticalRank band. */
+    latenessToleranceMinutes: number;
+    /** Same, but for priority stops (stop.priority > 1) — kept tighter. */
+    priorityLatenessToleranceMinutes: number;
+    /**
+     * How much later than planned the truck may leave the depot in order to
+     * delete waiting at the first stop. Beyond this the wait is treated as real
+     * kerbside waiting and priced like any other.
+     */
+    maxDepartureShiftMinutes: number;
   };
 };
 
@@ -217,6 +228,14 @@ export type RouteCandidate = {
   provider: string;
   stopSequence: string[];
   generatedBy: string[];
+  /**
+   * When the truck actually has to leave for this sequence to work. Equals the
+   * request's plannedDepartureAt unless waiting at the first stop was absorbed
+   * by departing later — see `departureShiftMinutes`.
+   */
+  effectiveDepartureAt: string;
+  /** Minutes the departure was pushed back to delete waiting at the first stop. */
+  departureShiftMinutes: number;
   schedules: CandidateStopSchedule[];
   legs: CandidateLeg[];
   totalDistanceKm: number;

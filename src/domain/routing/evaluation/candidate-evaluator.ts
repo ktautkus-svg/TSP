@@ -13,7 +13,9 @@ import type {
   RouteOptimizationRequest,
   TravelMatrix,
 } from '../models';
-import { numericWeightKg, summarizeStopWeights } from '../weights';
+import { isPriorityStop, numericWeightKg, summarizeStopWeights } from '../weights';
+
+const PRIORITY_LATENESS_MULTIPLIER = 4;
 
 export function evaluateCandidate(input: {
   stopSequence: string[];
@@ -25,8 +27,6 @@ export function evaluateCandidate(input: {
   const { stopSequence, generatedBy, request, matrix } = input;
   const stopById = new Map(request.stops.map((stop) => [stop.id, stop]));
   const matrixIndex = new Map(matrix.nodeIds.map((id, index) => [id, index]));
-  const schedules: CandidateStopSchedule[] = [];
-  const legs: CandidateLeg[] = [];
   const warnings = [...matrix.warnings];
   const weightSummary = summarizeStopWeights(request.stops);
   if (weightSummary.unknownStopCount > 0) {
@@ -34,75 +34,40 @@ export function evaluateCandidate(input: {
       `${weightSummary.unknownStopCount} taško(-ų) svoris nežinomas; svorio rodikliai skaičiuojami tik iš žinomų svorių.`,
     );
   }
-  let cursor = Date.parse(request.plannedDepartureAt);
-  let previousId = request.startLocation.id;
-  let remainingLoadKg =
-    request.initialLoadKg ??
-    weightSummary.knownTotalKg;
+  const context: SimulationContext = {
+    stopSequence,
+    stopById,
+    request,
+    matrix,
+    matrixIndex,
+    initialLoadKg: request.initialLoadKg ?? weightSummary.knownTotalKg,
+  };
 
-  for (const [index, stopId] of stopSequence.entries()) {
-    const stop = stopById.get(stopId);
-    if (!stop) continue;
-    const cell = getCell(matrix, matrixIndex, previousId, stopId);
-    const duration = usable(cell?.durationMinutes);
-    const distance = usable(cell?.distanceKm);
-    const departureAt = new Date(cursor).toISOString();
-    cursor += duration * 60_000;
-    const arrivalAt = new Date(cursor).toISOString();
-    const required =
-      request.planningMode === 'with_time_windows'
-        ? stop.requiredTimeWindow
-        : undefined;
-    // A driver who arrives before the door opens waits at the kerb; he does not
-    // drive laps to burn the clock. Modelling the wait for every known window
-    // stops early arrival from looking more expensive than extra kilometres.
-    const honouredWindow =
-      request.planningMode === 'with_time_windows'
-        ? required ?? stop.informationalTimeWindow
-        : undefined;
-    const opensAt = honouredWindow ? Date.parse(honouredWindow.from) : Number.NaN;
-    const serviceStart = Number.isFinite(opensAt) ? Math.max(cursor, opensAt) : cursor;
-    const waiting = Math.max(0, (serviceStart - cursor) / 60_000);
-    const late = required ? Math.max(0, (cursor - Date.parse(required.to)) / 60_000) : 0;
-    // Measured at the moment of handover, so waiting for the window to open is
-    // not counted a second time as a mismatch.
-    const informationalMismatch = request.planningMode === 'with_time_windows'
-      ? timeWindowMismatch(serviceStart, stop.informationalTimeWindow)
-      : 0;
-    cursor = serviceStart + stop.serviceDurationMinutes * 60_000;
-    const loadAfter = Math.max(0, remainingLoadKg - numericWeightKg(stop.weightKg));
-    legs.push({
-      fromId: previousId,
-      toId: stopId,
-      departureAt,
-      arrivalAt,
-      distanceKm: distance,
-      durationMinutes: duration,
-      carriedLoadKg: remainingLoadKg,
-      remainingLoadKgAfterArrival: loadAfter,
-      tonneKilometers: (remainingLoadKg / 1000) * distance,
-      maneuverPenalty: cell?.maneuverPenalty ?? 0,
-      reachable: cell?.reachable ?? false,
-      restrictionWarnings: cell?.restrictionWarnings ?? [],
-    });
-    schedules.push({
-      stopId,
-      order: index + 1,
-      arrivalAt,
-      serviceStartAt: new Date(serviceStart).toISOString(),
-      departureAt: new Date(cursor).toISOString(),
-      waitingMinutes: waiting,
-      lateMinutes: late,
-      informationalMismatchMinutes: informationalMismatch,
-    });
-    remainingLoadKg = loadAfter;
-    previousId = stopId;
-  }
-
-  // Sitting at the depot until doors open is free; sitting at the kerb is not.
-  // If the plan left hours early (e.g. 04:00 for 06:00 windows), shift the
-  // first leg forward so the truck departs just in time and the wait vanishes.
-  compressLeadingDepotWait(legs, schedules);
+  // Waiting at the FIRST stop is the one wait a driver can delete outright, by
+  // leaving the depot later — every later arrival stays exactly where it was.
+  // Absorb it by re-running the whole schedule from the later departure, so
+  // every time the driver is shown is a time he will actually drive, and record
+  // how far the departure moved. The shift is bounded: past the tolerance the
+  // truck genuinely is standing somewhere, and that waiting is priced like any
+  // other waiting.
+  //
+  // The previous version zeroed the first wait in place without moving the
+  // departure. That handed any sequence beginning on a late-opening stop a free
+  // discount on totalWorkTime (measured: 179 minutes on a 6-stop route) while
+  // still telling the driver to leave at the original hour.
+  const plannedDepartureMs = Date.parse(request.plannedDepartureAt);
+  const plannedRun = simulateStops(context, plannedDepartureMs);
+  const departureShiftMinutes = Math.min(
+    plannedRun.schedules[0]?.waitingMinutes ?? 0,
+    request.scoring.tolerances.maxDepartureShiftMinutes,
+  );
+  const effectiveDepartureMs = plannedDepartureMs + departureShiftMinutes * 60_000;
+  const run =
+    departureShiftMinutes > 0 ? simulateStops(context, effectiveDepartureMs) : plannedRun;
+  const { schedules, legs } = run;
+  const previousId = run.lastId;
+  const remainingLoadKg = run.remainingLoadKg;
+  let cursor = run.cursorMs;
 
   const endCell = getCell(matrix, matrixIndex, previousId, request.endLocation.id);
   const endDuration = usable(endCell?.durationMinutes);
@@ -148,6 +113,25 @@ export function evaluateCandidate(input: {
     orderedLocations.length === 0
       ? 0
       : haversineKm(orderedLocations.at(-1)!, request.endLocation);
+  // Charged on minutes BEYOND the stop's tolerance, exactly like criticalRank
+  // does (constraint-evaluator.ts). Pricing tolerated minutes here as well
+  // contradicted the tolerance we publish: with a 15-minute grace period, an
+  // 8-minute overrun still cost enough to lose against a 45 km detour that
+  // arrived on time. Within tolerance is within tolerance.
+  //
+  // A priority stop running late costs the same driver time as an ordinary one,
+  // but matters more to the business, so its excess minutes count x4.
+  const lateness = sum(
+    schedules.map((schedule) => {
+      const stop = stopById.get(schedule.stopId);
+      const priority = Boolean(stop && isPriorityStop(stop));
+      const tolerance = priority
+        ? request.scoring.tolerances.priorityLatenessToleranceMinutes
+        : request.scoring.tolerances.latenessToleranceMinutes;
+      const excess = Math.max(0, schedule.lateMinutes - tolerance);
+      return excess * (priority ? PRIORITY_LATENESS_MULTIPLIER : 1);
+    }),
+  );
   const rawScoreComponents = {
     drivingTime: drivingMinutes,
     totalWorkTime: totalWorkMinutes,
@@ -161,6 +145,7 @@ export function evaluateCandidate(input: {
     endLocationConvenience,
     maneuvers: sum(legs.map((leg) => leg.maneuverPenalty)),
     userPreferences,
+    lateness,
   };
   const constraintResult = evaluateConstraints({
     stopSequence,
@@ -185,6 +170,8 @@ export function evaluateCandidate(input: {
     provider: matrix.provider,
     stopSequence,
     generatedBy: [...new Set(generatedBy)],
+    effectiveDepartureAt: new Date(effectiveDepartureMs).toISOString(),
+    departureShiftMinutes,
     schedules,
     legs,
     totalDistanceKm,
@@ -209,15 +196,96 @@ export function evaluateCandidate(input: {
   };
 }
 
-function compressLeadingDepotWait(legs: CandidateLeg[], schedules: CandidateStopSchedule[]): void {
-  const first = schedules[0];
-  const firstLeg = legs[0];
-  if (!first || !firstLeg || first.waitingMinutes <= 0) return;
-  const shiftMs = first.waitingMinutes * 60_000;
-  firstLeg.departureAt = new Date(Date.parse(firstLeg.departureAt) + shiftMs).toISOString();
-  firstLeg.arrivalAt = first.serviceStartAt;
-  first.arrivalAt = first.serviceStartAt;
-  first.waitingMinutes = 0;
+type SimulationContext = {
+  stopSequence: string[];
+  stopById: Map<string, OptimizationStop>;
+  request: RouteOptimizationRequest;
+  matrix: TravelMatrix;
+  matrixIndex: Map<string, number>;
+  initialLoadKg: number;
+};
+
+type Simulation = {
+  schedules: CandidateStopSchedule[];
+  legs: CandidateLeg[];
+  cursorMs: number;
+  lastId: string;
+  remainingLoadKg: number;
+};
+
+/**
+ * Drives the sequence forward from a given departure time and records what
+ * happens. Pure and repeatable, so `evaluateCandidate` can run it twice: once
+ * from the planned departure to discover how long the truck would stand at the
+ * first door, then again from the departure that removes that wait.
+ */
+function simulateStops(context: SimulationContext, departureAtMs: number): Simulation {
+  const { stopSequence, stopById, request, matrix, matrixIndex } = context;
+  const schedules: CandidateStopSchedule[] = [];
+  const legs: CandidateLeg[] = [];
+  let cursor = departureAtMs;
+  let previousId = request.startLocation.id;
+  let remainingLoadKg = context.initialLoadKg;
+
+  for (const [index, stopId] of stopSequence.entries()) {
+    const stop = stopById.get(stopId);
+    if (!stop) continue;
+    const cell = getCell(matrix, matrixIndex, previousId, stopId);
+    const duration = usable(cell?.durationMinutes);
+    const distance = usable(cell?.distanceKm);
+    const departureAt = new Date(cursor).toISOString();
+    cursor += duration * 60_000;
+    const arrivalAt = new Date(cursor).toISOString();
+    const required =
+      request.planningMode === 'with_time_windows' ? stop.requiredTimeWindow : undefined;
+    // A driver who arrives before the door opens waits at the kerb; he does not
+    // drive laps to burn the clock. Modelling the wait for every known window
+    // stops early arrival from looking more expensive than extra kilometres.
+    const honouredWindow =
+      request.planningMode === 'with_time_windows'
+        ? required ?? stop.informationalTimeWindow
+        : undefined;
+    const opensAt = honouredWindow ? Date.parse(honouredWindow.from) : Number.NaN;
+    const serviceStart = Number.isFinite(opensAt) ? Math.max(cursor, opensAt) : cursor;
+    const waiting = Math.max(0, (serviceStart - cursor) / 60_000);
+    const late = required ? Math.max(0, (cursor - Date.parse(required.to)) / 60_000) : 0;
+    // Measured at the moment of handover, so waiting for the window to open is
+    // not counted a second time as a mismatch.
+    const informationalMismatch =
+      request.planningMode === 'with_time_windows'
+        ? timeWindowMismatch(serviceStart, stop.informationalTimeWindow)
+        : 0;
+    cursor = serviceStart + stop.serviceDurationMinutes * 60_000;
+    const loadAfter = Math.max(0, remainingLoadKg - numericWeightKg(stop.weightKg));
+    legs.push({
+      fromId: previousId,
+      toId: stopId,
+      departureAt,
+      arrivalAt,
+      distanceKm: distance,
+      durationMinutes: duration,
+      carriedLoadKg: remainingLoadKg,
+      remainingLoadKgAfterArrival: loadAfter,
+      tonneKilometers: (remainingLoadKg / 1000) * distance,
+      maneuverPenalty: cell?.maneuverPenalty ?? 0,
+      reachable: cell?.reachable ?? false,
+      restrictionWarnings: cell?.restrictionWarnings ?? [],
+    });
+    schedules.push({
+      stopId,
+      order: index + 1,
+      arrivalAt,
+      serviceStartAt: new Date(serviceStart).toISOString(),
+      departureAt: new Date(cursor).toISOString(),
+      waitingMinutes: waiting,
+      lateMinutes: late,
+      informationalMismatchMinutes: informationalMismatch,
+    });
+    remainingLoadKg = loadAfter;
+    previousId = stopId;
+  }
+
+  return { schedules, legs, cursorMs: cursor, lastId: previousId, remainingLoadKg };
 }
 
 function getCell(
@@ -247,16 +315,31 @@ function timeWindowMismatch(
   return 0;
 }
 
+/**
+ * Averaged over the stops that actually express a preference, not summed.
+ *
+ * Summing made the raw value grow with the number of priority stops: three of
+ * them at the wrong end of the route scored ~269 against a cap of 100, so every
+ * badly-ordered variant clipped to the same 100 and the optimizer could no
+ * longer tell "third from last" from "dead last". The mean keeps the value in
+ * 0..110 whatever the stop count, which is exactly the cap, so the gradient
+ * survives all the way to the worst case.
+ */
 function preferencePenalty(sequence: string[], stops: OptimizationStop[]): number {
-  const divisor = Math.max(1, sequence.length - 1);
-  return sequence.reduce((sum, id, index) => {
-    const stop = stops.find((item) => item.id === id);
-    if (!stop) return sum;
-    const normalizedPosition = index / divisor;
-    const early = stop.preferEarly ? normalizedPosition * 10 * Math.max(1, stop.priority) : 0;
-    const late = stop.preferLate ? (1 - normalizedPosition) * 10 * Math.max(1, stop.priority) : 0;
-    return sum + early + late;
-  }, 0);
+  const positionDivisor = Math.max(1, sequence.length - 1);
+  const stopById = new Map(stops.map((stop) => [stop.id, stop]));
+  let total = 0;
+  let expressed = 0;
+  for (const [index, id] of sequence.entries()) {
+    const stop = stopById.get(id);
+    if (!stop || (!stop.preferEarly && !stop.preferLate)) continue;
+    expressed += 1;
+    const normalizedPosition = index / positionDivisor;
+    const rankWeight = 10 * Math.max(1, stop.priority);
+    if (stop.preferEarly) total += normalizedPosition * rankWeight;
+    if (stop.preferLate) total += (1 - normalizedPosition) * rankWeight;
+  }
+  return expressed === 0 ? 0 : total / expressed;
 }
 
 function sum(values: number[]): number {

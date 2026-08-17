@@ -5,7 +5,7 @@ import type {
   CriticalRank,
   RouteOptimizationRequest,
 } from '../models';
-import { summarizeStopWeights } from '../weights';
+import { isPriorityStop, summarizeStopWeights } from '../weights';
 
 export function evaluateConstraints(input: {
   stopSequence: string[];
@@ -197,7 +197,18 @@ export function evaluateConstraints(input: {
     }
   }
 
-  const late = schedules.map((schedule) => schedule.lateMinutes);
+  // Each stop gets its own grace period before lateness touches criticalRank
+  // at all — tighter for priority stops. Minutes inside that window never
+  // reach the band tie-break; their cost is carried only by the `lateness`
+  // objective component (candidate-evaluator.ts), not by this hard-ish rank.
+  const stopById = new Map(request.stops.map((stop) => [stop.id, stop]));
+  const excessLateMinutes = schedules.map((schedule) => {
+    const stop = stopById.get(schedule.stopId);
+    const tolerance = stop && isPriorityStop(stop)
+      ? request.scoring.tolerances.priorityLatenessToleranceMinutes
+      : request.scoring.tolerances.latenessToleranceMinutes;
+    return Math.max(0, schedule.lateMinutes - tolerance);
+  });
   return {
     violations,
     criticalRank: {
@@ -205,8 +216,8 @@ export function evaluateConstraints(input: {
       requiredWindowViolations: violations.filter(
         (item) => item.code === 'REQUIRED_TIME_WINDOW',
       ).length,
-      totalLateMinutes: late.reduce((sum, value) => sum + value, 0),
-      maximumSingleStopLateMinutes: Math.max(0, ...late),
+      totalLateMinutes: excessLateMinutes.reduce((sum, value) => sum + value, 0),
+      maximumSingleStopLateMinutes: Math.max(0, ...excessLateMinutes),
       workdayOverrunMinutes,
       criticalRoadOrVehicleViolations: violations.filter((item) =>
         ['MAX_PAYLOAD', 'UNREACHABLE_LEG', 'ROAD_RESTRICTION'].includes(item.code),

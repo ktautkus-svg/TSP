@@ -289,12 +289,21 @@ describe('time-window planning stays geographically sane', () => {
     const timedKm = timed.recommended!.totalDistanceKm;
     const untimedKm = untimed.recommended!.totalDistanceKm;
     expect(timedKm).toBeLessThanOrEqual(untimedKm * 1.05);
-    // Idle time before the first door opens is spent at the depot, not scored as
-    // kerbside waiting - the first leg simply leaves later.
-    expect(timed.recommended!.schedules[0]!.waitingMinutes).toBe(0);
-    expect(Date.parse(timed.recommended!.legs[0]!.departureAt)).toBeGreaterThan(
-      Date.parse(request.plannedDepartureAt),
+    // Idle time before the first door opens is absorbed by leaving the depot
+    // later, but only up to maxDepartureShiftMinutes. Departing 4 hours before
+    // the windows open is past that, so the rest stays on the books as real
+    // kerbside waiting rather than silently vanishing from the objective.
+    const shift = timed.recommended!.departureShiftMinutes;
+    expect(shift).toBe(request.scoring.tolerances.maxDepartureShiftMinutes);
+    expect(Date.parse(timed.recommended!.effectiveDepartureAt)).toBe(
+      Date.parse(request.plannedDepartureAt) + shift * 60_000,
     );
+    // The recorded departure and the first leg agree, so the driver is told the
+    // hour he actually has to leave.
+    expect(timed.recommended!.legs[0]!.departureAt).toBe(
+      timed.recommended!.effectiveDepartureAt,
+    );
+    expect(timed.recommended!.schedules[0]!.waitingMinutes).toBeGreaterThan(0);
   });
 
   it('does not charge an early arrival twice as waiting and as a window mismatch', async () => {
