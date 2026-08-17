@@ -10,7 +10,9 @@ import {
   MAX_MATRIX_CALLS_PER_PLAN,
   PlanningRunTravelCostProvider,
   collapseDuplicates,
+  type PlanningRunStats,
 } from '@/infrastructure/routing/providers/planning-run-travel-cost-provider';
+import { planMatrixRequests } from '@/domain/routing/matrix-limits';
 import type { MatrixRequest, TravelCostProvider } from '@/domain/routing/models';
 
 /** Counts what the provider underneath would actually be billed for. */
@@ -185,15 +187,19 @@ describe('D · kietos sąnaudų apsaugos', () => {
       timeoutMs: 5_000,
     });
 
-    expect(seen).toHaveLength(1);
-    expect(seen[0]).toMatchObject({
-      planningRunId: 'plan-log',
-      matrixCalls: 1,
-      uniqueLocations: 5,
-      billedElements: 25,
-    });
-    const serialized = JSON.stringify(seen[0]);
-    expect(serialized).not.toMatch(/latitude|longitude|address|apiKey/i);
+    // Du įrašai: vienas prieš perkant (kad kaina būtų žinoma iš anksto),
+    // vienas po to su rezultatu.
+    expect(seen).toHaveLength(2);
+    for (const entry of seen) {
+      expect(entry).toMatchObject({
+        planningRunId: 'plan-log',
+        matrixCalls: 1,
+        uniqueLocations: 5,
+        billedElements: 25,
+        httpRequests: 1,
+      });
+      expect(JSON.stringify(entry)).not.toMatch(/latitude|longitude|address|apiKey/i);
+    }
   });
 
   it('nepavykusi užklausa neužrakina planavimo amžinai', async () => {
@@ -220,6 +226,72 @@ describe('D · kietos sąnaudų apsaugos', () => {
     await expect(planning.getMatrix(request)).rejects.toThrow('tinklo klaida');
     await expect(planning.getMatrix(request)).resolves.toBeDefined();
     expect(attempts).toBe(2);
+  });
+});
+
+describe('D2 · realios HTTP užklausos, ne tik loginis kvietimas', () => {
+  const matrixRequestFor = (base: ReturnType<typeof createBaseRequest>): MatrixRequest => ({
+    locations: [base.startLocation, ...base.stops.map((stop) => stop.location), base.endLocation],
+    vehicle: base.vehicle,
+    departureAt: base.plannedDepartureAt,
+    trafficMode: 'none',
+    timeoutMs: 5_000,
+  });
+
+  it('praneša, kiek tikrų Google užklausų kainuos planavimas', async () => {
+    const { provider } = countingProvider();
+    const seen: PlanningRunStats[] = [];
+    const planning = new PlanningRunTravelCostProvider(provider, 'plan-http', (stats) => seen.push({ ...stats }));
+    // 23 taškai + startas + pabaiga = 25 mazgai = 625 elementai = riba tiksliai.
+    await planning.getMatrix(matrixRequestFor(createBaseRequest(23)));
+
+    expect(planning.getStats().uniqueLocations).toBe(25);
+    expect(planning.getStats().billedElements).toBe(625);
+    expect(planning.getStats().httpRequests).toBe(1);
+    // Kaina žinoma DAR PRIEŠ užklausą.
+    expect(seen[0]!.httpRequests).toBe(1);
+  });
+
+  it('24 ir 25 taškai atvirai pažymimi kaip keturios užklausos', async () => {
+    for (const [stops, expectedRequests, expectedElements] of [[24, 4, 676], [25, 4, 729]] as const) {
+      const { provider } = countingProvider();
+      const planning = new PlanningRunTravelCostProvider(provider, `plan-${stops}`, () => {});
+      await planning.getMatrix(matrixRequestFor(createBaseRequest(stops)));
+
+      expect(planning.getStats().httpRequests).toBe(expectedRequests);
+      expect(planning.getStats().billedElements).toBe(expectedElements);
+      expect(planMatrixRequests(planning.getStats().uniqueLocations).singleRequest).toBe(false);
+    }
+  });
+
+  it('per didelis maršrutas atmetamas nepirkus nė vienos matricos', async () => {
+    const { provider, calls } = countingProvider();
+    const planning = new PlanningRunTravelCostProvider(provider, 'plan-toobig', () => {});
+    // 58 taškai + 2 = 60 mazgų = 3600 elementų > MAX_MATRIX_ELEMENTS_PER_PLAN.
+    await expect(planning.getMatrix(matrixRequestFor(createBaseRequest(58))))
+      .rejects.toThrow(/leidžiama 2500|matricos elementų/i);
+    expect(calls).toHaveLength(0);
+    expect(planning.getStats().matrixCalls).toBe(0);
+  });
+
+  it('dubliuoti adresai gali sugrąžinti maršrutą į vieną užklausą', async () => {
+    const { provider, calls } = countingProvider();
+    const planning = new PlanningRunTravelCostProvider(provider, 'plan-collapse', () => {});
+    const base = createBaseRequest(30);
+    // 30 užsakymų, bet tik 15 adresų: 32 mazgai suspaudžiami iki 17.
+    const stops = base.stops.map((stop, index) => ({
+      ...stop,
+      location: { ...base.stops[Math.floor(index / 2) * 2]!.location, id: stop.id },
+    }));
+    await planning.getMatrix({
+      ...matrixRequestFor(base),
+      locations: [base.startLocation, ...stops.map((stop) => stop.location), base.endLocation],
+    });
+
+    expect(planning.getStats().uniqueLocations).toBe(17);
+    expect(planning.getStats().httpRequests).toBe(1);
+    expect(planning.getStats().billedElements).toBe(289);
+    expect(calls[0]!.locations).toHaveLength(17);
   });
 });
 

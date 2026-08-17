@@ -6,6 +6,8 @@ import type {
   TravelMatrix,
 } from '@/domain/routing/models';
 
+import { MAX_MATRIX_ELEMENTS_PER_PLAN, planMatrixRequests } from '@/domain/routing/matrix-limits';
+
 /** One planning action may buy at most this many matrices from a provider. */
 export const MAX_MATRIX_CALLS_PER_PLAN = 1;
 
@@ -20,6 +22,12 @@ export type PlanningRunStats = {
   billedElements: number;
   savedElements: number;
   blockedCalls: number;
+  /**
+   * Real computeRouteMatrix HTTP calls this run will cost. One logical matrix is
+   * NOT one request: Google caps a request at 625 elements, so anything past 25
+   * nodes is split into ceil(n/25)^2 chunks, each of them billed.
+   */
+  httpRequests: number;
 };
 
 /**
@@ -67,6 +75,7 @@ export class PlanningRunTravelCostProvider implements TravelCostProvider {
       billedElements: 0,
       savedElements: 0,
       blockedCalls: 0,
+      httpRequests: 0,
     };
   }
 
@@ -98,13 +107,27 @@ export class PlanningRunTravelCostProvider implements TravelCostProvider {
     }
 
     const unique = collapseDuplicates(request.locations);
+    // Worked out BEFORE anything is sent, so the true cost of this run - real
+    // HTTP calls, not just the one logical matrix - is known and logged first.
+    const plan = planMatrixRequests(unique.locations.length);
+    if (!plan.withinPlanLimit) {
+      throw new Error(
+        `Šis maršrutas pareikalautų ${plan.billableElements} matricos elementų `
+        + `(${plan.httpRequests} Google užklausos), o vienam planavimui leidžiama `
+        + `${MAX_MATRIX_ELEMENTS_PER_PLAN}. Sumažinkite taškų skaičių arba skaidykite maršrutą.`,
+      );
+    }
+
     this.collapsed = unique.locations;
     this.stats.requestedLocations = request.locations.length;
     this.stats.uniqueLocations = unique.locations.length;
-    this.stats.billedElements = unique.locations.length ** 2;
-    this.stats.savedElements = request.locations.length ** 2 - unique.locations.length ** 2;
+    this.stats.billedElements = plan.billableElements;
+    this.stats.savedElements = request.locations.length ** 2 - plan.billableElements;
+    this.stats.httpRequests = plan.httpRequests;
     this.stats.matrixCalls += 1;
     this.firstKey = key;
+    // Logged before the purchase, not after it.
+    this.onStats(this.getStats());
 
     this.inFlight = this.provider.getMatrix({ ...request, locations: unique.locations });
     try {

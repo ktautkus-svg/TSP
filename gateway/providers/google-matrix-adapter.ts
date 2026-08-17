@@ -7,6 +7,10 @@ import type {
   ProviderFetchOptions,
   ProviderFetchResult,
 } from '../types';
+import {
+  MAX_MATRIX_ELEMENTS_PER_PLAN,
+  planMatrixRequests,
+} from '../../src/domain/routing/matrix-limits';
 import { fetchProviderJson, invalidProviderPayload } from './adapter-utils';
 
 type GoogleMatrixElement = {
@@ -56,17 +60,41 @@ export class GoogleMatrixAdapter implements MatrixProviderAdapter {
     const totalSize = locations.length;
     const started = performance.now();
 
-    // Structured, address-free cost telemetry. Element count is what Google
-    // bills, so it is recorded before the request rather than inferred later.
+    // Google caps ONE computeRouteMatrix request at 625 elements, so a grid
+    // larger than 25x25 is split into ceil(n/25)^2 chunks - every one of them a
+    // separate billed request. That fan-out is quadratic and used to happen
+    // without anyone stating it: 25 stops plus start and end is 27 nodes, which
+    // is 4 requests and 729 elements, not the "one matrix" it looks like.
+    //
+    // The full cost is therefore worked out and logged before the first request
+    // leaves, and refused outright above the per-plan ceiling. This is the
+    // authoritative guard: the client-side one can be bypassed.
+    const plan = planMatrixRequests(totalSize);
     logMatrixRequest({
       matrix_provider: 'google',
       planning_run_id: request.planningRunId ?? null,
       origins_count: totalSize,
       destinations_count: totalSize,
-      matrix_elements: totalSize * totalSize,
+      matrix_elements: plan.billableElements,
       routing_preference: 'TRAFFIC_UNAWARE',
-      chunk_requests: Math.ceil(totalSize / this.chunkSize) ** 2,
+      http_requests: plan.httpRequests,
+      single_request: plan.singleRequest,
+      phase: 'planned',
     });
+    if (!plan.withinPlanLimit) {
+      logMatrixRequest({
+        matrix_provider: 'google',
+        planning_run_id: request.planningRunId ?? null,
+        matrix_elements: plan.billableElements,
+        http_requests: plan.httpRequests,
+        success: false,
+        reason: 'MATRIX_ELEMENT_LIMIT',
+      });
+      throw new Error(
+        `Matricos limitas viršytas: ${plan.billableElements} elementų `
+        + `(${plan.httpRequests} Google užklausos), leidžiama ${MAX_MATRIX_ELEMENTS_PER_PLAN}.`,
+      );
+    }
 
     const locationChunks: { locations: RoutingLocation[]; startIndex: number }[] = [];
     for (let i = 0; i < totalSize; i += this.chunkSize) {
@@ -129,9 +157,11 @@ export class GoogleMatrixAdapter implements MatrixProviderAdapter {
       destinations_count: totalSize,
       matrix_elements: totalSize * totalSize,
       routing_preference: 'TRAFFIC_UNAWARE',
+      http_requests: plan.httpRequests,
       billable_elements: result.billableElementCount ?? 0,
       external_requests: result.externalRequestCount ?? 0,
       success: true,
+      phase: 'completed',
       duration_ms: Math.round(responseMs),
     });
     return result;
