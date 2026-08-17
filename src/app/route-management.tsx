@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
@@ -63,6 +63,8 @@ export default function RouteManagementScreen() {
     driverName: string;
     vehicleNumber: string;
   } | null>(null);
+  const [editingAssignment, setEditingAssignment] = useState<ServerRouteAssignment | null>(null);
+  const [editingAssignmentDate, setEditingAssignmentDate] = useState('');
 
   const load = useCallback(async () => {
     const loadLocalRoutes = async () => {
@@ -278,6 +280,45 @@ export default function RouteManagementScreen() {
     );
   };
 
+  const openAssignmentEditor = (assignment: ServerRouteAssignment) => {
+    setEditingAssignment(assignment);
+    setEditingAssignmentDate(String(assignment.routeSnapshot.route.date ?? assignment.assignedAt.slice(0, 10)));
+  };
+
+  const saveAssignmentDate = async () => {
+    if (!editingAssignment || busy) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      await employeeApi(`/api/admin/assignments/${encodeURIComponent(editingAssignment.id)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ date: editingAssignmentDate }),
+      });
+      const now = new Date().toISOString();
+      await db.runAsync(
+        `UPDATE routes
+         SET date = ?,
+             planned_departure_at = CASE
+               WHEN planned_departure_at LIKE '____-__-__T%' THEN ? || substr(planned_departure_at, 11)
+               ELSE planned_departure_at
+             END,
+             updated_at = ?
+         WHERE id = ?`,
+        editingAssignmentDate,
+        editingAssignmentDate,
+        now,
+        editingAssignment.routeId,
+      );
+      setEditingAssignment(null);
+      setMessage('Maršruto data pakeista. Vairuotojo įrenginys ją gaus sinchronizacijos metu.');
+      await load();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Maršruto datos pakeisti nepavyko.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const selectedPrice = selectedRoute && selectedDriver && selectedVehicle
     ? estimatePreliminaryRoutePrice({
       date: selectedRoute.date,
@@ -386,6 +427,7 @@ export default function RouteManagementScreen() {
                 </View>
                 <View style={styles.activeAssignmentActions}>
                   {localRoute ? <Pressable onPress={() => router.push({ pathname: '/route/[id]/overview', params: { id: localRoute.id, mode: 'management' } } as Href)} style={styles.routeSecondaryAction}><Text style={styles.routeSecondaryActionText}>Peržiūrėti</Text></Pressable> : null}
+                  <Pressable disabled={busy || !online} onPress={() => openAssignmentEditor(assignment)} style={[styles.routeSecondaryAction, (busy || !online) && styles.disabled]} testID={`edit-assignment-${assignment.id}`}><Text style={styles.routeSecondaryActionText}>Redaguoti</Text></Pressable>
                   <Pressable accessibilityLabel={`Pašalinti ${assignmentRouteLabel(assignment)} priskyrimą`} disabled={busy || !online} onPress={() => removeAssignment(assignment)} style={[styles.routeDeleteAction, (busy || !online) && styles.disabled]}><TrashIcon size={17} color={colors.danger} /><Text style={styles.routeDeleteActionText}>Pašalinti priskyrimą</Text></Pressable>
                 </View>
               </View>;
@@ -479,6 +521,28 @@ export default function RouteManagementScreen() {
         </View> : null}
 
       </ScrollView>
+      <Modal animationType="fade" transparent visible={Boolean(editingAssignment)} onRequestClose={() => setEditingAssignment(null)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard} testID="assignment-date-editor">
+            <View style={styles.modalHeader}>
+              <View style={styles.formHeadingText}>
+                <Text style={styles.panelTitle}>Redaguoti maršrutą</Text>
+                <Text style={styles.panelHint}>{editingAssignment ? assignmentRouteLabel(editingAssignment) : ''}</Text>
+              </View>
+              <Pressable accessibilityLabel="Uždaryti" onPress={() => setEditingAssignment(null)} style={styles.modalClose}><Text style={styles.modalCloseText}>×</Text></Pressable>
+            </View>
+            <View style={styles.modalField}>
+              <Text style={styles.selectorLabel}>Maršruto data</Text>
+              <TextInput value={editingAssignmentDate} onChangeText={setEditingAssignmentDate} placeholder="YYYY-MM-DD" style={styles.modalInput} {...({ type: 'date' } as object)} testID="assignment-date-input" />
+            </View>
+            <Text style={styles.panelHint}>Datą galima keisti, kol vairuotojas maršruto dar nepradėjo.</Text>
+            <View style={styles.modalActions}>
+              <Pressable disabled={busy} onPress={() => setEditingAssignment(null)} style={styles.secondaryButton}><Text style={styles.secondaryText}>Atšaukti</Text></Pressable>
+              <Pressable disabled={busy || !editingAssignmentDate} onPress={() => { void saveAssignmentDate(); }} style={[styles.primaryButton, (busy || !editingAssignmentDate) && styles.disabled]} testID="save-assignment-date">{busy ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.primaryText}>Išsaugoti datą</Text>}</Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -597,6 +661,14 @@ function formatMoney(value: number): string { return `${new Intl.NumberFormat('l
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background },
+  modalBackdrop: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.md, backgroundColor: 'rgba(15, 23, 42, 0.5)' },
+  modalCard: { width: '100%', maxWidth: 560, padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, gap: spacing.md },
+  modalHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing.md },
+  modalClose: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border },
+  modalCloseText: { fontSize: 26, lineHeight: 28, color: colors.textMuted },
+  modalField: { gap: spacing.xs },
+  modalInput: { minHeight: 50, paddingHorizontal: spacing.md, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surfaceSubtle, color: colors.text, ...type.bodyStrong },
+  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.sm },
   scroll: { flex: 1, minWidth: 0 },
   page: { width: '100%', maxWidth: 1040, alignSelf: 'center', padding: spacing.xl, gap: spacing.lg },
   topbar: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: spacing.lg },

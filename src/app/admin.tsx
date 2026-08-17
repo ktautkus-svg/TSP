@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
@@ -256,6 +256,7 @@ export default function AdminScreen() {
       method: 'PATCH', body: JSON.stringify(patch),
     });
     setEditEmployeePin('');
+    setSelectedEmployeeId('');
     setMessage('Darbuotojo duomenys ir prisijungimo vardas atnaujinti.');
     await load();
   });
@@ -336,6 +337,7 @@ export default function AdminScreen() {
 
   const toggleSection = (section: string) => setExpandedSection((current) => current === section ? null : section);
   const editableUsers = profile.role === 'admin' ? users : users.filter((employee) => employee.role === 'driver');
+  const employeeGroups = groupEmployeesByRole(editableUsers);
   const selectedEmployee = editableUsers.find((employee) => employee.id === selectedEmployeeId) ?? null;
   const selectedAssignmentDriver = users.find((employee) => employee.id === selectedDriverId) ?? null;
   const selectedAssignmentVehicle = vehicles.find((vehicle) => vehicle.id === selectedAssignmentVehicleId) ?? null;
@@ -385,53 +387,15 @@ export default function AdminScreen() {
           <View style={styles.card} testID="employee-list">
             <CollapsibleHeader title={`${profile.role === 'admin' ? 'Vairuotojai ir darbuotojai' : 'Vairuotojai'} (${editableUsers.length})`} expanded={expandedSection === 'employees'} onPress={() => toggleSection('employees')} styles={styles} />
             {expandedSection === 'employees' ? <>
-            {editableUsers.map((employee) => <View key={employee.id} style={styles.employeeBlock}>
-              <View style={styles.listRow}>
-                <View style={styles.listContent}><Text style={styles.listTitle}>{employee.displayName}</Text><Text style={styles.meta}>@{employee.username} · {roleLabel(employee.role)}{employee.disabled ? ' · Išjungta' : ''}</Text>{employee.email || employee.phone ? <Text style={styles.meta}>{[employee.email, employee.phone].filter(Boolean).join(' · ')}</Text> : null}</View>
+            {employeeGroups.map((group) => <View key={group.role} style={styles.employeeGroup} testID={`employee-group-${group.role}`}>
+              <View style={styles.employeeGroupHeader}><Text style={styles.employeeGroupTitle}>{group.title}</Text><Text style={styles.employeeGroupCount}>{group.employees.length}</Text></View>
+              {group.employees.map((employee) => <View key={employee.id} style={styles.listRow}>
+                <View style={styles.listContent}><Text style={styles.listTitle}>{employee.displayName}</Text><Text style={styles.meta}>@{employee.username}{employee.disabled ? ' · Išjungta' : ''}</Text>{employee.email || employee.phone ? <Text style={styles.meta}>{[employee.email, employee.phone].filter(Boolean).join(' · ')}</Text> : null}</View>
                 <View style={styles.rowActions}>
                   <Pressable accessibilityLabel={`Redaguoti ${employee.displayName}`} accessibilityRole="button" onPress={() => selectEmployee(employee)} style={styles.smallButton}><Text style={styles.smallButtonText}>Redaguoti</Text></Pressable>
                   {employee.id !== profile.id ? <Pressable accessibilityLabel={`${employee.disabled ? 'Įjungti' : 'Išjungti'} ${employee.displayName}`} accessibilityRole="button" onPress={() => void toggleEmployee(employee)} style={styles.smallButton}><Text style={styles.smallButtonText}>{employee.disabled ? 'Įjungti' : 'Išjungti'}</Text></Pressable> : null}
                 </View>
-              </View>
-              {selectedEmployeeId === employee.id ? <View style={styles.editor} testID="employee-edit-form">
-              <View style={styles.editorHeading}>
-                <View style={styles.listContent}><Text style={styles.title}>Redaguoti darbuotoją</Text><Text style={styles.meta}>Keičiant prisijungimo vardą būtina įvesti PIN. Jis gali likti toks pats. Kituose įrenginiuose reikės prisijungti iš naujo.</Text></View>
-                <Pressable accessibilityLabel="Uždaryti darbuotojo redagavimą" accessibilityRole="button" onPress={() => setSelectedEmployeeId('')} style={styles.closeButton}><Text style={styles.closeButtonText}>×</Text></Pressable>
-              </View>
-              {input(editEmployeeUsername, setEditEmployeeUsername, 'Prisijungimo vardas')}
-              {input(editEmployeeName, setEditEmployeeName, 'Vardas ir pavardė')}
-              <TextInput autoCapitalize="none" autoComplete="email" keyboardType="email-address" value={editEmployeeEmail} onChangeText={setEditEmployeeEmail} placeholder="El. paštas" placeholderTextColor={colors.textMuted} style={styles.input} />
-              <TextInput autoComplete="tel" keyboardType="phone-pad" value={editEmployeePhone} onChangeText={setEditEmployeePhone} placeholder="Telefonas" placeholderTextColor={colors.textMuted} style={styles.input} />
-              {profile.role === 'admin' ? <View style={styles.choiceRow}>{(['driver', 'dispatcher', 'quality'] as EmployeeRole[]).map((role) =>
-                <Pressable accessibilityLabel={`Rolė ${roleLabel(role)}`} accessibilityRole="radio" accessibilityState={{ checked: editEmployeeRole === role }} key={role} onPress={() => setEditEmployeeRole(role)} style={[styles.choice, editEmployeeRole === role && styles.choiceActive]}>
-                  <Text style={[styles.choiceText, editEmployeeRole === role && styles.choiceTextActive]}>{roleLabel(role)}</Text>
-                </Pressable>)}</View> : null}
-              {input(editEmployeePin, (value) => setEditEmployeePin(value.replace(/\D/g, '').slice(0, 8)), 'Naujas PIN (nebūtina)', true)}
-              {profile.role === 'admin' && selectedEmployee && editEmployeeRole === 'driver' ? <View style={styles.permissions}>
-                <Text style={styles.sectionLabel}>Vairuotojo leidimai</Text>
-                {DRIVER_PERMISSION_KEYS.map((key) => {
-                  const enabled = normalizeDriverPermissions(selectedEmployee.permissions)[key];
-                  const copy = DRIVER_PERMISSION_LABELS[key];
-                  return <Pressable key={key} onPress={() => void togglePermission(selectedEmployee, key)} style={styles.permissionRow} testID={`permission-${selectedEmployee.id}-${key}`}>
-                    <View style={styles.permissionCopy}><Text style={styles.permissionTitle}>{copy.title}</Text><Text style={styles.permissionDescription}>{copy.description}</Text></View>
-                    <View style={[styles.switchTrack, enabled && styles.switchTrackOn]}><View style={[styles.switchThumb, enabled && styles.switchThumbOn]} /></View>
-                  </Pressable>;
-                })}
-              </View> : null}
-              {profile.role === 'admin' && selectedEmployee && editEmployeeRole === 'dispatcher' ? <View style={styles.permissions}>
-                <Text style={styles.sectionLabel}>Dispečerio valdymo teisės</Text>
-                {MANAGEMENT_PERMISSION_KEYS.map((key) => {
-                  const enabled = normalizeEmployeePermissions(selectedEmployee.permissions)[key];
-                  const copy = MANAGEMENT_PERMISSION_LABELS[key];
-                  return <Pressable key={key} onPress={() => void togglePermission(selectedEmployee, key)} style={styles.permissionRow} testID={`permission-${selectedEmployee.id}-${key}`}>
-                    <View style={styles.permissionCopy}><Text style={styles.permissionTitle}>{copy.title}</Text><Text style={styles.permissionDescription}>{copy.description}</Text></View>
-                    <View style={[styles.switchTrack, enabled && styles.switchTrackOn]}><View style={[styles.switchThumb, enabled && styles.switchThumbOn]} /></View>
-                  </Pressable>;
-                })}
-              </View> : null}
-              {canManageFinancials && editEmployeeRole === 'driver' ? <Pressable accessibilityRole="link" onPress={() => router.push('/financial-settings' as Href)} style={styles.smallButton}><Text style={styles.smallButtonText}>Keisti atlygio skaičiavimą →</Text></Pressable> : null}
-              <Pressable accessibilityLabel="Išsaugoti darbuotojo pakeitimus" accessibilityRole="button" disabled={busy || !online} onPress={() => void saveEmployee()} style={[styles.primaryButton, (busy || !online) && styles.disabled]}><Text style={styles.primaryText}>Išsaugoti darbuotoją</Text></Pressable>
-              </View> : null}
+              </View>)}
             </View>)}
             </> : null}
           </View>
@@ -597,8 +561,69 @@ export default function AdminScreen() {
           <Pressable style={styles.lockButton} onPress={() => { void logout(); }}><Text style={styles.lockText}>Atsijungti</Text></Pressable>
         </>}
       </FoundationScreen>
+      <Modal animationType="fade" transparent visible={Boolean(selectedEmployee)} onRequestClose={() => setSelectedEmployeeId('')}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.employeeModal} testID="employee-edit-form">
+            <View style={styles.editorHeading}>
+              <View style={styles.listContent}><Text style={styles.title}>Redaguoti darbuotoją</Text><Text style={styles.meta}>{selectedEmployee?.displayName} · {selectedEmployee ? roleLabel(selectedEmployee.role) : ''}</Text></View>
+              <Pressable accessibilityLabel="Uždaryti darbuotojo redagavimą" accessibilityRole="button" onPress={() => setSelectedEmployeeId('')} style={styles.closeButton}><Text style={styles.closeButtonText}>×</Text></Pressable>
+            </View>
+            <ScrollView contentContainerStyle={styles.employeeModalContent} showsVerticalScrollIndicator>
+              <Text style={styles.meta}>Keičiant prisijungimo vardą būtina įvesti PIN. Kituose įrenginiuose reikės prisijungti iš naujo.</Text>
+              {input(editEmployeeUsername, setEditEmployeeUsername, 'Prisijungimo vardas')}
+              {input(editEmployeeName, setEditEmployeeName, 'Vardas ir pavardė')}
+              <TextInput autoCapitalize="none" autoComplete="email" keyboardType="email-address" value={editEmployeeEmail} onChangeText={setEditEmployeeEmail} placeholder="El. paštas" placeholderTextColor={colors.textMuted} style={styles.input} />
+              <TextInput autoComplete="tel" keyboardType="phone-pad" value={editEmployeePhone} onChangeText={setEditEmployeePhone} placeholder="Telefonas" placeholderTextColor={colors.textMuted} style={styles.input} />
+              {profile.role === 'admin' ? <View style={styles.choiceRow}>{(['driver', 'dispatcher', 'quality'] as EmployeeRole[]).map((role) =>
+                <Pressable accessibilityLabel={`Rolė ${roleLabel(role)}`} accessibilityRole="radio" accessibilityState={{ checked: editEmployeeRole === role }} key={role} onPress={() => setEditEmployeeRole(role)} style={[styles.choice, editEmployeeRole === role && styles.choiceActive]}>
+                  <Text style={[styles.choiceText, editEmployeeRole === role && styles.choiceTextActive]}>{roleLabel(role)}</Text>
+                </Pressable>)}</View> : null}
+              {input(editEmployeePin, (value) => setEditEmployeePin(value.replace(/\D/g, '').slice(0, 8)), 'Naujas PIN (nebūtina)', true)}
+              {profile.role === 'admin' && selectedEmployee && editEmployeeRole === 'driver' ? <View style={styles.permissions}>
+                <Text style={styles.sectionLabel}>Vairuotojo leidimai</Text>
+                {DRIVER_PERMISSION_KEYS.map((key) => {
+                  const enabled = normalizeDriverPermissions(selectedEmployee.permissions)[key];
+                  const copy = DRIVER_PERMISSION_LABELS[key];
+                  return <Pressable key={key} onPress={() => void togglePermission(selectedEmployee, key)} style={styles.permissionRow} testID={`permission-${selectedEmployee.id}-${key}`}>
+                    <View style={styles.permissionCopy}><Text style={styles.permissionTitle}>{copy.title}</Text><Text style={styles.permissionDescription}>{copy.description}</Text></View>
+                    <View style={[styles.switchTrack, enabled && styles.switchTrackOn]}><View style={[styles.switchThumb, enabled && styles.switchThumbOn]} /></View>
+                  </Pressable>;
+                })}
+              </View> : null}
+              {profile.role === 'admin' && selectedEmployee && editEmployeeRole === 'dispatcher' ? <View style={styles.permissions}>
+                <Text style={styles.sectionLabel}>Dispečerio valdymo teisės</Text>
+                {MANAGEMENT_PERMISSION_KEYS.map((key) => {
+                  const enabled = normalizeEmployeePermissions(selectedEmployee.permissions)[key];
+                  const copy = MANAGEMENT_PERMISSION_LABELS[key];
+                  return <Pressable key={key} onPress={() => void togglePermission(selectedEmployee, key)} style={styles.permissionRow} testID={`permission-${selectedEmployee.id}-${key}`}>
+                    <View style={styles.permissionCopy}><Text style={styles.permissionTitle}>{copy.title}</Text><Text style={styles.permissionDescription}>{copy.description}</Text></View>
+                    <View style={[styles.switchTrack, enabled && styles.switchTrackOn]}><View style={[styles.switchThumb, enabled && styles.switchThumbOn]} /></View>
+                  </Pressable>;
+                })}
+              </View> : null}
+              {canManageFinancials && editEmployeeRole === 'driver' ? <Pressable accessibilityRole="link" onPress={() => router.push('/financial-settings' as Href)} style={styles.smallButton}><Text style={styles.smallButtonText}>Keisti atlygio skaičiavimą →</Text></Pressable> : null}
+            </ScrollView>
+            <View style={styles.employeeModalActions}>
+              <Pressable onPress={() => setSelectedEmployeeId('')} style={[styles.secondaryButton, styles.modalActionButton]}><Text style={styles.secondaryText}>Atšaukti</Text></Pressable>
+              <Pressable accessibilityLabel="Išsaugoti darbuotojo pakeitimus" accessibilityRole="button" disabled={busy || !online} onPress={() => void saveEmployee()} style={[styles.primaryButton, styles.modalActionButton, (busy || !online) && styles.disabled]}>{busy ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.primaryText}>Išsaugoti darbuotoją</Text>}</Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </>
   );
+}
+
+function groupEmployeesByRole(employees: EmployeeProfile[]): Array<{ role: EmployeeRole; title: string; employees: EmployeeProfile[] }> {
+  const groups: Array<{ role: EmployeeRole; title: string }> = [
+    { role: 'driver', title: 'Vairuotojai' },
+    { role: 'dispatcher', title: 'Dispečeriai' },
+    { role: 'quality', title: 'Kokybės kontrolė' },
+    { role: 'admin', title: 'Administracija' },
+  ];
+  return groups
+    .map((group) => ({ ...group, employees: employees.filter((employee) => employee.role === group.role) }))
+    .filter((group) => group.employees.length > 0);
 }
 
 function Metric({ label, value, styles }: { label: string; value: number | undefined; styles: ReturnType<typeof createStyles> }) {
@@ -619,6 +644,11 @@ function CollapsibleHeader({ title, expanded, onPress, styles }: {
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   workspace: { gap: spacing.lg },
+  modalBackdrop: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.md, backgroundColor: 'rgba(15, 23, 42, 0.5)' },
+  employeeModal: { width: '100%', maxWidth: 680, maxHeight: '88%', padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.md },
+  employeeModalContent: { gap: spacing.sm, paddingBottom: spacing.sm },
+  employeeModalActions: { flexDirection: 'row', gap: spacing.sm },
+  modalActionButton: { flex: 1, paddingHorizontal: spacing.md },
   workspaceDesktop: { flexDirection: 'row', alignItems: 'flex-start' },
   column: { flex: 1, minWidth: 0, gap: spacing.lg },
   hidden: { display: 'none' },
@@ -652,6 +682,10 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   listRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border },
   listRowCompact: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   vehicleList: { gap: spacing.xs },
+  employeeGroup: { gap: spacing.xs, paddingTop: spacing.sm },
+  employeeGroupHeader: { minHeight: 34, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, paddingHorizontal: spacing.xs, borderBottomWidth: 1, borderBottomColor: colors.borderStrong },
+  employeeGroupTitle: { ...type.label, color: colors.textSecondary, textTransform: 'uppercase' },
+  employeeGroupCount: { minWidth: 28, textAlign: 'center', paddingVertical: 3, borderRadius: radius.pill, overflow: 'hidden', backgroundColor: colors.infoSoft, ...type.meta, color: colors.info },
   employeeBlock: { gap: spacing.sm, paddingBottom: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border },
   listContent: { flex: 1, minWidth: 0 },
   rowActions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: spacing.xs },

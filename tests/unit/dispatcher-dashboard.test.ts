@@ -63,6 +63,12 @@ describe('dispatcher desktop workspace', () => {
     expect(dispatcherSource).toContain('Gautas įrenginyje');
   });
 
+  it('edits an assigned route date in a focused dialog before the route starts', () => {
+    expect(dispatcherSource).toContain('testID="assignment-date-editor"');
+    expect(dispatcherSource).toContain("method: 'PATCH'");
+    expect(dispatcherSource).toContain('Išsaugoti datą');
+  });
+
   it('lets the dispatcher safely remove duplicate or unnecessary planned routes in place', () => {
     expect(dispatcherSource).toContain('TrashIcon');
     expect(dispatcherSource).toContain('routeDeleteAction');

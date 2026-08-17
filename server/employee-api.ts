@@ -212,6 +212,16 @@ export async function handleEmployeeApi(
       return send(response, 200, { assignment }, requestId);
     }
     const adminAssignmentMatch = pathname.match(/^\/api\/admin\/assignments\/([^/]+)$/);
+    if (adminAssignmentMatch && request.method === 'PATCH') {
+      requireRole(profile, ['admin', 'dispatcher']);
+      const body = parseObject(await readBody(request, 32_000));
+      const assignment = await store.updateAssignmentSchedule(
+        decodeURIComponent(adminAssignmentMatch[1]),
+        stringField(body, 'date'),
+      );
+      await routeSyncStore.seedAssignment(assignment.driverId, assignment.routeSnapshot);
+      return send(response, 200, { assignment }, requestId);
+    }
     if (adminAssignmentMatch && request.method === 'DELETE') {
       requireRole(profile, ['admin', 'dispatcher']);
       const assignment = await store.deleteAssignment(decodeURIComponent(adminAssignmentMatch[1]));

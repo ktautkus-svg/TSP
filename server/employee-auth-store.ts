@@ -725,6 +725,34 @@ export class EmployeeAuthStore {
     return assignment;
   }
 
+  async updateAssignmentSchedule(assignmentId: string, dateInput: string): Promise<RouteAssignment> {
+    const reference = this.assignments.doc(safeId(assignmentId));
+    const document = await reference.get();
+    const assignment = document.data() as RouteAssignment | undefined;
+    if (!assignment) throw new EmployeeApiError('ASSIGNMENT_NOT_FOUND', 'Maršruto priskyrimas nerastas.', 404);
+    if (['in_progress', 'completed', 'cancelled'].includes(assignment.status)) {
+      throw new EmployeeApiError('ASSIGNMENT_ALREADY_STARTED', 'Pradėto arba užbaigto maršruto datos keisti nebegalima.', 409);
+    }
+    const date = validateRouteDate(dateInput);
+    const currentDeparture = optionalText(assignment.routeSnapshot.route.planned_departure_at);
+    const plannedDepartureAt = currentDeparture && /^\d{4}-\d{2}-\d{2}T/.test(currentDeparture)
+      ? `${date}${currentDeparture.slice(10)}`
+      : currentDeparture;
+    const updatedAt = new Date().toISOString();
+    const routeSnapshot: RouteSnapshot = {
+      ...assignment.routeSnapshot,
+      route: {
+        ...assignment.routeSnapshot.route,
+        date,
+        ...(plannedDepartureAt ? { planned_departure_at: plannedDepartureAt } : {}),
+        updated_at: updatedAt,
+      },
+    };
+    const updated = { ...assignment, routeSnapshot, updatedAt };
+    await reference.set(updated);
+    return updated;
+  }
+
   async listAssignments(profile: EmployeeProfile): Promise<RouteAssignment[]> {
     const snapshot = profile.role === 'driver'
       ? await this.assignments.where('driverId', '==', profile.id).get()
@@ -915,6 +943,15 @@ function validatePhone(value: string | null | undefined): string | null {
   if (!normalized) return null;
   if (!/^\+?[0-9]{7,15}$/.test(normalized)) {
     throw new EmployeeApiError('INVALID_PHONE', 'Neteisingas darbuotojo telefono numeris.', 400);
+  }
+  return normalized;
+}
+
+function validateRouteDate(value: string): string {
+  const normalized = value.trim();
+  const parsed = new Date(`${normalized}T12:00:00Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized) || Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== normalized) {
+    throw new EmployeeApiError('INVALID_ROUTE_DATE', 'Maršruto data turi būti YYYY-MM-DD formato.', 400);
   }
   return normalized;
 }
