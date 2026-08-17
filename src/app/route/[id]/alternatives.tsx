@@ -31,6 +31,7 @@ import type { ColorPalette } from '@/ui/theme-palette';
 import { Alert } from '@/ui/alert';
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 import { useLocalAccess } from '@/application/auth/local-access-context';
+import { roleHomePath } from '@/application/navigation/role-home';
 import { pushRouteAssignmentProgress, pushRouteAssignmentRevision } from '@/application/auth/route-assignment-sync';
 
 export default function RouteAlternativesScreen() {
@@ -393,7 +394,7 @@ export default function RouteAlternativesScreen() {
           </Pressable>
           <Pressable
             style={[styles.primaryButton, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.primary }]}
-            onPress={() => router.replace('/' as Href)}>
+            onPress={() => router.replace(roleHomePath(profile.role) as Href)}>
             <Text style={[styles.primaryText, { color: colors.primary }]}>Atverti pradžios ekraną</Text>
           </Pressable>
         </View>

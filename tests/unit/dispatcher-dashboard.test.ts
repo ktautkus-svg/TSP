@@ -141,8 +141,8 @@ describe('driver permissions', () => {
     expect(dispatcherHomeSource).toContain('testID="dispatcher-home-menu"');
     expect(dispatcherHomeSource).toContain('Kurti maršrutus');
     expect(dispatcherHomeSource).toContain('Redaguoti esamus');
-    expect(dispatcherHomeSource).toContain('Redaguoti automobilius');
-    expect(dispatcherHomeSource).toContain('Redaguoti vairuotojus');
+    expect(dispatcherHomeSource).toContain('title="Automobiliai"');
+    expect(dispatcherHomeSource).toContain('title="Vairuotojai"');
     expect(dispatcherHomeSource).toContain('Finansiniai duomenys');
     expect(dispatcherHomeSource).toContain('Kelionės lapai');
   });

@@ -22,7 +22,7 @@ describe('stage 2.2 deterministic navigation', () => {
   it('provides deterministic history detail exits and blocks stale route states', () => {
     const detail = source('src/app/history/[id].tsx');
     expect(detail).toContain("router.replace('/history' as Href)");
-    expect(detail).toContain("router.replace('/' as Href)");
+    expect(detail).toContain('router.replace(roleHomePath(profile.role) as Href)');
     expect(detail).toContain('← Maršrutai');
     expect(detail).toContain('Į pradžią');
     expect(detail).toContain("!['completed', 'cancelled'].includes(persisted.route.status)");
@@ -34,7 +34,7 @@ describe('stage 2.2 deterministic navigation', () => {
 
   it('combines operational and historical routes with deterministic exits', () => {
     const history = source('src/app/history.tsx');
-    expect(history).toContain("router.replace('/' as Href)");
+    expect(history).toContain('router.replace(roleHomePath(profile.role) as Href)');
     expect(history).toContain('Į skydelį');
     expect(history).toContain('DABAR IR TOLIAU');
     expect(history).toContain('ANKSTESNI');
@@ -74,14 +74,31 @@ describe('stage 2.2 deterministic navigation', () => {
     expect(source('src/app/settings/index.tsx')).toContain('<DriverAppTabs active="settings"');
   });
 
-  it('gives every non-Dashboard stack screen a visible global Home action', () => {
+  it('gives stack screens a deterministic role-aware Home action', () => {
     const layout = source('src/app/_layout.tsx');
     const stackNavigation = source('src/components/stack-navigation.tsx');
+    const roleHome = source('src/application/navigation/role-home.ts');
     expect(layout).toContain('headerRight: () => <StackHeaderActions />');
-    expect(stackNavigation).toContain("router.replace('/' as Href)");
+    expect(stackNavigation).toContain('router.replace(navigation.homeTarget)');
+    expect(stackNavigation).toContain('roleHomePath(profile.role)');
+    expect(roleHome).toContain("if (role === 'driver') return '/history'");
+    expect(roleHome).toContain("if (role === 'dispatcher') return '/dispatcher'");
+    expect(roleHome).toContain("if (role === 'quality') return '/quality-control'");
+    expect(stackNavigation).not.toContain('router.back()');
     expect(stackNavigation).toContain('>Pradžia<');
     expect(layout).toContain('<Stack.Screen name="settings/index"');
     expect(layout).toContain('<Stack.Screen name="route/[id]/result"');
+  });
+
+  it('keeps route actions on their cards and opens order editing with its map', () => {
+    const routes = source('src/app/history.tsx');
+    const overview = source('src/app/route/[id]/overview.tsx');
+    expect(routes).not.toContain('driver-route-primary-actions');
+    expect(routes).toContain("secondaryActionLabel={['planned', 'in_progress'].includes(route.status) ? 'Redaguoti' : 'Informacija'}");
+    expect(routes).toContain("edit: 'order'");
+    expect(overview).toContain('testID="active-route-order-map"');
+    expect(overview).toContain('<RouteMapView');
+    expect(overview).toContain('buildOrderMap(route, stops, pendingOrder)');
   });
 
   it('keeps settings and location settings out of dead ends', () => {

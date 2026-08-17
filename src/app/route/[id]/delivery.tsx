@@ -4,6 +4,7 @@ import { Stack, useFocusEffect, useLocalSearchParams, useRouter, type Href } fro
 import { useSQLiteContext } from 'expo-sqlite';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalAccess } from '@/application/auth/local-access-context';
+import { roleHomePath } from '@/application/navigation/role-home';
 import { pullAssignedRoutes, pushRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 
@@ -42,6 +43,7 @@ import { RefreshRouteEtas } from '@/application/routes/route-eta';
 import { fallbackRouteWeatherScene, loadRouteWeatherScene, type RouteWeatherScene } from '@/application/weather/route-weather';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { BrandHeader } from '@/components/brand-header';
+import { GroupedMenuRow, GroupedMenuSection } from '@/components/grouped-menu';
 import { ClockIcon, DeliveredIcon, DistanceIcon, FailedIcon, NavigateIcon } from '@/components/dashboard-icons';
 import { InstrumentGauge } from '@/components/instrument-gauge';
 import { RoadProgressBar } from '@/components/road-progress-bar';
@@ -531,9 +533,9 @@ export default function DeliveryScreen() {
 
   const handleBack = useCallback(() => {
     if (showFinish) return leaveFinish();
-    router.replace('/' as Href);
+    router.replace(roleHomePath(profile.role) as Href);
     return true;
-  }, [leaveFinish, router, showFinish]);
+  }, [leaveFinish, profile.role, router, showFinish]);
 
   useEffect(() => {
     if (Platform.OS !== 'android') return;
@@ -580,7 +582,7 @@ export default function DeliveryScreen() {
             await new CancelDraftRoute(db).execute(routeId);
             await pushRouteAssignmentProgress(db, routeId).catch(() => undefined);
             await requestSync('mutation');
-            router.replace('/' as Href);
+            router.replace(roleHomePath(profile.role) as Href);
           } catch (reason) {
             selfCancelled.current = false;
             Alert.alert('Nepavyko nutraukti', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
@@ -597,8 +599,8 @@ export default function DeliveryScreen() {
     <Stack.Screen options={{ gestureEnabled: false, headerBackVisible: false, headerShown: false }} />
     <View style={[styles.routeApp, wideLayout && styles.routeAppWide]}>
       <BrandHeader
-        onBackPress={() => router.canGoBack() ? router.back() : router.replace('/' as Href)}
-        onHomePress={() => router.replace('/' as Href)}
+        onBackPress={() => router.replace({ pathname: '/route/[id]/overview', params: { id: routeId } } as Href)}
+        onHomePress={() => router.replace('/history' as Href)}
         onMenuPress={() => setMenuOpen(true)}
       />
       <View style={styles.routeMain}>
@@ -896,20 +898,16 @@ export default function DeliveryScreen() {
         <View style={[styles.menuSheet, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
           <View style={styles.sheetHandle} />
           <Text style={styles.menuTitle}>Meniu</Text>
-          <Pressable style={styles.menuItem} onPress={() => { setMenuOpen(false); router.replace('/' as Href); }}><Text style={styles.menuItemText}>Pradžios meniu</Text></Pressable>
-          <Pressable
-            accessibilityState={{ expanded: activeMenuExpanded, disabled: route?.status !== 'in_progress' }}
-            disabled={route?.status !== 'in_progress'}
-            onPress={() => setActiveMenuExpanded((expanded) => !expanded)}
-            style={[styles.menuItem, route?.status !== 'in_progress' && styles.disabled]}
-            testID="active-route-menu-toggle">
-            <View style={styles.menuItemRow}>
-              <Text style={styles.menuItemText}>Aktyvus maršrutas</Text>
-              <Text style={styles.menuChevron}>{activeMenuExpanded ? '▴' : '▾'}</Text>
-            </View>
-          </Pressable>
-          {route?.status === 'in_progress' && activeMenuExpanded ? (
-            <View style={styles.menuSubmenu} testID="active-route-menu-actions">
+          <GroupedMenuSection label="AKTYVUS MARŠRUTAS">
+            <GroupedMenuRow
+              description="Sustojimai, perskaičiavimas ir užbaigimas."
+              disabled={route?.status !== 'in_progress'}
+              expanded={activeMenuExpanded}
+              onPress={() => setActiveMenuExpanded((expanded) => !expanded)}
+              testID="active-route-menu-toggle"
+              title="Maršruto veiksmai"
+            />
+            {route?.status === 'in_progress' && activeMenuExpanded ? <View style={styles.menuSubmenu} testID="active-route-menu-actions">
               {profile.role !== 'driver' || profile.permissions?.canAddStops ? <Pressable testID="toggle-add-stop" style={styles.menuSubitem} onPress={() => { setMenuOpen(false); setActiveMenuExpanded(false); setShowAddStop(true); }}><Text style={styles.menuSubitemText}>Įtraukti sustojimą</Text></Pressable> : null}
               {profile.role !== 'driver' || profile.permissions?.canRecalculateRoute ? <Pressable
                 disabled={busy}
@@ -924,10 +922,13 @@ export default function DeliveryScreen() {
               </Pressable> : null}
               <Pressable accessibilityLabel={route?.completionStartedAt ? 'Tęsti užbaigimą' : 'Baigti maršrutą'} disabled={busy} style={[styles.menuSubitem, busy && styles.disabled]} onPress={() => { setMenuOpen(false); setActiveMenuExpanded(false); void beginFinish(); }}><Text style={styles.menuSubitemText}>Baigti maršrutą</Text></Pressable>
               {profile.role !== 'driver' || profile.permissions?.canCancelRoute ? <Pressable disabled={busy} testID="stop-route-button" style={[styles.menuSubitem, busy && styles.disabled]} onPress={() => { setMenuOpen(false); setActiveMenuExpanded(false); stopRoute(); }}><Text style={styles.menuDangerText}>Nutraukti maršrutą</Text></Pressable> : null}
-            </View>
-          ) : null}
-          <Pressable style={styles.menuItem} onPress={() => { setMenuOpen(false); router.push('/statistics' as Href); }}><Text style={styles.menuItemText}>Statistika</Text></Pressable>
-          <Pressable style={styles.menuItem} onPress={() => { setMenuOpen(false); router.push('/settings' as Href); }}><Text style={styles.menuItemText}>Nustatymai</Text></Pressable>
+            </View> : null}
+          </GroupedMenuSection>
+          <GroupedMenuSection label="NAVIGACIJA">
+            <GroupedMenuRow onPress={() => { setMenuOpen(false); router.replace('/history' as Href); }} title="Maršrutai" />
+            <GroupedMenuRow onPress={() => { setMenuOpen(false); router.push('/statistics' as Href); }} title="Statistika" />
+            <GroupedMenuRow onPress={() => { setMenuOpen(false); router.push('/settings' as Href); }} title="Nustatymai" />
+          </GroupedMenuSection>
           <Pressable style={styles.menuClose} onPress={() => setMenuOpen(false)}><Text style={styles.secondaryText}>Uždaryti</Text></Pressable>
         </View>
       </Pressable>
@@ -1257,11 +1258,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   menuBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0, 10, 2, 0.52)' },
   menuSheet: { paddingTop: spacing.sm, paddingHorizontal: spacing.lg, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, backgroundColor: colors.surface, gap: spacing.sm },
   menuTitle: { ...type.sectionTitle, color: colors.text, marginBottom: spacing.xs },
-  menuItem: { minHeight: 52, borderBottomWidth: 1, borderBottomColor: colors.border, justifyContent: 'center' },
-  menuItemRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  menuItemText: { ...type.cardTitle, color: colors.text },
-  menuChevron: { color: colors.textMuted, fontFamily: fonts.heading, fontSize: 18 },
-  menuSubmenu: { marginLeft: spacing.md, borderLeftWidth: 2, borderLeftColor: colors.border, paddingLeft: spacing.md },
+  menuSubmenu: { margin: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceSubtle },
   menuSubitem: { minHeight: 48, borderBottomWidth: 1, borderBottomColor: colors.border, justifyContent: 'center' },
   menuSubitemText: { ...type.secondaryStrong, color: colors.text },
   menuDangerText: { ...type.cardTitle, color: colors.danger },

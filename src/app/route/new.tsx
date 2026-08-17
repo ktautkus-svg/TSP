@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useLocalAccess } from '@/application/auth/local-access-context';
+import { roleHomePath } from '@/application/navigation/role-home';
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 
 import { parseDeliveryText } from '@/application/parsing/text-parser';
@@ -43,7 +44,7 @@ export default function NewRouteScreen() {
 
   useEffect(() => {
     if (profile.role === 'driver' && !profile.permissions?.canCreateRoutes) {
-      router.replace('/' as Href);
+      router.replace(roleHomePath(profile.role) as Href);
       return;
     }
   }, [profile, router]);

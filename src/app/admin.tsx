@@ -492,7 +492,7 @@ export default function AdminScreen() {
               {input(editVehicleModel, setEditVehicleModel, 'Modelis')}
               <TextInput accessibilityLabel="Maksimalus krovinio svoris" value={editVehiclePayload} onChangeText={(value) => setEditVehiclePayload(value.replace(/[^\d.,]/g, '').slice(0, 8))}
                 keyboardType="decimal-pad" placeholder="Maksimalus krovinio svoris, kg" placeholderTextColor={colors.textMuted} style={styles.input} />
-              {canManageFinancials ? <Pressable accessibilityRole="link" onPress={() => router.push('/financial-settings' as Href)} style={styles.smallButton}><Text style={styles.smallButtonText}>Keisti kuro normą, draudimą ir kelių mokestį →</Text></Pressable> : null}
+              {canManageFinancials ? <Pressable accessibilityRole="link" onPress={() => router.push({ pathname: '/financial-settings', params: { returnTo: 'admin' } } as unknown as Href)} style={styles.smallButton}><Text style={styles.smallButtonText}>Keisti kuro normą, draudimą ir kelių mokestį →</Text></Pressable> : null}
               <Pressable accessibilityLabel="Išsaugoti automobilio pakeitimus" accessibilityRole="button" disabled={busy || !online} style={[styles.primaryButton, (busy || !online) && styles.disabled]} onPress={() => void saveVehicle()}><Text style={styles.primaryText}>Išsaugoti automobilį</Text></Pressable>
               <Text style={styles.sectionLabel}>Priskirti vairuotojui</Text>
               <View style={styles.choiceColumn}>
@@ -601,7 +601,7 @@ export default function AdminScreen() {
                   </Pressable>;
                 })}
               </View> : null}
-              {canManageFinancials && editEmployeeRole === 'driver' ? <Pressable accessibilityRole="link" onPress={() => router.push('/financial-settings' as Href)} style={styles.smallButton}><Text style={styles.smallButtonText}>Keisti atlygio skaičiavimą →</Text></Pressable> : null}
+              {canManageFinancials && editEmployeeRole === 'driver' ? <Pressable accessibilityRole="link" onPress={() => router.push({ pathname: '/financial-settings', params: { returnTo: 'admin' } } as unknown as Href)} style={styles.smallButton}><Text style={styles.smallButtonText}>Keisti atlygio skaičiavimą →</Text></Pressable> : null}
             </ScrollView>
             <View style={styles.employeeModalActions}>
               <Pressable onPress={() => setSelectedEmployeeId('')} style={[styles.secondaryButton, styles.modalActionButton]}><Text style={styles.secondaryText}>Atšaukti</Text></Pressable>

@@ -13,6 +13,7 @@ import { spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { useLocalAccess } from '@/application/auth/local-access-context';
+import { roleHomePath } from '@/application/navigation/role-home';
 import { pushRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 import { employeeApi, type CompensationBreakdown, type ServerTripSheet } from '@/infrastructure/auth/employee-session';
@@ -74,7 +75,7 @@ export default function RouteResultScreen() {
     return () => { mounted = false; };
   }, [online, profile.permissions?.canViewCompensation, profile.role, routeId]));
 
-  const goHome = () => router.replace('/' as Href);
+  const goHome = () => router.replace(roleHomePath(profile.role) as Href);
 
   return (
     <>

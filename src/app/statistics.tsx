@@ -14,6 +14,7 @@ import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { useLocalAccess } from '@/application/auth/local-access-context';
+import { roleHomePath } from '@/application/navigation/role-home';
 import { employeeApi, type EmployeeProfile, type ServerRouteAssignment } from '@/infrastructure/auth/employee-session';
 import { buildStatisticsSnapshot, type FailureReasonCount, type StatsRouteRow } from '@/domain/statistics';
 import { uniqueRegionCodes } from '@/domain/route-code';
@@ -56,7 +57,7 @@ export default function StatisticsScreen() {
     return () => { mounted = false; };
   }, [online, profile.id, profile.role, repository]));
 
-  const goHome = () => router.replace('/' as Href);
+  const goHome = () => router.replace(roleHomePath(profile.role) as Href);
 
   const remoteSnapshot = useMemo(() => profile.role === 'admin' && assignments.length > 0
     ? assignmentStatistics(assignments, selectedDriverId)
@@ -78,7 +79,7 @@ export default function StatisticsScreen() {
           {drivers.map((driver) => <Pressable key={driver.id} onPress={() => setSelectedDriverId(driver.id)} style={[styles.driverFilter, selectedDriverId === driver.id && styles.driverFilterActive]}><Text style={[styles.driverFilterText, selectedDriverId === driver.id && styles.driverFilterTextActive]}>{driver.displayName}</Text></Pressable>)}
         </View>
       ) : null}
-      <Pressable style={styles.tripSheetButton} onPress={() => router.push('/trip-sheet' as Href)} testID="open-trip-sheets">
+      <Pressable style={styles.tripSheetButton} onPress={() => router.push({ pathname: '/trip-sheet', params: { returnTo: 'statistics' } } as Href)} testID="open-trip-sheets">
         <Text style={styles.tripSheetText}>Kelionės lapai</Text>
       </Pressable>
       {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -169,7 +170,7 @@ export default function StatisticsScreen() {
             })}
         </View>
       ) : null}
-      <Pressable style={styles.homeButton} onPress={goHome}><Text style={styles.homeText}>Į pradžią</Text></Pressable>
+      {profile.role !== 'driver' ? <Pressable style={styles.homeButton} onPress={goHome}><Text style={styles.homeText}>Į pradžią</Text></Pressable> : null}
       </FoundationScreen>
       {profile.role === 'driver' ? <DriverAppTabs active="statistics" /> : null}
     </View>

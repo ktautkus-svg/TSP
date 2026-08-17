@@ -5,7 +5,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { roleLabel, sessionStateLabel } from '@/application/auth/employee-permissions';
-import { AppButton, StatusBadge } from '@/components/ui-primitives';
+import { CrossIcon, EmployeesIcon, SettingsIcon, TripSheetIcon } from '@/components/app-icons';
+import { GroupedMenuRow, GroupedMenuSection } from '@/components/grouped-menu';
+import { StatusBadge } from '@/components/ui-primitives';
 import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
@@ -26,7 +28,7 @@ export function AccountMenuSheet({ visible, onClose }: { visible: boolean; onClo
 
   function openTripSheets() {
     onClose();
-    router.push('/trip-sheet' as Href);
+    router.push({ pathname: '/trip-sheet', params: { returnTo: 'home' } } as Href);
   }
 
   function confirmSwitchAccount() {
@@ -65,12 +67,14 @@ export function AccountMenuSheet({ visible, onClose }: { visible: boolean; onClo
             </View>
           </View>
 
-          <View style={styles.actions}>
-            {profile.role !== 'quality' ? <AppButton label="Kelionės lapai" variant="secondary" onPress={openTripSheets} testID="account-menu-trip-sheets" /> : null}
-            {profile.role !== 'quality' ? <AppButton label="Nustatymai" variant="secondary" onPress={openSettings} testID="account-menu-settings" /> : null}
-            <AppButton label="Keisti paskyrą" variant="secondary" onPress={confirmSwitchAccount} testID="account-menu-switch" />
-            <AppButton label="Atsijungti" variant="danger" onPress={confirmLogout} testID="account-menu-logout" />
-          </View>
+          {profile.role !== 'quality' ? <GroupedMenuSection label="DARBO ĮRANKIAI">
+            <GroupedMenuRow icon={<TripSheetIcon size={21} color={colors.success} />} onPress={openTripSheets} testID="account-menu-trip-sheets" title="Kelionės lapai" tone="success" />
+            <GroupedMenuRow icon={<SettingsIcon size={21} color={colors.info} />} onPress={openSettings} testID="account-menu-settings" title="Nustatymai" />
+          </GroupedMenuSection> : null}
+          <GroupedMenuSection label="PASKYRA">
+            <GroupedMenuRow description="Prisijungti kitu darbuotojo vardu." icon={<EmployeesIcon size={21} color={colors.info} />} onPress={confirmSwitchAccount} testID="account-menu-switch" title="Keisti paskyrą" />
+            <GroupedMenuRow icon={<CrossIcon size={21} color={colors.danger} />} onPress={confirmLogout} testID="account-menu-logout" title="Atsijungti" tone="danger" />
+          </GroupedMenuSection>
 
           <Pressable style={styles.close} onPress={onClose}><Text style={styles.closeText}>Uždaryti</Text></Pressable>
         </Pressable>
@@ -94,7 +98,6 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   name: { ...type.sectionTitle, color: colors.text },
   username: { ...type.secondary, color: colors.textMuted },
   badgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.xs },
-  actions: { gap: spacing.sm },
   close: { minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   closeText: { ...type.secondaryStrong, color: colors.textMuted },
 });

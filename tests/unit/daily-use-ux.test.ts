@@ -56,7 +56,9 @@ describe('Daily Use menu and Dashboard contract', () => {
     const delivery = source('src/app/route/[id]/delivery.tsx');
     const menu = delivery.slice(delivery.indexOf('visible={menuOpen}'), delivery.indexOf('visible={showAddStop}'));
     expect(menu).not.toContain('Naujas maršrutas');
-    for (const label of ['Pradžios meniu', 'Aktyvus maršrutas', 'Statistika', 'Nustatymai']) expect(menu).toContain(`>${label}<`);
+    for (const label of ['Maršruto veiksmai', 'Maršrutai', 'Statistika', 'Nustatymai']) expect(menu).toContain(`title="${label}"`);
+    expect(menu).toContain('label="AKTYVUS MARŠRUTAS"');
+    expect(menu).toContain('label="NAVIGACIJA"');
     for (const label of ['Įtraukti sustojimą', 'Perskaičiuoti maršrutą', 'Baigti maršrutą', 'Nutraukti maršrutą']) expect(menu).toContain(`>${label}<`);
     expect(menu).toContain("route?.status === 'in_progress' && activeMenuExpanded");
     expect(menu).toContain('active-route-menu-actions');
@@ -118,7 +120,8 @@ describe('Daily Use menu and Dashboard contract', () => {
       expect(settings).toContain(`openSection === '${section}'`);
     }
     expect(settings).toContain('Duomenys ir atsarginė kopija');
-    expect(stackNavigation).toContain("router.replace('/' as Href)");
+    expect(stackNavigation).toContain('router.replace(navigation.homeTarget)');
+    expect(stackNavigation).toContain('roleHomePath(profile.role)');
     expect(stackNavigation).toContain('>Pradžia<');
   });
 });

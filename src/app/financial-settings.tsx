@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
-import { Stack, useRouter } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { normalizeEmployeePermissions } from '@/application/auth/employee-permissions';
@@ -18,6 +18,7 @@ import type { ColorPalette } from '@/ui/theme-palette';
 
 export default function FinancialSettingsScreen() {
   const router = useRouter();
+  const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
   const { profile, online } = useLocalAccess();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -56,12 +57,18 @@ export default function FinancialSettingsScreen() {
       {message ? <Text accessibilityRole="alert" style={styles.message}>{message}</Text> : null}
       {busy ? <View style={styles.loading}><ActivityIndicator color={colors.info} /><Text style={styles.loadingText}>Kraunami parametrai…</Text></View> : <RoutePriceSettingsPanel
         canEdit={canEdit}
-        onClose={() => router.back()}
+        onClose={() => router.replace(financialReturnTarget(returnTo))}
         onSaved={setSettings}
         settings={settings}
       />}
     </FoundationScreen>
   </>;
+}
+
+function financialReturnTarget(returnTo: string | undefined): Href {
+  if (returnTo === 'admin') return '/admin';
+  if (returnTo === 'settings') return '/settings';
+  return '/dispatcher';
 }
 
 function addDirectoryProfiles(settings: RoutePriceSettings, users: EmployeeProfile[], vehicles: ServerFleetVehicle[]): RoutePriceSettings {

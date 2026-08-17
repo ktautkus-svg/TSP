@@ -1,5 +1,5 @@
-import { useMemo, type ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { useMemo } from 'react';
+import { StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Stack, useRouter, type Href } from 'expo-router';
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
@@ -14,6 +14,7 @@ import {
   VehicleIcon,
 } from '@/components/app-icons';
 import { FoundationScreen } from '@/components/foundation-screen';
+import { GroupedMenuRow, GroupedMenuSection } from '@/components/grouped-menu';
 import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
@@ -43,13 +44,19 @@ export default function DispatcherHomeScreen() {
         <Text style={styles.identityRole}>{profile.role === 'admin' ? 'Administratorius' : 'Dispečeris'}</Text>
       </View>
 
-      <View style={[styles.menuGrid, compact && styles.menuGridCompact]} testID="dispatcher-home-menu">
-        <MenuCard description="Importuoti failą, įvesti adresus ir suplanuoti naują darbą." icon={<RouteIcon color={colors.info} size={26} />} label="Kurti maršrutus" onPress={() => open('/import' as Href)} styles={styles} tone="blue" />
-        <MenuCard description="Peržiūrėti sukurtus maršrutus, keisti eiliškumą ir priskirti." icon={<PencilIcon color={colors.warning} size={26} />} label="Redaguoti esamus" onPress={() => open('/route-management' as Href)} styles={styles} tone="amber" />
-        <MenuCard description={canManageVehicles ? 'Kurti automobilius, keisti jų duomenis ir priskyrimą.' : 'Automobilių redagavimo teisė nesuteikta.'} disabled={!canManageVehicles} icon={<VehicleIcon color={colors.success} size={26} />} label="Redaguoti automobilius" onPress={() => open({ pathname: '/admin', params: { section: 'fleet' } } as Href)} styles={styles} tone="green" />
-        <MenuCard description={canManageEmployees ? 'Kurti vairuotojus, keisti prisijungimus ir duomenis.' : 'Vairuotojų redagavimo teisė nesuteikta.'} disabled={!canManageEmployees} icon={<EmployeesIcon color={colors.info} size={26} />} label="Redaguoti vairuotojus" onPress={() => open({ pathname: '/admin', params: { section: 'employees' } } as Href)} styles={styles} tone="blue" />
-        <MenuCard description={canManageFinancials ? 'Kuro kaina, draudimas, kelių mokesčiai ir atlygio skaičiavimas.' : 'Peržiūrėti finansinius parametrus be redagavimo.'} icon={<SettingsIcon color={colors.warning} size={26} />} label="Finansiniai duomenys" onPress={() => open('/financial-settings' as Href)} styles={styles} tone="amber" />
-        <MenuCard description="Dienų odometrai, kilometrai, kuro norma ir spausdinimas." icon={<TripSheetIcon color={colors.success} size={26} />} label="Kelionės lapai" onPress={() => open('/trip-sheet' as Href)} styles={styles} tone="green" />
+      <View style={[styles.menuSections, compact && styles.menuSectionsCompact]} testID="dispatcher-home-menu">
+        <View style={styles.menuGroup}><GroupedMenuSection label="MARŠRUTAI">
+          <GroupedMenuRow description="Importuoti failą, įvesti adresus ir suplanuoti naują darbą." icon={<RouteIcon color={colors.info} size={23} />} onPress={() => open('/import' as Href)} title="Kurti maršrutus" />
+          <GroupedMenuRow description="Peržiūrėti, keisti eiliškumą ir priskirti." icon={<PencilIcon color={colors.warning} size={23} />} onPress={() => open('/route-management' as Href)} title="Redaguoti esamus" tone="warning" />
+        </GroupedMenuSection></View>
+        <View style={styles.menuGroup}><GroupedMenuSection label="IŠTEKLIAI">
+          <GroupedMenuRow description={canManageEmployees ? 'Duomenys, prisijungimai ir leidimai.' : 'Redagavimo teisė nesuteikta.'} disabled={!canManageEmployees} icon={<EmployeesIcon color={colors.info} size={23} />} onPress={() => open({ pathname: '/admin', params: { section: 'employees', returnTo: 'dispatcher' } } as Href)} title="Vairuotojai" />
+          <GroupedMenuRow description={canManageVehicles ? 'Numeriai, modeliai ir keliamoji galia.' : 'Redagavimo teisė nesuteikta.'} disabled={!canManageVehicles} icon={<VehicleIcon color={colors.success} size={23} />} onPress={() => open({ pathname: '/admin', params: { section: 'fleet', returnTo: 'dispatcher' } } as Href)} title="Automobiliai" tone="success" />
+        </GroupedMenuSection></View>
+        <View style={styles.menuGroup}><GroupedMenuSection label="APSKAITA">
+          <GroupedMenuRow description={canManageFinancials ? 'Kuras, draudimas, mokesčiai ir atlygis.' : 'Parametrai tik peržiūrai.'} icon={<SettingsIcon color={colors.warning} size={23} />} onPress={() => open({ pathname: '/financial-settings', params: { returnTo: 'dispatcher' } } as unknown as Href)} title="Finansiniai duomenys" tone="warning" />
+          <GroupedMenuRow description="Odometrai, kilometrai, kuro norma ir spausdinimas." icon={<TripSheetIcon color={colors.success} size={23} />} onPress={() => open({ pathname: '/trip-sheet', params: { returnTo: 'dispatcher' } } as Href)} title="Kelionės lapai" tone="success" />
+        </GroupedMenuSection></View>
       </View>
 
       <View style={styles.importNote}>
@@ -60,41 +67,14 @@ export default function DispatcherHomeScreen() {
   </>;
 }
 
-function MenuCard({ label, description, disabled = false, icon, onPress, tone, styles }: {
-  label: string;
-  description: string;
-  disabled?: boolean;
-  icon: ReactNode;
-  onPress: () => void;
-  tone: 'blue' | 'amber' | 'green';
-  styles: ReturnType<typeof createStyles>;
-}) {
-  const toneStyle = tone === 'blue' ? styles.iconBlue : tone === 'amber' ? styles.iconAmber : styles.iconGreen;
-  return <Pressable accessibilityRole="button" accessibilityState={{ disabled }} disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.menuCard, disabled && styles.menuCardDisabled, pressed && styles.menuCardPressed]}>
-    <View style={[styles.iconBox, toneStyle]}>{icon}</View>
-    <View style={styles.menuCopy}><Text style={styles.menuTitle}>{label}</Text><Text style={styles.menuDescription}>{description}</Text></View>
-    <Text style={styles.arrow}>→</Text>
-  </Pressable>;
-}
-
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   identity: { minHeight: 72, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
   eyebrow: { ...type.label, color: colors.textMuted },
   identityName: { ...type.sectionTitle, color: colors.text, marginTop: 2 },
   identityRole: { ...type.secondaryStrong, color: colors.info, backgroundColor: colors.infoSoft, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.pill, overflow: 'hidden' },
-  menuGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
-  menuGridCompact: { flexDirection: 'column' },
-  menuCard: { minWidth: 300, flexBasis: 480, flexGrow: 1, minHeight: 116, padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  menuCardPressed: { opacity: 0.78, transform: [{ scale: 0.995 }] },
-  menuCardDisabled: { opacity: 0.52 },
-  iconBox: { width: 52, height: 52, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
-  iconBlue: { backgroundColor: colors.infoSoft },
-  iconAmber: { backgroundColor: colors.warningSoft },
-  iconGreen: { backgroundColor: colors.accentSoft },
-  menuCopy: { flex: 1, minWidth: 0, gap: 4 },
-  menuTitle: { ...type.cardTitle, color: colors.text },
-  menuDescription: { ...type.secondary, color: colors.textMuted },
-  arrow: { ...type.sectionTitle, color: colors.textMuted },
+  menuSections: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: spacing.md },
+  menuSectionsCompact: { flexDirection: 'column' },
+  menuGroup: { flexGrow: 1, flexBasis: 330, minWidth: 0, width: '100%' },
   importNote: { padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceMuted, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   importNoteText: { ...type.secondary, color: colors.textSecondary, flex: 1 },
 });

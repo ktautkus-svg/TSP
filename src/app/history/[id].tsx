@@ -9,6 +9,8 @@ import { RouteBottomTabs } from '@/components/route-bottom-tabs';
 import { ShipmentLinesSummary } from '@/components/shipment-lines-summary';
 import { ExportPilotRouteDiagnostic } from '@/application/routes/pilot-route-export';
 import { resolveRoute } from '@/application/routes/route-navigation';
+import { useLocalAccess } from '@/application/auth/local-access-context';
+import { roleHomePath } from '@/application/navigation/role-home';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import { ShipmentLineRepository } from '@/database/repositories/shipment-line-repository';
 import type { DeliveryStop, Route } from '@/domain/route';
@@ -24,6 +26,7 @@ type Audit = Awaited<ReturnType<RouteRepository['listAudit']>>[number];
 export default function RouteHistoryDetailScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
+  const { profile } = useLocalAccess();
   const { id: routeId = '' } = useLocalSearchParams<{ id: string }>();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -61,7 +64,7 @@ export default function RouteHistoryDetailScreen() {
   }, [repository, routeId, router, shipmentRepository]));
 
   const goHistory = () => router.replace('/history' as Href);
-  const goHome = () => router.replace('/' as Href);
+  const goHome = () => router.replace(roleHomePath(profile.role) as Href);
   const goActiveDashboard = () => {
     if (!activeRoute) return goHome();
     const destination = resolveRoute(activeRoute);

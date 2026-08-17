@@ -13,12 +13,13 @@ const routeManagement = readFileSync(resolve(root, 'src/app/route-management.tsx
 const routes = readFileSync(resolve(root, 'src/app/history.tsx'), 'utf8');
 const appLayout = readFileSync(resolve(root, 'src/app/_layout.tsx'), 'utf8');
 const stackNavigation = readFileSync(resolve(root, 'src/components/stack-navigation.tsx'), 'utf8');
+const roleHome = readFileSync(resolve(root, 'src/application/navigation/role-home.ts'), 'utf8');
 
 describe('administrator workspace navigation', () => {
   it('shows administrator tools instead of automatically continuing a local route', () => {
     expect(home).toContain('testID="admin-home-menu"');
-    expect(home).toContain('label="Dispečerio skydelis"');
-    expect(home).not.toContain('label="Maršrutai"');
+    expect(home).toContain('title="Dispečerio skydelis"');
+    expect(home).not.toContain('title="Maršrutai"');
     expect(home).toContain('Kokybės kontrolė');
     expect(home).toContain('Vykdyti maršrutą');
     expect(home).toContain('Kelionės lapai');
@@ -28,8 +29,8 @@ describe('administrator workspace navigation', () => {
 
   it('opens focused employee and vehicle editors from visible settings shortcuts', () => {
     expect(settings).toContain('testID="admin-management-shortcuts"');
-    expect(settings).toContain("params: { section: 'employees' }");
-    expect(settings).toContain("params: { section: 'fleet' }");
+    expect(settings).toContain("params: { section: 'employees', returnTo: 'settings' }");
+    expect(settings).toContain("params: { section: 'fleet', returnTo: 'settings' }");
     expect(settings).toContain('testID="open-employee-management"');
     expect(settings).toContain('testID="open-vehicle-management"');
     expect(admin).toContain("requestedSection === 'employees' || requestedSection === 'fleet'");
@@ -38,14 +39,17 @@ describe('administrator workspace navigation', () => {
   });
 
   it('keeps a visible deterministic exit inside both route workspaces', () => {
-    expect(dispatcher).toContain('Redaguoti vairuotojus');
-    expect(dispatcher).toContain('Redaguoti automobilius');
+    expect(dispatcher).toContain('title="Vairuotojai"');
+    expect(dispatcher).toContain('title="Automobiliai"');
     expect(routeManagement).toContain('Redaguoti vairuotojus →');
     expect(routeManagement).toContain('Redaguoti automobilius →');
-    expect(stackNavigation).toContain('router.canGoBack()');
-    expect(stackNavigation).toContain('router.back()');
-    expect(stackNavigation).toContain("router.replace(fallback)");
-    expect(stackNavigation).toContain("router.replace('/' as Href)");
+    expect(stackNavigation).not.toContain('router.canGoBack()');
+    expect(stackNavigation).not.toContain('router.back()');
+    expect(stackNavigation).toContain('router.replace(navigation.backTarget)');
+    expect(stackNavigation).toContain('router.replace(navigation.homeTarget)');
+    expect(stackNavigation).toContain('roleHomePath(profile.role)');
+    expect(roleHome).toContain("if (role === 'dispatcher') return '/dispatcher'");
+    expect(roleHome).toContain("if (role === 'driver') return '/history'");
     expect(routes).not.toContain('routes-back-home');
   });
 

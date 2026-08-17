@@ -16,6 +16,7 @@ import { fonts, radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { useLocalAccess } from '@/application/auth/local-access-context';
+import { roleHomePath } from '@/application/navigation/role-home';
 import { pullAssignedRoutes, pushCompletedRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
 
 export default function RoutesScreen() {
@@ -65,16 +66,14 @@ export default function RoutesScreen() {
     return () => { mounted = false; };
   }, [db, online, profile, repository]));
 
-  const goHome = () => router.replace('/' as Href);
-  const openOperationalRoute = (route: Route) => {
-    router.push({ pathname: '/route/[id]/overview', params: { id: route.id } } as unknown as Href);
+  const goHome = () => router.replace(roleHomePath(profile.role) as Href);
+  const openOperationalRoute = (route: Route, editOrder = false) => {
+    router.push({ pathname: '/route/[id]/overview', params: { id: route.id, ...(editOrder ? { edit: 'order' } : {}) } } as unknown as Href);
   };
   const startOperationalRoute = (route: Route) => {
     const destination = resolveRoute(route);
     router.push({ pathname: destination.pathname, params: destination.params } as Href);
   };
-  const primaryRoute = operationalRoutes[0] ?? null;
-
   return (
     <>
       <Stack.Screen options={{ gestureEnabled: false }} />
@@ -82,20 +81,17 @@ export default function RoutesScreen() {
         <FoundationScreen contentMaxWidth={contentWidth} showFoundationNotice={false} title="Maršrutai" description="Aktyvūs, būsimi ir ankstesni jūsų maršrutai vienoje vietoje.">
           {error ? <Text style={styles.error}>{error}</Text> : null}
 
-          {primaryRoute ? <View style={styles.topActions} testID="driver-route-primary-actions">
-            <Pressable style={styles.startButton} onPress={() => startOperationalRoute(primaryRoute)}><Text style={styles.startButtonText}>{primaryRoute.status === 'in_progress' ? 'Tęsti' : 'Pradėti'}</Text></Pressable>
-            <Pressable style={styles.previewButton} onPress={() => openOperationalRoute(primaryRoute)}><Text style={styles.previewButtonText}>Peržiūrėti</Text></Pressable>
-          </View> : null}
-
           {operationalRoutes.length > 0 ? <Text style={styles.sectionLabel}>DABAR IR TOLIAU</Text> : null}
           <View style={[styles.routeGrid, wideLayout && styles.routeGridWide]}>
           {operationalRoutes.map((route) => <RouteListCard
-            actionLabel="Atidaryti informaciją"
+            actionLabel={route.status === 'in_progress' ? 'Tęsti' : 'Pradėti'}
             dateLabel={formatLithuanianDate(route.date)}
             distanceLabel={`${route.estimatedDistanceKm?.toFixed(1) ?? '—'} km`}
             key={route.id}
             numberLabel={routeCodeLabel(route.id, routeCodes)}
-            onPress={() => openOperationalRoute(route)}
+            onPress={() => startOperationalRoute(route)}
+            onSecondaryPress={() => openOperationalRoute(route, ['planned', 'in_progress'].includes(route.status))}
+            secondaryActionLabel={['planned', 'in_progress'].includes(route.status) ? 'Redaguoti' : 'Informacija'}
             statusLabel={operationalRouteLabel(route)}
             statusTone={route.status === 'in_progress' ? 'active' : 'planned'}
             style={wideLayout ? styles.routeCardWide : undefined}
@@ -134,7 +130,7 @@ export default function RoutesScreen() {
             </View>
           ) : null}
 
-          <Pressable accessibilityLabel="Grįžti į skydelį" accessibilityRole="button" style={styles.homeButton} onPress={goHome}><Text style={styles.homeText}>Į skydelį</Text></Pressable>
+          {profile.role !== 'driver' ? <Pressable accessibilityLabel="Grįžti į skydelį" accessibilityRole="button" style={styles.homeButton} onPress={goHome}><Text style={styles.homeText}>Į skydelį</Text></Pressable> : null}
         </FoundationScreen>
         {profile.role === 'driver' ? <DriverAppTabs active="routes" /> : null}
       </View>
@@ -154,11 +150,6 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   screen: { flex: 1, alignSelf: 'center', width: '100%', backgroundColor: colors.background },
   routeGrid: { gap: spacing.md },
   routeGridWide: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'stretch' },
-  topActions: { flexDirection: 'row', gap: spacing.sm },
-  startButton: { flex: 1, minHeight: 54, borderRadius: radius.md, backgroundColor: colors.actionPrimary, alignItems: 'center', justifyContent: 'center' },
-  startButtonText: { ...type.button, color: colors.textInverse },
-  previewButton: { flex: 1, minHeight: 54, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
-  previewButtonText: { ...type.button, color: colors.text },
   routeCardWide: { flexGrow: 1, flexBasis: 320, minWidth: 0, maxWidth: 470 },
   empty: { padding: spacing.lg, borderWidth: 1, borderRadius: radius.lg, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.xs },
   sectionLabel: { ...type.label, color: colors.textMuted, marginTop: spacing.sm },

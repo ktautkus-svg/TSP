@@ -69,7 +69,7 @@ describe('route screen regression guards', () => {
     expect(source).toContain('gestureEnabled: false');
     expect(source).toContain('headerBackVisible: false');
     expect(source).toContain('if (showFinish) return leaveFinish()');
-    expect(source).toContain("router.replace('/' as Href)");
+    expect(source).toContain('router.replace(roleHomePath(profile.role) as Href)');
     expect(source).toContain('BackHandler.addEventListener');
   });
 

@@ -6,6 +6,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { importAssignmentSnapshot } from '@/application/auth/route-assignment-sync';
 import { effectiveAssignmentStatus, isActiveAssignment } from '@/application/auth/route-assignment-status';
 import { useLocalAccess } from '@/application/auth/local-access-context';
+import { roleHomePath } from '@/application/navigation/role-home';
 import { resolveRouteDestination } from '@/application/routes/route-navigation';
 import { ScreenContainer } from '@/components/screen-container';
 import { employeeApi, type EmployeeProfile, type ServerRouteAssignment } from '@/infrastructure/auth/employee-session';
@@ -42,7 +43,7 @@ export default function ExecuteRouteScreen() {
 
   useEffect(() => {
     if (!['admin', 'dispatcher'].includes(profile.role)) {
-      router.replace('/' as Href);
+      router.replace(roleHomePath(profile.role) as Href);
       return;
     }
     void load().catch((reason) => setError(reason instanceof Error ? reason.message : 'Duomenų gauti nepavyko.')).finally(() => setBusy(false));

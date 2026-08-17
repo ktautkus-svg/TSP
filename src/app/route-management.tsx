@@ -16,6 +16,7 @@ import {
 import { markRouteDeletedForCloud } from '@/application/sync/route-cloud-sync';
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 import { useLocalAccess } from '@/application/auth/local-access-context';
+import { roleHomePath } from '@/application/navigation/role-home';
 import { ChevronDownIcon, ChevronRightIcon, TrashIcon } from '@/components/app-icons';
 import { employeeApi, type EmployeeProfile, type ServerFleetVehicle, type ServerRouteAssignment } from '@/infrastructure/auth/employee-session';
 import { uniqueRegionCodes } from '@/domain/route-code';
@@ -136,7 +137,7 @@ export default function RouteManagementScreen() {
 
   useEffect(() => {
     if (!['admin', 'dispatcher'].includes(profile.role)) {
-      router.replace('/' as Href);
+      router.replace(roleHomePath(profile.role) as Href);
       return;
     }
     void load().catch((error) => setMessage(error instanceof Error ? error.message : 'Skydelio duomenų gauti nepavyko.'));
@@ -515,8 +516,8 @@ export default function RouteManagementScreen() {
           </View> : <Text style={styles.selectionPrompt}>Pasirinkite vairuotoją ir automobilį. Niekas neparenkama automatiškai.</Text>}
 
           <View style={styles.managementLinks}>
-            <Pressable style={styles.permissionsLink} onPress={() => router.push({ pathname: '/admin', params: { section: 'employees' } } as Href)}><Text style={styles.permissionsText}>Redaguoti vairuotojus →</Text></Pressable>
-            <Pressable style={styles.permissionsLink} onPress={() => router.push({ pathname: '/admin', params: { section: 'fleet' } } as Href)}><Text style={styles.permissionsText}>Redaguoti automobilius →</Text></Pressable>
+            <Pressable style={styles.permissionsLink} onPress={() => router.push({ pathname: '/admin', params: { section: 'employees', returnTo: 'route-management' } } as Href)}><Text style={styles.permissionsText}>Redaguoti vairuotojus →</Text></Pressable>
+            <Pressable style={styles.permissionsLink} onPress={() => router.push({ pathname: '/admin', params: { section: 'fleet', returnTo: 'route-management' } } as Href)}><Text style={styles.permissionsText}>Redaguoti automobilius →</Text></Pressable>
           </View>
         </View> : null}
 

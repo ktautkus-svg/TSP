@@ -12,6 +12,8 @@ export interface RouteListCardProps {
   readonly distanceLabel: string;
   readonly numberLabel: string;
   readonly onPress: () => void;
+  readonly onSecondaryPress?: () => void;
+  readonly secondaryActionLabel?: string;
   readonly statusLabel: string;
   readonly statusTone: 'active' | 'planned' | 'completed' | 'cancelled';
   readonly style?: StyleProp<ViewStyle>;
@@ -25,13 +27,9 @@ export function RouteListCard(props: RouteListCardProps) {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const active = props.statusTone === 'active';
   return (
-    <Pressable
+    <View
       accessibilityLabel={`${props.numberLabel}, ${props.dateLabel}, ${props.statusLabel}`}
-      accessibilityRole="button"
-      accessibilityState={{ disabled: props.disabled }}
-      disabled={props.disabled}
-      onPress={props.onPress}
-      style={({ pressed }) => [styles.card, props.style, active && styles.cardActive, props.disabled && styles.disabled, pressed && styles.pressed]}
+      style={[styles.card, props.style, active && styles.cardActive, props.disabled && styles.disabled]}
       testID={props.testID}>
       <View style={styles.heading}>
         <View style={styles.identity}>
@@ -45,8 +43,25 @@ export function RouteListCard(props: RouteListCardProps) {
         <Metric label="TAŠKAI" styles={styles} value={props.stopsLabel} />
         <Metric label="ATSTUMAS" styles={styles} value={props.distanceLabel} />
       </View>
-      <View style={[styles.action, active && styles.actionActive]}><Text style={[styles.actionText, active && styles.actionTextActive]}>{props.actionLabel}</Text></View>
-    </Pressable>
+      <View style={styles.actions}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ disabled: props.disabled }}
+          disabled={props.disabled}
+          onPress={props.onPress}
+          style={({ pressed }) => [styles.action, active && styles.actionActive, pressed && styles.pressed]}>
+          <Text style={[styles.actionText, active && styles.actionTextActive]}>{props.actionLabel}</Text>
+        </Pressable>
+        {props.secondaryActionLabel && props.onSecondaryPress ? <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ disabled: props.disabled }}
+          disabled={props.disabled}
+          onPress={props.onSecondaryPress}
+          style={({ pressed }) => [styles.action, styles.secondaryAction, pressed && styles.pressed]}>
+          <Text style={styles.actionText}>{props.secondaryActionLabel}</Text>
+        </Pressable> : null}
+      </View>
+    </View>
   );
 }
 
@@ -79,7 +94,9 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   metric: { flex: 1, minWidth: 0, gap: 2 },
   metricLabel: { ...type.label, color: colors.textMuted },
   metricValue: { ...type.bodyStrong, color: colors.text },
-  action: { minHeight: 48, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
+  actions: { flexDirection: 'row', gap: spacing.sm },
+  action: { flex: 1, minHeight: 48, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
+  secondaryAction: { backgroundColor: colors.surface },
   actionActive: { borderColor: colors.info, backgroundColor: colors.info },
   actionText: { ...type.button, color: colors.textSecondary },
   actionTextActive: { color: colors.textInverse },

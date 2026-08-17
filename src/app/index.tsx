@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Constants from 'expo-constants';
 import { Pressable, SafeAreaView, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { Link, useFocusEffect, useRouter, type Href } from 'expo-router';
@@ -11,6 +11,7 @@ import { AccountMenuSheet } from '@/components/account-menu-sheet';
 import { BrandHeader } from '@/components/brand-header';
 import { DriverNowDashboard } from '@/components/driver-now-dashboard';
 import { DriverAppTabs } from '@/components/driver-app-tabs';
+import { GroupedMenuRow, GroupedMenuSection } from '@/components/grouped-menu';
 import { DispatchIcon, ExecuteRouteIcon, QualityIcon, SettingsIcon, TripSheetIcon } from '@/components/app-icons';
 import { ScreenContainer } from '@/components/screen-container';
 import { AppButton, AppCard } from '@/components/ui-primitives';
@@ -143,12 +144,18 @@ export default function HomeScreen() {
                 <Text style={styles.adminMenuTitle}>TSP valdymo centras</Text>
                 <Text style={styles.activeText}>Pasirinkite užduotį. Maršrutai administratoriaus vardu automatiškai nepradedami.</Text>
               </View>
-              <View style={styles.adminMenuGrid}>
-                <AdminMenuCard description="Kurti, redaguoti ir priskirti maršrutus, valdyti vairuotojus bei automobilius" icon={<DispatchIcon />} label="Dispečerio skydelis" onPress={() => router.push('/dispatcher' as Href)} styles={styles} />
-                <AdminMenuCard description="Taškų seka, laikai ir pristatymo kokybė" icon={<QualityIcon />} label="Kokybės kontrolė" onPress={() => router.push('/quality-control' as Href)} styles={styles} />
-                <AdminMenuCard description="Pasirinkti vairuotoją ir tęsti jo maršrutą" icon={<ExecuteRouteIcon color={colors.info} />} label="Vykdyti maršrutą" onPress={() => router.push('/execute-route' as Href)} styles={styles} />
-                <AdminMenuCard description="Vairuotojai, automobiliai, vietos ir programėlė" icon={<SettingsIcon />} label="Nustatymai" onPress={() => router.push('/settings' as Href)} styles={styles} />
-                <AdminMenuCard description="Užbaigtų darbų suvestinės, odometrai ir PDF" icon={<TripSheetIcon />} label="Kelionės lapai" onPress={() => router.push('/trip-sheet' as Href)} styles={styles} />
+              <View style={styles.adminMenuSections}>
+                <View style={styles.adminMenuGroup}><GroupedMenuSection label="OPERACIJOS">
+                  <GroupedMenuRow description="Kurti, redaguoti ir priskirti maršrutus." icon={<DispatchIcon />} onPress={() => router.push('/dispatcher' as Href)} title="Dispečerio skydelis" />
+                  <GroupedMenuRow description="Pasirinkti vairuotoją ir tęsti jo darbą." icon={<ExecuteRouteIcon color={colors.info} />} onPress={() => router.push('/execute-route' as Href)} title="Vykdyti maršrutą" />
+                </GroupedMenuSection></View>
+                <View style={styles.adminMenuGroup}><GroupedMenuSection label="STEBĖJIMAS IR APSKAITA">
+                  <GroupedMenuRow description="Taškų seka, laikai ir pristatymo kokybė." icon={<QualityIcon />} onPress={() => router.push('/quality-control' as Href)} title="Kokybės kontrolė" />
+                  <GroupedMenuRow description="Odometrai, suvestinės ir spausdinimas." icon={<TripSheetIcon />} onPress={() => router.push({ pathname: '/trip-sheet', params: { returnTo: 'home' } } as Href)} title="Kelionės lapai" tone="success" />
+                </GroupedMenuSection></View>
+                <View style={styles.adminMenuGroup}><GroupedMenuSection label="SISTEMA">
+                  <GroupedMenuRow description="Vairuotojai, automobiliai, vietos ir programėlė." icon={<SettingsIcon />} onPress={() => router.push('/settings' as Href)} title="Nustatymai" />
+                </GroupedMenuSection></View>
               </View>
             </View>
           ) : profile.role === 'driver' ? active && progress ? (
@@ -278,30 +285,6 @@ function formatMetric(value: number | null | undefined): string {
   return new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(value);
 }
 
-function AdminMenuCard({ label, description, icon, onPress, primary = false, styles }: {
-  label: string;
-  description: string;
-  icon: ReactNode;
-  onPress: () => void;
-  primary?: boolean;
-  styles: ReturnType<typeof createStyles>;
-}) {
-  return <Pressable
-    accessibilityLabel={label}
-    accessibilityRole="button"
-    onPress={onPress}
-    style={({ pressed }) => [styles.adminMenuButton, primary && styles.adminMenuButtonPrimary, pressed && styles.adminMenuButtonPressed]}>
-    <View style={[styles.adminMenuSymbol, primary && styles.adminMenuSymbolPrimary]}>
-      {icon}
-    </View>
-    <View style={styles.adminMenuButtonBody}>
-      <Text style={[styles.adminMenuButtonText, primary && styles.adminMenuButtonTextPrimary]}>{label}</Text>
-      <Text style={[styles.adminMenuDescription, primary && styles.adminMenuDescriptionPrimary]}>{description}</Text>
-    </View>
-    <Text style={[styles.adminMenuArrow, primary && styles.adminMenuButtonTextPrimary]}>→</Text>
-  </Pressable>;
-}
-
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background },
   content: { flexGrow: 1, paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: 96, gap: spacing.md },
@@ -332,18 +315,8 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   adminMenu: { gap: spacing.md },
   adminMenuHeading: { gap: spacing.xs },
   adminMenuTitle: { ...type.pageTitle, color: colors.text, fontSize: 26, lineHeight: 32 },
-  adminMenuGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  adminMenuButton: { minWidth: 280, flexBasis: 360, flexGrow: 1, minHeight: 88, paddingHorizontal: spacing.md, paddingVertical: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  adminMenuButtonPrimary: { backgroundColor: colors.actionPrimary, borderColor: colors.actionPrimary },
-  adminMenuButtonPressed: { opacity: 0.82 },
-  adminMenuSymbol: { width: 44, height: 44, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.infoSoft },
-  adminMenuSymbolPrimary: { backgroundColor: 'rgba(255,255,255,0.15)' },
-  adminMenuButtonBody: { flex: 1, minWidth: 0, gap: 4 },
-  adminMenuButtonText: { ...type.cardTitle, color: colors.text },
-  adminMenuButtonTextPrimary: { color: colors.textInverse },
-  adminMenuDescription: { ...type.secondary, color: colors.textMuted },
-  adminMenuDescriptionPrimary: { color: 'rgba(255,255,255,0.78)' },
-  adminMenuArrow: { ...type.sectionTitle, color: colors.info },
+  adminMenuSections: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: spacing.md },
+  adminMenuGroup: { flexGrow: 1, flexBasis: 320, minWidth: 0 },
   // Tertiary navigation: deliberately quiet so it cannot compete with the
   // primary action above it.
   navigationCard: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs },

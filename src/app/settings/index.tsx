@@ -277,7 +277,7 @@ export default function SettingsScreen() {
             <Pressable
               accessibilityLabel="Redaguoti vairuotojus ir darbuotojus"
               accessibilityRole="button"
-              onPress={() => router.push({ pathname: '/admin', params: { section: 'employees' } } as Href)}
+              onPress={() => router.push({ pathname: '/admin', params: { section: 'employees', returnTo: 'settings' } } as Href)}
               style={styles.managementCard}
               testID="open-employee-management">
               <View style={styles.managementIcon}><EmployeesIcon /></View>
@@ -287,7 +287,7 @@ export default function SettingsScreen() {
             <Pressable
               accessibilityLabel="Redaguoti automobilius"
               accessibilityRole="button"
-              onPress={() => router.push({ pathname: '/admin', params: { section: 'fleet' } } as Href)}
+              onPress={() => router.push({ pathname: '/admin', params: { section: 'fleet', returnTo: 'settings' } } as Href)}
               style={styles.managementCard}
               testID="open-vehicle-management">
               <View style={styles.managementIcon}><VehicleIcon /></View>
@@ -295,7 +295,7 @@ export default function SettingsScreen() {
               <Text style={styles.chevron}>›</Text>
             </Pressable>
           </View>
-          <Pressable style={styles.adminPanelLink} onPress={() => router.push('/admin' as Href)} testID="open-admin-panel">
+          <Pressable style={styles.adminPanelLink} onPress={() => router.push({ pathname: '/admin', params: { returnTo: 'settings' } } as Href)} testID="open-admin-panel">
             <SettingsIcon size={20} />
             <Text style={styles.adminPanelLinkText}>Visas administratoriaus valdymas</Text>
             <Text style={styles.chevron}>›</Text>

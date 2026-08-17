@@ -13,6 +13,7 @@ import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { Stack, useFocusEffect, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useLocalAccess } from '@/application/auth/local-access-context';
+import { roleHomePath } from '@/application/navigation/role-home';
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 
 import { Alert } from '@/ui/alert';
@@ -108,7 +109,7 @@ export default function ImportScreen() {
   const [startMode, setStartMode] = useState<'warehouse' | 'kretinga' | null>(null);
 
   useEffect(() => {
-    if (profile.role === 'driver' && !profile.permissions?.canCreateRoutes) router.replace('/' as Href);
+    if (profile.role === 'driver' && !profile.permissions?.canCreateRoutes) router.replace(roleHomePath(profile.role) as Href);
   }, [profile, router]);
   const [planningMode, setPlanningMode] = useState<PlanningMode>('ignore_time_windows');
   const [planningDate, setPlanningDate] = useState(() => defaultPlanningDate());
@@ -865,7 +866,7 @@ export default function ImportScreen() {
       setMessage(null);
       return;
     }
-    router.back();
+    router.replace((profile.role === 'admin' || profile.role === 'dispatcher' ? '/dispatcher' : '/history') as Href);
   };
 
   const openExcelSheet = async (sheet: ExcelSheetSession) => {

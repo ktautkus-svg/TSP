@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
@@ -22,11 +22,12 @@ import type { ColorPalette } from '@/ui/theme-palette';
 import { Alert } from '@/ui/alert';
 import { ReorderRemainingStops } from '@/application/routes/route-workday';
 import { ManualRouteOrderList } from '@/components/manual-route-order-list';
+import { RouteMapView } from '@/components/route-map';
 
 export default function RouteOverviewScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
-  const { id: routeId = '', mode } = useLocalSearchParams<{ id: string; mode?: string }>();
+  const { id: routeId = '', mode, edit } = useLocalSearchParams<{ id: string; mode?: string; edit?: string }>();
   const { profile, online } = useLocalAccess();
   const { requestSync } = useRouteCloudSync();
   const { colors } = useTheme();
@@ -39,6 +40,7 @@ export default function RouteOverviewScreen() {
   const [editingOrder, setEditingOrder] = useState(false);
   const [pendingOrder, setPendingOrder] = useState<string[]>([]);
   const [savingOrder, setSavingOrder] = useState(false);
+  const requestedEditorRef = useRef(false);
   const [assignment, setAssignment] = useState<ServerRouteAssignment | null>(null);
   const [priceSettings, setPriceSettings] = useState<RoutePriceSettings>(() => normalizeRoutePriceSettings(DEFAULT_ROUTE_PRICE_SETTINGS));
   const managementMode = mode === 'management' && ['admin', 'dispatcher'].includes(profile.role);
@@ -93,7 +95,7 @@ export default function RouteOverviewScreen() {
     const destination = resolveRoute(route);
     router.replace({ pathname: destination.pathname, params: destination.params } as Href);
   };
-  const editOrder = async () => {
+  const editOrder = useCallback(async () => {
     if (!route) return;
     if (route.status === 'planned') {
       try {
@@ -114,7 +116,12 @@ export default function RouteOverviewScreen() {
       setPendingOrder(pending.map((stop) => stop.id));
       setEditingOrder(true);
     }
-  };
+  }, [db, requestSync, route, router, stops]);
+  useEffect(() => {
+    if (edit !== 'order' || !route || stops.length === 0 || requestedEditorRef.current) return;
+    requestedEditorRef.current = true;
+    void editOrder();
+  }, [edit, editOrder, route, stops.length]);
   const movePendingStop = (stopId: string, targetIndex: number) => {
     setPendingOrder((current) => {
       const index = current.indexOf(stopId);
@@ -147,6 +154,7 @@ export default function RouteOverviewScreen() {
   };
   const canEditOrder = profile.role !== 'driver' || profile.permissions?.canReorderAssignedRoute;
   const terminal = route ? ['completed', 'cancelled'].includes(route.status) : false;
+  const orderMap = useMemo(() => buildOrderMap(route, stops, pendingOrder), [pendingOrder, route, stops]);
   const preliminaryPrice = route && assignment?.vehicle ? estimatePreliminaryRoutePrice({
     date: route.date,
     distanceKm: route.estimatedDistanceKm,
@@ -190,6 +198,16 @@ export default function RouteOverviewScreen() {
             </View>
             <Pressable accessibilityLabel="Uždaryti eiliškumo redagavimą" onPress={() => setEditingOrder(false)} style={styles.editorClose}><Text style={styles.editorCloseText}>×</Text></Pressable>
           </View>
+          {orderMap ? <View style={styles.orderMap} testID="active-route-order-map">
+            <Text style={styles.sectionLabel}>EILIŠKUMAS ŽEMĖLAPYJE</Text>
+            <RouteMapView
+              allowStraightLineFallback
+              compact
+              endLocation={orderMap.end}
+              orderedStops={orderMap.stops}
+              startLocation={orderMap.start}
+            />
+          </View> : <Text style={styles.orderSummary}>Žemėlapis bus rodomas, kai maršruto taškai turės koordinates.</Text>}
           <ManualRouteOrderList
             items={pendingOrder.map((stopId) => stops.find((stop) => stop.id === stopId)).filter((stop): stop is DeliveryStop => Boolean(stop)).map((stop) => ({
               id: stop.id,
@@ -241,6 +259,37 @@ function formatDuration(minutes: number): string { const hours = Math.floor(minu
 function formatMoney(value: number): string { return `${new Intl.NumberFormat('lt-LT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)} €`; }
 function timeWindow(stop: DeliveryStop): string { return stop.deliveryTimeFrom && stop.deliveryTimeTo ? `${stop.deliveryTimeFrom}–${stop.deliveryTimeTo}` : 'Laikas laisvas'; }
 
+function buildOrderMap(route: Route | null, stops: DeliveryStop[], orderedIds: string[]) {
+  if (!route?.startLocation || !route.endLocation) return null;
+  const start = routingEndpoint('start', 'Startas', route.startLocation);
+  const end = routingEndpoint('end', 'Grįžimas', route.endLocation);
+  if (!start || !end) return null;
+  const byId = new Map(stops.map((stop) => [stop.id, stop]));
+  const orderedStops = orderedIds.flatMap((id) => {
+    const stop = byId.get(id);
+    if (!stop || !Number.isFinite(stop.latitude) || !Number.isFinite(stop.longitude)) return [];
+    return [{
+      id: stop.id,
+      label: stop.recipient || stop.normalizedAddress || stop.originalAddress,
+      address: stop.normalizedAddress ?? stop.originalAddress,
+      latitude: stop.latitude as number,
+      longitude: stop.longitude as number,
+    }];
+  });
+  return { start, end, stops: orderedStops };
+}
+
+function routingEndpoint(id: string, fallbackLabel: string, endpoint: NonNullable<Route['startLocation']>) {
+  if (!Number.isFinite(endpoint.latitude) || !Number.isFinite(endpoint.longitude)) return null;
+  return {
+    id,
+    label: endpoint.normalizedAddress || endpoint.originalAddress || fallbackLabel,
+    address: endpoint.originalAddress,
+    latitude: endpoint.latitude as number,
+    longitude: endpoint.longitude as number,
+  };
+}
+
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   screen: { flex: 1, alignSelf: 'center', width: '100%', maxWidth: 720, backgroundColor: colors.background },
   headerAction: { minWidth: 110, minHeight: 44, justifyContent: 'center' }, headerText: { ...type.button, color: colors.brandNavy },
@@ -255,6 +304,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   orderEditor: { padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.info, backgroundColor: colors.surface, gap: spacing.md },
   orderEditorHeading: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
   orderEditorTitle: { ...type.sectionTitle, color: colors.text, marginTop: 2 },
+  orderMap: { overflow: 'hidden', borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceSubtle, gap: spacing.xs, padding: spacing.sm },
   editorClose: { width: 44, height: 44, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   editorCloseText: { ...type.sectionTitle, color: colors.textSecondary, fontSize: 24 },
   orderEditorActions: { flexDirection: 'row', gap: spacing.sm },

@@ -23,6 +23,7 @@ import { ThemeProvider } from '@/ui/theme';
 import { AlertHost } from '@/ui/alert';
 import { colors, radius, type } from '@/ui/tokens';
 import { useLocalAccess } from '@/application/auth/local-access-context';
+import { roleHomePath } from '@/application/navigation/role-home';
 
 function RoleAccessBoundary({ children }: { children: ReactNode }) {
   const { profile } = useLocalAccess();
@@ -40,8 +41,8 @@ function RoleAccessBoundary({ children }: { children: ReactNode }) {
   const blocked = (profile.role === 'driver' && (adminOnly || (routePlanning && !driverCanPlan)))
     || (profile.role === 'quality' && !qualityAllowed);
   useEffect(() => {
-    if (blocked) router.replace('/' as Href);
-  }, [blocked, router]);
+    if (blocked) router.replace(roleHomePath(profile.role) as Href);
+  }, [blocked, profile.role, router]);
   return blocked ? null : children;
 }
 

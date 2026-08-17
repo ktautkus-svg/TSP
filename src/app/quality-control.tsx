@@ -3,8 +3,9 @@ import { ActivityIndicator, Pressable, SafeAreaView, ScrollView, StyleSheet, Tex
 import { Stack, useRouter, type Href } from 'expo-router';
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
+import { roleHomePath } from '@/application/navigation/role-home';
 import { AccountMenuSheet } from '@/components/account-menu-sheet';
-import { BackIcon, HomeIcon } from '@/components/app-icons';
+import { BackIcon } from '@/components/app-icons';
 import { TspBrand } from '@/components/tsp-brand';
 import { classifyDeliveryWindow, minutesLate } from '@/domain/delivery-window-timing';
 import { employeeApi, type QualityRouteMonitor, type QualityStopMonitor } from '@/infrastructure/auth/employee-session';
@@ -64,14 +65,15 @@ export default function QualityControlScreen() {
   }, [online]);
 
   const allowed = ['quality', 'admin', 'dispatcher'].includes(profile.role);
+  const parentTarget = profile.role === 'dispatcher' ? '/dispatcher' as Href : '/' as Href;
 
   useEffect(() => {
     if (!allowed) {
-      router.replace('/' as Href);
+      router.replace(roleHomePath(profile.role) as Href);
       return;
     }
     void load(true);
-  }, [allowed, load, router]);
+  }, [allowed, load, profile.role, router]);
 
   useForegroundInterval(
     useCallback(() => { if (allowed) void load(false); }, [allowed, load]),
@@ -97,18 +99,15 @@ export default function QualityControlScreen() {
   return <SafeAreaView style={styles.safeArea}>
     <Stack.Screen options={{ headerShown: false }} />
     <View style={styles.header}>
-      <Pressable accessibilityLabel="Atgal" accessibilityRole="button" onPress={() => router.canGoBack() ? router.back() : router.replace('/' as Href)} style={styles.headerNavButton}>
+      {profile.role === 'quality' ? <View style={styles.headerNavButton} /> : <Pressable accessibilityLabel="Atgal" accessibilityRole="button" onPress={() => router.replace(parentTarget)} style={styles.headerNavButton}>
         <BackIcon size={22} color={colors.primary} />
-      </Pressable>
+      </Pressable>}
       <View style={styles.headerIdentity}>
         <TspBrand compact inverse={false} />
         {!mobile ? <View style={styles.headerDivider} /> : null}
         {!mobile ? <Text numberOfLines={1} style={styles.headerContext}>KOKYBĖS KONTROLĖ</Text> : null}
       </View>
       <View style={styles.headerActions}>
-        <Pressable accessibilityLabel="Į pradžią" accessibilityRole="button" onPress={() => router.replace('/' as Href)} style={styles.headerNavButton}>
-          <HomeIcon size={21} color={colors.primary} />
-        </Pressable>
         <Pressable accessibilityLabel="Atidaryti paskyros meniu" accessibilityRole="button" onPress={() => setAccountMenuOpen(true)} style={({ pressed }) => [styles.accountButton, pressed && styles.accountButtonPressed]}>
           <Text style={styles.accountInitials}>{initials(profile.displayName)}</Text>
         </Pressable>
