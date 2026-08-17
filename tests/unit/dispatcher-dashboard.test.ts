@@ -20,6 +20,8 @@ const layoutSource = readFileSync(resolve(root, 'src/app/_layout.tsx'), 'utf8');
 describe('dispatcher desktop workspace', () => {
   it('requires choosing a route before showing the assignment workflow', () => {
     expect(dispatcherSource).toContain('testID="route-first-selection"');
+    expect(dispatcherSource).toContain('testID="active-assignment-management"');
+    expect(dispatcherSource).toContain('Pašalinti priskyrimą');
     expect(dispatcherSource).toContain("mode: 'management'");
     expect(dispatcherSource).toContain('testID="route-assignment-form"');
     expect(dispatcherSource).toContain('Pasirinkite maršrutą');

@@ -244,6 +244,39 @@ export default function RouteManagementScreen() {
     );
   };
 
+  const removeAssignment = (assignment: ServerRouteAssignment) => {
+    const localRoute = routes.find((route) => route.id === assignment.routeId);
+    Alert.alert(
+      'Pašalinti aktyvų priskyrimą?',
+      `${assignmentRouteLabel(assignment)} · ${assignment.driverName}${assignment.vehicle ? ` · ${assignment.vehicle.registrationNumber}` : ''}. Priskyrimas bus pašalintas iš vairuotojo įrenginių${localRoute ? ', o susietas maršrutas – iš šio įrenginio' : ''}.`,
+      [
+        { text: 'Palikti', style: 'cancel' },
+        {
+          text: 'Pašalinti',
+          style: 'destructive',
+          onPress: () => { void (async () => {
+            setBusy(true);
+            setMessage(null);
+            try {
+              await employeeApi(`/api/admin/assignments/${encodeURIComponent(assignment.id)}`, { method: 'DELETE' });
+              if (localRoute) {
+                await new CancelDraftRoute(db).execute(localRoute.id);
+                await markRouteDeletedForCloud(db, localRoute.id);
+              }
+              await requestSync('mutation');
+              setMessage('Aktyvus priskyrimas pašalintas. Vairuotojo įrenginys pakeitimą gaus sinchronizacijos metu.');
+              await load();
+            } catch (error) {
+              setMessage(error instanceof Error ? error.message : 'Priskyrimo pašalinti nepavyko.');
+            } finally {
+              setBusy(false);
+            }
+          })(); },
+        },
+      ],
+    );
+  };
+
   const selectedPrice = selectedRoute && selectedDriver && selectedVehicle
     ? estimatePreliminaryRoutePrice({
       date: selectedRoute.date,
@@ -331,6 +364,32 @@ export default function RouteManagementScreen() {
               </View>;
             })}
           </View>}
+        </View> : null}
+
+        {!selectedRoute && activeAssignments.length > 0 ? <View style={styles.activeAssignmentsPanel} testID="active-assignment-management">
+          <View style={styles.formHeading}>
+            <View style={styles.formHeadingText}>
+              <Text style={styles.panelTitle}>Aktyvūs priskyrimai</Text>
+              <Text style={styles.panelHint}>Čia rodomi ir kituose įrenginiuose sukurti darbai. Juos galima pašalinti net jei vietinio maršruto šiame įrenginyje nebėra.</Text>
+            </View>
+            <Text style={styles.stepBadge}>{activeAssignments.length}</Text>
+          </View>
+          <View style={styles.activeAssignmentList}>
+            {activeAssignments.map((assignment) => {
+              const localRoute = routes.find((route) => route.id === assignment.routeId);
+              return <View key={assignment.id} style={styles.activeAssignmentRow}>
+                <View style={styles.assignmentContent}>
+                  <Text style={styles.activeAssignmentTitle}>{assignmentRouteLabel(assignment)}</Text>
+                  <Text style={styles.assignmentMeta}>{assignment.driverName}{assignment.vehicle ? ` · ${assignment.vehicle.registrationNumber} · ${assignment.vehicle.model}` : ' · automobilis nepriskirtas'}</Text>
+                  <Text style={styles.routeEndpoint}>{statusLabel(effectiveAssignmentStatus(assignment))}{localRoute ? ' · maršrutas yra šiame įrenginyje' : ' · vietinio maršruto šiame įrenginyje nėra'}</Text>
+                </View>
+                <View style={styles.activeAssignmentActions}>
+                  {localRoute ? <Pressable onPress={() => router.push({ pathname: '/route/[id]/overview', params: { id: localRoute.id, mode: 'management' } } as Href)} style={styles.routeSecondaryAction}><Text style={styles.routeSecondaryActionText}>Peržiūrėti</Text></Pressable> : null}
+                  <Pressable accessibilityLabel={`Pašalinti ${assignmentRouteLabel(assignment)} priskyrimą`} disabled={busy || !online} onPress={() => removeAssignment(assignment)} style={[styles.routeDeleteAction, (busy || !online) && styles.disabled]}><TrashIcon size={17} color={colors.danger} /><Text style={styles.routeDeleteActionText}>Pašalinti priskyrimą</Text></Pressable>
+                </View>
+              </View>;
+            })}
+          </View>
         </View> : null}
 
         {!assignmentCompleted && selectedRoute ? <View style={styles.assignmentForm} testID="route-assignment-form">
@@ -499,6 +558,14 @@ function routeCodesLabel(value: string | null): string {
   const codes = (value ?? '').split(',').map((code) => code.trim().toUpperCase()).filter((code) => /^[A-Z]\d{2}$/.test(code));
   return [...new Set(codes)].join(' · ') || 'Regiono kodas nenurodytas';
 }
+function assignmentRouteLabel(assignment: ServerRouteAssignment): string {
+  const regionCodes = [...new Set(assignment.routeSnapshot.shipmentLines
+    .map((line) => String(line.route_code ?? '').trim().toUpperCase())
+    .filter((code) => /^[A-Z]\d{2}$/.test(code)))];
+  const date = String(assignment.routeSnapshot.route.date ?? assignment.assignedAt.slice(0, 10));
+  const stops = Number(assignment.routeSnapshot.route.total_stops ?? assignment.routeSnapshot.stops.length);
+  return `${regionCodes.join(' · ') || 'Regiono kodas nenurodytas'} · ${formatDate(date)} · ${stops} taškų`;
+}
 function formatKm(value: number | null): string { return value === null ? 'atstumas dar neskaičiuotas' : `${new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(value)} km`; }
 function endpointLabel(json: string | null): string { try { const value = JSON.parse(json ?? '{}') as { normalizedAddress?: string; originalAddress?: string }; return value.normalizedAddress ?? value.originalAddress ?? 'Nenurodyta'; } catch { return 'Nenurodyta'; } }
 function statusLabel(status: string): string { return ({ draft: 'Ruošiamas', planned: 'Paruoštas', assigned: 'Laukia vairuotojo', downloaded: 'Gautas įrenginyje', in_progress: 'Vykdomas', loading: 'Kraunamas', loaded: 'Pakrautas', completed: 'Baigtas' } as Record<string, string>)[status] ?? status; }
@@ -558,6 +625,11 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   workspaceDesktop: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start' },
   assignmentForm: { padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, gap: spacing.lg },
   routeSelectionPanel: { padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, gap: spacing.lg },
+  activeAssignmentsPanel: { padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, gap: spacing.md },
+  activeAssignmentList: { gap: 0 },
+  activeAssignmentRow: { minHeight: 86, paddingVertical: spacing.md, borderTopWidth: 1, borderTopColor: colors.borderSubtle, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.md },
+  activeAssignmentTitle: { ...type.cardTitle, color: colors.text },
+  activeAssignmentActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
   routeChoiceGrid: { gap: spacing.md },
   routeChoiceGridDesktop: { flexDirection: 'row', flexWrap: 'wrap' },
   routeChoiceCard: { minHeight: 174, flexGrow: 1, flexBasis: 360, padding: spacing.lg, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, gap: spacing.sm },
