@@ -76,7 +76,6 @@ export default function SettingsScreen() {
   const [message, setMessage] = useState<string | null>(null);
   const [diagnostics, setDiagnostics] = useState<StorageDiagnostics | null>(null);
   const [openSection, setOpenSection] = useState<SettingsSection | null>(null);
-  const goHome = () => router.replace('/' as Href);
   const toggleSection = (section: SettingsSection) => setOpenSection((current) => current === section ? null : section);
 
   useEffect(() => {
@@ -247,32 +246,33 @@ export default function SettingsScreen() {
       <Stack.Screen options={{ gestureEnabled: false }} />
       <View style={styles.screen}>
       <FoundationScreen showFoundationNotice={false} title="Nustatymai" description="Vietos, navigacija ir programos parinktys.">
-        <View style={styles.section} testID="account-settings-section">
-          <Pressable accessibilityRole="button" accessibilityState={{ expanded: openSection === 'account' }} onPress={() => toggleSection('account')} style={styles.advancedToggle}>
-            <View style={styles.flex}>
-              <Text style={styles.sectionTitle}>Paskyra</Text>
-              <Text style={styles.meta}>{profile.displayName}</Text>
-            </View>
-            <Text style={styles.advancedChevron}>{openSection === 'account' ? '⌃' : '⌄'}</Text>
-          </Pressable>
-          {openSection === 'account' ? (
-            <View style={styles.advancedContent} testID="account-settings-content">
-              <Text style={styles.meta}>Prisijungta kaip @{profile.username}</Text>
-              <View style={styles.badgeRow}>
-                <StatusBadge label={roleLabel(profile.role)} tone="neutral" />
-                <StatusBadge label={sessionStateLabel(online).label} tone={sessionStateLabel(online).tone} />
+        <View style={styles.settingsGroup} testID="account-settings-section">
+          <Text style={styles.groupLabel}>PASKYRA</Text>
+          <View style={styles.groupBody}>
+            <Pressable accessibilityRole="button" accessibilityState={{ expanded: openSection === 'account' }} onPress={() => toggleSection('account')} style={styles.settingsRow}>
+              <View style={styles.flex}>
+                <Text style={styles.rowTitle}>Vartotojas</Text>
+                <Text style={styles.rowValue}>{profile.displayName} · {roleLabel(profile.role)}</Text>
               </View>
-              <Pressable style={styles.secondaryButton} onPress={confirmSwitchAccount} testID="switch-account-button"><Text style={styles.secondaryText}>Keisti paskyrą</Text></Pressable>
-              <Pressable style={styles.logoutButton} onPress={confirmLogout} testID="logout-button"><Text style={styles.logoutText}>Atsijungti</Text></Pressable>
-            </View>
-          ) : null}
+              <Text style={styles.advancedChevron}>{openSection === 'account' ? '⌃' : '⌄'}</Text>
+            </Pressable>
+            {openSection === 'account' ? (
+              <View style={styles.expandedContent} testID="account-settings-content">
+                <Text style={styles.meta}>Prisijungta kaip @{profile.username}</Text>
+                <View style={styles.badgeRow}>
+                  <StatusBadge label={roleLabel(profile.role)} tone="neutral" />
+                  <StatusBadge label={sessionStateLabel(online).label} tone={sessionStateLabel(online).tone} />
+                </View>
+                <Pressable style={styles.secondaryButton} onPress={confirmSwitchAccount} testID="switch-account-button"><Text style={styles.secondaryText}>Keisti paskyrą</Text></Pressable>
+                <Pressable style={styles.logoutButton} onPress={confirmLogout} testID="logout-button"><Text style={styles.logoutText}>Atsijungti</Text></Pressable>
+              </View>
+            ) : null}
+          </View>
         </View>
 
-        {profile.role === 'admin' ? <View style={styles.managementSection} testID="admin-management-shortcuts">
-          <View>
-            <Text style={styles.sectionTitle}>Darbuotojai ir automobiliai</Text>
-            <Text style={styles.meta}>Pasirinkite, ką norite redaguoti.</Text>
-          </View>
+        {profile.role === 'admin' ? <View style={styles.settingsGroup} testID="admin-management-shortcuts">
+          <Text style={styles.groupLabel}>ADMINISTRAVIMAS</Text>
+          <View style={styles.managementSection}>
           <View style={styles.managementGrid}>
             <Pressable
               accessibilityLabel="Redaguoti vairuotojus ir darbuotojus"
@@ -300,51 +300,30 @@ export default function SettingsScreen() {
             <Text style={styles.adminPanelLinkText}>Visas administratoriaus valdymas</Text>
             <Text style={styles.chevron}>›</Text>
           </Pressable>
+          </View>
         </View> : null}
 
-        <Pressable style={styles.card} onPress={() => router.push('/settings/locations' as Href)}>
-          <View style={styles.flex}>
-            <Text style={styles.title}>Sandėlis ir namų vieta</Text>
-            <Text style={styles.meta}>Keisti numatytąsias maršruto vietas</Text>
-          </View>
-          <Text style={styles.chevron}>›</Text>
-        </Pressable>
-
-        <View style={styles.section}>
-          <Pressable accessibilityRole="button" accessibilityState={{ expanded: openSection === 'appearance' }} onPress={() => toggleSection('appearance')} style={styles.advancedToggle}>
-            <Text style={styles.sectionTitle}>Išvaizda</Text>
-            <Text style={styles.advancedChevron}>{openSection === 'appearance' ? '⌃' : '⌄'}</Text>
-          </Pressable>
-          {openSection === 'appearance' ? (
-            <View style={styles.segmentRow} testID="appearance-settings-content">
-              {THEME_OPTIONS.map(({ mode, label }) => {
-                const active = preference === mode;
-                return (
-                  <Pressable
-                    key={mode}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: active }}
-                    style={[styles.segment, active && styles.segmentActive]}
-                    onPress={() => setPreference(mode)}
-                  >
-                    <Text style={[styles.segmentText, active && styles.segmentTextActive]}>{label}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          ) : null}
-        </View>
-
-        <View style={styles.section} testID="default-navigation-setting">
-          <Pressable accessibilityRole="button" accessibilityState={{ expanded: openSection === 'navigation' }} onPress={() => toggleSection('navigation')} style={styles.advancedToggle}>
-            <View style={styles.flex}>
-              <Text style={styles.sectionTitle}>Numatytoji navigacija</Text>
-              <Text style={styles.meta}>{NAVIGATION_OPTIONS.find((option) => option.value === defaultNavigation)?.label ?? 'Nepasirinkta'}</Text>
-            </View>
-            <Text style={styles.advancedChevron}>{openSection === 'navigation' ? '⌃' : '⌄'}</Text>
-          </Pressable>
-          {openSection === 'navigation' ? (
-            <View style={styles.advancedContent} testID="navigation-settings-content">
+        <View style={styles.settingsGroup}>
+          <Text style={styles.groupLabel}>MARŠRUTAS IR NAVIGACIJA</Text>
+          <View style={styles.groupBody}>
+            <Pressable style={styles.settingsRow} onPress={() => router.push('/settings/locations' as Href)}>
+              <View style={styles.flex}>
+                <Text style={styles.rowTitle}>Sandėlis ir namų vieta</Text>
+                <Text style={styles.rowValue}>Keisti numatytąsias maršruto vietas</Text>
+              </View>
+              <Text style={styles.chevron}>›</Text>
+            </Pressable>
+            <View style={styles.groupDivider} />
+            <View testID="default-navigation-setting">
+              <Pressable accessibilityRole="button" accessibilityState={{ expanded: openSection === 'navigation' }} onPress={() => toggleSection('navigation')} style={styles.settingsRow}>
+                <View style={styles.flex}>
+                  <Text style={styles.rowTitle}>Numatytoji navigacija</Text>
+                  <Text style={styles.rowValue}>{NAVIGATION_OPTIONS.find((option) => option.value === defaultNavigation)?.label ?? 'Nepasirinkta'}</Text>
+                </View>
+                <Text style={styles.advancedChevron}>{openSection === 'navigation' ? '⌃' : '⌄'}</Text>
+              </Pressable>
+              {openSection === 'navigation' ? (
+                <View style={styles.expandedContent} testID="navigation-settings-content">
               <Text style={styles.meta}>Paspaudus „Navigacija“ pasirinkta programa bus atidaryta iškart.</Text>
               <View style={styles.navigationOptions}>
                 {NAVIGATION_OPTIONS.map(({ value, label }) => {
@@ -364,20 +343,47 @@ export default function SettingsScreen() {
                   );
                 })}
               </View>
+                </View>
+              ) : null}
             </View>
-          ) : null}
+          </View>
         </View>
 
-        <View style={styles.section}>
-          <Pressable accessibilityRole="button" accessibilityState={{ expanded: openSection === 'gateway' }} onPress={() => toggleSection('gateway')} style={styles.advancedToggle}>
-            <View style={styles.flex}>
-              <Text style={styles.sectionTitle}>Gateway</Text>
-              <Text style={gatewayConnected ? styles.ok : styles.warning}>{gatewayConnected ? 'Prijungtas ✓' : 'Dar neprijungtas'}</Text>
+        <View style={styles.settingsGroup}>
+          <Text style={styles.groupLabel}>PROGRAMA</Text>
+          <View style={styles.groupBody}>
+            <View>
+              <Pressable accessibilityRole="button" accessibilityState={{ expanded: openSection === 'appearance' }} onPress={() => toggleSection('appearance')} style={styles.settingsRow}>
+                <View style={styles.flex}>
+                  <Text style={styles.rowTitle}>Išvaizda</Text>
+                  <Text style={styles.rowValue}>{THEME_OPTIONS.find((option) => option.mode === preference)?.label ?? 'Sistema'}</Text>
+                </View>
+                <Text style={styles.advancedChevron}>{openSection === 'appearance' ? '⌃' : '⌄'}</Text>
+              </Pressable>
+              {openSection === 'appearance' ? (
+                <View style={styles.expandedContent} testID="appearance-settings-content">
+                  <View style={styles.segmentRow}>
+                    {THEME_OPTIONS.map(({ mode, label }) => {
+                      const active = preference === mode;
+                      return <Pressable key={mode} accessibilityRole="button" accessibilityState={{ selected: active }} style={[styles.segment, active && styles.segmentActive]} onPress={() => setPreference(mode)}>
+                        <Text style={[styles.segmentText, active && styles.segmentTextActive]}>{label}</Text>
+                      </Pressable>;
+                    })}
+                  </View>
+                </View>
+              ) : null}
             </View>
-            <Text style={styles.advancedChevron}>{openSection === 'gateway' ? '⌃' : '⌄'}</Text>
-          </Pressable>
-          {openSection === 'gateway' ? (
-            <View style={styles.advancedContent} testID="gateway-settings-content">
+            <View style={styles.groupDivider} />
+            <View>
+              <Pressable accessibilityRole="button" accessibilityState={{ expanded: openSection === 'gateway' }} onPress={() => toggleSection('gateway')} style={styles.settingsRow}>
+                <View style={styles.flex}>
+                  <Text style={styles.rowTitle}>Gateway ryšys</Text>
+                  <View style={styles.statusLine}><View style={[styles.statusDot, gatewayConnected ? styles.statusDotOk : styles.statusDotWarning]} /><Text style={gatewayConnected ? styles.ok : styles.warning}>{gatewayConnected ? 'Prijungtas' : 'Dar neprijungtas'}</Text></View>
+                </View>
+                <Text style={styles.advancedChevron}>{openSection === 'gateway' ? '⌃' : '⌄'}</Text>
+              </Pressable>
+              {openSection === 'gateway' ? (
+                <View style={styles.expandedContent} testID="gateway-settings-content">
               <TextInput
                 value={deviceSecret}
                 onChangeText={setDeviceSecret}
@@ -391,24 +397,20 @@ export default function SettingsScreen() {
                 <Text style={styles.primaryText}>{gatewayConnected ? 'Pakeisti įrenginio raktą' : 'Prijungti Gateway'}</Text>
               </Pressable>
               {gatewayConnected ? <Pressable disabled={busy} style={styles.secondaryButton} onPress={() => void disconnectGateway()}><Text style={styles.secondaryText}>Atjungti šį įrenginį</Text></Pressable> : null}
+                </View>
+              ) : null}
             </View>
-          ) : null}
-        </View>
-
-        <View style={styles.section} testID="data-backup-section">
-          <Pressable
-            accessibilityRole="button"
-            accessibilityState={{ expanded: openSection === 'data' }}
-            onPress={() => toggleSection('data')}
-            style={styles.advancedToggle}>
-            <View style={styles.flex}>
-              <Text style={styles.sectionTitle}>Duomenys ir atsarginė kopija</Text>
-              <Text style={styles.meta}>Saugyklos būsena, eksportas ir atkūrimas</Text>
-            </View>
-            <Text style={styles.advancedChevron}>{openSection === 'data' ? '⌃' : '⌄'}</Text>
-          </Pressable>
-          {openSection === 'data' ? (
-            <View style={styles.advancedContent} testID="data-backup-content">
+            <View style={styles.groupDivider} />
+            <View testID="data-backup-section">
+              <Pressable accessibilityRole="button" accessibilityState={{ expanded: openSection === 'data' }} onPress={() => toggleSection('data')} style={styles.settingsRow}>
+                <View style={styles.flex}>
+                  <Text style={styles.rowTitle}>Duomenys ir atsarginė kopija</Text>
+                  <Text style={styles.rowValue}>Saugyklos būsena, eksportas ir atkūrimas</Text>
+                </View>
+                <Text style={styles.advancedChevron}>{openSection === 'data' ? '⌃' : '⌄'}</Text>
+              </Pressable>
+              {openSection === 'data' ? (
+                <View style={styles.expandedContent} testID="data-backup-content">
               <Text style={styles.ok}>SQLite veikia ✓</Text>
               <Text style={styles.meta}>Schemos versija: {diagnostics?.schemaVersion ?? 'tikrinama'}</Text>
               <Text style={styles.meta}>Paskutinis sėkmingas įrašymas: {diagnostics ? new Date(diagnostics.lastWriteAt).toLocaleString('lt-LT') : 'tikrinama'}</Text>
@@ -419,12 +421,13 @@ export default function SettingsScreen() {
               <Text style={styles.meta}>Kopijoje nėra API raktų ar Gateway įrenginio rakto.</Text>
               <Pressable disabled={busy} style={styles.primaryButton} onPress={() => void exportBackup()}><Text style={styles.primaryText}>Eksportuoti atsarginę kopiją</Text></Pressable>
               <Pressable disabled={busy} style={styles.secondaryButton} onPress={() => void chooseBackup()}><Text style={styles.secondaryText}>Atkurti iš atsarginės kopijos</Text></Pressable>
+                </View>
+              ) : null}
             </View>
-          ) : null}
+          </View>
         </View>
 
         {message ? <Text accessibilityRole="alert" style={styles.message}>{message}</Text> : null}
-        <Pressable style={styles.homeButton} onPress={goHome}><Text style={styles.homeText}>Į pradžią</Text></Pressable>
       </FoundationScreen>
       {profile.role === 'driver' ? <DriverAppTabs active="settings" /> : null}
       </View>
@@ -435,15 +438,24 @@ export default function SettingsScreen() {
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   screen: { flex: 1, alignSelf: 'center', width: '100%', maxWidth: 900, backgroundColor: colors.background },
   flex: { flex: 1, minWidth: 0 },
-  card: { minHeight: 72, padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  settingsGroup: { gap: spacing.xs },
+  groupLabel: { ...type.label, color: colors.textMuted, paddingHorizontal: spacing.xs },
+  groupBody: { borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, overflow: 'hidden' },
+  settingsRow: { minHeight: 68, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
+  rowTitle: { ...type.bodyStrong, color: colors.text },
+  rowValue: { ...type.secondary, color: colors.textMuted, marginTop: 2 },
+  groupDivider: { height: 1, backgroundColor: colors.border, marginHorizontal: spacing.md },
+  expandedContent: { marginHorizontal: spacing.sm, marginBottom: spacing.sm, padding: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surfaceSubtle, gap: spacing.sm },
+  statusLine: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: 2 },
+  statusDot: { width: 8, height: 8, borderRadius: radius.pill },
+  statusDotOk: { backgroundColor: colors.success },
+  statusDotWarning: { backgroundColor: colors.warning },
   managementSection: { gap: spacing.md, padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
   managementGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   managementCard: { minHeight: 86, flexGrow: 1, flexBasis: 280, minWidth: 0, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surfaceSubtle, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   managementIcon: { width: 44, height: 44, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.infoSoft },
   adminPanelLink: { minHeight: 48, paddingHorizontal: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   adminPanelLinkText: { ...type.secondaryStrong, color: colors.textSecondary, flex: 1 },
-  section: { gap: spacing.sm, padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
-  sectionTitle: { ...type.sectionTitle, color: colors.text },
   title: { ...type.cardTitle, color: colors.text },
   meta: { ...type.body, color: colors.textMuted, marginTop: spacing.xs },
   badgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
@@ -459,8 +471,6 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   logoutText: { ...type.button, color: colors.danger, textAlign: 'center' },
   disabled: { opacity: 0.45 },
   message: { ...type.body, color: colors.text, backgroundColor: colors.infoSoft, borderRadius: radius.md, padding: spacing.md },
-  homeButton: { minHeight: 60, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
-  homeText: { ...type.button, color: colors.textSecondary, fontSize: 16 },
   headerAction: { minWidth: 176, minHeight: 52, justifyContent: 'center' },
   headerText: { ...type.button, color: colors.brandNavy, fontSize: 16 },
   segmentRow: { flexDirection: 'row', gap: spacing.xs },
@@ -475,8 +485,6 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   navigationOptionTextActive: { ...type.bodyStrong, color: colors.info },
   radio: { width: 18, height: 18, borderRadius: 9, borderWidth: 2, borderColor: colors.textMuted, backgroundColor: 'transparent' },
   radioActive: { borderWidth: 5, borderColor: colors.info, backgroundColor: colors.surface },
-  advancedToggle: { minHeight: 58, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
   advancedChevron: { color: colors.info, fontSize: 26, fontFamily: type.button.fontFamily },
-  advancedContent: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.md, gap: spacing.sm },
   advancedDivider: { height: 1, marginVertical: spacing.xs, backgroundColor: colors.border },
 });

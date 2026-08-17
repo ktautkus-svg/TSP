@@ -87,10 +87,21 @@ describe('stage 2.2 deterministic navigation', () => {
   it('keeps settings and location settings out of dead ends', () => {
     const settings = source('src/app/settings/index.tsx');
     const locations = source('src/app/settings/locations.tsx');
-    expect(settings).toContain("router.replace('/' as Href)");
     expect(settings).toContain('Sandėlis ir namų vieta');
+    expect(settings).toContain('<DriverAppTabs active="settings"');
     expect(locations).toContain("router.replace('/settings' as Href)");
     expect(locations).toContain('← Nustatymai');
+  });
+
+  it('groups settings into compact sections and keeps expanded controls attached to their row', () => {
+    const settings = source('src/app/settings/index.tsx');
+    expect(settings).toContain('PASKYRA');
+    expect(settings).toContain('MARŠRUTAS IR NAVIGACIJA');
+    expect(settings).toContain('PROGRAMA');
+    expect(settings).toContain('styles.settingsGroup');
+    expect(settings).toContain('styles.groupDivider');
+    expect(settings).toContain('styles.expandedContent');
+    expect(settings).toContain("current === section ? null : section");
   });
 
   it('does not expose unhandled async history or settings loads', () => {
