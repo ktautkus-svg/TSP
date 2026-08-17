@@ -1,18 +1,20 @@
 import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { Stack, useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { pushCompletedRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
+import { calculateTripFuelEnd } from '@/application/trip-sheet/fuel-balance';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { TripSheetRepository, type TripSheetWithRoutes } from '@/database/repositories/trip-sheet-repository';
-import { employeeApi, type ServerTripSheet } from '@/infrastructure/auth/employee-session';
+import { employeeApi, type ServerFuelEntry, type ServerTripSheet } from '@/infrastructure/auth/employee-session';
 import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 
-type DisplayTripSheet = ServerTripSheet & { source: 'server' | 'local' };
+type TripFuelEntry = Pick<ServerFuelEntry, 'id' | 'filledAt' | 'odometer' | 'liters' | 'pricePerLiter' | 'totalCost' | 'station' | 'notes'>;
+type DisplayTripSheet = Omit<ServerTripSheet, 'fuelEntries'> & { source: 'server' | 'local'; fuelEntries: TripFuelEntry[] };
 type DailyTripRow = {
   date: string;
   routeNumbers: string[];
@@ -27,6 +29,10 @@ type DailyTripRow = {
   fuelStart: number | null;
   fuelEnd: number | null;
   compensationEur: number | null;
+  assignmentId: string;
+  tripSheetId: string;
+  source: DisplayTripSheet['source'];
+  fuelEntries: TripFuelEntry[];
 };
 type MonthlyTripGroup = {
   key: string;
@@ -34,6 +40,15 @@ type MonthlyTripGroup = {
   driverName: string;
   vehicle: ServerTripSheet['vehicle'];
   rows: DailyTripRow[];
+};
+
+type FuelEntryInput = {
+  date: string;
+  odometer: number;
+  liters: number;
+  pricePerLiter: number | null;
+  station: string | null;
+  notes: string | null;
 };
 
 export default function TripSheetScreen() {
@@ -55,14 +70,15 @@ export default function TripSheetScreen() {
       if (online) {
         if (profile.role === 'driver') await pushCompletedRouteAssignmentProgress(db);
         const response = await employeeApi<{ tripSheets: ServerTripSheet[] }>('/api/trip-sheets');
-        setSheets(response.tripSheets.map((sheet) => ({ ...sheet, source: 'server' })));
+        setSheets(response.tripSheets.map((sheet) => ({ ...sheet, source: 'server', fuelEntries: sheet.fuelEntries ?? [] })));
       } else {
-        setSheets((await repository.list()).map(localSheet));
+        setSheets(await localSheets(repository));
         setMessage('Rodomi šiame įrenginyje išsaugoti kelionės lapai. Prisijungus bus rodomi serverio duomenys.');
       }
     } catch (error) {
       const local = await repository.list().catch(() => []);
-      setSheets(local.map(localSheet));
+      const entries = await repository.listFuelEntries().catch(() => []);
+      setSheets(local.map((sheet) => localSheet(sheet, entries.filter((entry) => entry.tripSheetId === sheet.id))));
       setMessage(error instanceof Error ? error.message : 'Kelionės lapų atkurti nepavyko.');
     } finally {
       setBusy(false);
@@ -96,6 +112,35 @@ export default function TripSheetScreen() {
     if (Platform.OS === 'web' && typeof window !== 'undefined') window.print();
     else setMessage('PDF arba spausdinimą atidarykite interneto naršyklėje.');
   };
+  const addFuel = async (row: DailyTripRow, input: FuelEntryInput) => {
+    if (busy) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const filledAt = new Date(`${input.date}T12:00:00`).toISOString();
+      if (online && row.source === 'server') {
+        await employeeApi<{ entry: ServerFuelEntry }>(`/api/trip-sheets/${encodeURIComponent(row.assignmentId)}/fuel-entries`, {
+          method: 'POST',
+          body: JSON.stringify({
+            filledAt,
+            odometer: input.odometer,
+            liters: input.liters,
+            pricePerLiter: input.pricePerLiter ?? undefined,
+            station: input.station ?? undefined,
+            notes: input.notes ?? undefined,
+          }),
+        });
+      } else {
+        await repository.saveFuelEntry({ tripSheetId: row.tripSheetId, filledAt, ...input });
+      }
+      await load();
+      setMessage(`Įpilta ${formatNumber(input.liters)} l – kuro įrašas išsaugotas.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Kuro įrašo išsaugoti nepavyko.');
+      setBusy(false);
+      throw error;
+    }
+  };
   return (
     <>
       <Stack.Screen options={{ gestureEnabled: false, title: 'Kelionės lapai' }} />
@@ -119,19 +164,74 @@ export default function TripSheetScreen() {
         </View> : null}
         {message ? <Text accessibilityRole="alert" style={styles.message}>{message}</Text> : null}
         {!busy && monthlyGroups.length === 0 ? <View style={styles.empty}><Text style={styles.cardTitle}>Kelionės lapų dar nėra</Text><Text style={styles.meta}>Lapas atsiras automatiškai vairuotojui užbaigus priskirtą maršrutą ir įvedus galutinį odometrą.</Text></View> : null}
-        {monthlyGroups.map((group) => <MonthlyTripSheet compact={width < 820} group={group} key={group.key} styles={styles} />)}
+        {monthlyGroups.map((group) => <MonthlyTripSheet compact={width < 820} group={group} key={group.key} onAddFuel={addFuel} savingFuel={busy} styles={styles} />)}
       </FoundationScreen>
     </>
   );
 }
 
-function MonthlyTripSheet({ group, compact, styles }: { group: MonthlyTripGroup; compact: boolean; styles: ReturnType<typeof createStyles> }) {
+function MonthlyTripSheet({ group, compact, onAddFuel, savingFuel, styles }: {
+  group: MonthlyTripGroup;
+  compact: boolean;
+  onAddFuel: (row: DailyTripRow, input: FuelEntryInput) => Promise<void>;
+  savingFuel: boolean;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [expandedDay, setExpandedDay] = useState<string | null>(null);
+  const [fuelEditorDay, setFuelEditorDay] = useState<string | null>(null);
+  const [fuelDate, setFuelDate] = useState('');
+  const [fuelOdometer, setFuelOdometer] = useState('');
+  const [fuelLiters, setFuelLiters] = useState('');
+  const [fuelPrice, setFuelPrice] = useState('');
+  const [fuelStation, setFuelStation] = useState('');
+  const [fuelNotes, setFuelNotes] = useState('');
+  const [formError, setFormError] = useState<string | null>(null);
   const totalDistance = group.rows.reduce((sum, row) => sum + (row.distanceKm ?? 0), 0);
   const totalFuel = group.rows.reduce((sum, row) => sum + (row.fuelConsumed ?? 0), 0);
+  const totalFuelAdded = group.rows.reduce((sum, row) => sum + (row.fuelAdded ?? 0), 0);
   const totalCompensation = group.rows.reduce((sum, row) => sum + (row.compensationEur ?? 0), 0);
   const hasCompensation = group.rows.some((row) => row.compensationEur !== null);
   const firstOdometer = group.rows.find((row) => row.startOdometer !== null)?.startOdometer ?? null;
   const lastOdometer = [...group.rows].reverse().find((row) => row.endOdometer !== null)?.endOdometer ?? null;
+  const firstFuel = group.rows.find((row) => row.fuelStart !== null)?.fuelStart ?? null;
+  const lastFuel = [...group.rows].reverse().find((row) => row.fuelEnd !== null)?.fuelEnd ?? null;
+
+  const openFuelEditor = (row: DailyTripRow) => {
+    setExpandedDay(row.date);
+    setFuelEditorDay(row.date);
+    setFuelDate(row.date);
+    setFuelOdometer(String(row.endOdometer ?? row.startOdometer ?? ''));
+    setFuelLiters('');
+    setFuelPrice('');
+    setFuelStation('');
+    setFuelNotes('');
+    setFormError(null);
+  };
+  const saveFuel = async (row: DailyTripRow) => {
+    const liters = parseDecimal(fuelLiters);
+    const odometer = parseDecimal(fuelOdometer);
+    const price = fuelPrice.trim() ? parseDecimal(fuelPrice) : null;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fuelDate)) return setFormError('Įveskite datą formatu YYYY-MM-DD.');
+    if (liters === null || liters <= 0) return setFormError('Įveskite įpiltų litrų kiekį.');
+    if (odometer === null || odometer < 0) return setFormError('Įveskite odometro rodmenį pylimo metu.');
+    if (price !== null && price < 0) return setFormError('Litro kaina negali būti neigiama.');
+    setFormError(null);
+    try {
+      await onAddFuel(row, {
+        date: fuelDate,
+        odometer,
+        liters,
+        pricePerLiter: price,
+        station: fuelStation.trim() || null,
+        notes: fuelNotes.trim() || null,
+      });
+      setFuelEditorDay(null);
+    } catch {
+      setFormError('Kuro įrašo išsaugoti nepavyko. Patikrinkite ryšį ir bandykite dar kartą.');
+    }
+  };
+
   return <View style={styles.sheet} testID={`monthly-trip-sheet-${group.key}`}>
     <View style={styles.sheetHeader}>
       <View style={styles.flex}>
@@ -145,52 +245,78 @@ function MonthlyTripSheet({ group, compact, styles }: { group: MonthlyTripGroup;
     </View>
 
     <View style={styles.metrics}>
-      <Metric label="ODOMETRAS" value={`${formatNumber(firstOdometer)} → ${formatNumber(lastOdometer)}`} styles={styles} />
       <Metric label="NUVAŽIUOTA" value={`${formatNumber(totalDistance)} km`} styles={styles} />
-      <Metric label="KURAS PAGAL NORMĄ" value={`${formatNumber(totalFuel)} l`} styles={styles} />
-      <Metric label="DEGALŲ NORMA" value={group.rows[0]?.fuelNorm === null ? '—' : `${formatNumber(group.rows[0]?.fuelNorm ?? null)} l/100 km`} styles={styles} />
+      <Metric label="KURO LIKUTIS PRADŽIOJE" value={firstFuel === null ? '—' : `${formatNumber(firstFuel)} l`} styles={styles} />
+      <Metric label="ĮPILTA" value={`${formatNumber(totalFuelAdded)} l`} styles={styles} />
+      <Metric label="SUNAUDOTA PAGAL NORMĄ" value={`${formatNumber(totalFuel)} l`} styles={styles} />
+      <Metric label="DABARTINIS LIKUTIS" value={lastFuel === null ? '—' : `${formatNumber(lastFuel)} l`} styles={styles} />
       {hasCompensation ? <Metric label="ATLYGIS" value={formatMoney(totalCompensation)} styles={styles} /> : null}
     </View>
+    <Pressable accessibilityRole="button" onPress={() => setExpanded((current) => !current)} style={styles.detailsToggle}>
+      <Text style={styles.detailsToggleText}>{expanded ? 'Slėpti dienų informaciją' : `Peržiūrėti ${group.rows.length} d. informaciją`}</Text>
+      <Text style={styles.chevron}>{expanded ? '⌃' : '⌄'}</Text>
+    </Pressable>
 
-    {!compact ? <View style={styles.tableHeader}>
-      <Text style={[styles.tableHeaderText, styles.dateColumn]}>Data</Text>
-      <Text style={[styles.tableHeaderText, styles.routeColumn]}>Maršrutas</Text>
-      <Text style={[styles.tableHeaderText, styles.numberColumn]}>Odometras pradžioje</Text>
-      <Text style={[styles.tableHeaderText, styles.numberColumn]}>Odometras pabaigoje</Text>
-      <Text style={[styles.tableHeaderText, styles.numberColumn]}>Atstumas</Text>
-      <Text style={[styles.tableHeaderText, styles.numberColumn]}>Kuras pagal normą</Text>
-      <Text style={[styles.tableHeaderText, styles.numberColumn]}>Įpilta</Text>
-      <Text style={[styles.tableHeaderText, styles.numberColumn]}>Kuro likutis</Text>
-      {hasCompensation ? <Text style={[styles.tableHeaderText, styles.moneyColumn]}>Atlygis</Text> : null}
+    {expanded ? <View style={styles.dayList}>
+      <View style={styles.detailsSummary}>
+        <Text style={styles.detailsSummaryText}>Odometras {formatNumber(firstOdometer)} → {formatNumber(lastOdometer)}</Text>
+        <Text style={styles.detailsSummaryText}>Norma {group.rows[0]?.fuelNorm === null ? '—' : `${formatNumber(group.rows[0]?.fuelNorm ?? null)} l/100 km`}</Text>
+      </View>
+      {group.rows.map((row) => {
+        const open = expandedDay === row.date;
+        const editingFuel = fuelEditorDay === row.date;
+        return <View key={row.date} style={styles.dayRow}>
+          <Pressable accessibilityRole="button" onPress={() => setExpandedDay(open ? null : row.date)} style={styles.daySummary}>
+            <View style={styles.flex}>
+              <Text style={styles.mobileDayDate}>{compact ? formatDate(row.date) : formatShortDate(row.date)}</Text>
+              <Text style={styles.routeBadgeText}>{row.routeNumbers.join(' · ') || 'Regiono kodas nenurodytas'}</Text>
+            </View>
+            <View style={styles.dayFuelSummary}>
+              <Text style={styles.dayFuelValue}>{row.fuelEnd === null ? '—' : `${formatNumber(row.fuelEnd)} l`}</Text>
+              <Text style={styles.meta}>{row.fuelAdded ? `+${formatNumber(row.fuelAdded)} l įpilta` : 'Nepilta'}</Text>
+            </View>
+            <Text style={styles.chevron}>{open ? '⌃' : '⌄'}</Text>
+          </Pressable>
+          {open ? <View style={styles.dayDetails}>
+            <Text style={styles.routeAddress}>{row.startAddress} → {row.endAddress}</Text>
+            <View style={styles.mobileDayMetrics}>
+              <Metric label="ODOMETRAS" value={`${formatNumber(row.startOdometer)} → ${formatNumber(row.endOdometer)}`} styles={styles} />
+              <Metric label="NUVAŽIUOTA" value={`${formatNumber(row.distanceKm)} km`} styles={styles} />
+              <Metric label="KURO PRADŽIOJE" value={row.fuelStart === null ? '—' : `${formatNumber(row.fuelStart)} l`} styles={styles} />
+              <Metric label="ĮPILTA" value={`${formatNumber(row.fuelAdded)} l`} styles={styles} />
+              <Metric label="SUNAUDOTA" value={row.fuelConsumed === null ? '—' : `${formatNumber(row.fuelConsumed)} l`} styles={styles} />
+              <Metric label="LIKO" value={row.fuelEnd === null ? '—' : `${formatNumber(row.fuelEnd)} l`} styles={styles} />
+              {row.compensationEur !== null ? <Metric label="ATLYGIS" value={formatMoney(row.compensationEur)} styles={styles} /> : null}
+            </View>
+            {row.fuelEntries.length > 0 ? <View style={styles.fuelEntries}>
+              <Text style={styles.fuelEntriesTitle}>KURO PAPILDYMAI</Text>
+              {row.fuelEntries.map((entry) => <View key={entry.id} style={styles.fuelEntryRow}>
+                <View style={styles.flex}><Text style={styles.tableStrong}>{formatNumber(entry.liters)} l · {formatNumber(entry.odometer)} km</Text><Text style={styles.meta}>{entry.station || 'Degalinė nenurodyta'} · {formatDateTime(entry.filledAt)}</Text></View>
+                <Text style={styles.tableStrong}>{entry.totalCost === null ? '—' : formatMoney(entry.totalCost)}</Text>
+              </View>)}
+            </View> : <Text style={styles.meta}>Šią dieną kuro papildymų dar neįvesta.</Text>}
+            {!editingFuel ? <Pressable onPress={() => openFuelEditor(row)} style={styles.addFuelButton}><Text style={styles.addFuelButtonText}>+ Įvesti kuro papildymą</Text></Pressable> : <View style={styles.fuelForm} testID={`fuel-entry-form-${row.date}`}>
+              <Text style={styles.cardTitle}>Kuro papildymas</Text>
+              <Text style={styles.meta}>Privalomi laukai: litrai, odometras ir data.</Text>
+              <View style={styles.formGrid}>
+                <Field label="Įpilta, l *" value={fuelLiters} onChangeText={setFuelLiters} placeholder="Pvz. 45,5" keyboardType="decimal-pad" styles={styles} />
+                <Field label="Odometras *" value={fuelOdometer} onChangeText={setFuelOdometer} placeholder="Pvz. 675628" keyboardType="decimal-pad" styles={styles} />
+                <Field label="Data *" value={fuelDate} onChangeText={setFuelDate} placeholder="YYYY-MM-DD" styles={styles} />
+                <Field label="Kaina už litrą" value={fuelPrice} onChangeText={setFuelPrice} placeholder="Pvz. 1,49" keyboardType="decimal-pad" styles={styles} />
+                <Field label="Degalinė" value={fuelStation} onChangeText={setFuelStation} placeholder="Pavadinimas arba vieta" styles={styles} />
+                <Field label="Pastaba" value={fuelNotes} onChangeText={setFuelNotes} placeholder="Nebūtina" styles={styles} />
+              </View>
+              {formError ? <Text accessibilityRole="alert" style={styles.formError}>{formError}</Text> : null}
+              <View style={styles.formActions}>
+                <Pressable disabled={savingFuel} onPress={() => setFuelEditorDay(null)} style={styles.cancelFuelButton}><Text style={styles.secondaryText}>Atšaukti</Text></Pressable>
+                <Pressable disabled={savingFuel} onPress={() => void saveFuel(row)} style={[styles.saveFuelButton, savingFuel && styles.disabled]}><Text style={styles.primaryText}>{savingFuel ? 'Saugoma…' : 'Išsaugoti'}</Text></Pressable>
+              </View>
+            </View>}
+          </View> : null}
+        </View>;
+      })}
+      <Text style={styles.calculationNote}>Likutis = pradinis likutis + faktiškai įpilta − kilometrai × automobilio norma / 100.</Text>
     </View> : null}
-
-    <View style={styles.tableBody}>
-      {group.rows.map((row) => compact
-        ? <View key={row.date} style={styles.mobileDayRow}>
-          <View style={styles.mobileDayHeading}><Text style={styles.mobileDayDate}>{formatDate(row.date)}</Text><Text style={styles.routeBadgeText}>{row.routeNumbers.join(' · ') || 'Regiono kodas nenurodytas'}</Text></View>
-          <Text numberOfLines={2} style={styles.routeAddress}>{row.startAddress} → {row.endAddress}</Text>
-          <View style={styles.mobileDayMetrics}>
-            <Metric label="ODOMETRAS" value={`${formatNumber(row.startOdometer)} → ${formatNumber(row.endOdometer)}`} styles={styles} />
-            <Metric label="KM" value={formatNumber(row.distanceKm)} styles={styles} />
-            <Metric label="KURO SĄNAUDOS" value={row.fuelConsumed === null ? '—' : `${formatNumber(row.fuelConsumed)} l`} styles={styles} />
-            <Metric label="ĮPILTA" value={row.fuelAdded === null ? '—' : `${formatNumber(row.fuelAdded)} l`} styles={styles} />
-            <Metric label="KURO LIKUTIS" value={row.fuelEnd === null ? '—' : `${formatNumber(row.fuelStart)} → ${formatNumber(row.fuelEnd)} l`} styles={styles} />
-            {row.compensationEur !== null ? <Metric label="ATLYGIS" value={formatMoney(row.compensationEur)} styles={styles} /> : null}
-          </View>
-        </View>
-        : <View key={row.date} style={styles.tableRow}>
-          <Text style={[styles.tableCell, styles.dateColumn]}>{formatShortDate(row.date)}</Text>
-          <View style={styles.routeColumn}><Text style={styles.tableStrong}>{row.routeNumbers.join(' · ') || '—'}</Text><Text numberOfLines={2} style={styles.tableMeta}>{row.startAddress} → {row.endAddress}</Text></View>
-          <Text style={[styles.tableCell, styles.numberColumn]}>{formatNumber(row.startOdometer)}</Text>
-          <Text style={[styles.tableCell, styles.numberColumn]}>{formatNumber(row.endOdometer)}</Text>
-          <Text style={[styles.tableCell, styles.numberColumn]}>{row.distanceKm === null ? '—' : `${formatNumber(row.distanceKm)} km`}</Text>
-          <Text style={[styles.tableCell, styles.numberColumn]}>{row.fuelConsumed === null ? '—' : `${formatNumber(row.fuelConsumed)} l`}</Text>
-          <Text style={[styles.tableCell, styles.numberColumn]}>{row.fuelAdded === null ? '—' : `${formatNumber(row.fuelAdded)} l`}</Text>
-          <Text style={[styles.tableCell, styles.numberColumn]}>{row.fuelEnd === null ? '—' : `${formatNumber(row.fuelStart)} → ${formatNumber(row.fuelEnd)} l`}</Text>
-          {hasCompensation ? <Text style={[styles.tableCell, styles.moneyColumn]}>{row.compensationEur === null ? '—' : formatMoney(row.compensationEur)}</Text> : null}
-        </View>)}
-    </View>
-    <Text style={styles.calculationNote}>Kuro sąnaudos skaičiuojamos: faktiniai dienos kilometrai × automobilio norma / 100. Kuro likutis rodomas, kai vairuotojas yra pateikęs pradinį likutį.</Text>
   </View>;
 }
 
@@ -222,6 +348,9 @@ function buildDailyRows(sheets: DisplayTripSheet[]): DailyTripRow[] {
     const fuelNorm = daySheets.find((sheet) => sheet.fuelNormLitersPer100Km !== null)?.fuelNormLitersPer100Km ?? null;
     const fuelConsumed = distanceKm !== null && fuelNorm !== null ? distanceKm * fuelNorm / 100 : null;
     const fuelStart = daySheets.find((sheet) => sheet.vehicle?.fuelRemainingLiters !== null && sheet.vehicle?.fuelRemainingLiters !== undefined)?.vehicle?.fuelRemainingLiters ?? null;
+    const fuelEntries = daySheets.flatMap((sheet) => sheet.fuelEntries).sort((left, right) => left.filledAt.localeCompare(right.filledAt));
+    const fuelAdded = fuelEntries.reduce((sum, entry) => sum + entry.liters, 0);
+    const targetSheet = daySheets[daySheets.length - 1]!;
     return {
       date,
       routeNumbers: [...new Set(daySheets.flatMap((sheet) => sheet.routeNumbers))],
@@ -232,20 +361,32 @@ function buildDailyRows(sheets: DisplayTripSheet[]): DailyTripRow[] {
       distanceKm,
       fuelNorm,
       fuelConsumed,
-      fuelAdded: null,
+      fuelAdded,
       fuelStart,
-      fuelEnd: fuelStart !== null && fuelConsumed !== null ? Math.max(0, fuelStart - fuelConsumed) : null,
+      fuelEnd: calculateTripFuelEnd(fuelStart, fuelAdded, fuelConsumed),
       compensationEur: daySheets.find((sheet) => sheet.compensation)?.compensation?.totalNetEur ?? null,
+      assignmentId: targetSheet.assignmentId,
+      tripSheetId: targetSheet.id,
+      source: targetSheet.source,
+      fuelEntries,
     };
   });
-  return rows.map((row, index) => {
-    const previousEnd = index > 0 ? rows[index - 1]?.fuelEnd ?? null : null;
-    return { ...row, fuelAdded: row.fuelStart !== null && previousEnd !== null ? Math.max(0, row.fuelStart - previousEnd) : null };
-  });
+  return rows;
 }
 
 function minimum(values: Array<number | null>): number | null { const present = values.filter((value): value is number => value !== null); return present.length > 0 ? Math.min(...present) : null; }
 function maximum(values: Array<number | null>): number | null { const present = values.filter((value): value is number => value !== null); return present.length > 0 ? Math.max(...present) : null; }
+
+function Field({ label, styles, ...inputProps }: {
+  label: string;
+  styles: ReturnType<typeof createStyles>;
+  value: string;
+  onChangeText: (value: string) => void;
+  placeholder: string;
+  keyboardType?: 'default' | 'decimal-pad';
+}) {
+  return <View style={styles.field}><Text style={styles.fieldLabel}>{label}</Text><TextInput {...inputProps} style={styles.input} /></View>;
+}
 
 function Filter({ label, active, onPress, styles }: { label: string; active: boolean; onPress: () => void; styles: ReturnType<typeof createStyles> }) {
   return <Pressable onPress={onPress} style={[styles.filter, active && styles.filterActive]}><Text style={[styles.filterText, active && styles.filterTextActive]}>{label}</Text></Pressable>;
@@ -255,7 +396,12 @@ function Metric({ label, value, styles }: { label: string; value: string; styles
   return <View style={styles.metric}><Text style={styles.metricLabel}>{label}</Text><Text style={styles.metricValue}>{value}</Text></View>;
 }
 
-function localSheet(sheet: TripSheetWithRoutes): DisplayTripSheet {
+async function localSheets(repository: TripSheetRepository): Promise<DisplayTripSheet[]> {
+  const [sheets, entries] = await Promise.all([repository.list(), repository.listFuelEntries()]);
+  return sheets.map((sheet) => localSheet(sheet, entries.filter((entry) => entry.tripSheetId === sheet.id)));
+}
+
+function localSheet(sheet: TripSheetWithRoutes, fuelEntries: TripFuelEntry[] = []): DisplayTripSheet {
   return {
     id: sheet.id, assignmentId: sheet.id, routeId: sheet.routeIds[0] ?? sheet.id, routeNumbers: [], date: sheet.date, status: 'completed',
     driverId: 'local', driverName: 'Šio įrenginio vairuotojas', vehicle: { id: sheet.vehicleId, registrationNumber: sheet.vehicleName, model: sheet.vehicleName, maximumPayloadKg: 0 }, fuelNormLitersPer100Km: null,
@@ -263,14 +409,16 @@ function localSheet(sheet: TripSheetWithRoutes): DisplayTripSheet {
     plannedDistanceKm: sheet.plannedDistanceKm, startedAt: sheet.actualStartAt, completedAt: sheet.completedAt,
     durationMinutes: sheet.actualDurationMinutes, totalStops: sheet.totalStops, deliveredStops: sheet.totalStops,
     totalWeightKg: sheet.totalDeliveredWeightKg, deliveredWeightKg: sheet.totalDeliveredWeightKg,
-    startAddress: sheet.startLocation.address ?? sheet.startLocation.label, endAddress: sheet.endLocation.address ?? sheet.endLocation.label, compensation: null, source: 'local',
+    startAddress: sheet.startLocation.address ?? sheet.startLocation.label, endAddress: sheet.endLocation.address ?? sheet.endLocation.label, compensation: null, source: 'local', fuelEntries,
   };
 }
 
 function formatDate(value: string): string { const date = new Date(`${value}T12:00:00`); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('lt-LT', { dateStyle: 'long' }).format(date); }
 function formatShortDate(value: string): string { const date = new Date(`${value}T12:00:00`); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('lt-LT', { month: '2-digit', day: '2-digit' }).format(date); }
+function formatDateTime(value: string): string { const date = new Date(value); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('lt-LT', { dateStyle: 'short', timeStyle: 'short' }).format(date); }
 function formatMonth(value: string): string { const date = new Date(`${value}-15T12:00:00`); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('lt-LT', { year: 'numeric', month: 'long' }).format(date); }
 function formatNumber(value: number | null): string { return value === null ? '—' : new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(value); }
+function parseDecimal(value: string): number | null { const parsed = Number(value.trim().replace(',', '.')); return Number.isFinite(parsed) ? parsed : null; }
 function formatDuration(minutes: number | null): string { if (minutes === null) return '—'; const hours = Math.floor(minutes / 60); const rest = minutes % 60; return hours ? `${hours} val. ${rest} min.` : `${rest} min.`; }
 function formatTime(value: string | null): string { if (!value) return '—'; const date = new Date(value); return Number.isNaN(date.getTime()) ? '—' : new Intl.DateTimeFormat('lt-LT', { hour: '2-digit', minute: '2-digit' }).format(date); }
 function formatMoney(value: number): string { return `${new Intl.NumberFormat('lt-LT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)} €`; }
@@ -305,5 +453,31 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   mobileDayHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   mobileDayDate: { ...type.cardTitle, color: colors.text },
   mobileDayMetrics: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  detailsToggle: { minHeight: 50, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, paddingHorizontal: spacing.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
+  detailsToggleText: { ...type.button, color: colors.textSecondary },
+  chevron: { ...type.sectionTitle, color: colors.info, minWidth: 24, textAlign: 'center' },
+  dayList: { gap: spacing.sm },
+  detailsSummary: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, justifyContent: 'space-between', paddingHorizontal: spacing.xs },
+  detailsSummaryText: { ...type.secondaryStrong, color: colors.textSecondary },
+  dayRow: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, overflow: 'hidden', backgroundColor: colors.surface },
+  daySummary: { minHeight: 72, padding: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.surfaceSubtle },
+  dayFuelSummary: { alignItems: 'flex-end', gap: 2 },
+  dayFuelValue: { ...type.bodyStrong, color: colors.success },
+  dayDetails: { padding: spacing.md, gap: spacing.md, borderTopWidth: 1, borderTopColor: colors.border },
+  fuelEntries: { gap: spacing.xs },
+  fuelEntriesTitle: { ...type.label, color: colors.textMuted },
+  fuelEntryRow: { minHeight: 52, paddingVertical: spacing.xs, flexDirection: 'row', alignItems: 'center', gap: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.borderSubtle },
+  addFuelButton: { minHeight: 48, borderRadius: radius.md, backgroundColor: colors.infoSoft, borderWidth: 1, borderColor: colors.info, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
+  addFuelButtonText: { ...type.button, color: colors.info },
+  fuelForm: { padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceMuted, borderWidth: 1, borderColor: colors.borderStrong, gap: spacing.sm },
+  formGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  field: { flexGrow: 1, flexBasis: 180, minWidth: 0, gap: spacing.xs },
+  fieldLabel: { ...type.label, color: colors.textSecondary },
+  input: { minHeight: 48, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radius.sm, backgroundColor: colors.surface, paddingHorizontal: spacing.md, ...type.body, color: colors.text },
+  formError: { ...type.secondaryStrong, color: colors.danger },
+  formActions: { flexDirection: 'row', gap: spacing.sm },
+  cancelFuelButton: { flex: 1, minHeight: 48, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
+  saveFuelButton: { flex: 1, minHeight: 48, backgroundColor: colors.success, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
+  disabled: { opacity: 0.55 },
   calculationNote: { ...type.meta, color: colors.textMuted, padding: spacing.sm, borderRadius: radius.sm, backgroundColor: colors.surfaceSubtle },
 });

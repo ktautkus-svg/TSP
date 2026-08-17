@@ -101,4 +101,27 @@ describe('trip sheet repository', () => {
       name: 'Šaldytuvas', registrationNumber: 'ABC123', fuelType: 'diesel',
     });
   });
+
+  it('persists a fuel refill against the concrete trip sheet', async () => {
+    const { adapter, db } = createDb();
+    insertCompletedRoute(adapter, {
+      id: 'route-fuel', date: '2026-08-10', plannedKm: 50, actualKm: 52,
+      startOdometer: 2000, endOdometer: 2052,
+      startedAt: '2026-08-10T06:00:00.000Z', completedAt: '2026-08-10T10:00:00.000Z',
+    });
+    const repository = new TripSheetRepository(db);
+    const sheet = await repository.syncCompletedDate('2026-08-10');
+    const entry = await repository.saveFuelEntry({
+      tripSheetId: sheet.id,
+      filledAt: '2026-08-10T08:30:00.000Z',
+      odometer: 2025,
+      liters: 40.5,
+      pricePerLiter: 1.499,
+      station: 'TSP degalinė',
+      notes: null,
+    });
+
+    expect(entry).toMatchObject({ tripSheetId: sheet.id, odometer: 2025, liters: 40.5, totalCost: 60.71, station: 'TSP degalinė' });
+    await expect(repository.listFuelEntries()).resolves.toHaveLength(1);
+  });
 });

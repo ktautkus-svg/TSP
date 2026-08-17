@@ -129,6 +129,26 @@ export type FuelStatus = {
   latestReport: FuelReport | null;
 };
 
+export type ServerFuelEntry = {
+  id: string;
+  tripSheetId: string;
+  assignmentId: string;
+  routeId: string;
+  driverId: string;
+  driverName: string;
+  vehicleId: string;
+  registrationNumber: string;
+  filledAt: string;
+  odometer: number;
+  liters: number;
+  pricePerLiter: number | null;
+  totalCost: number | null;
+  station: string | null;
+  notes: string | null;
+  createdAt: string;
+  createdBy: string;
+};
+
 export type ServerTripSheet = {
   id: string;
   assignmentId: string;
@@ -154,6 +174,7 @@ export type ServerTripSheet = {
   startAddress: string;
   endAddress: string;
   compensation: CompensationBreakdown | null;
+  fuelEntries: ServerFuelEntry[];
 };
 
 export type QualityStopMonitor = {
@@ -219,6 +240,7 @@ export class EmployeeAuthStore {
   private readonly assignments = this.db.collection('tsp_assignments');
   private readonly vehicles = this.db.collection('tsp_vehicles');
   private readonly fuelReports = this.db.collection('tsp_fuel_reports');
+  private readonly fuelEntries = this.db.collection('tsp_fuel_entries');
   private readonly settings = this.db.collection('tsp_settings');
 
   async hasUsers(): Promise<boolean> {
@@ -769,12 +791,69 @@ export class EmployeeAuthStore {
       vehicles.filter((vehicle) => vehicle.assignedDriverId).map((vehicle) => [vehicle.assignedDriverId!, vehicleSnapshot(vehicle)]),
     );
     const priceSettings = await this.getRoutePriceSettings();
+    const fuelSnapshot = await this.fuelEntries.get();
+    const visibleAssignmentIds = new Set(assignments.map((assignment) => assignment.id));
+    const entries = fuelSnapshot.docs
+      .map((document) => document.data() as ServerFuelEntry)
+      .filter((entry) => visibleAssignmentIds.has(entry.assignmentId));
+    const entriesByAssignment = new Map<string, ServerFuelEntry[]>();
+    for (const entry of entries) entriesByAssignment.set(entry.assignmentId, [...(entriesByAssignment.get(entry.assignmentId) ?? []), entry]);
     const sheets = assignments
       .map((assignment) => buildServerTripSheet(assignment, assignment.vehicle ?? currentVehicles.get(assignment.driverId) ?? null))
-      .map((sheet) => ({ ...sheet, fuelNormLitersPer100Km: tripSheetFuelNorm(sheet.vehicle, priceSettings) }))
+      .map((sheet) => ({
+        ...sheet,
+        fuelNormLitersPer100Km: tripSheetFuelNorm(sheet.vehicle, priceSettings),
+        fuelEntries: (entriesByAssignment.get(sheet.assignmentId) ?? []).sort((left, right) => left.filledAt.localeCompare(right.filledAt)),
+      }))
       .sort((left, right) => (right.completedAt ?? right.date).localeCompare(left.completedAt ?? left.date));
     const canViewCompensation = profile.role !== 'driver' || profile.permissions.canViewCompensation;
     return canViewCompensation ? attachDailyCompensation(sheets) : sheets;
+  }
+
+  async addFuelEntry(profile: EmployeeProfile, assignmentIdInput: string, input: {
+    filledAt: string;
+    odometer: number;
+    liters: number;
+    pricePerLiter?: number;
+    station?: string;
+    notes?: string;
+  }): Promise<ServerFuelEntry> {
+    const assignmentId = safeId(assignmentIdInput);
+    const assignmentDocument = await this.assignments.doc(assignmentId).get();
+    const assignment = assignmentDocument.data() as RouteAssignment | undefined;
+    if (!assignment || assignment.status !== 'completed') throw new EmployeeApiError('TRIP_SHEET_NOT_FOUND', 'Užbaigtas kelionės lapas nerastas.', 404);
+    if (profile.role === 'driver' && assignment.driverId !== profile.id) throw new EmployeeApiError('FORBIDDEN', 'Šis kelionės lapas nepriklauso prisijungusiam vairuotojui.', 403);
+    const vehicle = assignment.vehicle ?? await this.findAssignedVehicleSnapshot(assignment.driverId);
+    if (!vehicle) throw new EmployeeApiError('VEHICLE_NOT_ASSIGNED', 'Kelionės lapui nepriskirtas automobilis.', 409);
+    const filledAt = new Date(input.filledAt);
+    if (Number.isNaN(filledAt.getTime())) throw new EmployeeApiError('INVALID_FUEL_DATE', 'Neteisinga kuro pylimo data.', 400);
+    if (!Number.isFinite(input.odometer) || input.odometer < 0 || input.odometer > 10_000_000) throw new EmployeeApiError('INVALID_ODOMETER', 'Neteisingas odometro rodmuo.', 400);
+    if (!Number.isFinite(input.liters) || input.liters <= 0 || input.liters > 1_000) throw new EmployeeApiError('INVALID_FUEL_AMOUNT', 'Įpilto kuro kiekis turi būti nuo 0,1 iki 1000 litrų.', 400);
+    if (input.pricePerLiter !== undefined && (!Number.isFinite(input.pricePerLiter) || input.pricePerLiter < 0 || input.pricePerLiter > 100)) throw new EmployeeApiError('INVALID_FUEL_PRICE', 'Neteisinga litro kaina.', 400);
+    const liters = Math.round(input.liters * 100) / 100;
+    const pricePerLiter = input.pricePerLiter === undefined ? null : Math.round(input.pricePerLiter * 1000) / 1000;
+    const now = new Date().toISOString();
+    const entry: ServerFuelEntry = {
+      id: randomUUID(),
+      tripSheetId: `trip-sheet-${assignment.id}`,
+      assignmentId: assignment.id,
+      routeId: assignment.routeId,
+      driverId: assignment.driverId,
+      driverName: assignment.driverName,
+      vehicleId: vehicle.id,
+      registrationNumber: vehicle.registrationNumber,
+      filledAt: filledAt.toISOString(),
+      odometer: Math.round(input.odometer * 10) / 10,
+      liters,
+      pricePerLiter,
+      totalCost: pricePerLiter === null ? null : Math.round(liters * pricePerLiter * 100) / 100,
+      station: optionalText(input.station),
+      notes: optionalText(input.notes),
+      createdAt: now,
+      createdBy: profile.id,
+    };
+    await this.fuelEntries.doc(entry.id).create(entry);
+    return entry;
   }
 
   async listQualityRoutes(): Promise<QualityRouteMonitor[]> {
@@ -1019,6 +1098,7 @@ export function buildServerTripSheet(assignment: RouteAssignment, vehicle: Fleet
     startAddress: locationAddress(route.start_location_json, 'Pradžia'),
     endAddress: locationAddress(route.end_location_json, 'Pabaiga'),
     compensation: null,
+    fuelEntries: [],
   };
 }
 

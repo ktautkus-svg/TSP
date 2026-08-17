@@ -232,6 +232,20 @@ export async function handleEmployeeApi(
       requireRole(profile, ['admin', 'dispatcher', 'driver']);
       return send(response, 200, { tripSheets: await store.listTripSheets(profile) }, requestId);
     }
+    const tripSheetFuelMatch = pathname.match(/^\/api\/trip-sheets\/([^/]+)\/fuel-entries$/);
+    if (tripSheetFuelMatch && request.method === 'POST') {
+      requireRole(profile, ['admin', 'dispatcher', 'driver']);
+      const body = parseObject(await readBody(request, 32_000));
+      const entry = await store.addFuelEntry(profile, decodeURIComponent(tripSheetFuelMatch[1]), {
+        filledAt: stringField(body, 'filledAt'),
+        odometer: numberField(body, 'odometer'),
+        liters: numberField(body, 'liters'),
+        pricePerLiter: typeof body.pricePerLiter === 'number' ? body.pricePerLiter : undefined,
+        station: optionalString(body, 'station'),
+        notes: optionalString(body, 'notes'),
+      });
+      return send(response, 201, { entry }, requestId);
+    }
     if (pathname === '/api/fuel-status' && request.method === 'GET') {
       requireRole(profile, ['driver']);
       return send(response, 200, await store.getFuelStatus(profile), requestId);

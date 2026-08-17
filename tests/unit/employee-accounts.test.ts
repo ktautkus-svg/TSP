@@ -103,6 +103,15 @@ describe('employee server session', () => {
     expect(homeSource).toContain('await pushCompletedRouteAssignmentProgress(db)');
   });
 
+  it('stores real fuel refills against a completed trip sheet', () => {
+    expect(employeeApiSource).toContain("/fuel-entries$/");
+    expect(employeeApiSource).toContain('await store.addFuelEntry');
+    expect(employeeStoreSource).toContain("private readonly fuelEntries = this.db.collection('tsp_fuel_entries')");
+    expect(employeeStoreSource).toContain('async addFuelEntry');
+    expect(employeeStoreSource).toContain("assignment.status !== 'completed'");
+    expect(employeeStoreSource).toContain('fuelEntries: (entriesByAssignment.get(sheet.assignmentId) ?? [])');
+  });
+
   it('allows management actions only to an admin or an explicitly permitted dispatcher', () => {
     expect(employeeApiSource).toContain("requireManagementPermission(profile, 'canManageEmployees')");
     expect(employeeApiSource).toContain("requireManagementPermission(profile, 'canManageVehicles')");

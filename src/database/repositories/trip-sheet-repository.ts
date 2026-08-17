@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-import type { FuelType, SavedLocation, TripSheet, Vehicle } from '@/domain/vehicle-and-trip';
+import type { FuelEntry, FuelType, SavedLocation, TripSheet, Vehicle } from '@/domain/vehicle-and-trip';
 
 type VehicleRow = {
   id: string;
@@ -58,6 +58,22 @@ type CompletedRouteRow = {
   completed_at: string | null;
   start_location_json: string | null;
   end_location_json: string | null;
+};
+
+type FuelEntryRow = {
+  id: string;
+  vehicle_id: string;
+  trip_sheet_id: string | null;
+  filled_at: string;
+  odometer: number;
+  liters: number;
+  price_per_liter: number | null;
+  total_cost: number | null;
+  full_tank: number;
+  fuel_type: FuelType;
+  station: string | null;
+  notes: string | null;
+  created_at: string;
 };
 
 export type TripSheetWithRoutes = TripSheet & { routeIds: string[]; vehicleName: string };
@@ -136,6 +152,24 @@ function mapTripSheet(row: TripSheetRow): TripSheet {
   };
 }
 
+function mapFuelEntry(row: FuelEntryRow): FuelEntry {
+  return {
+    id: row.id,
+    vehicleId: row.vehicle_id,
+    tripSheetId: row.trip_sheet_id,
+    filledAt: row.filled_at,
+    odometer: row.odometer,
+    liters: row.liters,
+    pricePerLiter: row.price_per_liter,
+    totalCost: row.total_cost,
+    fullTank: row.full_tank === 1,
+    fuelType: row.fuel_type,
+    station: row.station,
+    notes: row.notes,
+    createdAt: row.created_at,
+  };
+}
+
 function optionalSum(values: Array<number | null>): number | null {
   const known = values.filter((value): value is number => value !== null);
   return known.length === 0 ? null : known.reduce((sum, value) => sum + value, 0);
@@ -204,6 +238,41 @@ export class TripSheetRepository {
       routeIds: routeIdsBySheet.get(row.id) ?? [],
       vehicleName: row.vehicle_name,
     }));
+  }
+
+  async listFuelEntries(): Promise<FuelEntry[]> {
+    const rows = await this.db.getAllAsync<FuelEntryRow>(
+      'SELECT * FROM fuel_entries ORDER BY filled_at DESC, created_at DESC',
+    );
+    return rows.map(mapFuelEntry);
+  }
+
+  async saveFuelEntry(input: {
+    tripSheetId: string;
+    filledAt: string;
+    odometer: number;
+    liters: number;
+    pricePerLiter: number | null;
+    station: string | null;
+    notes: string | null;
+  }, now = new Date().toISOString()): Promise<FuelEntry> {
+    const sheet = await this.db.getFirstAsync<{ vehicle_id: string }>('SELECT vehicle_id FROM trip_sheets WHERE id = ?', input.tripSheetId);
+    if (!sheet) throw new Error('Kelionės lapas nerastas.');
+    const vehicle = await this.db.getFirstAsync<{ fuel_type: FuelType }>('SELECT fuel_type FROM vehicles WHERE id = ?', sheet.vehicle_id);
+    if (!vehicle) throw new Error('Kelionės lapo automobilis nerastas.');
+    const id = `fuel-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const totalCost = input.pricePerLiter === null ? null : Math.round(input.liters * input.pricePerLiter * 100) / 100;
+    await this.db.runAsync(
+      `INSERT INTO fuel_entries (
+         id, vehicle_id, trip_sheet_id, filled_at, odometer, liters, price_per_liter,
+         total_cost, full_tank, fuel_type, station, notes, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
+      id, sheet.vehicle_id, input.tripSheetId, input.filledAt, input.odometer, input.liters,
+      input.pricePerLiter, totalCost, vehicle.fuel_type, input.station, input.notes, now,
+    );
+    const row = await this.db.getFirstAsync<FuelEntryRow>('SELECT * FROM fuel_entries WHERE id = ?', id);
+    if (!row) throw new Error('Kuro įrašo išsaugoti nepavyko.');
+    return mapFuelEntry(row);
   }
 
   async syncCompletedDate(date: string, now = new Date().toISOString()): Promise<TripSheetWithRoutes> {

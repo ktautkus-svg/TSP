@@ -88,6 +88,26 @@ export type FuelStatus = {
   latestReport: FuelReport | null;
 };
 
+export type ServerFuelEntry = {
+  id: string;
+  tripSheetId: string;
+  assignmentId: string;
+  routeId: string;
+  driverId: string;
+  driverName: string;
+  vehicleId: string;
+  registrationNumber: string;
+  filledAt: string;
+  odometer: number;
+  liters: number;
+  pricePerLiter: number | null;
+  totalCost: number | null;
+  station: string | null;
+  notes: string | null;
+  createdAt: string;
+  createdBy: string;
+};
+
 export type ServerTripSheet = {
   id: string;
   assignmentId: string;
@@ -113,6 +133,7 @@ export type ServerTripSheet = {
   startAddress: string;
   endAddress: string;
   compensation: CompensationBreakdown | null;
+  fuelEntries: ServerFuelEntry[];
 };
 
 export type QualityStopMonitor = {
