@@ -7,7 +7,6 @@ import { describe, expect, it } from 'vitest';
 
 import {
   ActivateRoute,
-  CancelDraftRoute,
   CreateDraftRoute,
   DeleteDraftStop,
   GetActiveRoute,

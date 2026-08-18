@@ -65,6 +65,7 @@ import { SQLiteImportAuditRepository } from '@/infrastructure/import/sqlite-impo
 import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
+import { devWarn } from '@/ui/dev-log';
 
 type ManualRowResolution = {
   address: string;
@@ -158,7 +159,7 @@ export default function ImportScreen() {
       if (!active || !restored) return;
       setRememberedExcel(restored);
     }).catch((reason) => {
-      if (__DEV__) console.warn('EXCEL_IMPORT_REMEMBER_FAILED', reason);
+      devWarn('EXCEL_IMPORT_REMEMBER_FAILED', reason);
     });
     return () => { active = false; };
   }, [document, excelPreview, excelRepository, result]);
@@ -197,7 +198,7 @@ export default function ImportScreen() {
     }).then((preference) => {
       if (active && preference) setEndMode(preference);
     }).catch((reason) => {
-      if (__DEV__) console.warn('DEFAULT_LOCATIONS_LOAD_FAILED', reason);
+      devWarn('DEFAULT_LOCATIONS_LOAD_FAILED', reason);
       if (active) setMessage('Išsaugotų vietų atkurti nepavyko. Galite įvesti vietą ranka.');
     });
     return () => { active = false; };
@@ -209,7 +210,7 @@ export default function ImportScreen() {
       void excelRepository.listSheetSessions(excelBatchHashes).then((sessions) => {
         if (active) setExcelSheetBatch(sessions);
       }).catch((reason) => {
-        if (__DEV__) console.warn('EXCEL_BATCH_REFRESH_FAILED', reason);
+        devWarn('EXCEL_BATCH_REFRESH_FAILED', reason);
       });
     }
     return () => { active = false; };
@@ -219,7 +220,7 @@ export default function ImportScreen() {
     void new PlanningModePreference(db).get()
       .then(setPlanningMode)
       .catch((reason) => {
-        if (__DEV__) console.warn('PLANNING_MODE_PREFERENCE_LOAD_FAILED', reason);
+        devWarn('PLANNING_MODE_PREFERENCE_LOAD_FAILED', reason);
       });
   }, [db]);
 
@@ -236,7 +237,7 @@ export default function ImportScreen() {
         longitude: candidate.longitude,
       });
     }).catch((reason) => {
-      if (__DEV__) console.warn('KRETINGA_START_GEOCODING_FAILED', reason);
+      devWarn('KRETINGA_START_GEOCODING_FAILED', reason);
     });
     return () => { active = false; };
   }, [addressResolver]);
@@ -591,7 +592,7 @@ export default function ImportScreen() {
   const persistExcelResult = (nextResult: ImportResult) => {
     if (!excelPreview) return;
     void excelRepository.saveReviewResult(excelPreview.id, nextResult).catch((reason) => {
-      if (__DEV__) console.warn('EXCEL_REVIEW_PERSIST_FAILED', reason);
+      devWarn('EXCEL_REVIEW_PERSIST_FAILED', reason);
     });
   };
 
@@ -622,7 +623,7 @@ export default function ImportScreen() {
           correctedValue: rawValue.trim() || null,
           createdAt: new Date().toISOString(),
         }).catch((reason) => {
-          if (__DEV__) console.warn('EXCEL_CORRECTION_AUDIT_FAILED', reason);
+          devWarn('EXCEL_CORRECTION_AUDIT_FAILED', reason);
         });
       }
       return next;
@@ -763,7 +764,7 @@ export default function ImportScreen() {
               const destination = resolveRoute(activeRoute);
               router.replace({ pathname: destination.pathname, params: destination.params } as Href);
             }).catch((reason) => {
-              if (__DEV__) console.warn('ACTIVE_ROUTE_REDIRECT_FAILED', reason);
+              devWarn('ACTIVE_ROUTE_REDIRECT_FAILED', reason);
             }); },
           },
           {

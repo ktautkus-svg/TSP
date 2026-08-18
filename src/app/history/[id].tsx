@@ -20,6 +20,7 @@ import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { Alert } from '@/ui/alert';
+import { devWarn } from '@/ui/dev-log';
 
 type Audit = Awaited<ReturnType<RouteRepository['listAudit']>>[number];
 
@@ -57,7 +58,7 @@ export default function RouteHistoryDetailScreen() {
       setAudit(entries);
       setError(null);
     }).catch((reason) => {
-      if (__DEV__) console.warn('ROUTE_HISTORY_DETAIL_LOAD_FAILED', reason);
+      devWarn('ROUTE_HISTORY_DETAIL_LOAD_FAILED', reason);
       if (mounted) setError(reason instanceof Error ? reason.message : 'Maršruto istorijos atkurti nepavyko.');
     });
     return () => { mounted = false; };

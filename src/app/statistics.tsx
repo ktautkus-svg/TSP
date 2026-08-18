@@ -17,6 +17,7 @@ import { useLocalAccess } from '@/application/auth/local-access-context';
 import { roleHomePath } from '@/application/navigation/role-home';
 import { employeeApi, type EmployeeProfile, type ServerRouteAssignment } from '@/infrastructure/auth/employee-session';
 import { uniqueRegionCodes } from '@/domain/route-code';
+import { devWarn } from '@/ui/dev-log';
 
 export default function StatisticsScreen() {
   const db = useSQLiteContext();
@@ -38,7 +39,7 @@ export default function StatisticsScreen() {
       setSnapshot(data);
       setError(null);
     }).catch((reason) => {
-      if (__DEV__) console.warn('STATISTICS_LOAD_FAILED', reason);
+      devWarn('STATISTICS_LOAD_FAILED', reason);
       if (mounted) setError(reason instanceof Error ? reason.message : 'Statistikos atkurti nepavyko.');
     });
     if (profile.role === 'admin' && online) {
@@ -50,7 +51,7 @@ export default function StatisticsScreen() {
         setDrivers(users.users.filter((user) => user.role === 'driver' && !user.disabled));
         setAssignments(routes.assignments);
       }).catch((reason) => {
-        if (__DEV__) console.warn('ADMIN_STATISTICS_LOAD_FAILED', reason);
+        devWarn('ADMIN_STATISTICS_LOAD_FAILED', reason);
       });
     }
     return () => { mounted = false; };

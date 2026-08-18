@@ -18,6 +18,7 @@ import type { ColorPalette } from '@/ui/theme-palette';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { roleHomePath } from '@/application/navigation/role-home';
 import { pullAssignedRoutes, pushCompletedRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
+import { devWarn } from '@/ui/dev-log';
 
 export default function RoutesScreen() {
   const db = useSQLiteContext();
@@ -40,11 +41,11 @@ export default function RoutesScreen() {
       if (profile.role === 'driver') {
         if (online) {
           await pushCompletedRouteAssignmentProgress(db).catch((reason) => {
-            if (__DEV__) console.warn('ROUTES_COMPLETION_PUSH_FAILED', reason);
+            devWarn('ROUTES_COMPLETION_PUSH_FAILED', reason);
           });
         }
         await pullAssignedRoutes(db, profile).catch((reason) => {
-          if (__DEV__) console.warn('ROUTES_ASSIGNMENT_PULL_FAILED', reason);
+          devWarn('ROUTES_ASSIGNMENT_PULL_FAILED', reason);
         });
       }
       const owner = profile.role === 'driver' ? profile.id : null;
@@ -60,7 +61,7 @@ export default function RoutesScreen() {
       setError(null);
     };
     void refresh().catch((reason) => {
-      if (__DEV__) console.warn('ROUTES_LOAD_FAILED', reason);
+      devWarn('ROUTES_LOAD_FAILED', reason);
       if (mounted) setError(reason instanceof Error ? reason.message : 'Maršrutų atkurti nepavyko.');
     });
     return () => { mounted = false; };

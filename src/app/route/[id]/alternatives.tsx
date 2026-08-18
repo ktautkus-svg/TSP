@@ -34,6 +34,7 @@ import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { roleHomePath } from '@/application/navigation/role-home';
 import { pushRouteAssignmentProgress, pushRouteAssignmentRevision } from '@/application/auth/route-assignment-sync';
+import { devWarn } from '@/ui/dev-log';
 
 export default function RouteAlternativesScreen() {
   const router = useRouter();
@@ -114,7 +115,7 @@ export default function RouteAlternativesScreen() {
         params: destination.params ? { ...destination.params, redirectReason: 'stale-planning-screen' } : undefined,
       } as Href);
     }).catch((reason) => {
-      if (__DEV__) console.warn('ALTERNATIVES_FOCUS_GUARD_FAILED', reason);
+      devWarn('ALTERNATIVES_FOCUS_GUARD_FAILED', reason);
       if (active) setError(reason instanceof Error ? reason.message : 'Maršruto būsenos patikrinti nepavyko.');
     });
     return () => { active = false; screenFocused.current = false; };
@@ -127,7 +128,7 @@ export default function RouteAlternativesScreen() {
       const destination = resolveRoute(current);
       router.replace({ pathname: destination.pathname, params: destination.params } as Href);
     }).catch((reason) => {
-      if (__DEV__) console.warn('ALTERNATIVES_SYNC_GUARD_FAILED', reason);
+      devWarn('ALTERNATIVES_SYNC_GUARD_FAILED', reason);
     });
   }, [repository, routeId, router, syncRevision]);
 

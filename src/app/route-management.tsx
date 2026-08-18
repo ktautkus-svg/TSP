@@ -133,7 +133,7 @@ export default function RouteManagementScreen() {
     if (unavailable.length > 0) {
       setMessage(`Maršrutas išsaugotas, bet nepavyko atnaujinti ${unavailable.join(', ')} sąrašo. Paspauskite „Atnaujinti“ dar kartą.`);
     }
-  }, [db, online, profile.id, requestSync, requestedRouteId]);
+  }, [db, online, profile.id, requestSync]);
 
   useEffect(() => {
     if (!['admin', 'dispatcher'].includes(profile.role)) {
@@ -614,7 +614,6 @@ function PreliminaryPriceCard({ price, styles }: { price: PreliminaryRoutePrice;
   </View>;
 }
 
-function nullableNumber(value: unknown): number | null { const parsed = Number(value); return value === null || value === undefined || !Number.isFinite(parsed) ? null : parsed; }
 function formatMoney(value: number): string { return `${new Intl.NumberFormat('lt-LT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)} €`; }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({

@@ -1,7 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { GatewayError } from '../../gateway/errors';
 import {
   HereMatrixAdapter,
   normalizeHereMatrix,

@@ -11,6 +11,7 @@ import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { Alert } from '@/ui/alert';
+import { devWarn } from '@/ui/dev-log';
 
 export default function LocationSettingsScreen() {
   const db = useSQLiteContext();
@@ -26,28 +27,11 @@ export default function LocationSettingsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  useFocusEffect(useCallback(() => {
-    let mounted = true;
-    void service.execute().then((locations) => {
-      if (!mounted) return;
-      setWarehouse(locations.warehouse?.endpoint.originalAddress ?? '');
-      setHome(locations.home?.endpoint.originalAddress ?? '');
-      setWarehouseConfirmed(Boolean(locations.warehouse?.endpoint.latitude !== null && locations.warehouse?.endpoint.latitude !== undefined));
-      setHomeConfirmed(Boolean(locations.home?.endpoint.latitude !== null && locations.home?.endpoint.latitude !== undefined));
-      setError(null);
-      void backfillMissingCoordinates(mounted, locations);
-    }).catch((reason) => {
-      if (__DEV__) console.warn('LOCATION_SETTINGS_LOAD_FAILED', reason);
-      if (mounted) setError(reason instanceof Error ? reason.message : 'Nustatymų atkurti nepavyko.');
-    });
-    return () => { mounted = false; };
-  }, [service]));
-
   // Best-effort backfill: older saved locations (or the v10 migration seed) were
   // stored without coordinates. Silently try to geocode them once per visit to
   // this screen so routes stop demanding re-confirmation of an address that
   // never changed. Failures are non-fatal — the address stays usable as text.
-  const backfillMissingCoordinates = async (
+  const backfillMissingCoordinates = useCallback(async (
     mounted: boolean,
     locations: { warehouse: SavedLocation | null; home: SavedLocation | null },
   ) => {
@@ -64,10 +48,27 @@ export default function LocationSettingsScreen() {
         await command.execute(kind, saved.label, geocoded);
         if (kind === 'warehouse') setWarehouseConfirmed(true); else setHomeConfirmed(true);
       } catch (reason) {
-        if (__DEV__) console.warn('LOCATION_BACKFILL_GEOCODE_FAILED', kind, reason);
+        devWarn('LOCATION_BACKFILL_GEOCODE_FAILED', kind, reason);
       }
     }
-  };
+  }, [db, resolver]);
+
+  useFocusEffect(useCallback(() => {
+    let mounted = true;
+    void service.execute().then((locations) => {
+      if (!mounted) return;
+      setWarehouse(locations.warehouse?.endpoint.originalAddress ?? '');
+      setHome(locations.home?.endpoint.originalAddress ?? '');
+      setWarehouseConfirmed(Boolean(locations.warehouse?.endpoint.latitude !== null && locations.warehouse?.endpoint.latitude !== undefined));
+      setHomeConfirmed(Boolean(locations.home?.endpoint.latitude !== null && locations.home?.endpoint.latitude !== undefined));
+      setError(null);
+      void backfillMissingCoordinates(mounted, locations);
+    }).catch((reason) => {
+      devWarn('LOCATION_SETTINGS_LOAD_FAILED', reason);
+      if (mounted) setError(reason instanceof Error ? reason.message : 'Nustatymų atkurti nepavyko.');
+    });
+    return () => { mounted = false; };
+  }, [backfillMissingCoordinates, service]));
 
   const save = async () => {
     if (!warehouse.trim()) return Alert.alert('Trūksta sandėlio', 'Numatytojo sandėlio adresas yra privalomas.');
@@ -100,7 +101,7 @@ export default function LocationSettingsScreen() {
         Alert.alert('Išsaugota', 'Vietos geokoduotos ir patvirtintos. Kuriant maršrutą jų iš naujo tvirtinti nereikės.');
       }
     } catch (reason) {
-      if (__DEV__) console.warn('LOCATION_SETTINGS_SAVE_FAILED', reason);
+      devWarn('LOCATION_SETTINGS_SAVE_FAILED', reason);
       setError(reason instanceof Error ? reason.message : 'Vietų išsaugoti nepavyko.');
     } finally {
       setSaving(false);
