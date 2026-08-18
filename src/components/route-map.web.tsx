@@ -135,7 +135,7 @@ export function RouteMapView({
         ) : null}
       </View> : null}
 
-      <View style={[styles.canvasContainer, { height: mapHeight }]} testID="route-map-canvas">
+      <View style={[styles.canvasContainer, compact && styles.compactCanvas, { height: mapHeight }]} testID="route-map-canvas">
         <MapContainer
           center={[startLocation.latitude, startLocation.longitude]}
           zoom={12}
@@ -202,6 +202,8 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: colors.border,
+    zIndex: 0,
   },
+  compactCanvas: { minHeight: 190, height: 190 },
   pending: { color: colors.textMuted, fontSize: 13 },
 });

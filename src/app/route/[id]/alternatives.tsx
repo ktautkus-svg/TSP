@@ -18,7 +18,7 @@ import { RouteMapView } from '@/components/route-map';
 import { ManualRouteOrderList } from '@/components/manual-route-order-list';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import { ExcelImportRepository } from '@/database/repositories/excel-import-repository';
-import type { OptimizationStop, RouteCandidate, RouteOptimizationRequest, RouteOptimizationResult, RoutePolylineResult } from '@/domain/routing/models';
+import type { OptimizationStop, RouteCandidate, RouteOptimizationRequest, RouteOptimizationResult, RoutePolylineResult, TravelCostProvider, TravelMatrix } from '@/domain/routing/models';
 import { SQLiteRoutingAuditRepository } from '@/infrastructure/routing/persistence/sqlite-routing-audit-repository';
 import { GatewayPolylineProvider } from '@/infrastructure/routing/providers/gateway-polyline-provider';
 import { FallbackTravelCostProvider } from '@/infrastructure/routing/providers/fallback-travel-cost-provider';
@@ -233,7 +233,18 @@ export default function RouteAlternativesScreen() {
   };
 
   const recalculateWithPriorities = async () => {
-    if (!request || manualPriorityIds.length === 0 || priorityCalculating) return;
+    if (priorityCalculating) return;
+    if (manualPriorityIds.length === 0) {
+      Alert.alert(
+        'Pažymėkite prioritetus',
+        'Žvaigždute pažymėkite bent vieną tašką, tada spauskite „Perskaičiuoti pagal prioritetus“.',
+      );
+      return;
+    }
+    if (!request || !result) {
+      setManualError('Maršruto variantai dar nesuskaičiuoti. Palaukite ir bandykite dar kartą.');
+      return;
+    }
     setPriorityCalculating(true);
     setManualError(null);
     try {
@@ -244,7 +255,12 @@ export default function RouteAlternativesScreen() {
           ? { ...stop, priority: 10, preferEarly: true }
           : { ...stop, priority: 1, preferEarly: false }),
       };
-      const four = await buildRouteAlternatives(new RoutingEngine(createTravelProvider()), prioritizedRequest);
+      // Reuse the matrix already paid for this screen. A second provider
+      // purchase used to hang or fail, which made the button look dead.
+      const four = await buildRouteAlternatives(
+        new RoutingEngine(reuseTravelMatrix(result.matrix)),
+        prioritizedRequest,
+      );
       await new SQLiteRoutingAuditRepository(db).saveOptimizationRun(routeId, four.request, four.result);
       setRequest(four.request);
       setResult(four.result);
@@ -252,7 +268,7 @@ export default function RouteAlternativesScreen() {
       const candidate = four.result.recommended ?? four.labeled[0]?.candidate ?? null;
       setSelectedId(candidate?.id ?? null);
       setManualOrder(candidate?.stopSequence ?? manualOrder);
-      setManualCandidate(null);
+      setManualCandidate(candidate);
     } catch (reason) {
       setManualError(reason instanceof Error ? reason.message : 'Pagal prioritetus perskaičiuoti nepavyko.');
     } finally {
@@ -517,16 +533,29 @@ export default function RouteAlternativesScreen() {
             onTogglePriority={toggleManualPriority}
             onMove={moveManualStop}
           />
-          <Pressable
-            disabled={manualPriorityIds.length === 0 || priorityCalculating}
-            style={[styles.secondaryButton, (manualPriorityIds.length === 0 || priorityCalculating) && styles.disabled]}
-            onPress={() => { void recalculateWithPriorities(); }}
-            testID="recalculate-priority-stops">
-            {priorityCalculating ? <ActivityIndicator color={colors.primary} /> : <Text style={styles.secondaryText}>Perskaičiuoti pagal prioritetus</Text>}
-          </Pressable>
-          <Pressable style={styles.primaryButton} onPress={recalculateManualSequence} testID="recalculate-manual-sequence">
-            <Text style={styles.primaryText}>Perskaičiuoti pasirinktą eiliškumą</Text>
-          </Pressable>
+          <View style={styles.manualActions}>
+            <Pressable
+              accessibilityRole="button"
+              disabled={priorityCalculating}
+              onPress={() => { void recalculateWithPriorities(); }}
+              style={[
+                styles.priorityRecalcButton,
+                manualPriorityIds.length > 0 && styles.priorityRecalcButtonReady,
+                priorityCalculating && styles.disabled,
+              ]}
+              testID="recalculate-priority-stops">
+              {priorityCalculating
+                ? <ActivityIndicator color={colors.textInverse} />
+                : <Text style={[styles.priorityRecalcText, manualPriorityIds.length > 0 && styles.priorityRecalcTextReady]}>Perskaičiuoti pagal prioritetus</Text>}
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={recalculateManualSequence}
+              style={styles.primaryButton}
+              testID="recalculate-manual-sequence">
+              <Text style={styles.primaryText}>Perskaičiuoti pasirinktą eiliškumą</Text>
+            </Pressable>
+          </View>
           {manualError ? <Text style={styles.error}>{manualError}</Text> : null}
           {manualCandidate ? (
             <View style={styles.manualResultCard} testID="manual-sequence-result">
@@ -711,7 +740,12 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   warningTitle: { ...type.sectionTitle, color: colors.warning },
   disabled: { opacity: 0.45 },
   manualCard: { padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, gap: spacing.sm },
-  manualMap: { overflow: 'hidden', borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surfaceSubtle, padding: spacing.sm, gap: spacing.xs },
+  manualMap: { overflow: 'hidden', borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surfaceSubtle, padding: spacing.sm, gap: spacing.xs, zIndex: 0 },
+  manualActions: { gap: spacing.sm, zIndex: 2, position: 'relative', backgroundColor: colors.surface, paddingTop: spacing.sm },
+  priorityRecalcButton: { minHeight: 48, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surfaceSubtle, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
+  priorityRecalcButtonReady: { backgroundColor: colors.infoSoft, borderColor: colors.info },
+  priorityRecalcText: { ...type.button, color: colors.text },
+  priorityRecalcTextReady: { color: colors.info },
   manualRow: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm, gap: spacing.xs },
   manualRowHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   manualRowLabelTouch: { flex: 1, minHeight: 44, justifyContent: 'center' },
@@ -721,6 +755,13 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   manualRowDetail: { gap: 2, paddingBottom: spacing.xs },
   manualResultCard: { gap: spacing.sm, marginTop: spacing.sm },
 });
+
+function reuseTravelMatrix(matrix: TravelMatrix): TravelCostProvider {
+  return {
+    name: matrix.provider || 'reused-matrix',
+    getMatrix: async () => matrix,
+  };
+}
 
 /**
  * One planning run, one paid matrix.

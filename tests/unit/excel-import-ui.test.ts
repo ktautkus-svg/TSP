@@ -185,6 +185,9 @@ describe('compact daily Excel UI', () => {
     expect(alternativesScreen).toContain('allowStraightLineFallback');
     expect(alternativesScreen).toContain('manualPriorityIds');
     expect(alternativesScreen).toContain('Perskaičiuoti pagal prioritetus');
+    expect(alternativesScreen).toContain('reuseTravelMatrix');
+    expect(alternativesScreen).toContain('Pažymėkite prioritetus');
+    expect(alternativesScreen).not.toContain('disabled={manualPriorityIds.length === 0');
     expect(alternativesScreen).toContain('verifyPersistedSequence');
     expect(alternativesScreen).toContain('markRouted(current.sourceImportAuditId, routeId)');
     expect(alternativesScreen).toContain('pushRouteAssignmentRevision');
