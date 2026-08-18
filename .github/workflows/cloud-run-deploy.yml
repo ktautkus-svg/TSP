@@ -46,12 +46,6 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Enable required APIs
-        run: |
-          gcloud services enable run.googleapis.com cloudbuild.googleapis.com \
-            artifactregistry.googleapis.com secretmanager.googleapis.com firestore.googleapis.com \
-            --project="$GCP_PROJECT_ID"
-
       - name: Build Cloud Run secrets argument
         id: secrets
         shell: bash
