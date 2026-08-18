@@ -827,6 +827,62 @@ export class EmployeeAuthStore {
     return assignment;
   }
 
+  async completeAssignment(assignmentId: string): Promise<RouteAssignment> {
+    const reference = this.assignments.doc(safeId(assignmentId));
+    const document = await reference.get();
+    const assignment = document.data() as RouteAssignment | undefined;
+    if (!assignment) throw new EmployeeApiError('ASSIGNMENT_NOT_FOUND', 'Maršruto priskyrimas nerastas.', 404);
+    if (assignment.status === 'completed') return assignment;
+    if (assignment.status === 'cancelled') {
+      throw new EmployeeApiError('ASSIGNMENT_CANCELLED', 'Atšaukto maršruto užbaigti negalima.', 409);
+    }
+    const updatedAt = new Date().toISOString();
+    const stops = assignment.routeSnapshot.stops;
+    const delivered = stops.filter((stop) => stop.delivery_status === 'delivered');
+    const failed = stops.filter((stop) => stop.delivery_status === 'failed');
+    const pending = stops.filter((stop) => stop.delivery_status !== 'delivered' && stop.delivery_status !== 'failed');
+    const summary = {
+      totalStops: stops.length,
+      deliveredStops: delivered.length,
+      failedStops: failed.length,
+      unmarkedStops: pending.length,
+      deliveredKnownWeightKg: delivered.reduce((sum, stop) => sum + finiteNumber(stop.weight_kg, 0), 0),
+      undeliveredKnownWeightKg: [...failed, ...pending].reduce((sum, stop) => sum + finiteNumber(stop.weight_kg, 0), 0),
+      unknownWeightStops: stops.filter((stop) => stop.weight_kg == null).length,
+      plannedDistanceKm: nullableNumber(assignment.routeSnapshot.route.estimated_distance_km),
+      actualDistanceKm: nullableNumber(assignment.routeSnapshot.route.actual_distance_km),
+      onTimeStops: 0,
+      lateStops: 0,
+      plannedDurationMinutes: nullableNumber(assignment.routeSnapshot.route.estimated_duration_minutes),
+      actualDurationMinutes: null,
+      durationDeviationMinutes: null,
+      distanceDeviationKm: null,
+    };
+    const routeSnapshot: RouteSnapshot = {
+      ...assignment.routeSnapshot,
+      route: {
+        ...assignment.routeSnapshot.route,
+        status: 'completed',
+        remaining_stops: 0,
+        remaining_weight_kg: 0,
+        remaining_unknown_weight_stops: 0,
+        completed_at: updatedAt,
+        updated_at: updatedAt,
+        completion_summary_json: JSON.stringify(summary),
+      },
+    };
+    const progress = {
+      routeStatus: 'completed',
+      totalStops: finiteNumber(assignment.routeSnapshot.route.total_stops, stops.length),
+      remainingStops: 0,
+      remainingWeightKg: 0,
+      lastSyncedAt: updatedAt,
+    };
+    const updated = { ...assignment, status: 'completed' as const, routeSnapshot, progress, updatedAt };
+    await reference.set(updated);
+    return updated;
+  }
+
   async cancelAssignment(assignmentId: string): Promise<RouteAssignment> {
     const reference = this.assignments.doc(safeId(assignmentId));
     const document = await reference.get();

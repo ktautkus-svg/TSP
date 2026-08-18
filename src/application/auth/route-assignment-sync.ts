@@ -1,5 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
+import { AdminCompleteRoute } from '@/application/routes/route-workday';
 import {
   employeeApi,
   type EmployeeProfile,
@@ -217,6 +218,27 @@ export async function pushCompletedRouteAssignmentProgress(db: SQLiteDatabase): 
     if (await pushRouteAssignmentProgress(db, route.route_id)) synced += 1;
   }
   return synced;
+}
+
+/**
+ * Closes a hanging assignment from the dispatcher/admin device. Local copies
+ * are completed first so this device's SQLite matches the server snapshot.
+ */
+export async function completeAssignedRoute(
+  db: SQLiteDatabase,
+  assignment: ServerRouteAssignment,
+  localRouteId: string | null,
+): Promise<void> {
+  if (localRouteId) {
+    await new AdminCompleteRoute(db).execute(localRouteId);
+    try {
+      if (await pushRouteAssignmentRevision(db, localRouteId, true)) return;
+    } catch {
+      // Fall through to the explicit complete endpoint so a progress push
+      // failure cannot leave the assignment hanging on the server.
+    }
+  }
+  await employeeApi(`/api/admin/assignments/${encodeURIComponent(assignment.id)}/complete`, { method: 'POST' });
 }
 
 export async function assignRouteToDriver(db: SQLiteDatabase, routeId: string, driverId: string, vehicleId?: string): Promise<ServerRouteAssignment> {

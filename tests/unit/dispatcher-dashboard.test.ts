@@ -69,6 +69,24 @@ describe('dispatcher desktop workspace', () => {
     expect(dispatcherSource).toContain('Išsaugoti datą');
   });
 
+  it('lets an administrator close a hanging assignment without deleting it', () => {
+    expect(dispatcherSource).toContain('completeAssignedRoute');
+    expect(dispatcherSource).toContain('AdminCompleteRoute');
+    expect(dispatcherSource).toContain('testID={`complete-assignment-${assignment.id}`}');
+    expect(dispatcherSource).toContain('Užbaigti šį maršrutą?');
+    expect(dispatcherSource).toContain('activeAssignmentCard');
+    expect(dispatcherSource).toContain('routeCompleteAction');
+    expect(dispatcherSource).toContain('routeEditAction');
+    expect(adminSource).toContain('completeAssignedRoute');
+    expect(adminSource).toContain('completeLocalRoute');
+  });
+
+  it('opens planned-route reordering on the alternatives screen so the map stays visible', () => {
+    expect(dispatcherSource).toContain('ReopenRouteForPlanning');
+    expect(dispatcherSource).toContain("pathname: '/route/[id]/alternatives'");
+    expect(dispatcherSource).toContain("edit: 'order'");
+  });
+
   it('lets the dispatcher safely remove duplicate or unnecessary planned routes in place', () => {
     expect(dispatcherSource).toContain('TrashIcon');
     expect(dispatcherSource).toContain('routeDeleteAction');
@@ -139,8 +157,9 @@ describe('driver permissions', () => {
 
   it('starts from a task menu instead of an assignment form', () => {
     expect(dispatcherHomeSource).toContain('testID="dispatcher-home-menu"');
-    expect(dispatcherHomeSource).toContain('Kurti maršrutus');
-    expect(dispatcherHomeSource).toContain('Redaguoti esamus');
+    expect(dispatcherHomeSource).toContain('testID="dispatcher-primary-actions"');
+    expect(dispatcherHomeSource).toContain('Kurti maršrutą');
+    expect(dispatcherHomeSource).toContain('Redaguoti ir priskirti');
     expect(dispatcherHomeSource).toContain('title="Automobiliai"');
     expect(dispatcherHomeSource).toContain('title="Vairuotojai"');
     expect(dispatcherHomeSource).toContain('Finansiniai duomenys');
@@ -162,10 +181,11 @@ describe('driver permissions', () => {
     expect(deliverySource).toContain('profile.permissions?.canRecalculateRoute');
   });
 
-  it('lets administrators cancel or permanently delete a blocking route', () => {
+  it('lets administrators complete, cancel or permanently delete a blocking route', () => {
     expect(adminSource).toContain('testID="route-management"');
     expect(adminSource).toContain('cancelRoute(route)');
     expect(adminSource).toContain('deleteRoute(route)');
+    expect(adminSource).toContain('completeLocalRoute(route)');
     expect(adminSource).toContain("route.status === 'planned'");
   });
 });

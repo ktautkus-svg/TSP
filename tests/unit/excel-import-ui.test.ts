@@ -180,6 +180,9 @@ describe('compact daily Excel UI', () => {
     expect(alternativesScreen).toContain('Rodyti eiliškumą');
     expect(alternativesScreen).toContain('expandedCandidateId');
     expect(alternativesScreen).toContain('ManualRouteOrderList');
+    expect(alternativesScreen).toContain('testID="manual-order-map"');
+    expect(alternativesScreen).toContain('manualMapLocations');
+    expect(alternativesScreen).toContain('allowStraightLineFallback');
     expect(alternativesScreen).toContain('manualPriorityIds');
     expect(alternativesScreen).toContain('Perskaičiuoti pagal prioritetus');
     expect(alternativesScreen).toContain('verifyPersistedSequence');
@@ -202,6 +205,7 @@ describe('compact daily Excel UI', () => {
 
   it('opens a real remaining-stop order editor for an active route', () => {
     expect(routeOverview).toContain('active-route-order-editor');
+    expect(routeOverview).toContain('active-route-order-map');
     expect(routeOverview).toContain('save-active-route-order');
     expect(routeOverview).toContain('ReorderRemainingStops');
     expect(routeOverview).toContain('ManualRouteOrderList');

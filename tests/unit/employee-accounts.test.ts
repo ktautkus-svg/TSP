@@ -92,6 +92,16 @@ describe('employee server session', () => {
     expect(employeeStoreSource).toContain('transaction.delete(previousUsernameRef)');
   });
 
+  it('lets an administrator close a hanging assignment as completed', () => {
+    expect(employeeApiSource).toContain("pathname.match(/^\\/api\\/admin\\/assignments\\/([^/]+)\\/complete$/)");
+    expect(employeeStoreSource).toContain('async completeAssignment');
+    expect(employeeStoreSource).toContain("ASSIGNMENT_CANCELLED");
+    expect(assignmentSyncSource).toContain('export async function completeAssignedRoute');
+    expect(assignmentSyncSource).toContain('AdminCompleteRoute');
+    expect(adminSource).toContain('completeLocalRoute');
+    expect(adminSource).toContain('completeServerAssignment');
+  });
+
   it('publishes completed driver routes as role-scoped trip sheets', () => {
     expect(employeeApiSource).toContain("pathname === '/api/trip-sheets'");
     expect(employeeStoreSource).toContain('async listTripSheets');

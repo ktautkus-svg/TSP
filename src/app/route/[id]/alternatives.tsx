@@ -361,8 +361,18 @@ export default function RouteAlternativesScreen() {
     );
   };
 
-  const orderedLocations = selectedCandidate && request
+  const orderedLocations = selectedCandidate && request && !manualMode
     ? extractOrderedLocationsFromCandidate(selectedCandidate, request)
+    : null;
+  const manualMapLocations = manualMode && request && manualOrder.length > 0
+    ? {
+      startLocation: request.startLocation,
+      orderedStops: manualOrder.flatMap((id) => {
+        const stop = request.stops.find((item) => item.id === id);
+        return stop ? [stop.location] : [];
+      }),
+      endLocation: request.endLocation,
+    }
     : null;
   const stopLabel = (stopId: string | null): string => {
     if (!stopId || !request) return '';
@@ -482,8 +492,20 @@ export default function RouteAlternativesScreen() {
         <View style={styles.manualCard} testID="manual-sequencing-panel">
           <Text style={styles.title}>Rankinis planavimas</Text>
           <Text style={styles.description}>
-            Žvaigždute pažymėkite vieną ar kelis prioritetinius taškus. Eiliškumą keiskite ▲▼ mygtukais arba tempdami ☰ rankenėlę.
+            Žvaigždute pažymėkite vieną ar kelis prioritetinius taškus. Eiliškumą keiskite ▲▼ mygtukais arba tempdami ☰ rankenėlę. Žemėlapis atsinaujina iškart pakeitus tvarką.
           </Text>
+          {manualMapLocations ? (
+            <View style={styles.manualMap} testID="manual-order-map">
+              <Text style={styles.groupTitle}>Eiliškumas žemėlapyje</Text>
+              <RouteMapView
+                {...manualMapLocations}
+                allowStraightLineFallback
+                compact
+                totalDistanceKm={manualCandidate?.totalDistanceKm}
+                totalDurationMinutes={manualCandidate?.totalWorkMinutes}
+              />
+            </View>
+          ) : <Text style={styles.description}>Žemėlapis bus rodomas, kai taškai turės koordinates.</Text>}
           <ManualRouteOrderList
             items={manualOrder.map((stopId) => request.stops.find((item) => item.id === stopId)).filter((stop): stop is OptimizationStop => Boolean(stop)).map((stop) => ({
               id: stop.id,
@@ -688,7 +710,8 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   warningCard: { padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.warning, backgroundColor: colors.warningSoft },
   warningTitle: { ...type.sectionTitle, color: colors.warning },
   disabled: { opacity: 0.45 },
-  manualCard: { padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
+  manualCard: { padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, gap: spacing.sm },
+  manualMap: { overflow: 'hidden', borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surfaceSubtle, padding: spacing.sm, gap: spacing.xs },
   manualRow: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm, gap: spacing.xs },
   manualRowHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   manualRowLabelTouch: { flex: 1, minHeight: 44, justifyContent: 'center' },

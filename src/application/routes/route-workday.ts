@@ -923,6 +923,45 @@ export class CompleteRoute extends WorkdayCommand {
   }
 }
 
+/**
+ * Dispatcher/admin override: close a hanging route from any non-terminal
+ * status without odometer or return-home. Pending stops stay unmarked.
+ */
+export class AdminCompleteRoute extends WorkdayCommand {
+  async execute(routeId: string): Promise<{ idempotent: boolean; summary: RouteCompletionSummary }> {
+    const route = await this.route(routeId);
+    if (route.status === 'completed' && route.completionSummary) {
+      return { idempotent: true, summary: route.completionSummary };
+    }
+    if (['completed', 'cancelled'].includes(route.status)) {
+      throw new RouteCommandError('INVALID_ROUTE_STATE', 'Šio maršruto užbaigti nebegalima.');
+    }
+    const stops = await this.routes.getStops(routeId);
+    const summary = buildAdminCompletionSummary(route, stops);
+    const now = this.clock();
+    await this.db.withTransactionAsync(async () => {
+      const result = await this.db.runAsync(
+        `UPDATE routes SET status = 'completed',
+         remaining_stops = 0, remaining_weight_kg = 0, remaining_unknown_weight_stops = 0,
+         completion_summary_json = ?, completion_end_odometer_draft = NULL,
+         completed_at = ?, updated_at = ?
+         WHERE id = ? AND status NOT IN ('completed', 'cancelled')`,
+        JSON.stringify(summary),
+        now,
+        now,
+        routeId,
+      );
+      if (result.changes !== 1) {
+        throw new RouteCommandError('INVALID_ROUTE_STATE', 'Maršruto būsena jau pasikeitė.');
+      }
+      await this.journal(routeId, null, 'route_completed_by_admin', { status: route.status }, {
+        status: 'completed', summary,
+      });
+    });
+    return { idempotent: false, summary };
+  }
+}
+
 export class StartRouteReturn extends WorkdayCommand {
   async execute(
     routeId: string,
@@ -1242,6 +1281,36 @@ function validateOdometer(value: number): void {
   if (!Number.isFinite(value) || value < 0 || Math.round(value * 10) !== value * 10) {
     throw new Error('Odometras turi būti neneigiamas skaičius su ne daugiau kaip viena dešimtaine dalimi.');
   }
+}
+
+function buildAdminCompletionSummary(route: Route, stops: DeliveryStop[]): RouteCompletionSummary {
+  const delivered = stops.filter((stop) => stop.deliveryStatus === 'delivered');
+  const failed = stops.filter((stop) => stop.deliveryStatus === 'failed');
+  const unfinished = stops.filter((stop) => stop.deliveryStatus !== 'delivered');
+  let onTimeStops = 0;
+  let lateStops = 0;
+  for (const stop of delivered) {
+    const punctuality = completionPunctuality(stop);
+    if (punctuality === 'on_time') onTimeStops += 1;
+    if (punctuality === 'late') lateStops += 1;
+  }
+  return {
+    totalStops: stops.length,
+    deliveredStops: delivered.length,
+    failedStops: failed.length,
+    unmarkedStops: stops.filter((stop) => stop.deliveryStatus === 'pending').length,
+    deliveredKnownWeightKg: sumKnown(delivered),
+    undeliveredKnownWeightKg: sumKnown(unfinished),
+    unknownWeightStops: stops.filter((stop) => stop.weightKg === null).length,
+    plannedDistanceKm: route.estimatedDistanceKm,
+    actualDistanceKm: route.actualDistanceKm,
+    onTimeStops,
+    lateStops,
+    plannedDurationMinutes: route.estimatedDurationMinutes,
+    actualDurationMinutes: null,
+    durationDeviationMinutes: null,
+    distanceDeviationKm: null,
+  };
 }
 
 function completionPunctuality(stop: DeliveryStop): 'on_time' | 'late' | 'unknown' {

@@ -69,7 +69,7 @@ function iconTone(tone: 'info' | 'success' | 'warning' | 'danger' | 'neutral', s
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   section: { gap: spacing.xs },
   sectionLabel: { ...type.label, color: colors.textMuted, paddingHorizontal: spacing.xs },
-  body: { overflow: 'hidden', borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+  body: { overflow: 'hidden', borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface },
   divider: { height: 1, marginHorizontal: spacing.md, backgroundColor: colors.border },
   row: { minHeight: 72, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   pressed: { backgroundColor: colors.surfaceSubtle },
@@ -83,5 +83,5 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   copy: { flex: 1, minWidth: 0, gap: 2 },
   title: { ...type.bodyStrong, color: colors.text },
   dangerTitle: { color: colors.danger },
-  description: { ...type.secondary, color: colors.textMuted },
+  description: { ...type.secondary, color: colors.textSecondary },
 });

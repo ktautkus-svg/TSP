@@ -3,10 +3,11 @@ import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, Text
 import { Stack, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
-import { assignRouteToDriver } from '@/application/auth/route-assignment-sync';
+import { assignRouteToDriver, completeAssignedRoute } from '@/application/auth/route-assignment-sync';
 import { markRouteDeletedForCloud } from '@/application/sync/route-cloud-sync';
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 import { CancelDraftRoute } from '@/application/routes/route-commands';
+import { AdminCompleteRoute } from '@/application/routes/route-workday';
 import { LocalAccessService } from '@/application/auth/local-access';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import {
@@ -217,6 +218,29 @@ export default function AdminScreen() {
         await requestSync('mutation');
         setSelectedRouteId((current) => current === route.id ? '' : current);
         setMessage('Maršrutas ištrintas.');
+        await load();
+      }); } },
+    ]);
+  };
+
+  const completeServerAssignment = (assignment: ServerRouteAssignment) => run(async () => {
+    const local = routes.find((route) => route.id === assignment.routeId);
+    await completeAssignedRoute(db, assignment, local?.id ?? null);
+    await requestSync('mutation');
+    setMessage('Maršrutas užbaigtas ir nebekabės kaip aktyvus priskyrimas.');
+    await load();
+  });
+
+  const completeLocalRoute = (route: RouteChoice) => {
+    Alert.alert('Užbaigti maršrutą?', 'Maršrutas bus pažymėtas kaip baigtas, kad nebekabėtų tarp aktyvių darbų. Nepristatyti taškai liks nepažymėti.', [
+      { text: 'Ne', style: 'cancel' },
+      { text: 'Užbaigti', onPress: () => { void run(async () => {
+        const linked = assignments.filter((assignment) => assignment.routeId === route.id && !['completed', 'cancelled'].includes(assignment.status));
+        if (linked[0]) await completeAssignedRoute(db, linked[0], route.id);
+        else await new AdminCompleteRoute(db).execute(route.id);
+        await requestSync('mutation');
+        setSelectedRouteId((current) => current === route.id ? '' : current);
+        setMessage('Maršrutas užbaigtas.');
         await load();
       }); } },
     ]);
@@ -499,6 +523,7 @@ export default function AdminScreen() {
                   <Text style={styles.meta}>{String(assignment.routeSnapshot.route.date ?? '')} · {assignment.status}</Text>
                 </View>
                 <View style={styles.rowActions}>
+                  <Pressable disabled={busy || !online} onPress={() => void completeServerAssignment(assignment)} style={styles.completeButton} testID={`admin-complete-assignment-${assignment.id}`}><Text style={styles.completeButtonText}>Užbaigti</Text></Pressable>
                   <Pressable disabled={busy || !online} onPress={() => void cancelServerAssignment(assignment)} style={styles.smallButton}><Text style={styles.smallButtonText}>Atšaukti</Text></Pressable>
                   <Pressable disabled={busy || !online} onPress={() => void deleteServerAssignment(assignment)} style={styles.dangerButton}><Text style={styles.dangerButtonText}>Ištrinti</Text></Pressable>
                 </View>
@@ -510,7 +535,7 @@ export default function AdminScreen() {
           <View style={[styles.card, Boolean(focus) && styles.hidden]} testID="route-management">
             <CollapsibleHeader title={`Aktyvių maršrutų valdymas (${routes.length})`} expanded={expandedSection === 'route-management'} onPress={() => toggleSection('route-management')} styles={styles} />
             {expandedSection === 'route-management' ? <>
-            <Text style={styles.meta}>Atšaukite arba visam laikui ištrinkite kabantį maršrutą prieš kurdami naują.</Text>
+            <Text style={styles.meta}>Užbaikite, atšaukite arba visam laikui ištrinkite kabantį maršrutą prieš kurdami naują.</Text>
             {routes.length === 0 ? <Text style={styles.meta}>Aktyvių maršrutų nėra.</Text> : routes.map((route) => (
               <View key={route.id} style={styles.routeManagementRow}>
                 <View style={styles.listContent}>
@@ -518,6 +543,7 @@ export default function AdminScreen() {
                   <Text style={styles.meta}>{route.status}</Text>
                 </View>
                 <View style={styles.rowActions}>
+                  <Pressable disabled={busy} onPress={() => completeLocalRoute(route)} style={styles.completeButton} testID={`admin-complete-route-${route.id}`}><Text style={styles.completeButtonText}>Užbaigti</Text></Pressable>
                   <Pressable disabled={busy || !online} onPress={() => cancelRoute(route)} style={styles.smallButton}><Text style={styles.smallButtonText}>Atšaukti</Text></Pressable>
                   <Pressable disabled={busy || !online} onPress={() => deleteRoute(route)} style={styles.dangerButton}><Text style={styles.dangerButtonText}>Ištrinti</Text></Pressable>
                 </View>
@@ -835,6 +861,8 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   routeManagementRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border },
   listTitle: { ...type.cardTitle, color: colors.text },
   smallButton: { minHeight: 42, paddingHorizontal: spacing.md, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, justifyContent: 'center' },
+  completeButton: { minHeight: 42, paddingHorizontal: spacing.md, borderRadius: radius.sm, backgroundColor: colors.success, justifyContent: 'center' },
+  completeButtonText: { ...type.secondaryStrong, color: colors.textInverse },
   smallButtonText: { ...type.secondaryStrong, color: colors.text },
   dangerButton: { minHeight: 42, paddingHorizontal: spacing.md, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.danger, justifyContent: 'center' },
   dangerButtonText: { ...type.secondaryStrong, color: colors.danger },
