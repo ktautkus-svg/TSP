@@ -1,4 +1,4 @@
-import { readFile, readdir } from 'node:fs/promises';
+import { access , readFile, readdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { compareMatrices, compareSequences } from '../../gateway/benchmark/analysis';
@@ -38,7 +38,14 @@ describe('client secret boundary', () => {
   it('keeps server API key variable names outside Expo src and production dist', async () => {
     const forbidden = ['HERE_API_KEY', 'GOOGLE_ROUTES_API_KEY'];
     for (const directory of ['src', 'dist']) {
-      for (const file of await files(resolve(directory))) {
+      const path = resolve(directory);
+      try {
+        await access(path);
+      } catch {
+        if (directory === 'dist') continue;
+        throw new Error(`Expected ${directory} to exist for secret-boundary scan.`);
+      }
+      for (const file of await files(path)) {
         const content = await readFile(file, 'utf8').catch(() => '');
         for (const token of forbidden) expect(content).not.toContain(token);
       }

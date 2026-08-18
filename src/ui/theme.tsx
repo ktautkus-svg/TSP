@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useColorScheme } from 'react-native';
 import { useSQLiteContext } from 'expo-sqlite';
 
@@ -36,14 +36,14 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const scheme: ResolvedScheme = preference === 'system' ? (systemScheme === 'dark' ? 'dark' : 'light') : preference;
   const palette = scheme === 'dark' ? darkColors : lightColors;
 
-  function setPreference(mode: ThemeMode) {
+  const setPreference = useCallback((mode: ThemeMode) => {
     setPreferenceState(mode);
     void new ThemePreference(db).save(mode);
-  }
+  }, [db]);
 
   const value = useMemo<ThemeContextValue>(
     () => ({ colors: palette, scheme, preference, setPreference }),
-    [palette, scheme, preference],
+    [palette, scheme, preference, setPreference],
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

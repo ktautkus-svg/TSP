@@ -24,6 +24,7 @@ import { AlertHost } from '@/ui/alert';
 import { colors, radius, type } from '@/ui/tokens';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { roleHomePath } from '@/application/navigation/role-home';
+import { devWarn } from '@/ui/dev-log';
 
 function RoleAccessBoundary({ children }: { children: ReactNode }) {
   const { profile } = useLocalAccess();
@@ -64,7 +65,7 @@ function localDatabaseError(error: unknown): Error {
 }
 
 void SplashScreen.preventAutoHideAsync().catch((reason) => {
-  if (__DEV__) console.warn('SPLASH_PREVENT_HIDE_FAILED', reason);
+  devWarn('SPLASH_PREVENT_HIDE_FAILED', reason);
 });
 
 export function ErrorBoundary({ error, retry }: { error: Error; retry: () => Promise<void> }) {
@@ -94,7 +95,7 @@ export default function RootLayout() {
   useEffect(() => {
     if (!fontsLoaded && !fontsError) return;
     void SplashScreen.hideAsync().catch((reason) => {
-      if (__DEV__) console.warn('SPLASH_HIDE_FAILED', reason);
+      devWarn('SPLASH_HIDE_FAILED', reason);
     });
   }, [fontsLoaded, fontsError]);
 
@@ -129,7 +130,7 @@ export default function RootLayout() {
       databaseName="deliveries.db"
       onInit={migrateDatabase}
       onError={(error) => {
-        if (__DEV__) console.warn('SQLite DB init error:', error);
+        devWarn('SQLite DB init error:', error);
         setDbError(localDatabaseError(error));
       }}>
       <ThemeProvider>

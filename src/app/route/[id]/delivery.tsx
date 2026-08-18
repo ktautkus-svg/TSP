@@ -59,6 +59,7 @@ import { formatWeightKg } from '@/ui/format-weight';
 import { failedDeliveryLabel, userVisibleStopNote } from '@/ui/route-labels';
 import { arrivalWindowStatus, deliveryWindowValue, durationLabel, etaLabel, legLabel, offlineEtaLabel, scheduleLabel, windowLabel, windowUrgencyColor } from '@/ui/route-eta-labels';
 import { useForegroundInterval } from '@/hooks/use-foreground-interval';
+import { devWarn } from '@/ui/dev-log';
 
 function ScheduleDot({ stop, colors, routeDate }: { stop?: DeliveryStop | null; colors: ColorPalette; routeDate?: string | null }) {
   const color = windowUrgencyColor(stop, routeDate);
@@ -149,7 +150,7 @@ export default function DeliveryScreen() {
         void loadRouteWeatherScene(db, weatherLatitude, weatherLongitude)
           .then(setWeatherScene)
           .catch((weatherError) => {
-            if (__DEV__) console.warn('ROUTE_WEATHER_SCENE_FAILED', weatherError);
+            devWarn('ROUTE_WEATHER_SCENE_FAILED', weatherError);
           });
       } else {
         // A route imported without coordinates must still follow the actual
@@ -159,7 +160,7 @@ export default function DeliveryScreen() {
       if (refreshed.route.completionStartedAt && !completionDismissed.current) setShowFinish(true);
       setError(null);
     } catch (reason) {
-      if (__DEV__) console.warn('DELIVERY_ROUTE_LOAD_FAILED', reason);
+      devWarn('DELIVERY_ROUTE_LOAD_FAILED', reason);
       setError(reason instanceof Error ? reason.message : 'Maršruto atkurti nepavyko.');
     }
   }, [db, repository, routeId, router]);
@@ -167,14 +168,14 @@ export default function DeliveryScreen() {
   const publishProgress = useCallback(async () => {
     if (!online || !['driver', 'admin', 'dispatcher'].includes(profile.role)) return;
     await pushRouteAssignmentProgress(db, routeId).catch((reason) => {
-      if (__DEV__) console.warn('LIVE_PROGRESS_SYNC_FAILED', reason);
+      devWarn('LIVE_PROGRESS_SYNC_FAILED', reason);
     });
   }, [db, online, profile.role, routeId]);
 
   const refreshFromServer = useCallback(async () => {
     if (online && profile.role === 'driver') {
       await pullAssignedRoutes(db, profile).catch((reason) => {
-        if (__DEV__) console.warn('LIVE_PROGRESS_PULL_FAILED', reason);
+        devWarn('LIVE_PROGRESS_PULL_FAILED', reason);
       });
     }
     await load();
@@ -264,7 +265,7 @@ export default function DeliveryScreen() {
       const proposal = await new ProposeRemainingRouteRecalculation(db).execute(routeId, currentStopId);
       setRecalculation(proposal);
     } catch (reason) {
-      if (__DEV__) console.warn('ROUTE_RECALCULATION_FAILED', reason);
+      devWarn('ROUTE_RECALCULATION_FAILED', reason);
       Alert.alert('Perskaičiuoti nepavyko', 'Esama seka išsaugota. Galite tęsti pristatymus ir bandyti vėliau.');
     }
   };
@@ -449,7 +450,7 @@ export default function DeliveryScreen() {
         confirmLargeDifference,
       });
       await pushRouteAssignmentProgress(db, routeId).catch((reason) => {
-        if (__DEV__) console.warn('TRIP_SHEET_SYNC_FAILED', reason);
+        devWarn('TRIP_SHEET_SYNC_FAILED', reason);
       });
       void requestSync('mutation');
       router.replace({ pathname: '/route/[id]/result', params: { id: routeId } } as unknown as Href);
@@ -478,7 +479,7 @@ export default function DeliveryScreen() {
     draftSaveQueue.current = draftSaveQueue.current
       .then(() => new SaveCompletionOdometerDraft(db).execute(routeId, value))
       .catch((reason) => {
-        if (__DEV__) console.warn('COMPLETION_DRAFT_SAVE_FAILED', reason);
+        devWarn('COMPLETION_DRAFT_SAVE_FAILED', reason);
         setError(reason instanceof Error ? reason.message : 'Odometerio juodraščio išsaugoti nepavyko.');
       });
   }, [db, routeId]);

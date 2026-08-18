@@ -48,11 +48,11 @@ describe('Etapas 2.4.1 time mode and ETA contract', () => {
     const result = calculateRemainingEtas(
       { planningMode: 'with_time_windows' },
       [first, second],
-      '2026-08-03T08:30:00+03:00',
+      '2026-08-03T07:30:00+02:00',
     );
     expect(result).toEqual([
       { stopId: 's1', arrivalAt: '2026-08-03T05:45:00.000Z' },
-      { stopId: 's2', arrivalAt: '2026-08-03T06:30:00.000Z' },
+      { stopId: 's2', arrivalAt: '2026-08-03T07:30:00.000Z' },
     ]);
   });
 

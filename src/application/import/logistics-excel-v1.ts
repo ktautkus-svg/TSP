@@ -370,7 +370,7 @@ function detectColumnMapping(
   const mapping: ExcelColumnMapping = { ...template.columns };
   let headerMatches = 0;
   let headerRow = 0;
-  const definitions: Array<{ role: keyof ExcelColumnMapping; pattern: RegExp }> = [
+  const definitions: { role: keyof ExcelColumnMapping; pattern: RegExp }[] = [
     { role: 'orderNumber', pattern: /užsak|order|siunt/iu },
     { role: 'weightKg', pattern: /svor|kg/iu },
     { role: 'deliveryTime', pattern: /laik|interval/iu },
@@ -592,7 +592,7 @@ function compareTime(left: string, right: string): number {
   return timeMinutes(left) - timeMinutes(right);
 }
 
-function uniqueStrings(values: Array<string | null | undefined>): string[] {
+function uniqueStrings(values: (string | null | undefined)[]): string[] {
   return [...new Set(values.filter((value): value is string => Boolean(value?.trim())).map((value) => value.trim()))];
 }
 

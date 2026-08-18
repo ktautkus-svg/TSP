@@ -22,6 +22,7 @@ import { stitchColorsFor } from '@/theme';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { fonts, radius, spacing, type } from '@/ui/tokens';
+import { devWarn } from '@/ui/dev-log';
 
 type LoginPalette = ReturnType<typeof stitchColorsFor>['login'];
 
@@ -76,7 +77,7 @@ export function LocalAccessGate({ children }: LocalAccessGateProps) {
     setLoading(false);
     if (cachedSession) {
       void pullAssignedRoutes(db, cachedSession.profile).catch((reason) => {
-        if (__DEV__) console.warn('ASSIGNMENT_PULL_FAILED', reason);
+        devWarn('ASSIGNMENT_PULL_FAILED', reason);
       });
     }
   }, [db, service]);
@@ -119,7 +120,7 @@ export function LocalAccessGate({ children }: LocalAccessGateProps) {
       setNeedsDeviceKey(false);
       setUnlocked(true);
       void pullAssignedRoutes(db, session.profile).catch((reason) => {
-        if (__DEV__) console.warn('ASSIGNMENT_PULL_FAILED', reason);
+        devWarn('ASSIGNMENT_PULL_FAILED', reason);
       });
     } catch (reason) {
       if (reason instanceof EmployeeClientError && reason.code === 'DEVICE_KEY_REQUIRED') {

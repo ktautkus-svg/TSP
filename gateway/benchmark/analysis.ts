@@ -8,13 +8,13 @@ export type MatrixComparison = {
   medianDistanceDifferencePercent: number | null;
   asymmetricPairsA: number;
   asymmetricPairsB: number;
-  largestDurationDifferences: Array<{
+  largestDurationDifferences: {
     fromId: string;
     toId: string;
     differencePercent: number;
     durationA: number;
     durationB: number;
-  }>;
+  }[];
 };
 
 export function compareMatrices(

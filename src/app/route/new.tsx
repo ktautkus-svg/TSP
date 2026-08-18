@@ -23,6 +23,7 @@ import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { Alert } from '@/ui/alert';
 import type { RouteEndpoint } from '@/domain/route';
+import { devWarn } from '@/ui/dev-log';
 
 export default function NewRouteScreen() {
   const { profile } = useLocalAccess();
@@ -67,7 +68,7 @@ export default function NewRouteScreen() {
         setSavedEndEndpoint(end);
       }
     }).catch((reason) => {
-      if (__DEV__) console.warn('MANUAL_ROUTE_DEFAULT_LOCATIONS_FAILED', reason);
+      devWarn('MANUAL_ROUTE_DEFAULT_LOCATIONS_FAILED', reason);
     });
     return () => { active = false; };
   }, [db]);
@@ -120,7 +121,7 @@ export default function NewRouteScreen() {
               const destination = resolveRoute(activeRoute);
               router.replace({ pathname: destination.pathname, params: destination.params } as Href);
             }).catch((reason) => {
-              if (__DEV__) console.warn('ACTIVE_ROUTE_REDIRECT_FAILED', reason);
+              devWarn('ACTIVE_ROUTE_REDIRECT_FAILED', reason);
             }); },
           },
           {

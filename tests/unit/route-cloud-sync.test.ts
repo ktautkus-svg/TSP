@@ -86,8 +86,8 @@ describe('route cloud sync — push (upload)', () => {
 
     await syncRoutesWithCloud(db);
 
-    expect((pushedBody as { routes: Array<{ routeSnapshot: { route: { id: string } } }> }).routes).toHaveLength(1);
-    expect((pushedBody as { routes: Array<{ routeSnapshot: { route: { id: string } } }> }).routes[0]!.routeSnapshot.route.id).toBe('route-new');
+    expect((pushedBody as { routes: { routeSnapshot: { route: { id: string } } }[] }).routes).toHaveLength(1);
+    expect((pushedBody as { routes: { routeSnapshot: { route: { id: string } } }[] }).routes[0]!.routeSnapshot.route.id).toBe('route-new');
     const row = adapter.raw.prepare('SELECT cloud_synced_at, updated_at FROM routes WHERE id = ?').get('route-new') as { cloud_synced_at: string; updated_at: string };
     expect(row.cloud_synced_at).toBe(row.updated_at);
   });
@@ -116,7 +116,7 @@ describe('route cloud sync — push (upload)', () => {
     let pushedDeleted: boolean | null = null;
     stubFetch(async (_url, init) => {
       if (init?.method === 'POST') {
-        const body = JSON.parse(String(init.body)) as { routes: Array<{ deleted: boolean }> };
+        const body = JSON.parse(String(init.body)) as { routes: { deleted: boolean }[] };
         pushedDeleted = body.routes[0]!.deleted;
         return Response.json({ results: [{ routeId: 'route-deleted', outcome: 'applied' }] });
       }
@@ -427,7 +427,7 @@ describe('route cloud sync — event-driven multi-device workflow', () => {
 class InMemoryRouteCloud {
   private revision = 0;
   private readonly routes = new Map<string, {
-    routeSnapshot: { route: Record<string, unknown>; stops: Array<Record<string, unknown>>; shipmentLines: Array<Record<string, unknown>> };
+    routeSnapshot: { route: Record<string, unknown>; stops: Record<string, unknown>[]; shipmentLines: Record<string, unknown>[] };
     deleted: boolean;
     serverUpdatedAt: string;
   }>();
@@ -440,7 +440,7 @@ class InMemoryRouteCloud {
     if (url.pathname === '/api/auth/me') return Response.json({ profile });
     if (init?.method === 'POST') {
       const body = JSON.parse(String(init.body)) as {
-        routes: Array<{ routeSnapshot: InMemoryRouteCloud['routes'] extends Map<string, infer T> ? T extends { routeSnapshot: infer S } ? S : never : never; deleted: boolean }>;
+        routes: { routeSnapshot: InMemoryRouteCloud['routes'] extends Map<string, infer T> ? T extends { routeSnapshot: infer S } ? S : never : never; deleted: boolean }[];
       };
       const results = body.routes.map((item) => {
         const routeId = String(item.routeSnapshot.route.id);

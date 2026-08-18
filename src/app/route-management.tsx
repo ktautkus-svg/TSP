@@ -133,7 +133,7 @@ export default function RouteManagementScreen() {
     if (unavailable.length > 0) {
       setMessage(`Maršrutas išsaugotas, bet nepavyko atnaujinti ${unavailable.join(', ')} sąrašo. Paspauskite „Atnaujinti“ dar kartą.`);
     }
-  }, [db, online, profile.id, requestSync, requestedRouteId]);
+  }, [db, online, profile.id, requestSync]);
 
   useEffect(() => {
     if (!['admin', 'dispatcher'].includes(profile.role)) {
@@ -588,36 +588,6 @@ function SelectionDropdown({
   </View>;
 }
 
-function CollapsibleSection({
-  title,
-  subtitle,
-  count,
-  open,
-  onToggle,
-  children,
-  styles,
-}: {
-  title: string;
-  subtitle: string;
-  count: number;
-  open: boolean;
-  onToggle: () => void;
-  children: ReactNode;
-  styles: ReturnType<typeof createStyles>;
-}) {
-  return <View style={styles.collapsibleSection}>
-    <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={onToggle} style={styles.collapsibleHeader}>
-      <View style={styles.collapsibleIcon}>{open ? <ChevronDownIcon size={20} /> : <ChevronRightIcon size={20} />}</View>
-      <View style={styles.collapsibleTitleArea}>
-        <Text style={styles.panelTitle}>{title}</Text>
-        <Text style={styles.panelHint}>{subtitle}</Text>
-      </View>
-      <Text style={styles.countBadge}>{count}</Text>
-    </Pressable>
-    {open ? <View style={styles.collapsibleContent}>{children}</View> : null}
-  </View>;
-}
-
 function initials(name: string): string { return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join(''); }
 function formatDate(value: string): string { const date = new Date(`${value}T12:00:00`); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('lt-LT', { month: 'short', day: 'numeric', weekday: 'short' }).format(date); }
 function routeCodesLabel(value: string | null): string {
@@ -644,20 +614,6 @@ function PreliminaryPriceCard({ price, styles }: { price: PreliminaryRoutePrice;
   </View>;
 }
 
-function assignmentPrice(assignment: ServerRouteAssignment, settings: RoutePriceSettings): PreliminaryRoutePrice | null {
-  if (!assignment.vehicle) return null;
-  const route = assignment.routeSnapshot.route;
-  return estimatePreliminaryRoutePrice({
-    date: String(route.date ?? assignment.assignedAt.slice(0, 10)),
-    distanceKm: nullableNumber(route.estimated_distance_km),
-    weightKg: Number(route.total_weight_kg ?? 0),
-    stops: Number(route.total_stops ?? assignment.routeSnapshot.stops.length),
-    driverName: assignment.driverName,
-    vehicle: assignment.vehicle,
-  }, settings);
-}
-
-function nullableNumber(value: unknown): number | null { const parsed = Number(value); return value === null || value === undefined || !Number.isFinite(parsed) ? null : parsed; }
 function formatMoney(value: number): string { return `${new Intl.NumberFormat('lt-LT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)} €`; }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
@@ -744,11 +700,6 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   confirmationArea: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'stretch', gap: spacing.md, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.borderSubtle },
   confirmationSummary: { flexGrow: 1, flexBasis: 480, minWidth: 0, gap: spacing.sm },
   selectionPrompt: { ...type.secondary, color: colors.textMuted, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.borderSubtle },
-  collapsibleSection: { borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
-  collapsibleHeader: { minHeight: 72, paddingHorizontal: spacing.lg, paddingVertical: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  collapsibleIcon: { width: 28, alignItems: 'center' },
-  collapsibleTitleArea: { flex: 1, minWidth: 0, gap: 2 },
-  collapsibleContent: { paddingHorizontal: spacing.lg, paddingBottom: spacing.lg, gap: spacing.sm, borderTopWidth: 1, borderTopColor: colors.borderSubtle },
   managementRouteRow: { minHeight: 70, paddingVertical: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.borderSubtle },
   managementRouteContent: { flex: 1, minWidth: 0, gap: spacing.xs },
   panel: { padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, gap: spacing.md },

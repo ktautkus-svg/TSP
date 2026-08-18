@@ -15,7 +15,7 @@ export interface DriverAppTabsProps {
   readonly active: DriverAppTab;
 }
 
-const tabs: ReadonlyArray<{ key: DriverAppTab; label: string; href: Href }> = [
+const tabs: readonly { key: DriverAppTab; label: string; href: Href }[] = [
   { key: 'routes', label: 'Maršrutai', href: '/history' },
   { key: 'statistics', label: 'Statistika', href: '/statistics' },
   { key: 'settings', label: 'Nustatymai', href: '/settings' },

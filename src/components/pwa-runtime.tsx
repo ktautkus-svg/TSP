@@ -6,6 +6,7 @@ import { PWA_SERVICE_WORKER_VERSION_KEY } from '@/pwa/runtime';
 import { spacing } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
+import { devWarn } from '@/ui/dev-log';
 
 export function PwaRuntime() {
   const db = useSQLiteContext();
@@ -44,7 +45,7 @@ export function PwaRuntime() {
       });
       navigator.serviceWorker.controller?.postMessage({ type: 'GET_VERSION' });
     }).catch((reason) => {
-      if (__DEV__) console.warn('PWA_SERVICE_WORKER_REGISTRATION_FAILED', reason);
+      devWarn('PWA_SERVICE_WORKER_REGISTRATION_FAILED', reason);
     });
     return () => {
       window.removeEventListener('online', onlineListener);
@@ -64,7 +65,7 @@ export function PwaRuntime() {
         window.location.reload();
       }
     } catch (reason) {
-      if (__DEV__) console.warn('PWA_UPDATE_CHECKPOINT_FAILED', reason);
+      devWarn('PWA_UPDATE_CHECKPOINT_FAILED', reason);
     }
   };
 

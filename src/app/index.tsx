@@ -26,6 +26,7 @@ import { Alert } from '@/ui/alert';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { pullAssignedRoutes, pushCompletedRouteAssignmentProgress, pushRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
+import { devWarn } from '@/ui/dev-log';
 
 export default function HomeScreen() {
   const db = useSQLiteContext();
@@ -96,7 +97,7 @@ export default function HomeScreen() {
         setProgress(nextProgress);
         setActiveStops(nextStops);
       } catch (error) {
-        if (__DEV__) console.warn('ACTIVE_ROUTE_RESTORE_FAILED', error);
+        devWarn('ACTIVE_ROUTE_RESTORE_FAILED', error);
       }
     })();
     return () => { mounted = false; };
@@ -124,7 +125,7 @@ export default function HomeScreen() {
         setActiveStops(nextStops);
       }
     })().catch((reason) => {
-      if (__DEV__) console.warn('ACTIVE_ROUTE_SYNC_REFRESH_FAILED', reason);
+      devWarn('ACTIVE_ROUTE_SYNC_REFRESH_FAILED', reason);
     });
     return () => { mounted = false; };
   }, [db, online, profile.id, profile.role, repository, syncRevision]);

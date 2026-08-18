@@ -451,7 +451,7 @@ function aggregate(runs: ProviderRun[], pairs: PairResult[]) {
 }
 
 function toCsv(runs: ProviderRun[]): string {
-  const columns: Array<keyof ProviderRun> = [
+  const columns: (keyof ProviderRun)[] = [
     'scenarioId', 'scenarioName', 'timeSlot', 'localDeparture', 'departureAt',
     'timeZone', 'provider', 'executionMode', 'status', 'errorCode',
     'matrixCompleteness', 'matrixResponseMs', 'optimizationMs', 'cacheHit',

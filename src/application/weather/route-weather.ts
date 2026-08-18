@@ -1,4 +1,5 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { devWarn } from '@/ui/dev-log';
 
 export type RouteWeatherCondition = 'clear' | 'cloudy' | 'fog' | 'rain' | 'snow' | 'storm';
 export type RouteTimeOfDay = 'dawn' | 'day' | 'dusk' | 'night';
@@ -64,7 +65,7 @@ export async function loadRouteWeatherScene(
   try {
     cached = await readCachedScene(db);
   } catch (error) {
-    if (__DEV__) console.warn('ROUTE_WEATHER_CACHE_READ_FAILED', error);
+    devWarn('ROUTE_WEATHER_CACHE_READ_FAILED', error);
   }
   const freshEnough = cached
     && now.getTime() - new Date(cached.observedAt).getTime() < CACHE_TTL_MS
@@ -102,7 +103,7 @@ export async function loadRouteWeatherScene(
     );
     return scene;
   } catch (error) {
-    if (__DEV__) console.warn('ROUTE_WEATHER_REFRESH_FAILED', error);
+    devWarn('ROUTE_WEATHER_REFRESH_FAILED', error);
     if (cached) return { ...cached, timeOfDay: routeTimeOfDay(now), observedAt: now.toISOString() };
     return fallbackRouteWeatherScene(latitude, longitude, now);
   }

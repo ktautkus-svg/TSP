@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   Animated,
@@ -32,15 +32,15 @@ export function SwipeActionCard(props: ViewProps & {
     return () => subscription.remove();
   }, []);
 
-  const reset = () => Animated.spring(translateX, {
+  const reset = useCallback(() => Animated.spring(translateX, {
     toValue: 0,
     damping: 19,
     stiffness: 230,
     mass: 0.7,
     useNativeDriver: true,
-  }).start();
+  }).start(), [translateX]);
 
-  const confirm = (direction: -1 | 1) => {
+  const confirm = useCallback((direction: -1 | 1) => {
     const callback = direction > 0 ? props.onSwipeRight : props.onSwipeLeft;
     Animated.timing(translateX, {
       toValue: direction * Math.max(width.current, 240),
@@ -50,7 +50,7 @@ export function SwipeActionCard(props: ViewProps & {
       callback?.();
       translateX.setValue(0);
     });
-  };
+  }, [props.onSwipeLeft, props.onSwipeRight, reduceMotion, translateX]);
 
   const responder = useMemo(() => PanResponder.create({
     onMoveShouldSetPanResponder: (_, gesture) =>
@@ -66,7 +66,7 @@ export function SwipeActionCard(props: ViewProps & {
       else reset();
     },
     onPanResponderTerminate: reset,
-  }), [props.disabled, props.onSwipeLeft, props.onSwipeRight, reduceMotion]);
+  }), [confirm, props.disabled, props.onSwipeLeft, props.onSwipeRight, reset, translateX]);
 
   const rightOpacity = translateX.interpolate({ inputRange: [0, MIN_THRESHOLD], outputRange: [0, 1], extrapolate: 'clamp' });
   const leftOpacity = translateX.interpolate({ inputRange: [-MIN_THRESHOLD, 0], outputRange: [1, 0], extrapolate: 'clamp' });

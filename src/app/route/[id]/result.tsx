@@ -17,6 +17,7 @@ import { roleHomePath } from '@/application/navigation/role-home';
 import { pushRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 import { employeeApi, type CompensationBreakdown, type ServerTripSheet } from '@/infrastructure/auth/employee-session';
+import { devWarn } from '@/ui/dev-log';
 
 export default function RouteResultScreen() {
   const db = useSQLiteContext();
@@ -47,7 +48,7 @@ export default function RouteResultScreen() {
       setRoute(persisted);
       setError(null);
     }).catch((reason) => {
-      if (__DEV__) console.warn('ROUTE_RESULT_LOAD_FAILED', reason);
+      devWarn('ROUTE_RESULT_LOAD_FAILED', reason);
       if (mounted) setError(reason instanceof Error ? reason.message : 'Rezultato atkurti nepavyko.');
     });
     return () => { mounted = false; };
@@ -58,7 +59,7 @@ export default function RouteResultScreen() {
     let active = true;
     void pushRouteAssignmentProgress(db, routeId)
       .catch((reason) => {
-        if (__DEV__) console.warn('COMPLETED_ASSIGNMENT_SYNC_FAILED', reason);
+        devWarn('COMPLETED_ASSIGNMENT_SYNC_FAILED', reason);
       })
       .then(() => active ? requestSync('mutation') : undefined);
     return () => { active = false; };

@@ -23,6 +23,7 @@ import { Alert } from '@/ui/alert';
 import { ReorderRemainingStops } from '@/application/routes/route-workday';
 import { ManualRouteOrderList } from '@/components/manual-route-order-list';
 import { RouteMapView } from '@/components/route-map';
+import { devWarn } from '@/ui/dev-log';
 
 export default function RouteOverviewScreen() {
   const db = useSQLiteContext();
@@ -48,7 +49,7 @@ export default function RouteOverviewScreen() {
   const load = useCallback(async () => {
     if (online && profile.role === 'driver') {
       await pullAssignedRoutes(db, profile).catch((reason) => {
-        if (__DEV__) console.warn('ROUTE_OVERVIEW_PULL_FAILED', reason);
+        devWarn('ROUTE_OVERVIEW_PULL_FAILED', reason);
       });
     }
     return repository.getWithStops(routeId);

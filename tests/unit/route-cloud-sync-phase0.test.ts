@@ -69,7 +69,7 @@ function stubCloud(options: {
   onPush?: (routes: PushedRoute[]) => unknown;
 }) {
   const pushed: PushedRoute[][] = [];
-  const pullSince: Array<string | null> = [];
+  const pullSince: (string | null)[] = [];
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url.includes('/api/auth/me')) return Response.json({ profile: options.serverProfile });
@@ -476,7 +476,7 @@ describe('F. per-account sync cursor', () => {
 
     // B's first pull must start from scratch, not from A's watermark.
     expect(passB.pullSince).toEqual([null]);
-    const cursors = adapter.raw.prepare('SELECT employee_id, cursor FROM sync_cursors ORDER BY employee_id').all() as Array<{ employee_id: string; cursor: string }>;
+    const cursors = adapter.raw.prepare('SELECT employee_id, cursor FROM sync_cursors ORDER BY employee_id').all() as { employee_id: string; cursor: string }[];
     expect(cursors).toEqual([
       { employee_id: 'employee-a', cursor: '2026-08-11T10:00:00.000Z' },
       { employee_id: 'employee-b', cursor: '2026-08-11T11:00:00.000Z' },

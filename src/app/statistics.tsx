@@ -7,7 +7,7 @@ import { FoundationScreen } from '@/components/foundation-screen';
 import { DriverAppTabs } from '@/components/driver-app-tabs';
 import { StatBarChart } from '@/components/stat-bar-chart';
 import { StatisticsRepository } from '@/database/repositories/statistics-repository';
-import type { StatisticsPeriodTotals, StatisticsSnapshot } from '@/domain/statistics';
+import { buildStatisticsSnapshot, type FailureReasonCount, type StatisticsPeriodTotals, type StatisticsSnapshot, type StatsRouteRow } from '@/domain/statistics';
 import { formatLithuanianDate } from '@/ui/history-labels';
 import { durationLabel } from '@/ui/route-eta-labels';
 import { radius, spacing, type } from '@/ui/tokens';
@@ -16,8 +16,8 @@ import type { ColorPalette } from '@/ui/theme-palette';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { roleHomePath } from '@/application/navigation/role-home';
 import { employeeApi, type EmployeeProfile, type ServerRouteAssignment } from '@/infrastructure/auth/employee-session';
-import { buildStatisticsSnapshot, type FailureReasonCount, type StatsRouteRow } from '@/domain/statistics';
 import { uniqueRegionCodes } from '@/domain/route-code';
+import { devWarn } from '@/ui/dev-log';
 
 export default function StatisticsScreen() {
   const db = useSQLiteContext();
@@ -39,7 +39,7 @@ export default function StatisticsScreen() {
       setSnapshot(data);
       setError(null);
     }).catch((reason) => {
-      if (__DEV__) console.warn('STATISTICS_LOAD_FAILED', reason);
+      devWarn('STATISTICS_LOAD_FAILED', reason);
       if (mounted) setError(reason instanceof Error ? reason.message : 'Statistikos atkurti nepavyko.');
     });
     if (profile.role === 'admin' && online) {
@@ -51,7 +51,7 @@ export default function StatisticsScreen() {
         setDrivers(users.users.filter((user) => user.role === 'driver' && !user.disabled));
         setAssignments(routes.assignments);
       }).catch((reason) => {
-        if (__DEV__) console.warn('ADMIN_STATISTICS_LOAD_FAILED', reason);
+        devWarn('ADMIN_STATISTICS_LOAD_FAILED', reason);
       });
     }
     return () => { mounted = false; };

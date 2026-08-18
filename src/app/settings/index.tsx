@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Stack, useRouter, type Href } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
@@ -37,6 +37,7 @@ import { Alert } from '@/ui/alert';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { roleLabel, sessionStateLabel } from '@/application/auth/employee-permissions';
 import { StatusBadge } from '@/components/ui-primitives';
+import { devWarn } from '@/ui/dev-log';
 
 const appVersion = Constants.expoConfig?.version ?? '1.0.0';
 
@@ -78,37 +79,7 @@ export default function SettingsScreen() {
   const [openSection, setOpenSection] = useState<SettingsSection | null>(null);
   const toggleSection = (section: SettingsSection) => setOpenSection((current) => current === section ? null : section);
 
-  useEffect(() => {
-    void refreshDiagnostics();
-    void navigationPreference.get()
-      .then(setDefaultNavigation)
-      .catch((error) => {
-        if (__DEV__) console.warn('NAVIGATION_PREFERENCE_LOAD_FAILED', error);
-      });
-    void (async () => {
-      const secret = await getGatewayDeviceSecret();
-      if (secret) {
-        setGatewayConnected(true);
-      } else {
-        const connected = await verifyGatewayConnection();
-        setGatewayConnected(connected);
-      }
-    })();
-  }, []);
-
-  async function changeDefaultNavigation(value: NavigationProvider) {
-    const previous = defaultNavigation;
-    setDefaultNavigation(value);
-    try {
-      await navigationPreference.save(value);
-      setMessage(`Numatytoji navigacija: ${NAVIGATION_OPTIONS.find((option) => option.value === value)?.label ?? value}.`);
-    } catch (error) {
-      setDefaultNavigation(previous);
-      setMessage(error instanceof Error ? error.message : 'Navigacijos pasirinkimo išsaugoti nepavyko.');
-    }
-  }
-
-  async function refreshDiagnostics() {
+  const refreshDiagnostics = useCallback(async () => {
     const now = new Date().toISOString();
     const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
     await db.runAsync(
@@ -125,6 +96,36 @@ export default function SettingsScreen() {
       serviceWorker: serviceWorkerVersion() ?? 'neaktyvus',
       persistent: await requestPersistentStorage(),
     });
+  }, [db]);
+
+  useEffect(() => {
+    void refreshDiagnostics();
+    void navigationPreference.get()
+      .then(setDefaultNavigation)
+      .catch((error) => {
+        devWarn('NAVIGATION_PREFERENCE_LOAD_FAILED', error);
+      });
+    void (async () => {
+      const secret = await getGatewayDeviceSecret();
+      if (secret) {
+        setGatewayConnected(true);
+      } else {
+        const connected = await verifyGatewayConnection();
+        setGatewayConnected(connected);
+      }
+    })();
+  }, [navigationPreference, refreshDiagnostics]);
+
+  async function changeDefaultNavigation(value: NavigationProvider) {
+    const previous = defaultNavigation;
+    setDefaultNavigation(value);
+    try {
+      await navigationPreference.save(value);
+      setMessage(`Numatytoji navigacija: ${NAVIGATION_OPTIONS.find((option) => option.value === value)?.label ?? value}.`);
+    } catch (error) {
+      setDefaultNavigation(previous);
+      setMessage(error instanceof Error ? error.message : 'Navigacijos pasirinkimo išsaugoti nepavyko.');
+    }
   }
 
   async function connectGateway() {
@@ -310,6 +311,22 @@ export default function SettingsScreen() {
               <View style={styles.flex}>
                 <Text style={styles.rowTitle}>Sandėlis ir namų vieta</Text>
                 <Text style={styles.rowValue}>Keisti numatytąsias maršruto vietas</Text>
+              </View>
+              <Text style={styles.chevron}>›</Text>
+            </Pressable>
+            <View style={styles.groupDivider} />
+            <Pressable style={styles.settingsRow} onPress={() => router.push('/vehicle' as Href)} testID="open-vehicle-settings">
+              <View style={styles.flex}>
+                <Text style={styles.rowTitle}>Transporto priemonė</Text>
+                <Text style={styles.rowValue}>Vardas, numeris ir kuro tipas šiame įrenginyje</Text>
+              </View>
+              <Text style={styles.chevron}>›</Text>
+            </Pressable>
+            <View style={styles.groupDivider} />
+            <Pressable style={styles.settingsRow} onPress={() => router.push('/fuel' as Href)} testID="open-fuel-settings">
+              <View style={styles.flex}>
+                <Text style={styles.rowTitle}>Degalų pylimai</Text>
+                <Text style={styles.rowValue}>Pilno bako pylimų taisyklės ir sąnaudų skaičiavimas</Text>
               </View>
               <Text style={styles.chevron}>›</Text>
             </Pressable>

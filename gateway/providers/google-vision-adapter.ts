@@ -4,22 +4,22 @@ import { GatewayError, providerHttpError } from '../errors';
 import type { GatewayOcrRequest, GatewayOcrResponse } from '../types';
 
 type VisionVertex = { x?: number; y?: number };
-type VisionWord = { symbols?: Array<{ text?: string }>; confidence?: number };
+type VisionWord = { symbols?: { text?: string }[]; confidence?: number };
 type VisionBlock = {
-  paragraphs?: Array<{ words?: VisionWord[] }>;
+  paragraphs?: { words?: VisionWord[] }[];
   confidence?: number;
   boundingBox?: { vertices?: VisionVertex[] };
 };
 type VisionResponse = {
-  responses?: Array<VisionImageResponse | { responses?: VisionImageResponse[] }>;
+  responses?: (VisionImageResponse | { responses?: VisionImageResponse[] })[];
 };
 type VisionImageResponse = {
     error?: { code?: number; message?: string };
     fullTextAnnotation?: {
       text?: string;
-      pages?: Array<{ width?: number; height?: number; confidence?: number; blocks?: VisionBlock[] }>;
+      pages?: { width?: number; height?: number; confidence?: number; blocks?: VisionBlock[] }[];
     };
-    textAnnotations?: Array<{ description?: string }>;
+    textAnnotations?: { description?: string }[];
 };
 
 export class GoogleVisionAdapter {

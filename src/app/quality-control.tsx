@@ -22,7 +22,7 @@ const MINOR_DELAY_MINUTES = 45;
 type QualityFilter = 'in_progress' | 'waiting' | 'completed' | 'delivered';
 type FilterTone = 'info' | 'warning' | 'success' | 'delivered';
 
-const FILTERS: ReadonlyArray<{ key: QualityFilter; label: string; tone: FilterTone }> = [
+const FILTERS: readonly { key: QualityFilter; label: string; tone: FilterTone }[] = [
   { key: 'in_progress', label: 'Kelyje', tone: 'info' },
   { key: 'waiting', label: 'Laukia', tone: 'warning' },
   { key: 'completed', label: 'Baigta', tone: 'success' },
@@ -230,19 +230,6 @@ function NextStop({ stop, remainingWeightKg, styles }: { stop: QualityStopMonito
       </View>
       <Text style={styles.nextMeta}>{stop.routeNumber ? `Regionas ${stop.routeNumber} · ` : ''}{formatWeightKg(remainingWeightKg)} kg likę</Text>
     </View>
-  </View>;
-}
-
-function ProcessedStop({ stop, styles }: { stop: QualityStopMonitor; styles: ReturnType<typeof createStyles> }) {
-  const timing = stopTiming(stop);
-  return <View style={[styles.processedStop, styles[`processedStop_${timing.tone}`]]}>
-    <View style={styles.processedSequence}><Text style={styles.processedSequenceText}>{stop.sequence}</Text></View>
-    <View style={styles.flex}>
-      <Text numberOfLines={1} style={styles.processedRecipient}>{stop.recipient}</Text>
-      <Text numberOfLines={1} style={styles.processedAddress}>{stop.address}</Text>
-      {formatWindow(stop) ? <Text style={styles.processedWindow}>Langas {formatWindow(stop)}</Text> : null}
-    </View>
-    <View style={[styles.timingBadge, styles[`timingBadge_${timing.tone}`]]}><Text style={[styles.timingText, styles[`timingText_${timing.tone}`]]}>{timing.label}</Text></View>
   </View>;
 }
 

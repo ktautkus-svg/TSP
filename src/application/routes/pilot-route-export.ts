@@ -24,7 +24,7 @@ export type PilotRouteDiagnosticExport = {
     completionEndOdometerDraft: string | null;
     updatedAt: string;
   };
-  stops: Array<{
+  stops: {
     id: string;
     order: number;
     address: string;
@@ -35,8 +35,8 @@ export type PilotRouteDiagnosticExport = {
     loadedAt: string | null;
     deliveredAt: string | null;
     failedAt: string | null;
-  }>;
-  shipmentLines: Array<{
+  }[];
+  shipmentLines: {
     id: string;
     deliveryStopId: string;
     sourceSheetName: string;
@@ -44,7 +44,7 @@ export type PilotRouteDiagnosticExport = {
     orderNumber: string | null;
     weightGrams: number | null;
     routeCode: string | null;
-  }>;
+  }[];
   audit: unknown[];
 };
 

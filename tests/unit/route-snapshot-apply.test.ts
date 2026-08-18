@@ -126,7 +126,7 @@ describe('applyRouteSnapshot — non-destructive apply', () => {
 
     await applyRouteSnapshot(db, cloudSnapshot(), T1);
 
-    const attempts = adapter.raw.prepare('SELECT id, result FROM delivery_attempts WHERE route_id = ?').all('route-1') as Array<{ id: string; result: string }>;
+    const attempts = adapter.raw.prepare('SELECT id, result FROM delivery_attempts WHERE route_id = ?').all('route-1') as { id: string; result: string }[];
     expect(attempts).toHaveLength(1);
     expect(attempts[0]).toMatchObject({ id: 'attempt-1', result: 'delivered' });
   });
@@ -147,7 +147,7 @@ describe('applyRouteSnapshot — non-destructive apply', () => {
     // The cloud copy only carries stop-1: stop-2 was removed on the other device.
     await applyRouteSnapshot(db, cloudSnapshot(), T1);
 
-    const attempts = adapter.raw.prepare('SELECT id FROM delivery_attempts WHERE route_id = ?').all('route-1') as Array<{ id: string }>;
+    const attempts = adapter.raw.prepare('SELECT id FROM delivery_attempts WHERE route_id = ?').all('route-1') as { id: string }[];
     expect(attempts.map((attempt) => attempt.id)).toEqual(['attempt-1']);
   });
 

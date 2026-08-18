@@ -264,8 +264,8 @@ export type QualityRouteMonitor = {
 
 export type RouteSnapshot = {
   route: Record<string, unknown>;
-  stops: Array<Record<string, unknown>>;
-  shipmentLines: Array<Record<string, unknown>>;
+  stops: Record<string, unknown>[];
+  shipmentLines: Record<string, unknown>[];
 };
 
 type StoredUser = EmployeeProfile & {
@@ -475,7 +475,7 @@ export class EmployeeAuthStore {
       const current = stored ? normalizeVehicle(stored) : undefined;
       if (!current) throw new EmployeeApiError('VEHICLE_NOT_FOUND', 'Automobilis nerastas.', 404);
 
-      let previousAssignmentDocs: Array<{ id: string; ref: FirebaseFirestore.DocumentReference }> = [];
+      let previousAssignmentDocs: { id: string; ref: FirebaseFirestore.DocumentReference }[] = [];
       if (driverId) {
         const driverDocument = await transaction.get(this.users.doc(driverId));
         const driver = driverDocument.data() as StoredUser | undefined;

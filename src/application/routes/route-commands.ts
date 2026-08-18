@@ -880,14 +880,6 @@ async function isRecoverableIncompleteDraft(
   );
 }
 
-function activeRouteError(route: Route): RouteCommandError {
-  return new RouteCommandError(
-    'ACTIVE_ROUTE_EXISTS',
-    'Jau yra aktyvus maršrutas. Tęskite jį arba aiškiai atšaukite.',
-    { activeRouteId: route.id, activeStatus: route.status },
-  );
-}
-
 function sourceStopIdentity(stop: DraftStopInput): string | null {
   return stop.sourceStopId ?? stop.id ?? null;
 }

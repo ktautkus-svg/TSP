@@ -26,10 +26,7 @@ module.exports = defineConfig([
       //
       // rules-of-hooks violations are always bugs, so they fail the run.
       'react-hooks/rules-of-hooks': 'error',
-      // exhaustive-deps is a warning: eight pre-existing sites need individual
-      // behavioural review before they can be tightened without changing what
-      // the screens do. Promote to 'error' once those are cleared.
-      'react-hooks/exhaustive-deps': 'warn',
+      'react-hooks/exhaustive-deps': 'error',
       'no-console': ['warn', { allow: ['error'] }],
     },
   },

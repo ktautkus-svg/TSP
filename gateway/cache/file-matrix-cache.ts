@@ -1,8 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { ProviderFetchResult } from '../types';
-import type { GatewayMatrixRequest } from '../types';
+import type { ProviderFetchResult , GatewayMatrixRequest } from '../types';
 
 type CacheEntry = {
   key: string;

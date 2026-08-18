@@ -134,8 +134,8 @@ describe('Google Route Matrix batching / chunking', () => {
 
     const fetcher = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)) as {
-        origins: Array<{ waypoint: { location: { latLng: { latitude: number; longitude: number } } } }>;
-        destinations: Array<{ waypoint: { location: { latLng: { latitude: number; longitude: number } } } }>;
+        origins: { waypoint: { location: { latLng: { latitude: number; longitude: number } } } }[];
+        destinations: { waypoint: { location: { latLng: { latitude: number; longitude: number } } } }[];
       };
       const numOrigins = body.origins.length;
       const numDestinations = body.destinations.length;

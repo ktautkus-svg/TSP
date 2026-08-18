@@ -40,6 +40,7 @@ import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
+import { devWarn } from '@/ui/dev-log';
 
 export default function RouteReviewScreen() {
   const router = useRouter();
@@ -72,11 +73,11 @@ export default function RouteReviewScreen() {
   }, [repository, routeId, router]);
 
   const handleDraftActionError = useCallback(async (reason: unknown) => {
-    if (__DEV__) console.warn('STALE_REVIEW_ACTION_BLOCKED', reason);
+    devWarn('STALE_REVIEW_ACTION_BLOCKED', reason);
     try {
       if (await redirectStalePlanningScreen()) return;
     } catch (redirectError) {
-      if (__DEV__) console.warn('STALE_REVIEW_REDIRECT_FAILED', redirectError);
+      devWarn('STALE_REVIEW_REDIRECT_FAILED', redirectError);
     }
     setError(reason instanceof Error ? reason.message : 'Veiksmo atlikti nepavyko.');
   }, [redirectStalePlanningScreen]);
@@ -86,7 +87,7 @@ export default function RouteReviewScreen() {
       const [persisted, locations] = await Promise.all([
         repository.getWithStops(routeId),
         new GetDefaultLocations(db).execute().catch((reason) => {
-          if (__DEV__) console.warn('REVIEW_DEFAULT_LOCATIONS_LOAD_FAILED', reason);
+          devWarn('REVIEW_DEFAULT_LOCATIONS_LOAD_FAILED', reason);
           return null;
         }),
       ]);
@@ -106,7 +107,7 @@ export default function RouteReviewScreen() {
         ...ordered.filter((stop) => stop.addressValidationState === 'auto_confirmed'),
       ]);
     } catch (reason) {
-      if (__DEV__) console.warn('REVIEW_ROUTE_LOAD_FAILED', reason);
+      devWarn('REVIEW_ROUTE_LOAD_FAILED', reason);
       setError(reason instanceof Error ? reason.message : 'Maršruto atkurti nepavyko.');
     }
   }, [db, repository, routeId, router]);

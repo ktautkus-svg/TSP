@@ -108,7 +108,7 @@ export class GoogleMatrixAdapter implements MatrixProviderAdapter {
       });
     }
 
-    const subRequests: Array<() => Promise<GoogleChunkFetchResult>> = [];
+    const subRequests: (() => Promise<GoogleChunkFetchResult>)[] = [];
 
     for (const originChunk of locationChunks) {
       for (const destChunk of locationChunks) {
@@ -385,7 +385,7 @@ function allLocations(request: GatewayMatrixRequest): RoutingLocation[] {
 
 /** Cost telemetry. Never carries addresses, coordinates or keys. */
 function logMatrixRequest(fields: Record<string, unknown>): void {
-  // eslint-disable-next-line no-console
+   
   console.log(JSON.stringify({ event: 'google_matrix_request', ...fields }));
 }
 
@@ -428,7 +428,7 @@ function locationIdentity(location: RoutingLocation) {
   };
 }
 
-async function runWithConcurrency<T>(tasks: Array<() => Promise<T>>, maximum: number): Promise<T[]> {
+async function runWithConcurrency<T>(tasks: (() => Promise<T>)[], maximum: number): Promise<T[]> {
   const results = new Array<T>(tasks.length);
   let next = 0;
   const workers = Array.from({ length: Math.min(maximum, tasks.length) }, async () => {
