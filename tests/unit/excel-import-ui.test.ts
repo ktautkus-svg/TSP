@@ -183,6 +183,17 @@ describe('compact daily Excel UI', () => {
     expect(alternativesScreen).toContain('testID="manual-order-map"');
     expect(alternativesScreen).toContain('manualMapLocations');
     expect(alternativesScreen).toContain('allowStraightLineFallback');
+    expect(alternativesScreen).toContain('encodedPolyline={manualPolyline?.encodedPolyline}');
+    expect(alternativesScreen).toContain('fetchManualDrivingPolyline');
+    expect(alternativesScreen).toContain("Alert.alert('Nėra taškų'");
+    expect(alternativesScreen).toContain('if (manualMode || !selectedCandidate || !request)');
+    expect(alternativesScreen.indexOf('testID="recalculate-manual-sequence"'))
+      .toBeLessThan(alternativesScreen.indexOf('testID="manual-order-map"'));
+    expect(alternativesScreen).not.toContain('compact\n                totalDistanceKm={manualCandidate');
+    expect(webMap).toContain('key={`${index}-${stop.id}`}');
+    expect(webMap).toContain('key={orderedStops.map((stop) => stop.id).join(\'|\')}');
+    expect(routeOverview.indexOf('testID="save-active-route-order"'))
+      .toBeLessThan(routeOverview.indexOf('testID="active-route-order-map"'));
     expect(alternativesScreen).toContain('manualPriorityIds');
     expect(alternativesScreen).toContain('Perskaičiuoti pagal prioritetus');
     expect(alternativesScreen).toContain('reuseTravelMatrix');

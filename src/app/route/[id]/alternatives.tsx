@@ -62,7 +62,11 @@ export default function RouteAlternativesScreen() {
   const [manualError, setManualError] = useState<string | null>(null);
   const [manualSaving, setManualSaving] = useState(false);
   const [priorityCalculating, setPriorityCalculating] = useState(false);
+  const [manualRecalculating, setManualRecalculating] = useState(false);
+  const [manualPolyline, setManualPolyline] = useState<RoutePolylineResult | null>(null);
+  const [manualPolylineError, setManualPolylineError] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const manualPolylineRequestId = useRef(0);
   const savingRef = useRef(false);
   const startedForRoute = useRef<string | null>(null);
   // Cancelling flips the route to 'cancelled', which resolveRoute maps to
@@ -142,7 +146,10 @@ export default function RouteAlternativesScreen() {
     let active = true;
     setPolylineResult(null);
     setPolylineError(null);
-    if (!selectedCandidate || !request) return () => undefined;
+    // Manual sequencing has its own map and polyline. Keep the selected
+    // candidate's paid line off the screen so it cannot cover the reorder
+    // controls or show the old order while the driver is editing.
+    if (manualMode || !selectedCandidate || !request) return () => undefined;
     const locations = extractOrderedLocationsFromCandidate(selectedCandidate, request);
     new GatewayPolylineProvider()
       .fetchPolyline({ ...locations, departureAt: request.plannedDepartureAt, trafficMode: 'live' })
@@ -158,7 +165,7 @@ export default function RouteAlternativesScreen() {
         if (active) setPolylineError(reason instanceof Error ? reason.message : 'Maršruto linijos užklausa nepavyko.');
       });
     return () => { active = false; };
-  }, [request, selectedCandidate]);
+  }, [manualMode, request, selectedCandidate]);
 
   const saveSelectedRoute = async () => {
     if (!result || !selectedId || !selectedCandidate || savingRef.current) return;
@@ -205,24 +212,28 @@ export default function RouteAlternativesScreen() {
         setManualPriorityIds((existing) =>
           existing.length > 0 ? existing : request.stops.filter((stop) => stop.preferEarly).map((stop) => stop.id),
         );
+        setManualPolyline(null);
+        setManualPolylineError(null);
       }
       return next;
     });
   };
 
   const moveManualStop = (stopId: string, targetIndex: number) => {
-    setManualOrder((current) => {
-      const index = current.indexOf(stopId);
-      if (index < 0 || targetIndex < 0 || targetIndex >= current.length) return current;
-      const next = [...current];
-      next.splice(index, 1);
-      next.splice(targetIndex, 0, stopId);
-      return next;
-    });
+    const index = manualOrder.indexOf(stopId);
+    if (index < 0 || targetIndex < 0 || targetIndex >= manualOrder.length) return;
+    const next = [...manualOrder];
+    next.splice(index, 1);
+    next.splice(targetIndex, 0, stopId);
+    setManualOrder(next);
     setManualError(null);
-    // Any reorder must recalculate immediately — moving one stop can invalidate
-    // the rest of the sequence's travel times.
-    setTimeout(() => recalculateManualSequenceRef.current?.(), 0);
+    // Drop the previous driving line immediately — pins and the straight-line
+    // fallback follow the new order. A fresh polyline is fetched only when the
+    // driver presses „Perskaičiuoti pasirinktą eiliškumą“.
+    manualPolylineRequestId.current += 1;
+    setManualPolyline(null);
+    setManualPolylineError(null);
+    setTimeout(() => evaluateManualSequenceRef.current?.(next), 0);
   };
 
   const toggleManualPriority = (stopId: string) => {
@@ -269,6 +280,11 @@ export default function RouteAlternativesScreen() {
       setSelectedId(candidate?.id ?? null);
       setManualOrder(candidate?.stopSequence ?? manualOrder);
       setManualCandidate(candidate);
+      setManualPolyline(null);
+      setManualPolylineError(null);
+      if (candidate?.stopSequence) {
+        void fetchManualDrivingPolyline(candidate.stopSequence);
+      }
     } catch (reason) {
       setManualError(reason instanceof Error ? reason.message : 'Pagal prioritetus perskaičiuoti nepavyko.');
     } finally {
@@ -276,25 +292,99 @@ export default function RouteAlternativesScreen() {
     }
   };
 
-  const recalculateManualSequenceRef = useRef<(() => void) | null>(null);
+  const evaluateManualSequenceRef = useRef<((order?: string[]) => void) | null>(null);
 
-  const recalculateManualSequence = () => {
-    if (!request || !result || manualOrder.length === 0) return;
-    const candidate = evaluateCandidate({
-      stopSequence: manualOrder,
-      generatedBy: ['manual_reorder'],
-      request,
-      matrix: result.matrix,
-    });
-    setManualCandidate(candidate);
-    const hardViolations = candidate.violations.filter((violation) => violation.type === 'hard');
-    setManualError(
-      hardViolations.length > 0
-        ? `Šioje sekoje yra ${hardViolations.length} pažeidimų (pvz. privalomas laiko langas ar keliamoji galia) — vis tiek galite ją naudoti, bet patikrinkite.`
-        : null,
-    );
+  const evaluateManualSequence = (order = manualOrder) => {
+    if (!request || !result || order.length === 0) return;
+    try {
+      const candidate = evaluateCandidate({
+        stopSequence: order,
+        generatedBy: ['manual_reorder'],
+        request,
+        matrix: result.matrix,
+      });
+      setManualCandidate(candidate);
+      const hardViolations = candidate.violations.filter((violation) => violation.type === 'hard');
+      setManualError(
+        hardViolations.length > 0
+          ? `Šioje sekoje yra ${hardViolations.length} pažeidimų (pvz. privalomas laiko langas ar keliamoji galia) — vis tiek galite ją naudoti, bet patikrinkite.`
+          : null,
+      );
+    } catch (reason) {
+      setManualCandidate(null);
+      setManualError(reason instanceof Error ? reason.message : 'Pasirinktos sekos įvertinti nepavyko.');
+    }
   };
-  recalculateManualSequenceRef.current = recalculateManualSequence;
+  evaluateManualSequenceRef.current = evaluateManualSequence;
+
+  const locationsFromStopIds = (ids: readonly string[]) => {
+    if (!request) return null;
+    const stopMap = new Map(request.stops.map((stop) => [stop.id, stop.location]));
+    const orderedStops = ids
+      .map((id) => stopMap.get(id))
+      .filter((location): location is NonNullable<typeof location> => Boolean(location));
+    if (orderedStops.length === 0) return null;
+    return {
+      startLocation: request.startLocation,
+      orderedStops,
+      endLocation: request.endLocation,
+    };
+  };
+
+  const fetchManualDrivingPolyline = async (ids: readonly string[]) => {
+    if (!request) return;
+    const locations = locationsFromStopIds(ids);
+    if (!locations) return;
+    const requestId = ++manualPolylineRequestId.current;
+    try {
+      const polyline = await new GatewayPolylineProvider().fetchPolyline({
+        ...locations,
+        departureAt: request.plannedDepartureAt,
+        trafficMode: 'live',
+      });
+      if (requestId !== manualPolylineRequestId.current) return;
+      if (!polyline.encodedPolyline) {
+        setManualPolyline(null);
+        setManualPolylineError('Gateway negrąžino maršruto linijos.');
+        return;
+      }
+      setManualPolyline(polyline);
+      setManualPolylineError(null);
+    } catch (reason: unknown) {
+      if (requestId !== manualPolylineRequestId.current) return;
+      setManualPolyline(null);
+      setManualPolylineError(reason instanceof Error ? reason.message : 'Maršruto linijos užklausa nepavyko.');
+    }
+  };
+
+  const recalculateManualSequence = async () => {
+    if (manualRecalculating) return;
+    if (!request) {
+      Alert.alert('Maršrutas dar kraunamas', 'Palaukite, kol taškai bus paruošti, ir bandykite dar kartą.');
+      return;
+    }
+    if (!result) {
+      Alert.alert('Matrica dar nesuskaičiuota', 'Palaukite, kol maršruto variantai bus paruošti, ir bandykite dar kartą.');
+      return;
+    }
+    if (manualOrder.length === 0) {
+      Alert.alert('Nėra taškų', 'Eiliškumo perskaičiuoti negalima, nes nėra pristatymo taškų.');
+      return;
+    }
+    setManualRecalculating(true);
+    setManualError(null);
+    try {
+      evaluateManualSequence();
+      await fetchManualDrivingPolyline(manualOrder);
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : 'Pasirinktos sekos perskaičiuoti nepavyko.';
+      setManualCandidate(null);
+      setManualError(message);
+      Alert.alert('Nepavyko perskaičiuoti', message);
+    } finally {
+      setManualRecalculating(false);
+    }
+  };
 
   const applyManualSequence = async () => {
     if (!request || !result || manualOrder.length === 0 || manualSaving) return;
@@ -380,15 +470,8 @@ export default function RouteAlternativesScreen() {
   const orderedLocations = selectedCandidate && request && !manualMode
     ? extractOrderedLocationsFromCandidate(selectedCandidate, request)
     : null;
-  const manualMapLocations = manualMode && request && manualOrder.length > 0
-    ? {
-      startLocation: request.startLocation,
-      orderedStops: manualOrder.flatMap((id) => {
-        const stop = request.stops.find((item) => item.id === id);
-        return stop ? [stop.location] : [];
-      }),
-      endLocation: request.endLocation,
-    }
+  const manualMapLocations = manualMode && request
+    ? locationsFromStopIds(manualOrder)
     : null;
   const stopLabel = (stopId: string | null): string => {
     if (!stopId || !request) return '';
@@ -477,6 +560,8 @@ export default function RouteAlternativesScreen() {
                       setManualPriorityIds(request?.stops.filter((stop) => stop.preferEarly).map((stop) => stop.id) ?? []);
                       setManualCandidate(null);
                       setManualError(null);
+                      setManualPolyline(null);
+                      setManualPolylineError(null);
                       setManualMode(true);
                     }}
                   />
@@ -508,20 +593,9 @@ export default function RouteAlternativesScreen() {
         <View style={styles.manualCard} testID="manual-sequencing-panel">
           <Text style={styles.title}>Rankinis planavimas</Text>
           <Text style={styles.description}>
-            Žvaigždute pažymėkite vieną ar kelis prioritetinius taškus. Eiliškumą keiskite ▲▼ mygtukais arba tempdami ☰ rankenėlę. Žemėlapis atsinaujina iškart pakeitus tvarką.
+            Žvaigždute pažymėkite prioritetinius taškus. Eiliškumą keiskite ▲▼ mygtukais arba tempdami ☰ rankenėlę.
+            Numeriai žemėlapyje atsinaujina iškart. Tikrą kelio liniją piešia „Perskaičiuoti pasirinktą eiliškumą“.
           </Text>
-          {manualMapLocations ? (
-            <View style={styles.manualMap} testID="manual-order-map">
-              <Text style={styles.groupTitle}>Eiliškumas žemėlapyje</Text>
-              <RouteMapView
-                {...manualMapLocations}
-                allowStraightLineFallback
-                compact
-                totalDistanceKm={manualCandidate?.totalDistanceKm}
-                totalDurationMinutes={manualCandidate?.totalWorkMinutes}
-              />
-            </View>
-          ) : <Text style={styles.description}>Žemėlapis bus rodomas, kai taškai turės koordinates.</Text>}
           <ManualRouteOrderList
             items={manualOrder.map((stopId) => request.stops.find((item) => item.id === stopId)).filter((stop): stop is OptimizationStop => Boolean(stop)).map((stop) => ({
               id: stop.id,
@@ -550,10 +624,13 @@ export default function RouteAlternativesScreen() {
             </Pressable>
             <Pressable
               accessibilityRole="button"
-              onPress={recalculateManualSequence}
-              style={styles.primaryButton}
+              disabled={manualRecalculating}
+              onPress={() => { void recalculateManualSequence(); }}
+              style={[styles.primaryButton, manualRecalculating && styles.disabled]}
               testID="recalculate-manual-sequence">
-              <Text style={styles.primaryText}>Perskaičiuoti pasirinktą eiliškumą</Text>
+              {manualRecalculating
+                ? <ActivityIndicator color={colors.textInverse} />
+                : <Text style={styles.primaryText}>Perskaičiuoti pasirinktą eiliškumą</Text>}
             </Pressable>
           </View>
           {manualError ? <Text style={styles.error}>{manualError}</Text> : null}
@@ -570,6 +647,18 @@ export default function RouteAlternativesScreen() {
               </Pressable>
             </View>
           ) : null}
+          {manualMapLocations ? (
+            <View style={styles.manualMap} testID="manual-order-map">
+              <RouteMapView
+                {...manualMapLocations}
+                encodedPolyline={manualPolyline?.encodedPolyline}
+                allowStraightLineFallback
+                totalDistanceKm={manualCandidate?.totalDistanceKm}
+                totalDurationMinutes={manualCandidate?.totalWorkMinutes}
+                polylineError={manualPolylineError}
+              />
+            </View>
+          ) : <Text style={styles.description}>Žemėlapis bus rodomas, kai taškai turės koordinates.</Text>}
         </View>
       ) : null}
       {result && result.executionMode !== 'real' ? (
@@ -740,7 +829,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   warningTitle: { ...type.sectionTitle, color: colors.warning },
   disabled: { opacity: 0.45 },
   manualCard: { padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, gap: spacing.sm },
-  manualMap: { overflow: 'hidden', borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surfaceSubtle, padding: spacing.sm, gap: spacing.xs, zIndex: 0 },
+  manualMap: { overflow: 'hidden', borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surfaceSubtle, zIndex: 0 },
   manualActions: { gap: spacing.sm, zIndex: 2, position: 'relative', backgroundColor: colors.surface, paddingTop: spacing.sm },
   priorityRecalcButton: { minHeight: 48, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surfaceSubtle, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
   priorityRecalcButtonReady: { backgroundColor: colors.infoSoft, borderColor: colors.info },
