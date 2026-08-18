@@ -1,0 +1,123 @@
+# Automatic Cloud Run deploy after every push to main.
+#
+# One-time setup (Windows PowerShell, from repo root):
+#   .\scripts\create-github-deploy-sa.ps1
+# Then add the generated key JSON to GitHub → Settings → Secrets → Actions → GCP_SA_KEY
+#
+# Secret Manager values (API keys, GATEWAY_DEVICE_SECRET) are reused from the first
+# manual `npm run cloud-run:deploy` — CI does not read your local .env.
+
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: cloud-run-deploy
+  cancel-in-progress: true
+
+env:
+  GCP_PROJECT_ID: logistika-504113
+  GCP_REGION: europe-north1
+  CLOUD_RUN_SERVICE: logistikos-pristatymai
+
+jobs:
+  deploy:
+    name: Deploy PWA
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Enable required APIs
+        run: |
+          gcloud services enable run.googleapis.com cloudbuild.googleapis.com \
+            artifactregistry.googleapis.com secretmanager.googleapis.com firestore.googleapis.com \
+            --project="$GCP_PROJECT_ID"
+
+      - name: Build Cloud Run secrets argument
+        id: secrets
+        shell: bash
+        run: |
+          SECRET_NAMES=(
+            GATEWAY_DEVICE_SECRET
+            GOOGLE_ROUTES_API_KEY
+            GOOGLE_API_KEY
+            GOOGLE_GEOCODING_API_KEY
+            GOOGLE_MAPS_API_KEY
+            GOOGLE_VISION_API_KEY
+            HERE_API_KEY
+          )
+          PAIRS=()
+          for name in "${SECRET_NAMES[@]}"; do
+            if gcloud secrets describe "$name" --project="$GCP_PROJECT_ID" >/dev/null 2>&1; then
+              PAIRS+=("${name}=${name}:latest")
+            fi
+          done
+          if ! gcloud secrets describe GATEWAY_DEVICE_SECRET --project="$GCP_PROJECT_ID" >/dev/null 2>&1; then
+            echo "GATEWAY_DEVICE_SECRET missing. Run npm run cloud-run:deploy once locally first."
+            exit 1
+          fi
+          GOOGLE_FOUND=false
+          for name in GOOGLE_ROUTES_API_KEY GOOGLE_API_KEY GOOGLE_GEOCODING_API_KEY GOOGLE_MAPS_API_KEY GOOGLE_VISION_API_KEY; do
+            if gcloud secrets describe "$name" --project="$GCP_PROJECT_ID" >/dev/null 2>&1; then
+              GOOGLE_FOUND=true
+              break
+            fi
+          done
+          if [ "$GOOGLE_FOUND" = false ]; then
+            echo "At least one GOOGLE_* secret is required in Secret Manager."
+            exit 1
+          fi
+          SECRETS_ARG=$(IFS=,; echo "${PAIRS[*]}")
+          echo "secrets_arg=$SECRETS_ARG" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy to Cloud Run
+        shell: bash
+        run: |
+          APP_VERSION=$(node -p "require('./package.json').version")
+          gcloud run deploy "$CLOUD_RUN_SERVICE" \
+            --source . \
+            --project="$GCP_PROJECT_ID" \
+            --region="$GCP_REGION" \
+            --allow-unauthenticated \
+            --max-instances=1 \
+            --set-secrets="${{ steps.secrets.outputs.secrets_arg }}" \
+            --set-env-vars="GATEWAY_AUTH_MODE=none,GATEWAY_ENV=production,APP_VERSION=${APP_VERSION}" \
+            --quiet
+
+      - name: Route production traffic to latest revision
+        shell: bash
+        run: |
+          REVISION=$(gcloud run services describe "$CLOUD_RUN_SERVICE" \
+            --project="$GCP_PROJECT_ID" \
+            --region="$GCP_REGION" \
+            --format='value(status.latestCreatedRevisionName)')
+          gcloud run services update-traffic "$CLOUD_RUN_SERVICE" \
+            --project="$GCP_PROJECT_ID" \
+            --region="$GCP_REGION" \
+            --to-revisions="${REVISION}=100" \
+            --quiet
+
+      - name: Verify /health
+        shell: bash
+        run: |
+          URL=$(gcloud run services describe "$CLOUD_RUN_SERVICE" \
+            --project="$GCP_PROJECT_ID" \
+            --region="$GCP_REGION" \
+            --format='value(status.url)')
+          BODY=$(curl -sf "$URL/health")
+          echo "$BODY"
+          echo "$BODY" | grep -q '"status":"ok"'

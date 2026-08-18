@@ -73,6 +73,7 @@
     "pwa:test": "vitest run tests/pwa tests/unit/pwa-backup.test.ts && node ./scripts/scan-production-bundle.mjs",
     "cloud-run:deploy": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/cloud-run-deploy.ps1",
     "cloud-run:status": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/cloud-run-status.ps1",
+    "cloud-run:setup-github": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/create-github-deploy-sa.ps1",
     "employee:production:test": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/test-employee-production.ps1"
   },
   "private": true
