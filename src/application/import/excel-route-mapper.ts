@@ -191,6 +191,6 @@ function field<T>(value: T | null, confidence: number, evidence: string | null) 
   return { value, confidence, evidence, manuallyCorrected: false };
 }
 
-function unique(values: Array<string | null>): string[] {
+function unique(values: (string | null)[]): string[] {
   return [...new Set(values.filter((value): value is string => Boolean(value?.trim())).map((value) => value.trim()))];
 }

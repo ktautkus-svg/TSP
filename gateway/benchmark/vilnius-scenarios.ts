@@ -19,7 +19,7 @@ type ScenarioDefinition = {
   name: string;
   start: RoutingLocation;
   end: RoutingLocation;
-  points: Array<[string, number, number, number, number]>;
+  points: [string, number, number, number, number][];
   requiredWindowIndexes?: number[];
   heavyIndex?: number;
 };

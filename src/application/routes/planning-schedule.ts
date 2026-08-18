@@ -22,7 +22,7 @@ export function defaultPlanningTime(): string {
  * the earliest opening minus a short travel buffer instead.
  */
 export function suggestPlanningTimeFromWindows(
-  windows: Array<{ from: string | null | undefined } | null | undefined>,
+  windows: ({ from: string | null | undefined } | null | undefined)[],
 ): string {
   let earliestMinutes: number | null = null;
   for (const window of windows) {

@@ -286,7 +286,7 @@ export class RouteRepository {
     return rows.map(mapRoute);
   }
 
-  async listAudit(routeId: string): Promise<Array<{
+  async listAudit(routeId: string): Promise<{
     id: string;
     stopId: string | null;
     actionType: string;
@@ -295,7 +295,7 @@ export class RouteRepository {
     createdAt: string;
     undoExpiresAt: string | null;
     undoneAt: string | null;
-  }>> {
+  }[]> {
     const rows = await this.db.getAllAsync<{
       id: string;
       stop_id: string | null;

@@ -131,7 +131,7 @@ export function calculateRemainingEtas(
   stops: DeliveryStop[],
   currentTime: string,
   firstLegDepartureAt: string = currentTime,
-): Array<{ stopId: string; arrivalAt: string }> {
+): { stopId: string; arrivalAt: string }[] {
   let cursor = Date.parse(firstLegDepartureAt);
   const now = Date.parse(currentTime);
   if (!Number.isFinite(cursor) || !Number.isFinite(now)) throw new Error('Dabartinis laikas netinkamas ETA skaičiavimui.');
@@ -201,9 +201,19 @@ function roundToTenth(value: number): number {
   return Math.round(value * 10) / 10;
 }
 
+const LITHUANIA_TIME_ZONE = 'Europe/Vilnius';
+
+/** Interprets HH:mm on the same Lithuanian workday as `reference`, independent of device TZ. */
 function timeOnSameWorkday(value: string, reference: string): number {
-  const result = new Date(reference);
   const [hours, minutes] = value.split(':').map(Number);
-  result.setHours(hours, minutes, 0, 0);
-  return result.getTime();
+  const workday = new Intl.DateTimeFormat('en-CA', {
+    timeZone: LITHUANIA_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date(reference));
+  const hh = String(hours).padStart(2, '0');
+  const mm = String(minutes ?? 0).padStart(2, '0');
+  // Lithuania has used permanent EET (UTC+2) since 1999.
+  return Date.parse(`${workday}T${hh}:${mm}:00+02:00`);
 }

@@ -201,8 +201,8 @@ export type QualityRouteMonitor = {
 
 export type RouteSnapshot = {
   route: Record<string, unknown>;
-  stops: Array<Record<string, unknown>>;
-  shipmentLines: Array<Record<string, unknown>>;
+  stops: Record<string, unknown>[];
+  shipmentLines: Record<string, unknown>[];
 };
 
 const DATABASE_NAME = 'tsp-employee-session';

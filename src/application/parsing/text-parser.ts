@@ -128,11 +128,6 @@ const STREET_REGEX =
 const STREET_FALLBACK_REGEX =
   /\b([A-ZĄČĘĖĮŠŲŪŽ][A-Za-zĄČĘĖĮŠŲŪŽa-ząčęėįšųūž0-9\s.-]+?\s+\d+[A-Za-z]?(?:\s*[-/]\s*\d+[A-Za-z]?)?)\b/i;
 
-const COMPANY_REGEX =
-  /\b(UAB|AB|MB|IĮ|VŠĮ|VšĮ|PĮ|ŽŪK|KŪB|TŪB)\s+["„]?[A-ZĄČĘĖĮŠŲŪŽ0-9a-ząčęėįšųūž\s.-]+?["“]?\b/i;
-
-const QUOTED_COMPANY_REGEX = /["„](UAB|AB|MB|IĮ|VŠĮ|VšĮ|PĮ|ŽŪK|KŪB|TŪB)\s+[^"“]+["“]/i;
-
 /**
  * Extracts time window (e.g. "08:00-10:00") from text block or line.
  */
@@ -270,61 +265,6 @@ export function parseDeliveryText(rawText: string): ParseResult {
     })),
     unparsedLines: [],
   };
-}
-
-function parseBlockOrLines(textBlock: string): ParsedDeliveryPoint[] {
-  const lines = textBlock.split('\n').map((l) => l.trim()).filter(Boolean);
-  if (lines.length === 0) return [];
-
-  // Try parsing line by line if lines contain commas or tabs (single-line items)
-  const resultsFromLines: ParsedDeliveryPoint[] = [];
-  let allLinesSingleItems = true;
-
-  for (const line of lines) {
-    const street = extractStreet(line);
-    if (street) {
-      const city = extractCity(line);
-      const timeWindow = extractTimeWindow(line);
-      const company = extractCompany(line);
-
-      // If at least street is found in this single line, create a point
-      if (street) {
-        resultsFromLines.push({
-          street,
-          city,
-          timeWindow,
-          company,
-          fullAddress: city ? `${street}, ${city}` : street,
-          rawText: line,
-        });
-        continue;
-      }
-    }
-    allLinesSingleItems = false;
-  }
-
-  if (allLinesSingleItems && resultsFromLines.length === lines.length) {
-    return resultsFromLines;
-  }
-
-  // Otherwise treat the block as a single multi-line delivery point
-  const street = extractStreet(textBlock);
-  if (!street) return [];
-
-  const city = extractCity(textBlock);
-  const timeWindow = extractTimeWindow(textBlock);
-  const company = extractCompany(textBlock);
-
-  return [
-    {
-      street,
-      city,
-      timeWindow,
-      company,
-      fullAddress: city ? `${street}, ${city}` : street,
-      rawText: textBlock,
-    },
-  ];
 }
 
 // These coordinates are retained solely for explicit synthetic scenario tooling.

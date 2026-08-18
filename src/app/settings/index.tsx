@@ -314,6 +314,22 @@ export default function SettingsScreen() {
               <Text style={styles.chevron}>›</Text>
             </Pressable>
             <View style={styles.groupDivider} />
+            <Pressable style={styles.settingsRow} onPress={() => router.push('/vehicle' as Href)} testID="open-vehicle-settings">
+              <View style={styles.flex}>
+                <Text style={styles.rowTitle}>Transporto priemonė</Text>
+                <Text style={styles.rowValue}>Vardas, numeris ir kuro tipas šiame įrenginyje</Text>
+              </View>
+              <Text style={styles.chevron}>›</Text>
+            </Pressable>
+            <View style={styles.groupDivider} />
+            <Pressable style={styles.settingsRow} onPress={() => router.push('/fuel' as Href)} testID="open-fuel-settings">
+              <View style={styles.flex}>
+                <Text style={styles.rowTitle}>Degalų pylimai</Text>
+                <Text style={styles.rowValue}>Pilno bako pylimų taisyklės ir sąnaudų skaičiavimas</Text>
+              </View>
+              <Text style={styles.chevron}>›</Text>
+            </Pressable>
+            <View style={styles.groupDivider} />
             <View testID="default-navigation-setting">
               <Pressable accessibilityRole="button" accessibilityState={{ expanded: openSection === 'navigation' }} onPress={() => toggleSection('navigation')} style={styles.settingsRow}>
                 <View style={styles.flex}>

@@ -9,7 +9,7 @@ import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 
-const fuelOptions: Array<{ value: FuelType; label: string }> = [
+const fuelOptions: { value: FuelType; label: string }[] = [
   { value: 'diesel', label: 'Dyzelinas' },
   { value: 'petrol', label: 'Benzinas' },
   { value: 'electric', label: 'Elektra' },

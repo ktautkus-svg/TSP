@@ -6,7 +6,7 @@ export type CargoLayoutRequest = {
     hasRearDoors: boolean;
     hasSideDoors: boolean;
   };
-  items: Array<{
+  items: {
     id: string;
     stopId: string;
     deliveryOrder: number;
@@ -14,7 +14,7 @@ export type CargoLayoutRequest = {
     widthCm: number;
     heightCm: number;
     weightKg: number;
-  }>;
+  }[];
 };
 
 export type CargoPlacement = {

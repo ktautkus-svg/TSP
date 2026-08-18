@@ -445,8 +445,8 @@ function fuelMissingHint(missing: FuelLedgerDay['missing']): string | null {
   return null;
 }
 
-function minimum(values: Array<number | null>): number | null { const present = values.filter((value): value is number => value !== null); return present.length > 0 ? Math.min(...present) : null; }
-function maximum(values: Array<number | null>): number | null { const present = values.filter((value): value is number => value !== null); return present.length > 0 ? Math.max(...present) : null; }
+function minimum(values: (number | null)[]): number | null { const present = values.filter((value): value is number => value !== null); return present.length > 0 ? Math.min(...present) : null; }
+function maximum(values: (number | null)[]): number | null { const present = values.filter((value): value is number => value !== null); return present.length > 0 ? Math.max(...present) : null; }
 
 function Field({ label, styles, ...inputProps }: {
   label: string;
@@ -490,8 +490,6 @@ function formatDateTime(value: string): string { const date = new Date(value); r
 function formatMonth(value: string): string { const date = new Date(`${value}-15T12:00:00`); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('lt-LT', { year: 'numeric', month: 'long' }).format(date); }
 function formatNumber(value: number | null): string { return value === null ? '—' : new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(value); }
 function parseDecimal(value: string): number | null { const parsed = Number(value.trim().replace(',', '.')); return Number.isFinite(parsed) ? parsed : null; }
-function formatDuration(minutes: number | null): string { if (minutes === null) return '—'; const hours = Math.floor(minutes / 60); const rest = minutes % 60; return hours ? `${hours} val. ${rest} min.` : `${rest} min.`; }
-function formatTime(value: string | null): string { if (!value) return '—'; const date = new Date(value); return Number.isNaN(date.getTime()) ? '—' : new Intl.DateTimeFormat('lt-LT', { hour: '2-digit', minute: '2-digit' }).format(date); }
 function formatMoney(value: number): string { return `${new Intl.NumberFormat('lt-LT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)} €`; }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({

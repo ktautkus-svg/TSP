@@ -7,7 +7,7 @@ import { FoundationScreen } from '@/components/foundation-screen';
 import { DriverAppTabs } from '@/components/driver-app-tabs';
 import { StatBarChart } from '@/components/stat-bar-chart';
 import { StatisticsRepository } from '@/database/repositories/statistics-repository';
-import type { StatisticsPeriodTotals, StatisticsSnapshot } from '@/domain/statistics';
+import { buildStatisticsSnapshot, type FailureReasonCount, type StatisticsPeriodTotals, type StatisticsSnapshot, type StatsRouteRow } from '@/domain/statistics';
 import { formatLithuanianDate } from '@/ui/history-labels';
 import { durationLabel } from '@/ui/route-eta-labels';
 import { radius, spacing, type } from '@/ui/tokens';
@@ -16,7 +16,6 @@ import type { ColorPalette } from '@/ui/theme-palette';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { roleHomePath } from '@/application/navigation/role-home';
 import { employeeApi, type EmployeeProfile, type ServerRouteAssignment } from '@/infrastructure/auth/employee-session';
-import { buildStatisticsSnapshot, type FailureReasonCount, type StatsRouteRow } from '@/domain/statistics';
 import { uniqueRegionCodes } from '@/domain/route-code';
 
 export default function StatisticsScreen() {

@@ -170,7 +170,7 @@ function mapFuelEntry(row: FuelEntryRow): FuelEntry {
   };
 }
 
-function optionalSum(values: Array<number | null>): number | null {
+function optionalSum(values: (number | null)[]): number | null {
   const known = values.filter((value): value is number => value !== null);
   return known.length === 0 ? null : known.reduce((sum, value) => sum + value, 0);
 }

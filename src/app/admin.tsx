@@ -757,8 +757,8 @@ function parseFuelNorm(value: string): number | null {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
-function groupEmployeesByRole(employees: EmployeeProfile[]): Array<{ role: EmployeeRole; title: string; employees: EmployeeProfile[] }> {
-  const groups: Array<{ role: EmployeeRole; title: string }> = [
+function groupEmployeesByRole(employees: EmployeeProfile[]): { role: EmployeeRole; title: string; employees: EmployeeProfile[] }[] {
+  const groups: { role: EmployeeRole; title: string }[] = [
     { role: 'driver', title: 'Vairuotojai' },
     { role: 'dispatcher', title: 'Dispečeriai' },
     { role: 'quality', title: 'Kokybės kontrolė' },

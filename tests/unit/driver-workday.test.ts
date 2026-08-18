@@ -149,7 +149,7 @@ describe('driver workday persistence', () => {
     const customStart = { ...endpoint, originalAddress: 'Kita pradžia', normalizedAddress: 'Kita pradžia', latitude: 55.94, longitude: 23.33 };
     const customEnd = { ...endpoint, originalAddress: 'Kita pabaiga', normalizedAddress: 'Kita pabaiga', latitude: 55.95, longitude: 23.34 };
     const lastStop = { ...endpoint, originalAddress: 'Paskutinis taškas', normalizedAddress: 'Paskutinis taškas', latitude: 55.96, longitude: 23.35 };
-    const cases: Array<[StartLocationChoice, EndLocationChoice, RouteEndpoint, RouteEndpoint]> = [
+    const cases: [StartLocationChoice, EndLocationChoice, RouteEndpoint, RouteEndpoint][] = [
       [{ kind: 'warehouse' } as const, { kind: 'warehouse' } as const, warehouse, warehouse],
       [{ kind: 'warehouse' } as const, { kind: 'home' } as const, warehouse, home],
       [{ kind: 'current', endpoint: current } as const, { kind: 'home' } as const, current, home],

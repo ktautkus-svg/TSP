@@ -263,7 +263,7 @@ export default function ImportScreen() {
   };
 
   const prepareImages = async (
-    assets: Array<{ uri: string; name: string }>,
+    assets: { uri: string; name: string }[],
     kind: 'camera' | 'gallery',
   ) => {
     setBusy(true);
@@ -355,7 +355,7 @@ export default function ImportScreen() {
     }
   };
 
-  const applySuggestedPlanningTime = (_windows: Array<{ from: string | null | undefined }>) => {
+  const applySuggestedPlanningTime = (_windows: { from: string | null | undefined }[]) => {
     // Import create-flow defaults to 04:00 unless the driver already changed it.
     if (planningTimeTouched.current) return;
     setPlanningTime(defaultPlanningTime());
@@ -1307,7 +1307,7 @@ export default function ImportScreen() {
               <View style={styles.warningCard}>
                 <Text style={styles.cardTitle}>Susiekite stulpelius</Text>
                 <Text style={styles.helper}>Struktūra neatpažinta patikimai, todėl automatinis importas sustabdytas.</Text>
-                {(Object.keys(columnMapping) as Array<keyof ExcelColumnMapping>).map((key) => (
+                {(Object.keys(columnMapping) as (keyof ExcelColumnMapping)[]).map((key) => (
                   <View key={key} style={styles.fieldGroup}>
                     <Text style={styles.label}>{mappingLabel(key)}</Text>
                     <TextInput
@@ -1452,7 +1452,7 @@ function DeliveryEditor(props: {
   const { styles, colors } = props;
   const [expandedOptionalFields, setExpandedOptionalFields] = useState<EditableField[]>([]);
   const [showCompactDetails, setShowCompactDetails] = useState(false);
-  const fields: Array<{ key: EditableField; label: string; field: ImportField<string | number> }> = [
+  const fields: { key: EditableField; label: string; field: ImportField<string | number> }[] = [
     { key: 'address', label: 'Adresas', field: props.delivery.address },
     { key: 'weightKg', label: 'Svoris, kg', field: props.delivery.weightKg },
     { key: 'deliveryTime', label: 'Pristatymo laikas', field: props.delivery.deliveryTime },
@@ -1795,7 +1795,7 @@ function regionSummaries(preview: ExcelImportPreview): RegionSummary[] {
   return [...byCode.values()].sort((left, right) => left.code.localeCompare(right.code));
 }
 
-function groupExcelSheetSessions(sessions: ExcelSheetSession[]): Array<{ fileHash: string; fileName: string; sheets: ExcelSheetSession[] }> {
+function groupExcelSheetSessions(sessions: ExcelSheetSession[]): { fileHash: string; fileName: string; sheets: ExcelSheetSession[] }[] {
   const files = new Map<string, { fileHash: string; fileName: string; sheets: ExcelSheetSession[] }>();
   for (const sheet of sessions) {
     const file = files.get(sheet.fileHash) ?? { fileHash: sheet.fileHash, fileName: sheet.fileName, sheets: [] };

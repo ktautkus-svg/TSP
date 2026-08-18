@@ -52,7 +52,7 @@ export default function LocationSettingsScreen() {
     locations: { warehouse: SavedLocation | null; home: SavedLocation | null },
   ) => {
     const command = new SaveDefaultLocation(db);
-    const targets: Array<['warehouse' | 'home', SavedLocation | null]> = [
+    const targets: ['warehouse' | 'home', SavedLocation | null][] = [
       ['warehouse', locations.warehouse],
       ['home', locations.home],
     ];
