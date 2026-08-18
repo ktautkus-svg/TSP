@@ -1,36 +1,42 @@
-# One-time setup: service account for GitHub Actions -> Cloud Run deploy.
-# Run from repo root in PowerShell after: gcloud auth login && gcloud config set project logistika-504113
+# One-time setup: GitHub Actions -> Cloud Run via Workload Identity (no JSON keys).
+# Google org policy blocks service account keys on this project; WIF is the supported path.
 #
-# After this script finishes, add the key file to GitHub:
-#   Repository -> Settings -> Secrets and variables -> Actions -> New repository secret
-#   Name: GCP_SA_KEY
-#   Value: entire contents of .runtime-logs/github-deploy-key.json
+# Run from repo root:
+#   gcloud auth login
+#   gcloud config set project logistika-504113
+#   npm run cloud-run:setup-github
 
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 Set-Location $repo
 
 $project = if ($env:GCP_PROJECT_ID) { $env:GCP_PROJECT_ID } else { 'logistika-504113' }
+$projectNumber = if ($env:GCP_PROJECT_NUMBER) { $env:GCP_PROJECT_NUMBER } else { '39855768031' }
+$githubRepo = if ($env:GITHUB_REPOSITORY) { $env:GITHUB_REPOSITORY } else { 'ktautkus-svg/TSP' }
 $accountId = 'github-deploy'
 $accountEmail = "$accountId@$project.iam.gserviceaccount.com"
+$poolId = 'github-pool'
+$providerId = 'github-provider'
+$poolLocation = 'global'
 
 $knownGcloud = Join-Path $env:LOCALAPPDATA 'Google\Cloud SDK\google-cloud-sdk\bin\gcloud.cmd'
 $gcloudExe = if (Test-Path $knownGcloud) { $knownGcloud } else { (Get-Command gcloud.cmd -ErrorAction SilentlyContinue).Source }
 if (-not $gcloudExe) { throw 'gcloud nerastas. Idiekite Google Cloud SDK.' }
 
-$runtimeDir = Join-Path $repo '.runtime-logs'
-New-Item -ItemType Directory -Force $runtimeDir | Out-Null
-$keyPath = Join-Path $runtimeDir 'github-deploy-key.json'
-
 Write-Host "Projektas: $project"
+Write-Host "GitHub repo: $githubRepo"
+
+& $gcloudExe services enable iamcredentials.googleapis.com sts.googleapis.com run.googleapis.com cloudbuild.googleapis.com `
+  artifactregistry.googleapis.com secretmanager.googleapis.com firestore.googleapis.com `
+  --project $project | Out-Null
 
 $oldErrPref = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
 & $gcloudExe iam service-accounts describe $accountEmail --project $project 2>&1 | Out-Null
-$exists = ($LASTEXITCODE -eq 0)
+$saExists = ($LASTEXITCODE -eq 0)
 $ErrorActionPreference = $oldErrPref
 
-if (-not $exists) {
+if (-not $saExists) {
   & $gcloudExe iam service-accounts create $accountId `
     --project $project `
     --display-name 'GitHub Actions Cloud Run deploy'
@@ -40,9 +46,7 @@ if (-not $exists) {
   Write-Host "Service account jau egzistuoja: $accountEmail"
 }
 
-$projectNumber = (& $gcloudExe projects describe $project --format='value(projectNumber)').Trim()
 $runtimeServiceAccount = "$projectNumber-compute@developer.gserviceaccount.com"
-
 $roles = @(
   'roles/run.admin',
   'roles/cloudbuild.builds.editor',
@@ -65,19 +69,60 @@ foreach ($role in $roles) {
   --member="serviceAccount:$accountEmail" `
   --role='roles/iam.serviceAccountUser' `
   --quiet | Out-Null
-if ($LASTEXITCODE -ne 0) { throw 'Nepavyko suteikti serviceAccountUser teisiu Cloud Run runtime account.' }
+if ($LASTEXITCODE -ne 0) { throw 'Nepavyko suteikti serviceAccountUser teisiu runtime account.' }
 
-if (Test-Path $keyPath) { Remove-Item -LiteralPath $keyPath -Force }
-& $gcloudExe iam service-accounts keys create $keyPath `
-  --iam-account=$accountEmail `
-  --project $project
-if ($LASTEXITCODE -ne 0) { throw 'Nepavyko sukurti service account rakto.' }
+$ErrorActionPreference = 'Continue'
+& $gcloudExe iam workload-identity-pools describe $poolId `
+  --project $project `
+  --location $poolLocation 2>&1 | Out-Null
+$poolExists = ($LASTEXITCODE -eq 0)
+$ErrorActionPreference = $oldErrPref
 
+if (-not $poolExists) {
+  & $gcloudExe iam workload-identity-pools create $poolId `
+    --project $project `
+    --location $poolLocation `
+    --display-name 'GitHub Actions'
+  if ($LASTEXITCODE -ne 0) { throw 'Nepavyko sukurti workload identity pool.' }
+  Write-Host "Sukurtas pool: $poolId"
+} else {
+  Write-Host "Pool jau egzistuoja: $poolId"
+}
+
+$ErrorActionPreference = 'Continue'
+& $gcloudExe iam workload-identity-pools providers describe $providerId `
+  --project $project `
+  --location $poolLocation `
+  --workload-identity-pool $poolId 2>&1 | Out-Null
+$providerExists = ($LASTEXITCODE -eq 0)
+$ErrorActionPreference = $oldErrPref
+
+if (-not $providerExists) {
+  & $gcloudExe iam workload-identity-pools providers create-oidc $providerId `
+    --project $project `
+    --location $poolLocation `
+    --workload-identity-pool $poolId `
+    --display-name 'GitHub Actions provider' `
+    --issuer-uri='https://token.actions.githubusercontent.com' `
+    --attribute-mapping='google.subject=assertion.sub,attribute.actor=assertion.actor,attribute.repository=assertion.repository,attribute.repository_owner=assertion.repository_owner' `
+    --attribute-condition="assertion.repository_owner=='ktautkus-svg'"
+  if ($LASTEXITCODE -ne 0) { throw 'Nepavyko sukurti workload identity provider.' }
+  Write-Host "Sukurtas provider: $providerId"
+} else {
+  Write-Host "Provider jau egzistuoja: $providerId"
+}
+
+$member = "principalSet://iam.googleapis.com/projects/$projectNumber/locations/$poolLocation/workloadIdentityPools/$poolId/attribute.repository/$githubRepo"
+& $gcloudExe iam service-accounts add-iam-policy-binding $accountEmail `
+  --project $project `
+  --role='roles/iam.workloadIdentityUser' `
+  --member=$member `
+  --quiet | Out-Null
+if ($LASTEXITCODE -ne 0) { throw 'Nepavyko susieti GitHub repo su service account.' }
+
+$providerResource = "projects/$projectNumber/locations/$poolLocation/workloadIdentityPools/$poolId/providers/$providerId"
 Write-Host ''
-Write-Host '=== Kitas zingsnis (viena karta) ==='
-Write-Host '1. GitHub repo -> Settings -> Secrets and variables -> Actions'
-Write-Host '2. New repository secret'
-Write-Host '   Name:  GCP_SA_KEY'
-Write-Host "   Value: visas $keyPath failo turinys"
-Write-Host '3. Po ikelimo i GitHub - istrink arba saugiai archyvuok vietini rakta.'
-Write-Host '4. Kai workflow yra main sakoje, kiekvienas push deployins automatikiskai.'
+Write-Host '=== GitHub Actions setup baigtas ==='
+Write-Host "Provider: $providerResource"
+Write-Host "Service account: $accountEmail"
+Write-Host 'JSON rakto nereikia. Kitas push i main deployins automatikiskai.'

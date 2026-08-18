@@ -1,11 +1,10 @@
 # Automatic Cloud Run deploy after every push to main.
 #
 # One-time setup (Windows PowerShell, from repo root):
-#   .\scripts\create-github-deploy-sa.ps1
-# Then add the generated key JSON to GitHub → Settings → Secrets → Actions → GCP_SA_KEY
+#   npm run cloud-run:setup-github
+# Uses Workload Identity Federation (no GCP_SA_KEY / JSON key file).
 #
-# Secret Manager values (API keys, GATEWAY_DEVICE_SECRET) are reused from the first
-# manual `npm run cloud-run:deploy` — CI does not read your local .env.
+# Secret Manager values are reused from the first manual `npm run cloud-run:deploy`.
 
 name: Deploy to Cloud Run
 
@@ -22,12 +21,17 @@ env:
   GCP_PROJECT_ID: logistika-504113
   GCP_REGION: europe-north1
   CLOUD_RUN_SERVICE: logistikos-pristatymai
+  GCP_SERVICE_ACCOUNT: github-deploy@logistika-504113.iam.gserviceaccount.com
+  GCP_WORKLOAD_IDENTITY_PROVIDER: projects/39855768031/locations/global/workloadIdentityPools/github-pool/providers/github-provider
 
 jobs:
   deploy:
     name: Deploy PWA
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
       - name: Checkout
@@ -36,7 +40,8 @@ jobs:
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_SERVICE_ACCOUNT }}
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2

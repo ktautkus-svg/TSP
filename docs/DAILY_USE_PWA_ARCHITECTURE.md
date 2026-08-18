@@ -50,7 +50,7 @@ Kiekviena API užklausa pasirašoma HMAC-SHA256 iš timestamp, vienkartinio nonc
 - `npm run pwa:serve` – lokalus production modelio serveris.
 - `npm run pwa:test` – PWA, backup ir bundle saugumo patikros.
 - `npm run cloud-run:deploy` – esamo Google projekto API, Secret Manager, source build, deploy ir `/health` patikra.
-- `npm run cloud-run:setup-github` – vienkartinis GitHub Actions service account ir `GCP_SA_KEY` paruošimas.
+- `npm run cloud-run:setup-github` – vienkartinis GitHub Actions Workload Identity setup (be JSON rakto).
 - `npm run cloud-run:status` – veikiančio serviso URL ir health.
 
 Diegimo regionas pagal nutylėjimą – `europe-north1`. Scriptas nekuria naujo Google projekto ir nerodo paslapčių; vienkartinis įrenginio raktas išsaugomas tik ignoruojamame `.runtime-logs` kataloge.
