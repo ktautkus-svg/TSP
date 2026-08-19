@@ -54,6 +54,9 @@ jobs:
       - name: Validate SQLite schema
         run: npm run validate:schema
 
+      - name: Build production PWA
+        run: npm run pwa:build
+
       - name: Validate PWA bundle contract
         run: npm run pwa:test
 
