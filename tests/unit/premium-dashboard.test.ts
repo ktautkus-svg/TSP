@@ -68,7 +68,7 @@ describe('premium route dashboard', () => {
     expect(road).toContain('styles.windshieldPillarRight');
     expect(road).toContain('styles.cockpitCowl');
     expect(road).toContain('M 0 96 Q 215 30 430 96');
-    expect(road).toContain('<G transform="translate(215 98)">');
+    expect(road).not.toContain('<G transform="translate(215 98)">');
     expect(road).toContain('styles.progressReadout');
     expect(road).not.toContain('styles.instrumentBridge');
     expect(road).toContain('28_000');

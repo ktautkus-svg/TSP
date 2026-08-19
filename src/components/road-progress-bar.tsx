@@ -169,24 +169,6 @@ export function RoadProgressBar({
               strokeLinecap="round"
               strokeWidth={4}
             />
-            <G transform="translate(215 98)">
-              <Circle fill="none" r={48} stroke={cockpit.primaryDark} strokeOpacity={0.75} strokeWidth={13} />
-              <Circle
-                fill="none"
-                r={48}
-                stroke="url(#steeringProgress)"
-                strokeDasharray={`${Math.max(1, displayedProgress * 301.6)} 301.6`}
-                strokeLinecap="round"
-                strokeWidth={7}
-                transform="rotate(-90)"
-              />
-              <Circle fill="none" r={35} stroke={cockpit.metalLight} strokeOpacity={0.45} strokeWidth={2} />
-              <Line stroke={cockpit.metalLight} strokeLinecap="round" strokeWidth={7} x1="0" x2="0" y1="0" y2="-31" />
-              <Line stroke={cockpit.metalLight} strokeLinecap="round" strokeWidth={7} x1="0" x2="-28" y1="3" y2="21" />
-              <Line stroke={cockpit.metalLight} strokeLinecap="round" strokeWidth={7} x1="0" x2="28" y1="3" y2="21" />
-              <Circle cx="0" cy="0" fill={cockpit.primary} r={10} stroke={cockpit.white} strokeOpacity={0.8} strokeWidth={2} />
-              <Path d="M -4 -3 L 0 -7 L 4 -3 L 2 4 L -2 4 Z" fill={cockpit.white} opacity={0.85} />
-            </G>
           </Svg>
           <View pointerEvents="none" style={styles.progressReadout}>
             <Text style={styles.percent}>{Math.round(clamped * 100)}%</Text>

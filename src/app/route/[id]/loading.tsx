@@ -461,7 +461,7 @@ export default function LoadingScreen() {
     <FoundationScreen
       showFoundationNotice={false}
       title="Krovimo planas"
-      description="Kraukite atvirkštine pristatymo tvarka. Pažymėjimai iškart išsaugomi ir išlieka perkrovus programą.">
+    description="Krovimo seka eina nuo viršaus: 1 reiškia pirmą krovinį į automobilį, ne pirmą pristatymą. Sąrašas sudėliotas atvirkštine pristatymo tvarka.">
       {busy ? <ActivityIndicator color={colors.primary} size="large" /> : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {progress ? (
@@ -481,6 +481,10 @@ export default function LoadingScreen() {
           ) : null}
           {progress.notLoadedStops > 0 ? <Text style={styles.notLoadedSummary}>Nepakrauta: {progress.notLoadedStops}</Text> : null}
           {progress.totalUnknownWeightStops > 0 ? <Text style={styles.summaryText}>{progress.loadedUnknownWeightStops} / {progress.totalUnknownWeightStops} pakrautų taškų svoris nežinomas</Text> : null}
+          <View style={styles.loadingOrderNotice} testID="loading-order-notice">
+            <TruckIcon size={18} color={colors.info} />
+            <Text style={styles.loadingOrderText}>KROVIMO EILĖ: 1 = PIRMAS Į AUTOMOBILĮ. PRISTATYMO NUMERIS GALI BŪTI KITAS.</Text>
+          </View>
         </View>
       ) : null}
       {progress && progress.totalStops > 0 ? (
@@ -523,6 +527,7 @@ export default function LoadingScreen() {
         </Pressable>
       ) : null}
       {stops.map((stop, index) => {
+        const deliveryOrder = stop.activeOrder ?? stop.optimizedOrder ?? stop.originalOrder;
         const expanded = expandedStopId === stop.id;
         const markedNotLoaded = stop.loadingStatus === 'pending' && stop.deliveryStatus === 'failed';
         const statusTone = stop.loadingStatus === 'loaded'
@@ -568,6 +573,7 @@ export default function LoadingScreen() {
               </View>
               <View style={styles.cardHeaderText}>
                 <Text style={styles.address}>{stop.normalizedAddress ?? stop.originalAddress}{stop.priorityFirst ? ' ⭐' : ''}</Text>
+                <Text style={styles.loadingSequenceLabel}>KROVIMO EILĖ {index + 1} · PRISTATYMO TAŠKAS {deliveryOrder}</Text>
                 <Text style={styles.statusCaption}>
                   {statusTone === 'loaded' ? 'Pakrauta' : statusTone === 'notLoaded' ? 'Nepakrauta' : 'Laukia pakrovimo'}
                 </Text>
@@ -682,6 +688,18 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   },
   percentPillText: { ...type.secondaryStrong, color: colors.info },
   summaryText: { ...type.body, color: colors.textMuted },
+  loadingOrderNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+    padding: spacing.sm,
+    borderRadius: radius.sm,
+    backgroundColor: colors.infoSoft,
+    borderWidth: 1,
+    borderColor: colors.info,
+  },
+  loadingOrderText: { ...type.label, flex: 1, color: colors.info, lineHeight: 17 },
   loadWarning: { color: colors.warning },
   departureBadge: {
     marginTop: spacing.xs,
@@ -755,6 +773,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   chevron: { color: colors.textMuted, fontSize: 16, fontFamily: fonts.heading },
   address: { color: colors.text, fontSize: 15, fontFamily: fonts.heading },
   statusCaption: { color: colors.textMuted, fontSize: 12, fontFamily: fonts.headingSemiBold },
+  loadingSequenceLabel: { color: colors.info, fontSize: 11, fontFamily: fonts.headingExtraBold, letterSpacing: 0.2 },
   weightChip: {
     minWidth: 54,
     paddingHorizontal: 8,
