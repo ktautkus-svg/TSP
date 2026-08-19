@@ -135,8 +135,9 @@ export function RouteMapView({
         ) : null}
       </View> : null}
 
-      <View style={[styles.canvasContainer, { height: mapHeight }]} testID="route-map-canvas">
+      <View style={[styles.canvasContainer, compact && styles.compactCanvas, { height: mapHeight }]} testID="route-map-canvas">
         <MapContainer
+          key={orderedStops.map((stop) => stop.id).join('|')}
           center={[startLocation.latitude, startLocation.longitude]}
           zoom={12}
           // Left on, but handed to WheelZoomGuard below, which only lets Leaflet
@@ -150,12 +151,16 @@ export function RouteMapView({
           <WheelZoomGuard />
           <FitBounds points={allPoints} />
           {polylinePositions.length > 1 ? (
-            <Polyline positions={polylinePositions} pathOptions={{ color: '#2563EB', weight: 4, opacity: 0.85 }} />
+            <Polyline
+              key={polylinePositions.map((point) => point.join(',')).join('|')}
+              positions={polylinePositions}
+              pathOptions={{ color: '#2563EB', weight: 4, opacity: 0.85 }}
+            />
           ) : null}
           <Marker position={[startLocation.latitude, startLocation.longitude]} icon={startIcon} />
           {orderedStops.map((stop, index) => (
             <Marker
-              key={stop.id}
+              key={`${index}-${stop.id}`}
               position={[stop.latitude, stop.longitude]}
               icon={pinIcon('#2563EB', String(index + 1))}
             />
@@ -202,6 +207,8 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: colors.border,
+    zIndex: 0,
   },
+  compactCanvas: { minHeight: 190, height: 190 },
   pending: { color: colors.textMuted, fontSize: 13 },
 });

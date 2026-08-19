@@ -214,6 +214,15 @@ export async function handleEmployeeApi(
       requireRole(profile, ['driver']);
       return send(response, 200, { assignments: await store.listAssignments(profile) }, requestId);
     }
+    const adminAssignmentCompleteMatch = pathname.match(/^\/api\/admin\/assignments\/([^/]+)\/complete$/);
+    if (adminAssignmentCompleteMatch && request.method === 'POST') {
+      requireRole(profile, ['admin', 'dispatcher']);
+      const assignment = await store.completeAssignment(decodeURIComponent(adminAssignmentCompleteMatch[1]));
+      await routeSyncStore.seedAssignment(assignment.driverId, assignment.routeSnapshot).catch((reason) => {
+        process.stderr.write(`${JSON.stringify({ event: 'route_sync_complete_seed_failed', requestId, error: reason instanceof Error ? reason.message : String(reason) })}\n`);
+      });
+      return send(response, 200, { assignment }, requestId);
+    }
     const adminAssignmentCancelMatch = pathname.match(/^\/api\/admin\/assignments\/([^/]+)\/cancel$/);
     if (adminAssignmentCancelMatch && request.method === 'POST') {
       requireRole(profile, ['admin', 'dispatcher']);

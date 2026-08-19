@@ -180,8 +180,25 @@ describe('compact daily Excel UI', () => {
     expect(alternativesScreen).toContain('Rodyti eiliškumą');
     expect(alternativesScreen).toContain('expandedCandidateId');
     expect(alternativesScreen).toContain('ManualRouteOrderList');
+    expect(alternativesScreen).toContain('testID="manual-order-map"');
+    expect(alternativesScreen).toContain('manualMapLocations');
+    expect(alternativesScreen).toContain('allowStraightLineFallback');
+    expect(alternativesScreen).toContain('encodedPolyline={manualPolyline?.encodedPolyline}');
+    expect(alternativesScreen).toContain('fetchManualDrivingPolyline');
+    expect(alternativesScreen).toContain("Alert.alert('Nėra taškų'");
+    expect(alternativesScreen).toContain('if (manualMode || !selectedCandidate || !request)');
+    expect(alternativesScreen.indexOf('testID="recalculate-manual-sequence"'))
+      .toBeLessThan(alternativesScreen.indexOf('testID="manual-order-map"'));
+    expect(alternativesScreen).not.toContain('compact\n                totalDistanceKm={manualCandidate');
+    expect(webMap).toContain('key={`${index}-${stop.id}`}');
+    expect(webMap).toContain('key={orderedStops.map((stop) => stop.id).join(\'|\')}');
+    expect(routeOverview.indexOf('testID="save-active-route-order"'))
+      .toBeLessThan(routeOverview.indexOf('testID="active-route-order-map"'));
     expect(alternativesScreen).toContain('manualPriorityIds');
     expect(alternativesScreen).toContain('Perskaičiuoti pagal prioritetus');
+    expect(alternativesScreen).toContain('reuseTravelMatrix');
+    expect(alternativesScreen).toContain('Pažymėkite prioritetus');
+    expect(alternativesScreen).not.toContain('disabled={manualPriorityIds.length === 0');
     expect(alternativesScreen).toContain('verifyPersistedSequence');
     expect(alternativesScreen).toContain('markRouted(current.sourceImportAuditId, routeId)');
     expect(alternativesScreen).toContain('pushRouteAssignmentRevision');
@@ -202,6 +219,7 @@ describe('compact daily Excel UI', () => {
 
   it('opens a real remaining-stop order editor for an active route', () => {
     expect(routeOverview).toContain('active-route-order-editor');
+    expect(routeOverview).toContain('active-route-order-map');
     expect(routeOverview).toContain('save-active-route-order');
     expect(routeOverview).toContain('ReorderRemainingStops');
     expect(routeOverview).toContain('ManualRouteOrderList');

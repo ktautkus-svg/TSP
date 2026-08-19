@@ -13,6 +13,7 @@ import { GetDefaultLocations, PlanningModePreference, ResolveRouteLocations, Rou
 import {
   BeginRouteCompletion,
   CompleteRoute,
+  AdminCompleteRoute,
   ConfirmRouteReturnArrival,
   GetLatestUndoableAction,
   GetRouteProgress,
@@ -410,6 +411,18 @@ describe('driver workday persistence', () => {
     await startedRoute(db);
     await expect(new CompleteRoute(db).execute('route-1', { endOdometer: 1001 })).rejects.toMatchObject({ code: 'INVALID_ROUTE_STATE' });
     await expect(new CompleteRoute(db).execute('route-1', { endOdometer: 1001, confirmUnfinished: true })).resolves.toMatchObject({ summary: { unmarkedStops: 2 } });
+  });
+
+  it('lets an administrator close a hanging route from loading without odometer', async () => {
+    const { adapter, db } = createDb();
+    await loadingRoute(db);
+    const first = await new AdminCompleteRoute(db).execute('route-1');
+    const second = await new AdminCompleteRoute(db).execute('route-1');
+    expect(first).toMatchObject({ idempotent: false, summary: { unmarkedStops: 2, totalStops: 2 } });
+    expect(second).toMatchObject({ idempotent: true, summary: { unmarkedStops: 2 } });
+    expect(await new RouteRepository(db).getActive()).toBeNull();
+    expect((await new RouteRepository(db).getById('route-1'))?.status).toBe('completed');
+    expect(adapter.raw.prepare("SELECT COUNT(*) AS count FROM action_journal WHERE action_type='route_completed_by_admin'").get()).toMatchObject({ count: 1 });
   });
 
   it('lists completed history and restores the complete detail from a new repository', async () => {

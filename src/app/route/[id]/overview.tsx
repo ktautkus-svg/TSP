@@ -199,16 +199,6 @@ export default function RouteOverviewScreen() {
             </View>
             <Pressable accessibilityLabel="Uždaryti eiliškumo redagavimą" onPress={() => setEditingOrder(false)} style={styles.editorClose}><Text style={styles.editorCloseText}>×</Text></Pressable>
           </View>
-          {orderMap ? <View style={styles.orderMap} testID="active-route-order-map">
-            <Text style={styles.sectionLabel}>EILIŠKUMAS ŽEMĖLAPYJE</Text>
-            <RouteMapView
-              allowStraightLineFallback
-              compact
-              endLocation={orderMap.end}
-              orderedStops={orderMap.stops}
-              startLocation={orderMap.start}
-            />
-          </View> : <Text style={styles.orderSummary}>Žemėlapis bus rodomas, kai maršruto taškai turės koordinates.</Text>}
           <ManualRouteOrderList
             items={pendingOrder.map((stopId) => stops.find((stop) => stop.id === stopId)).filter((stop): stop is DeliveryStop => Boolean(stop)).map((stop) => ({
               id: stop.id,
@@ -227,6 +217,14 @@ export default function RouteOverviewScreen() {
               {savingOrder ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.primaryText}>Išsaugoti eiliškumą</Text>}
             </Pressable>
           </View>
+          {orderMap ? <View style={styles.orderMap} testID="active-route-order-map">
+            <RouteMapView
+              allowStraightLineFallback
+              endLocation={orderMap.end}
+              orderedStops={orderMap.stops}
+              startLocation={orderMap.start}
+            />
+          </View> : <Text style={styles.orderSummary}>Žemėlapis bus rodomas, kai maršruto taškai turės koordinates.</Text>}
         </View> : null}
         <Pressable
           accessibilityRole="button"

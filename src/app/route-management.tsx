@@ -3,9 +3,10 @@ import { ActivityIndicator, Modal, Pressable, SafeAreaView, ScrollView, StyleShe
 import { Stack, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
-import { assignRouteToDriver } from '@/application/auth/route-assignment-sync';
+import { assignRouteToDriver, completeAssignedRoute } from '@/application/auth/route-assignment-sync';
 import { effectiveAssignmentStatus, isActiveAssignment } from '@/application/auth/route-assignment-status';
-import { CancelDraftRoute } from '@/application/routes/route-commands';
+import { CancelDraftRoute, ReopenRouteForPlanning } from '@/application/routes/route-commands';
+import { AdminCompleteRoute } from '@/application/routes/route-workday';
 import {
   DEFAULT_ROUTE_PRICE_SETTINGS,
   estimatePreliminaryRoutePrice,
@@ -17,7 +18,7 @@ import { markRouteDeletedForCloud } from '@/application/sync/route-cloud-sync';
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { roleHomePath } from '@/application/navigation/role-home';
-import { ChevronDownIcon, ChevronRightIcon, TrashIcon } from '@/components/app-icons';
+import { CheckIcon, ChevronDownIcon, ChevronRightIcon, TrashIcon } from '@/components/app-icons';
 import { employeeApi, type EmployeeProfile, type ServerFleetVehicle, type ServerRouteAssignment } from '@/infrastructure/auth/employee-session';
 import { uniqueRegionCodes } from '@/domain/route-code';
 import { Alert } from '@/ui/alert';
@@ -248,6 +249,87 @@ export default function RouteManagementScreen() {
     );
   };
 
+  const completeAssignment = (assignment: ServerRouteAssignment) => {
+    const localRoute = routes.find((route) => route.id === assignment.routeId);
+    Alert.alert(
+      'Užbaigti šį maršrutą?',
+      `${assignmentRouteLabel(assignment)} · ${assignment.driverName}. Maršrutas nebekabės tarp aktyvių priskyrimų. Nepristatyti taškai liks nepažymėti.`,
+      [
+        { text: 'Palikti', style: 'cancel' },
+        {
+          text: 'Užbaigti',
+          onPress: () => { void (async () => {
+            setBusy(true);
+            setMessage(null);
+            try {
+              await completeAssignedRoute(db, assignment, localRoute?.id ?? null);
+              await requestSync('mutation');
+              setMessage('Maršrutas užbaigtas. Jis nebebus rodomas kaip aktyvus priskyrimas.');
+              await load();
+            } catch (error) {
+              setMessage(error instanceof Error ? error.message : 'Maršruto užbaigti nepavyko.');
+            } finally {
+              setBusy(false);
+            }
+          })(); },
+        },
+      ],
+    );
+  };
+
+  const completeLocalRoute = (route: LocalRoute) => {
+    Alert.alert(
+      'Užbaigti šį maršrutą?',
+      `${formatDate(route.date)} · ${route.total_stops} taškų. Maršrutas bus pažymėtas kaip baigtas, kad nebekabėtų tarp aktyvių darbų.`,
+      [
+        { text: 'Palikti', style: 'cancel' },
+        {
+          text: 'Užbaigti',
+          onPress: () => { void (async () => {
+            setBusy(true);
+            setMessage(null);
+            try {
+              await new AdminCompleteRoute(db).execute(route.id);
+              await requestSync('mutation');
+              setSelectedRouteId((current) => current === route.id ? null : current);
+              setMessage('Maršrutas užbaigtas.');
+              await load();
+            } catch (error) {
+              setMessage(error instanceof Error ? error.message : 'Maršruto užbaigti nepavyko.');
+            } finally {
+              setBusy(false);
+            }
+          })(); },
+        },
+      ],
+    );
+  };
+
+  const editSequence = (route: LocalRoute) => {
+    if (route.status === 'draft') {
+      router.push({ pathname: '/route/[id]/review', params: { id: route.id } } as Href);
+      return;
+    }
+    if (route.status === 'in_progress') {
+      router.push({ pathname: '/route/[id]/overview', params: { id: route.id, edit: 'order' } } as Href);
+      return;
+    }
+    if (route.status !== 'planned' || busy) return;
+    void (async () => {
+      setBusy(true);
+      setMessage(null);
+      try {
+        await new ReopenRouteForPlanning(db).execute(route.id);
+        await requestSync('mutation');
+        router.push({ pathname: '/route/[id]/alternatives', params: { id: route.id } } as Href);
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : 'Eiliškumo redagavimo atidaryti nepavyko.');
+      } finally {
+        setBusy(false);
+      }
+    })();
+  };
+
   const removeAssignment = (assignment: ServerRouteAssignment) => {
     const localRoute = routes.find((route) => route.id === assignment.routeId);
     Alert.alert(
@@ -348,7 +430,7 @@ export default function RouteManagementScreen() {
         </View>
 
         <View style={styles.metrics}>
-          <Metric label="Aktyvūs priskyrimai" value={activeAssignments.length} styles={styles} />
+          <Metric emphasized label="Aktyvūs priskyrimai" value={activeAssignments.length} styles={styles} />
           <Metric label="Laisvi vairuotojai" value={freeDrivers.length} styles={styles} />
           <Metric label="Paruošti nepriskirti" value={assignableRoutes.length} styles={styles} />
         </View>
@@ -400,8 +482,9 @@ export default function RouteManagementScreen() {
                 <Text numberOfLines={2} style={styles.routeEndpoint}>{endpointLabel(route.start_location_json)} → {endpointLabel(route.end_location_json)}</Text>
                 <View style={styles.routeCardActions}>
                   <Pressable onPress={() => router.push({ pathname: '/route/[id]/overview', params: { id: route.id, mode: 'management' } } as Href)} style={styles.routeSecondaryAction}><Text style={styles.routeSecondaryActionText}>Peržiūrėti</Text></Pressable>
-                  {['draft', 'planned'].includes(route.status) ? <Pressable onPress={() => router.push({ pathname: '/route/[id]/review', params: { id: route.id } } as Href)} style={styles.routeSecondaryAction}><Text style={styles.routeSecondaryActionText}>Keisti eiliškumą</Text></Pressable> : null}
+                  {['draft', 'planned', 'in_progress'].includes(route.status) ? <Pressable onPress={() => editSequence(route)} style={styles.routeSecondaryAction}><Text style={styles.routeSecondaryActionText}>Keisti eiliškumą</Text></Pressable> : null}
                   {canAssign ? <Pressable onPress={() => selectRoute(route.id)} style={styles.routePrimaryAction}><Text style={styles.routePrimaryActionText}>Priskirti</Text><ChevronRightIcon size={18} color={colors.textInverse} /></Pressable> : null}
+                  {['loading', 'loaded', 'in_progress'].includes(route.status) ? <Pressable accessibilityLabel={`Užbaigti ${formatDate(route.date)} maršrutą`} disabled={busy} onPress={() => completeLocalRoute(route)} style={[styles.routeCompleteAction, busy && styles.disabled]} testID={`complete-local-route-${route.id}`}><CheckIcon size={17} color={colors.textInverse} /><Text style={styles.routeCompleteActionText}>Užbaigti</Text></Pressable> : null}
                   {['draft', 'planned'].includes(route.status) ? <Pressable accessibilityLabel={`Ištrinti ${formatDate(route.date)} maršrutą`} disabled={busy} onPress={() => deleteRoute(route)} style={[styles.routeDeleteAction, busy && styles.disabled]}><TrashIcon size={17} color={colors.danger} /><Text style={styles.routeDeleteActionText}>Ištrinti</Text></Pressable> : null}
                 </View>
               </View>;
@@ -420,15 +503,21 @@ export default function RouteManagementScreen() {
           <View style={styles.activeAssignmentList}>
             {activeAssignments.map((assignment) => {
               const localRoute = routes.find((route) => route.id === assignment.routeId);
-              return <View key={assignment.id} style={styles.activeAssignmentRow}>
+              const status = effectiveAssignmentStatus(assignment);
+              return <View key={assignment.id} style={styles.activeAssignmentCard}>
+                <View style={[styles.assignmentStatusBar, statusBarStyle(status, colors)]} />
                 <View style={styles.assignmentContent}>
-                  <Text style={styles.activeAssignmentTitle}>{assignmentRouteLabel(assignment)}</Text>
+                  <View style={styles.assignmentTitleRow}>
+                    <Text style={styles.activeAssignmentTitle}>{assignmentRouteLabel(assignment)}</Text>
+                    <StatusBadge status={status} styles={styles} />
+                  </View>
                   <Text style={styles.assignmentMeta}>{assignment.driverName}{assignment.vehicle ? ` · ${assignment.vehicle.registrationNumber} · ${assignment.vehicle.model}` : ' · automobilis nepriskirtas'}</Text>
-                  <Text style={styles.routeEndpoint}>{statusLabel(effectiveAssignmentStatus(assignment))}{localRoute ? ' · maršrutas yra šiame įrenginyje' : ' · vietinio maršruto šiame įrenginyje nėra'}</Text>
+                  <Text style={styles.routeEndpoint}>{localRoute ? 'Maršrutas yra šiame įrenginyje' : 'Vietinio maršruto šiame įrenginyje nėra'}</Text>
                 </View>
                 <View style={styles.activeAssignmentActions}>
+                  <Pressable disabled={busy || !online} onPress={() => completeAssignment(assignment)} style={[styles.routeCompleteAction, (busy || !online) && styles.disabled]} testID={`complete-assignment-${assignment.id}`}><CheckIcon size={17} color={colors.textInverse} /><Text style={styles.routeCompleteActionText}>Užbaigti</Text></Pressable>
                   {localRoute ? <Pressable onPress={() => router.push({ pathname: '/route/[id]/overview', params: { id: localRoute.id, mode: 'management' } } as Href)} style={styles.routeSecondaryAction}><Text style={styles.routeSecondaryActionText}>Peržiūrėti</Text></Pressable> : null}
-                  <Pressable disabled={busy || !online} onPress={() => openAssignmentEditor(assignment)} style={[styles.routeSecondaryAction, (busy || !online) && styles.disabled]} testID={`edit-assignment-${assignment.id}`}><Text style={styles.routeSecondaryActionText}>Redaguoti</Text></Pressable>
+                  <Pressable disabled={busy || !online} onPress={() => openAssignmentEditor(assignment)} style={[styles.routeEditAction, (busy || !online) && styles.disabled]} testID={`edit-assignment-${assignment.id}`}><Text style={styles.routeEditActionText}>Redaguoti</Text></Pressable>
                   <Pressable accessibilityLabel={`Pašalinti ${assignmentRouteLabel(assignment)} priskyrimą`} disabled={busy || !online} onPress={() => removeAssignment(assignment)} style={[styles.routeDeleteAction, (busy || !online) && styles.disabled]}><TrashIcon size={17} color={colors.danger} /><Text style={styles.routeDeleteActionText}>Pašalinti priskyrimą</Text></Pressable>
                 </View>
               </View>;
@@ -603,8 +692,25 @@ function assignmentRouteLabel(assignment: ServerRouteAssignment): string {
 function formatKm(value: number | null): string { return value === null ? 'atstumas dar neskaičiuotas' : `${new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(value)} km`; }
 function endpointLabel(json: string | null): string { try { const value = JSON.parse(json ?? '{}') as { normalizedAddress?: string; originalAddress?: string }; return value.normalizedAddress ?? value.originalAddress ?? 'Nenurodyta'; } catch { return 'Nenurodyta'; } }
 function statusLabel(status: string): string { return ({ draft: 'Ruošiamas', planned: 'Paruoštas', assigned: 'Laukia vairuotojo', downloaded: 'Gautas įrenginyje', in_progress: 'Vykdomas', loading: 'Kraunamas', loaded: 'Pakrautas', completed: 'Baigtas' } as Record<string, string>)[status] ?? status; }
-function Metric({ label, value, styles }: { label: string; value: number; styles: ReturnType<typeof createStyles> }) { return <View style={styles.metric}><Text style={styles.metricValue}>{value}</Text><Text style={styles.metricLabel}>{label}</Text></View>; }
-function StatusBadge({ status, styles }: { status: string; styles: ReturnType<typeof createStyles> }) { return <Text style={styles.statusBadge}>{statusLabel(status)}</Text>; }
+function statusTone(status: string): 'info' | 'warning' | 'success' | 'neutral' {
+  if (status === 'completed') return 'success';
+  if (['in_progress', 'loading', 'loaded'].includes(status)) return 'warning';
+  if (['assigned', 'downloaded', 'planned'].includes(status)) return 'info';
+  return 'neutral';
+}
+function statusBarStyle(status: string, colors: ColorPalette) {
+  const tone = statusTone(status);
+  return {
+    backgroundColor: tone === 'warning' ? colors.warning : tone === 'success' ? colors.success : tone === 'info' ? colors.info : colors.borderStrong,
+  };
+}
+function Metric({ label, value, emphasized, styles }: { label: string; value: number; emphasized?: boolean; styles: ReturnType<typeof createStyles> }) {
+  return <View style={[styles.metric, emphasized && styles.metricEmphasized]}><Text style={[styles.metricValue, emphasized && styles.metricValueEmphasized]}>{value}</Text><Text style={[styles.metricLabel, emphasized && styles.metricLabelEmphasized]}>{label}</Text></View>;
+}
+function StatusBadge({ status, styles }: { status: string; styles: ReturnType<typeof createStyles> }) {
+  const tone = statusTone(status);
+  return <Text style={[styles.statusBadge, tone === 'warning' && styles.statusBadgeWarning, tone === 'info' && styles.statusBadgeInfo, tone === 'neutral' && styles.statusBadgeNeutral]}>{statusLabel(status)}</Text>;
+}
 function Summary({ label, value, styles }: { label: string; value: string; styles: ReturnType<typeof createStyles> }) { return <View style={styles.summary}><Text style={styles.summaryLabel}>{label}</Text><Text style={styles.summaryValue}>{value}</Text></View>; }
 function PreliminaryPriceCard({ price, styles }: { price: PreliminaryRoutePrice; styles: ReturnType<typeof createStyles> }) {
   return <View style={styles.priceCard} testID="preliminary-route-price">
@@ -638,9 +744,12 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   secondaryButton: { minHeight: 48, paddingHorizontal: spacing.lg, borderRadius: radius.md, justifyContent: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderStrong },
   secondaryText: { ...type.button, color: colors.textSecondary },
   metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  metric: { minWidth: 150, flexGrow: 1, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm },
-  metricValue: { ...type.sectionTitle, color: colors.info },
+  metric: { minWidth: 150, flexGrow: 1, paddingHorizontal: spacing.md, paddingVertical: spacing.md, borderRadius: radius.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderStrong, flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm },
+  metricEmphasized: { backgroundColor: colors.infoSoft, borderColor: colors.info },
+  metricValue: { ...type.sectionTitle, color: colors.text },
+  metricValueEmphasized: { color: colors.info },
   metricLabel: { ...type.secondary, color: colors.textMuted },
+  metricLabelEmphasized: { color: colors.info, fontFamily: type.secondaryStrong.fontFamily },
   message: { ...type.bodyStrong, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.infoSoft, color: colors.info },
   warning: { ...type.bodyStrong, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.warningSoft, color: colors.warning },
   assignmentSuccess: { padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.success, backgroundColor: colors.accentSoft, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.md },
@@ -652,11 +761,14 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   workspace: { gap: 16 },
   workspaceDesktop: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start' },
   assignmentForm: { padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, gap: spacing.lg },
-  routeSelectionPanel: { padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, gap: spacing.lg },
-  activeAssignmentsPanel: { padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, gap: spacing.md },
-  activeAssignmentList: { gap: 0 },
+  routeSelectionPanel: { padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderStrong, gap: spacing.lg },
+  activeAssignmentsPanel: { padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderStrong, gap: spacing.md },
+  activeAssignmentList: { gap: spacing.sm },
   activeAssignmentRow: { minHeight: 86, paddingVertical: spacing.md, borderTopWidth: 1, borderTopColor: colors.borderSubtle, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.md },
-  activeAssignmentTitle: { ...type.cardTitle, color: colors.text },
+  activeAssignmentCard: { overflow: 'hidden', padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surfaceSubtle, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.md },
+  assignmentStatusBar: { width: 4, alignSelf: 'stretch', minHeight: 48, borderRadius: radius.sm },
+  assignmentTitleRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
+  activeAssignmentTitle: { ...type.cardTitle, color: colors.text, flexShrink: 1 },
   activeAssignmentActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
   routeChoiceGrid: { gap: spacing.md },
   routeChoiceGridDesktop: { flexDirection: 'row', flexWrap: 'wrap' },
@@ -665,8 +777,12 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   routeCode: { ...type.sectionTitle, color: colors.text },
   newRouteBadge: { ...type.meta, paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.pill, overflow: 'hidden', backgroundColor: colors.infoSoft, color: colors.info },
   routeCardActions: { marginTop: 'auto', paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.borderSubtle, flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  routeSecondaryAction: { minHeight: 44, flexGrow: 1, paddingHorizontal: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
-  routeSecondaryActionText: { ...type.button, color: colors.textSecondary },
+  routeSecondaryAction: { minHeight: 44, flexGrow: 1, paddingHorizontal: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+  routeSecondaryActionText: { ...type.button, color: colors.text },
+  routeEditAction: { minHeight: 44, flexGrow: 1, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.infoSoft, borderWidth: 1, borderColor: colors.info, alignItems: 'center', justifyContent: 'center' },
+  routeEditActionText: { ...type.button, color: colors.info },
+  routeCompleteAction: { minHeight: 44, flexGrow: 1, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.success, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs },
+  routeCompleteActionText: { ...type.button, color: colors.textInverse },
   routePrimaryAction: { minHeight: 44, flexGrow: 1, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.actionPrimary, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs },
   routePrimaryActionText: { ...type.button, color: colors.textInverse },
   routeDeleteAction: { minHeight: 44, paddingHorizontal: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.danger, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs },
@@ -720,6 +836,9 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   routeCardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
   routeDate: { ...type.cardTitle, color: colors.text, fontSize: 16 },
   statusBadge: { ...type.meta, paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.pill, overflow: 'hidden', backgroundColor: colors.accentSoft, color: colors.success },
+  statusBadgeInfo: { backgroundColor: colors.infoSoft, color: colors.info },
+  statusBadgeWarning: { backgroundColor: colors.warningSoft, color: colors.warning },
+  statusBadgeNeutral: { backgroundColor: colors.surfaceMuted, color: colors.textSecondary },
   routeNumbers: { ...type.bodyStrong, color: colors.textSecondary },
   assignmentMeta: { ...type.bodyStrong, color: colors.info },
   routeEndpoint: { ...type.secondary, color: colors.textMuted },

@@ -113,7 +113,7 @@ export function RouteMapView({
             const point = project(stop);
             return (
               <Marker
-                key={stop.id}
+                key={`${index}-${stop.id}`}
                 x={point.x}
                 y={point.y}
                 color="#2563EB"

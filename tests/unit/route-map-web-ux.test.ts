@@ -17,9 +17,8 @@ describe('web route map page scrolling', () => {
     expect(source).toContain('event.ctrlKey || event.metaKey');
   });
 
-  it('reduces only the desktop map height by roughly one centimetre', () => {
-    expect(source).toContain('width >= 1024 ? 500');
-    expect(source).toContain('width >= 720 ? 390 : 330');
-    expect(source).toContain('minHeight: 330');
+  it('remounts numbered pins when stop order changes', () => {
+    expect(source).toContain('key={`${index}-${stop.id}`}');
+    expect(source).toContain('key={orderedStops.map((stop) => stop.id).join(\'|\')}');
   });
 });
