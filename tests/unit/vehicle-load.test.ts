@@ -5,7 +5,7 @@ import { describeVehicleLoad } from '../../src/ui/vehicle-load';
 
 describe('vehicle load percent', () => {
   it('is route weight divided by the vehicle payload norm', () => {
-    expect(vehicleLoadPercent(1000, 1500)).toBeCloseTo(66.666, 3);
+    expect(vehicleLoadPercent(1000, 1500)).toBe(1000 / 1500 * 100);
     const load = describeVehicleLoad(1000, 1500);
     expect(load?.percentLabel).toBe('67%');
     expect(load?.overCapacity).toBe(false);
