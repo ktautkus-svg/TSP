@@ -22,6 +22,7 @@ import {
 } from '@/application/auth/employee-permissions';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { Alert } from '@/ui/alert';
+import { describeVehicleLoad } from '@/ui/vehicle-load';
 import {
   employeeApi,
   loginEmployee,
@@ -36,7 +37,7 @@ import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 
 type Counts = { routes: number; activeRoutes: number; completedRoutes: number; stops: number };
-type RouteChoice = { id: string; date: string; status: string; total_stops: number };
+type RouteChoice = { id: string; date: string; status: string; total_stops: number; total_weight_kg: number };
 
 export default function AdminScreen() {
   const router = useRouter();
@@ -113,7 +114,7 @@ export default function AdminScreen() {
       db.getFirstAsync<{ count: number }>("SELECT COUNT(*) AS count FROM routes WHERE status NOT IN ('completed','cancelled')"),
       db.getFirstAsync<{ count: number }>("SELECT COUNT(*) AS count FROM routes WHERE status = 'completed'"),
       db.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM delivery_stops'),
-      db.getAllAsync<RouteChoice>("SELECT id, date, status, total_stops FROM routes WHERE status NOT IN ('completed','cancelled') ORDER BY created_at DESC"),
+      db.getAllAsync<RouteChoice>("SELECT id, date, status, total_stops, total_weight_kg FROM routes WHERE status NOT IN ('completed','cancelled') ORDER BY created_at DESC"),
     ]);
     setCounts({
       routes: routeCount?.count ?? 0,
@@ -426,6 +427,9 @@ export default function AdminScreen() {
   const selectedAssignmentDriver = users.find((employee) => employee.id === selectedDriverId) ?? null;
   const selectedAssignmentVehicle = vehicles.find((vehicle) => vehicle.id === selectedAssignmentVehicleId) ?? null;
   const selectedAssignmentRoute = routes.find((route) => route.id === selectedRouteId) ?? null;
+  const assignmentLoad = selectedAssignmentRoute && selectedAssignmentVehicle
+    ? describeVehicleLoad(selectedAssignmentRoute.total_weight_kg, selectedAssignmentVehicle.maximumPayloadKg)
+    : null;
 
   return (
     <>
@@ -499,19 +503,25 @@ export default function AdminScreen() {
               </Pressable>)}</View> : null}
             <Text style={styles.sectionLabel}>2. Automobilis</Text>
             <Pressable onPress={() => setAssignmentPicker((current) => current === 'vehicle' ? null : 'vehicle')} style={styles.pickerSummary}>
-              <View style={styles.listContent}><Text style={styles.listTitle}>{selectedAssignmentVehicle ? `${selectedAssignmentVehicle.registrationNumber} · ${selectedAssignmentVehicle.model}` : 'Pasirinkti automobilį'}</Text>{selectedAssignmentVehicle ? <Text style={styles.meta}>iki {selectedAssignmentVehicle.maximumPayloadKg} kg</Text> : null}</View><Text style={styles.pickerChevron}>{assignmentPicker === 'vehicle' ? '−' : '+'}</Text>
+              <View style={styles.listContent}><Text style={styles.listTitle}>{selectedAssignmentVehicle ? `${selectedAssignmentVehicle.registrationNumber} · ${selectedAssignmentVehicle.model}` : 'Pasirinkti automobilį'}</Text>{selectedAssignmentVehicle ? <Text style={[styles.meta, assignmentLoad?.overCapacity && styles.loadWarning]}>{assignmentLoad ? assignmentLoad.summaryLabel : `iki ${selectedAssignmentVehicle.maximumPayloadKg} kg`}</Text> : null}</View><Text style={styles.pickerChevron}>{assignmentPicker === 'vehicle' ? '−' : '+'}</Text>
             </Pressable>
-            {assignmentPicker === 'vehicle' ? <View style={styles.choiceColumn}>{vehicles.map((vehicle) =>
+            {assignmentPicker === 'vehicle' ? <View style={styles.choiceColumn}>{vehicles.map((vehicle) => {
+              const load = selectedAssignmentRoute
+                ? describeVehicleLoad(selectedAssignmentRoute.total_weight_kg, vehicle.maximumPayloadKg)
+                : null;
+              return (
               <Pressable key={vehicle.id} onPress={() => { setSelectedAssignmentVehicleId(vehicle.id); setAssignmentPicker(null); }} style={[styles.selection, selectedAssignmentVehicleId === vehicle.id && styles.selectionActive]}>
-                <Text style={styles.listTitle}>{vehicle.registrationNumber} · {vehicle.model}</Text><Text style={styles.meta}>iki {vehicle.maximumPayloadKg} kg</Text>
-              </Pressable>)}</View> : null}
+                <Text style={styles.listTitle}>{vehicle.registrationNumber} · {vehicle.model}</Text><Text style={[styles.meta, load?.overCapacity && styles.loadWarning]}>{load ? `iki ${vehicle.maximumPayloadKg} kg · apkrova ${load.percentLabel}` : `iki ${vehicle.maximumPayloadKg} kg`}</Text>
+              </Pressable>
+              );
+            })}</View> : null}
             <Text style={styles.sectionLabel}>3. Maršrutas šiame įrenginyje</Text>
             <Pressable onPress={() => setAssignmentPicker((current) => current === 'route' ? null : 'route')} style={styles.pickerSummary}>
-              <View style={styles.listContent}><Text style={styles.listTitle}>{selectedAssignmentRoute ? `${selectedAssignmentRoute.date} · ${selectedAssignmentRoute.total_stops} tašk.` : 'Pasirinkti maršrutą'}</Text></View><Text style={styles.pickerChevron}>{assignmentPicker === 'route' ? '−' : '+'}</Text>
+              <View style={styles.listContent}><Text style={styles.listTitle}>{selectedAssignmentRoute ? `${selectedAssignmentRoute.date} · ${selectedAssignmentRoute.total_stops} tašk.` : 'Pasirinkti maršrutą'}</Text>{selectedAssignmentRoute ? <Text style={styles.meta}>{Math.round(selectedAssignmentRoute.total_weight_kg)} kg{assignmentLoad ? ` · ${assignmentLoad.percentLabel}` : ''}</Text> : null}</View><Text style={styles.pickerChevron}>{assignmentPicker === 'route' ? '−' : '+'}</Text>
             </Pressable>
             {assignmentPicker === 'route' ? <View style={styles.choiceColumn}>{routes.filter((route) => route.status === 'planned').map((route) =>
               <Pressable key={route.id} onPress={() => { setSelectedRouteId(route.id); setAssignmentPicker(null); }} style={[styles.selection, selectedRouteId === route.id && styles.selectionActive]}>
-                <Text style={styles.listTitle}>{route.date} · {route.total_stops} tašk.</Text><Text style={styles.meta}>{route.status}</Text>
+                <Text style={styles.listTitle}>{route.date} · {route.total_stops} tašk.</Text><Text style={styles.meta}>{Math.round(route.total_weight_kg)} kg · {route.status}</Text>
               </Pressable>)}</View> : null}
             <Pressable disabled={busy || !online} style={[styles.primaryButton, (busy || !online) && styles.disabled]} onPress={() => void assignRoute()}>
               <Text style={styles.primaryText}>Priskirti maršrutą</Text>
@@ -520,7 +530,7 @@ export default function AdminScreen() {
               <View key={assignment.id} style={styles.routeManagementRow}>
                 <View style={styles.listContent}>
                   <Text style={styles.listTitle}>{assignment.driverName}</Text>
-                  <Text style={styles.meta}>{String(assignment.routeSnapshot.route.date ?? '')} · {assignment.status}</Text>
+                  <Text style={styles.meta}>{String(assignment.routeSnapshot.route.date ?? '')} · {assignment.status}{assignment.vehicle ? assignmentLoadSuffix(Number(assignment.routeSnapshot.route.total_weight_kg) || 0, assignment.vehicle.maximumPayloadKg) : ''}</Text>
                 </View>
                 <View style={styles.rowActions}>
                   <Pressable disabled={busy || !online} onPress={() => void completeServerAssignment(assignment)} style={styles.completeButton} testID={`admin-complete-assignment-${assignment.id}`}><Text style={styles.completeButtonText}>Užbaigti</Text></Pressable>
@@ -775,6 +785,11 @@ function parseDecimalInput(value: string): number {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
 }
 
+function assignmentLoadSuffix(weightKg: number, payloadKg: number): string {
+  const load = describeVehicleLoad(weightKg, payloadKg);
+  return load ? ` · ${load.summaryLabel}` : '';
+}
+
 /** Empty clears the norm, so the vehicle goes back to the payload-based estimate. */
 function parseFuelNorm(value: string): number | null {
   const trimmed = value.trim();
@@ -827,6 +842,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   sectionChevron: { ...type.pageTitle, color: colors.info, fontSize: 26, lineHeight: 30 },
   username: { ...type.sectionTitle, color: colors.info },
   meta: { ...type.secondary, color: colors.textMuted },
+  loadWarning: { color: colors.warning },
   metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   metric: { minWidth: 150, flexBasis: 150, flexGrow: 1, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.infoSoft, alignItems: 'center' },
   metricValue: { ...type.readout, color: colors.info },
