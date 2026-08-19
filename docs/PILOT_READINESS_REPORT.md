@@ -1,5 +1,8 @@
 # Pilot Readiness Report – Stage 2.1
 
+> Istorinė piloto ataskaita. Dabartinę schemos, testų ir projekto medžio būseną žr.
+> [CURRENT_STATUS.md](CURRENT_STATUS.md).
+
 Data: 2026-08-03  
 Sprendimas: **READY FOR SUPERVISED PILOT**
 

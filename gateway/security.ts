@@ -1,7 +1,7 @@
 import {
-  createHash,
-  createHmac,
-  timingSafeEqual,
+    createHash,
+    createHmac,
+    timingSafeEqual,
 } from 'node:crypto';
 import { GatewayError } from './errors';
 
@@ -51,21 +51,6 @@ export function verifyGatewaySignature(input: {
   const expected = input.timestamp
     ? signGatewayBody(input.secret, input.timestamp, input.rawBody, input.nonce)
     : undefined;
-  process.stdout.write(
-    `${JSON.stringify({
-      event: 'gateway_signature_check',
-      receivedSignature: input.signature ?? null,
-      expectedSignature: expected ?? null,
-      secretLength: input.secret.length,
-      timestamp: input.timestamp ?? null,
-      nowMs,
-      skewMs: Number.isFinite(requestMs) ? Math.abs(nowMs - requestMs) : null,
-      nonce: input.nonce ?? null,
-      rawBodyLength: input.rawBody.length,
-      rawBodySha256: createHash('sha256').update(input.rawBody, 'utf8').digest('hex'),
-      signaturesMatch: input.signature && expected ? input.signature === expected : false,
-    })}\n`,
-  );
   if (!input.timestamp || !input.signature) authFailed();
   if (
     !Number.isFinite(requestMs) ||

@@ -1,35 +1,36 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AccessibilityInfo,
-  Animated,
-  Easing,
-  type ImageSourcePropType,
-  StyleSheet,
-  Text,
-  View,
+    AccessibilityInfo,
+    Animated,
+    Easing,
+    type ImageSourcePropType,
+    StyleSheet,
+    Text,
+    View,
 } from 'react-native';
-import Svg, { Defs, LinearGradient, Path, Stop } from 'react-native-svg';
+import Svg, { Circle, Defs, G, Line, LinearGradient, Path, Stop } from 'react-native-svg';
 
 import type { RouteWeatherScene } from '@/application/weather/route-weather';
-import { fonts } from '@/ui/tokens';
 import { cockpitColorsFor } from '@/theme';
 import { useTheme } from '@/ui/theme';
-
-const scenes = {
-  sunrise: require('../../assets/images/route-scenes/windshield-sunrise.jpg'),
-  dayClear: require('../../assets/images/route-scenes/windshield-day-clear.jpg'),
-  dayOvercast: require('../../assets/images/route-scenes/windshield-day-overcast.jpg'),
-  sunset: require('../../assets/images/route-scenes/windshield-sunset.jpg'),
-  rain: require('../../assets/images/route-scenes/windshield-rain.jpg'),
-  nightHighway: require('../../assets/images/route-scenes/windshield-night-highway.jpg'),
-  nightTown: require('../../assets/images/route-scenes/windshield-night-town.jpg'),
-  snow: require('../../assets/images/route-scenes/snow.png'),
-  fog: require('../../assets/images/route-scenes/fog.png'),
-  storm: require('../../assets/images/route-scenes/storm.png'),
-} satisfies Record<string, ImageSourcePropType>;
+import { fonts } from '@/ui/tokens';
 
 type CockpitPalette = ReturnType<typeof cockpitColorsFor>;
 const ARC_LENGTH = 470;
+
+const sceneAssets = {
+  sunrise: require('../../assets/images/route-scenes/stitch-windshield-01.png'),
+  dayClear: require('../../assets/images/route-scenes/stitch-windshield-02.png'),
+  dayOvercast: require('../../assets/images/route-scenes/stitch-windshield-03.png'),
+  sunset: require('../../assets/images/route-scenes/stitch-windshield-04.png'),
+  rain: require('../../assets/images/route-scenes/stitch-windshield-05.png'),
+  fog: require('../../assets/images/route-scenes/stitch-windshield-06.png'),
+  storm: require('../../assets/images/route-scenes/stitch-windshield-07.png'),
+  nightTown: require('../../assets/images/route-scenes/stitch-windshield-08.png'),
+  nightHighway: require('../../assets/images/route-scenes/stitch-windshield-09.png'),
+  snow: require('../../assets/images/route-scenes/stitch-windshield-10.png'),
+  nightCity: require('../../assets/images/route-scenes/stitch-windshield-11.png'),
+} satisfies Record<string, ImageSourcePropType>;
 
 export interface RoadProgressBarProps {
   readonly fraction: number;
@@ -122,16 +123,21 @@ export function RoadProgressBar({
       testID="route-road-progress">
       <View style={styles.windshieldArea}>
         <View style={styles.windshieldShell} testID="route-front-windshield">
-          <Animated.Image
-            accessibilityLabel={roadSceneLabel(displayedSceneKey)}
-            resizeMode="cover"
-            source={scenes[displayedSceneKey]}
-            style={[styles.roadImage, { opacity: sceneOpacity }]}
-          />
+          <Animated.View style={[styles.sceneLayer, { opacity: sceneOpacity }]}>
+            <Animated.Image
+              accessibilityLabel={roadSceneLabel(displayedSceneKey)}
+              resizeMode="cover"
+              source={sceneAssets[displayedSceneKey]}
+              style={styles.sceneImage}
+            />
+          </Animated.View>
           <View pointerEvents="none" style={styles.windshieldTopShade} />
           <View pointerEvents="none" style={styles.windshieldPillarLeft} />
           <View pointerEvents="none" style={styles.windshieldPillarRight} />
-          <Svg pointerEvents="none" preserveAspectRatio="none" style={styles.cockpitCowl} viewBox="0 0 430 96">
+          <View pointerEvents="none" style={styles.sceneBadge}>
+            <Text style={styles.sceneBadgeText}>{sceneLabel(weatherScene, displayedSceneKey)}</Text>
+          </View>
+          <Svg pointerEvents="none" style={styles.cockpitCowl} viewBox="0 0 430 132">
             <Defs>
               <LinearGradient id="dashboardSurface" x1="0" y1="0" x2="0" y2="1">
                 <Stop offset="0" stopColor={cockpit.metalMid} />
@@ -145,24 +151,42 @@ export function RoadProgressBar({
               </LinearGradient>
             </Defs>
             <Path
-              d="M 0 70 Q 215 8 430 70 L 430 96 L 0 96 Z"
+              d="M 0 96 Q 215 30 430 96 L 430 132 L 0 132 Z"
               fill="url(#dashboardSurface)"
             />
             <Path
-              d="M 18 69 Q 215 16 412 69"
+              d="M 18 94 Q 215 36 412 94"
               fill="none"
               stroke={cockpit.metalLight}
               strokeLinecap="round"
-              strokeWidth={10}
+              strokeWidth={6}
             />
             <Path
-              d="M 18 69 Q 215 16 412 69"
+              d="M 18 94 Q 215 36 412 94"
               fill="none"
               stroke="url(#steeringProgress)"
               strokeDasharray={`${Math.max(1, displayedProgress * ARC_LENGTH)} ${ARC_LENGTH}`}
               strokeLinecap="round"
-              strokeWidth={7}
+              strokeWidth={4}
             />
+            <G transform="translate(215 98)">
+              <Circle fill="none" r={48} stroke={cockpit.primaryDark} strokeOpacity={0.75} strokeWidth={13} />
+              <Circle
+                fill="none"
+                r={48}
+                stroke="url(#steeringProgress)"
+                strokeDasharray={`${Math.max(1, displayedProgress * 301.6)} 301.6`}
+                strokeLinecap="round"
+                strokeWidth={7}
+                transform="rotate(-90)"
+              />
+              <Circle fill="none" r={35} stroke={cockpit.metalLight} strokeOpacity={0.45} strokeWidth={2} />
+              <Line stroke={cockpit.metalLight} strokeLinecap="round" strokeWidth={7} x1="0" x2="0" y1="0" y2="-31" />
+              <Line stroke={cockpit.metalLight} strokeLinecap="round" strokeWidth={7} x1="0" x2="-28" y1="3" y2="21" />
+              <Line stroke={cockpit.metalLight} strokeLinecap="round" strokeWidth={7} x1="0" x2="28" y1="3" y2="21" />
+              <Circle cx="0" cy="0" fill={cockpit.primary} r={10} stroke={cockpit.white} strokeOpacity={0.8} strokeWidth={2} />
+              <Path d="M -4 -3 L 0 -7 L 4 -3 L 2 4 L -2 4 Z" fill={cockpit.white} opacity={0.85} />
+            </G>
           </Svg>
           <View pointerEvents="none" style={styles.progressReadout}>
             <Text style={styles.percent}>{Math.round(clamped * 100)}%</Text>
@@ -181,12 +205,25 @@ export function RoadProgressBar({
   );
 }
 
+function sceneLabel(scene: RouteWeatherScene | null | undefined, key: RoadSceneKey): string {
+  if (scene) return `${weatherLabel(scene.condition)} · ${timeLabel(scene.timeOfDay)}`;
+  return roadSceneLabel(key);
+}
+
+function weatherLabel(condition: RouteWeatherScene['condition'] | undefined): string {
+  return ({ clear: 'GIEDRA', cloudy: 'DEBESUOTA', fog: 'RŪKAS', rain: 'LIETUS', snow: 'SNIEGAS', storm: 'AUDRA' } as const)[condition ?? 'clear'];
+}
+
+function timeLabel(timeOfDay: RouteWeatherScene['timeOfDay'] | undefined): string {
+  return ({ dawn: 'AUŠRA', day: 'DIENA', dusk: 'SAULĖLYDIS', night: 'NAKTIS' } as const)[timeOfDay ?? 'day'];
+}
+
 function percent(value: number): string {
   const fraction = Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
   return `${Math.round(fraction * 100)}%`;
 }
 
-type RoadSceneKey = keyof typeof scenes;
+type RoadSceneKey = keyof typeof sceneAssets;
 
 function roadSceneKeys(scene: RouteWeatherScene | null | undefined, now: Date): readonly RoadSceneKey[] {
   if (scene?.condition === 'rain') return ['rain', 'dayOvercast'];
@@ -197,8 +234,8 @@ function roadSceneKeys(scene: RouteWeatherScene | null | undefined, now: Date): 
   if (hour >= 5 && hour < 9) return ['sunrise', 'dayOvercast', 'dayClear'];
   if (hour >= 9 && hour < 15) return ['dayClear', 'dayOvercast'];
   if (hour >= 15 && hour < 18) return ['dayClear', 'dayOvercast', 'sunset'];
-  if (hour >= 18 && hour < 21) return ['sunset', 'nightTown'];
-  return ['nightHighway', 'nightTown'];
+  if (hour >= 18 && hour < 21) return ['sunset', 'nightTown', 'nightCity'];
+  return ['nightHighway', 'nightTown', 'nightCity'];
 }
 
 function roadSceneLabel(scene: RoadSceneKey): string {
@@ -210,6 +247,7 @@ function roadSceneLabel(scene: RoadSceneKey): string {
     rain: 'Kelias lyjant',
     nightHighway: 'Greitkelis naktį',
     nightTown: 'Kelias per miestelį naktį',
+    nightCity: 'Miestas naktį',
     snow: 'Kelias sningant',
     fog: 'Kelias rūke',
     storm: 'Kelias audros metu',
@@ -232,47 +270,48 @@ const createStyles = (cockpit: CockpitPalette) => StyleSheet.create({
   },
   windshieldShell: {
     width: '100%',
-    maxWidth: 520,
-    aspectRatio: 1.95,
+    maxWidth: 720,
+    aspectRatio: 1.65,
     position: 'relative',
     overflow: 'hidden',
     borderTopLeftRadius: 12,
     borderTopRightRadius: 12,
     backgroundColor: cockpit.metalDark,
   },
-  roadImage: {
+  sceneLayer: {
     position: 'absolute',
-    top: 12,
-    right: 18,
-    bottom: 4,
-    left: 18,
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
     width: undefined,
     height: undefined,
   },
+  sceneImage: { width: '100%', height: '100%' },
   windshieldTopShade: {
     position: 'absolute',
     top: 0,
     right: 0,
     left: 0,
-    height: 16,
-    backgroundColor: cockpit.metalDark,
+    height: 8,
+    backgroundColor: 'rgba(8, 13, 18, 0.38)',
   },
   windshieldPillarLeft: {
     position: 'absolute',
-    top: 4,
-    bottom: 14,
-    left: -12,
-    width: 38,
-    backgroundColor: cockpit.metalDark,
+    top: 0,
+    bottom: 30,
+    left: -18,
+    width: 24,
+    backgroundColor: 'rgba(8, 13, 18, 0.78)',
     transform: [{ rotate: '-5deg' }],
   },
   windshieldPillarRight: {
     position: 'absolute',
-    top: 4,
-    right: -12,
-    bottom: 14,
-    width: 38,
-    backgroundColor: cockpit.metalDark,
+    top: 0,
+    right: -18,
+    bottom: 30,
+    width: 24,
+    backgroundColor: 'rgba(8, 13, 18, 0.78)',
     transform: [{ rotate: '5deg' }],
   },
   cockpitCowl: {
@@ -281,8 +320,10 @@ const createStyles = (cockpit: CockpitPalette) => StyleSheet.create({
     bottom: 0,
     left: 0,
     width: '100%',
-    height: 96,
+    height: 132,
   },
+  sceneBadge: { position: 'absolute', top: 14, left: 18, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 8, backgroundColor: 'rgba(8, 13, 18, 0.62)' },
+  sceneBadgeText: { color: cockpit.white, fontFamily: fonts.headingSemiBold, fontSize: 9, letterSpacing: 0.7 },
   progressReadout: {
     position: 'absolute',
     right: 44,
@@ -319,3 +360,4 @@ const createStyles = (cockpit: CockpitPalette) => StyleSheet.create({
     letterSpacing: 0.15,
   },
 });
+

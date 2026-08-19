@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="lt">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Skaičiuotuvas</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #17211b;
+      --muted: #6d756f;
+      --surface: #ffffff;
+      --panel: #eef2ef;
+      --line: #d8e0da;
+      --accent: #147d5a;
+      --accent-dark: #0f6045;
+      --operator: #dcefe7;
+      --danger: #fff0ed;
+      --shadow: 0 20px 50px rgba(23, 33, 27, 0.14);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      min-height: 100vh;
+      margin: 0;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      color: var(--ink);
+      background: linear-gradient(135deg, #e7eee9, #f8faf8 55%, #dcebe3);
+      font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+    }
+
+    .calculator {
+      width: min(100%, 360px);
+      padding: 22px;
+      border: 1px solid rgba(255, 255, 255, 0.8);
+      border-radius: 24px;
+      background: rgba(255, 255, 255, 0.86);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+    }
+
+    .heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin: 0 2px 16px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 1.2rem;
+      letter-spacing: 0;
+    }
+
+    .heading span {
+      color: var(--muted);
+      font-size: 0.78rem;
+    }
+
+    .display {
+      min-height: 112px;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      align-items: flex-end;
+      gap: 8px;
+      overflow: hidden;
+      margin-bottom: 16px;
+      padding: 18px;
+      border-radius: 16px;
+      background: var(--panel);
+      text-align: right;
+    }
+
+    .previous {
+      min-height: 18px;
+      max-width: 100%;
+      overflow: hidden;
+      color: var(--muted);
+      font-size: 0.85rem;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .current {
+      max-width: 100%;
+      overflow: hidden;
+      font-size: clamp(2rem, 10vw, 2.8rem);
+      font-weight: 700;
+      line-height: 1;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .keys {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+    }
+
+    button {
+      min-height: 56px;
+      border: 1px solid transparent;
+      border-radius: 14px;
+      color: var(--ink);
+      background: var(--surface);
+      box-shadow: 0 2px 0 rgba(23, 33, 27, 0.05);
+      cursor: pointer;
+      font: inherit;
+      font-size: 1.1rem;
+      font-weight: 600;
+      transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
+    }
+
+    button:hover {
+      background: #f4f7f4;
+      box-shadow: 0 4px 10px rgba(23, 33, 27, 0.09);
+    }
+
+    button:active {
+      transform: translateY(2px);
+      box-shadow: none;
+    }
+
+    button:focus-visible {
+      outline: 3px solid rgba(20, 125, 90, 0.35);
+      outline-offset: 2px;
+    }
+
+    .utility {
+      color: var(--accent-dark);
+      background: var(--operator);
+    }
+
+    .clear {
+      color: #a33e2f;
+      background: var(--danger);
+    }
+
+    .operator {
+      color: var(--accent-dark);
+      background: var(--operator);
+      font-size: 1.35rem;
+    }
+
+    .equals {
+      color: #fff;
+      background: var(--accent);
+    }
+
+    .equals:hover {
+      background: var(--accent-dark);
+    }
+
+    .zero {
+      grid-column: span 2;
+    }
+
+    @media (max-width: 380px) {
+      body {
+        padding: 12px;
+      }
+
+      .calculator {
+        padding: 16px;
+      }
+
+      button {
+        min-height: 52px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="calculator" aria-label="Skaičiuotuvas">
+    <div class="heading">
+      <h1>Skaičiuotuvas</h1>
+      <span>Greitas skaičiavimas</span>
+    </div>
+
+    <section class="display" aria-live="polite" aria-atomic="true">
+      <div class="previous" id="previous"></div>
+      <div class="current" id="current">0</div>
+    </section>
+
+    <section class="keys" aria-label="Skaičiuotuvo mygtukai">
+      <button class="clear" data-action="clear" type="button">AC</button>
+      <button class="utility" data-action="backspace" type="button" aria-label="Ištrinti paskutinį simbolį">&#9003;</button>
+      <button class="utility" data-action="percent" type="button">%</button>
+      <button class="operator" data-operation="divide" type="button" aria-label="Dalyba">&#247;</button>
+
+      <button data-number="7" type="button">7</button>
+      <button data-number="8" type="button">8</button>
+      <button data-number="9" type="button">9</button>
+      <button class="operator" data-operation="multiply" type="button" aria-label="Daugyba">&#215;</button>
+
+      <button data-number="4" type="button">4</button>
+      <button data-number="5" type="button">5</button>
+      <button data-number="6" type="button">6</button>
+      <button class="operator" data-operation="subtract" type="button" aria-label="Atimtis">&#8722;</button>
+
+      <button data-number="1" type="button">1</button>
+      <button data-number="2" type="button">2</button>
+      <button data-number="3" type="button">3</button>
+      <button class="operator" data-operation="add" type="button" aria-label="Sudėtis">+</button>
+
+      <button class="zero" data-number="0" type="button">0</button>
+      <button data-number="decimal" type="button">,</button>
+      <button class="equals" data-action="equals" type="button">=</button>
+    </section>
+  </main>
+
+  <script>
+    const currentDisplay = document.querySelector("#current");
+    const previousDisplay = document.querySelector("#previous");
+    let currentValue = "0";
+    let previousValue = "";
+    let operation = null;
+    let shouldReset = false;
+
+    const operationSymbols = {
+      add: "+",
+      subtract: "−",
+      multiply: "×",
+      divide: "÷"
+    };
+
+    function updateDisplay() {
+      currentDisplay.textContent = currentValue.replace(".", ",");
+      previousDisplay.textContent = previousValue && operation
+        ? `${previousValue.replace(".", ",")} ${operationSymbols[operation]}`
+        : "";
+    }
+
+    function inputNumber(number) {
+      if (shouldReset) {
+        currentValue = number;
+        shouldReset = false;
+      } else if (currentValue === "0") {
+        currentValue = number;
+      } else if (currentValue.length < 16) {
+        currentValue += number;
+      }
+      updateDisplay();
+    }
+
+    function inputDecimal() {
+      if (shouldReset) {
+        currentValue = "0.";
+        shouldReset = false;
+      } else if (!currentValue.includes(".")) {
+        currentValue += ".";
+      }
+      updateDisplay();
+    }
+
+    function chooseOperation(nextOperation) {
+      if (operation && !shouldReset) calculate();
+      previousValue = currentValue;
+      operation = nextOperation;
+      shouldReset = true;
+      updateDisplay();
+    }
+
+    function calculate() {
+      if (!operation || previousValue === "") return;
+
+      const first = Number(previousValue);
+      const second = Number(currentValue);
+      let result;
+
+      if (operation === "add") result = first + second;
+      if (operation === "subtract") result = first - second;
+      if (operation === "multiply") result = first * second;
+      if (operation === "divide") {
+        if (second === 0) {
+          currentValue = "Klaida";
+          previousValue = "Dalyba iš nulio";
+          operation = null;
+          shouldReset = true;
+          updateDisplay();
+          return;
+        }
+        result = first / second;
+      }
+
+      currentValue = String(Number(result.toPrecision(12)));
+      previousValue = "";
+      operation = null;
+      shouldReset = true;
+      updateDisplay();
+    }
+
+    function clearCalculator() {
+      currentValue = "0";
+      previousValue = "";
+      operation = null;
+      shouldReset = false;
+      updateDisplay();
+    }
+
+    function backspace() {
+      if (shouldReset || currentValue === "Klaida") return;
+      currentValue = currentValue.length > 1 ? currentValue.slice(0, -1) : "0";
+      if (currentValue === "-") currentValue = "0";
+      updateDisplay();
+    }
+
+    function percent() {
+      if (currentValue === "Klaida") return;
+      currentValue = String(Number(currentValue) / 100);
+      updateDisplay();
+    }
+
+    document.querySelectorAll("[data-number]").forEach((button) => {
+      button.addEventListener("click", () => {
+        if (button.dataset.number === "decimal") inputDecimal();
+        else inputNumber(button.dataset.number);
+      });
+    });
+
+    document.querySelectorAll("[data-operation]").forEach((button) => {
+      button.addEventListener("click", () => chooseOperation(button.dataset.operation));
+    });
+
+    document.querySelector('[data-action="equals"]').addEventListener("click", calculate);
+    document.querySelector('[data-action="clear"]').addEventListener("click", clearCalculator);
+    document.querySelector('[data-action="backspace"]').addEventListener("click", backspace);
+    document.querySelector('[data-action="percent"]').addEventListener("click", percent);
+
+    document.addEventListener("keydown", (event) => {
+      if (/^[0-9]$/.test(event.key)) inputNumber(event.key);
+      else if (event.key === "." || event.key === ",") inputDecimal();
+      else if (event.key === "+") chooseOperation("add");
+      else if (event.key === "-") chooseOperation("subtract");
+      else if (event.key === "*") chooseOperation("multiply");
+      else if (event.key === "/") {
+        event.preventDefault();
+        chooseOperation("divide");
+      } else if (event.key === "%") percent();
+      else if (event.key === "Enter" || event.key === "=") calculate();
+      else if (event.key === "Escape") clearCalculator();
+      else if (event.key === "Backspace") backspace();
+    });
+  </script>
+</body>
+</html>

@@ -24,7 +24,7 @@ describe('administrator workspace navigation', () => {
     expect(home).toContain('Vykdyti maršrutą');
     expect(home).toContain('Kelionės lapai');
     expect(home).toContain('TripSheetIcon');
-    expect(home).toContain("profile.role === 'admin'\n          ? []");
+    expect(home).toMatch(/profile\.role === ['"]admin['"]\s*\?\s*\[\]/);
   });
 
   it('opens focused employee and vehicle editors from visible settings shortcuts', () => {

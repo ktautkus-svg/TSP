@@ -51,23 +51,13 @@ describe('premium route dashboard', () => {
 
   it('composes the changing front-windshield scene and code-native steering progress arc', () => {
     const road = source('src/components/road-progress-bar.tsx');
-    expect(road).toContain('route-scenes/windshield-sunrise.jpg');
-    expect(road).toContain('route-scenes/windshield-day-clear.jpg');
-    expect(road).toContain('route-scenes/windshield-day-overcast.jpg');
-    expect(road).toContain('route-scenes/windshield-sunset.jpg');
-    expect(road).toContain('route-scenes/windshield-rain.jpg');
-    expect(road).toContain('route-scenes/windshield-night-highway.jpg');
-    expect(road).toContain('route-scenes/windshield-night-town.jpg');
-    expect(road).toContain('route-scenes/snow.png');
-    expect(road).toContain('route-scenes/fog.png');
-    expect(road).toContain('route-scenes/storm.png');
-    expect(road).toContain('resizeMode="cover"');
     expect(road).toContain('Math.round(clamped * 100)');
     expect(road).toContain('Animated.timing');
     expect(road).toContain('<Svg');
     expect(road).toContain('displayedProgress * ARC_LENGTH');
-    expect(road).toContain('<Animated.Image');
-    expect(road).not.toContain('<SvgImage');
+    expect(road).toContain('stitch-windshield-01.png');
+    expect(road).toContain('stitch-windshield-11.png');
+    expect(road).toContain('resizeMode="cover"');
     expect(road).not.toContain('PRISTATYMO EIGA');
     expect(road).toContain('stroke="url(#steeringProgress)"');
     expect(road).toContain('GERO POILSIO!');
@@ -77,16 +67,16 @@ describe('premium route dashboard', () => {
     expect(road).toContain('styles.windshieldPillarLeft');
     expect(road).toContain('styles.windshieldPillarRight');
     expect(road).toContain('styles.cockpitCowl');
-    expect(road).toContain('M 0 70 Q 215 8 430 70');
+    expect(road).toContain('M 0 96 Q 215 30 430 96');
+    expect(road).toContain('<G transform="translate(215 98)">');
     expect(road).toContain('styles.progressReadout');
     expect(road).not.toContain('styles.instrumentBridge');
     expect(road).toContain('28_000');
-    expect(road).toContain('Animated.Image');
     expect(road).toContain('setDisplayedSceneKey(selectedSceneKey)');
     expect(road).toContain("if (scene?.condition === 'storm') return ['storm', 'rain']");
     expect(road).not.toContain("scene?.condition === 'storm' || scene?.condition === 'cloudy'");
-    expect(road).toContain("if (hour >= 18 && hour < 21) return ['sunset', 'nightTown']");
-    expect(road).toContain("return ['nightHighway', 'nightTown']");
+    expect(road).toContain("if (hour >= 18 && hour < 21) return ['sunset', 'nightTown', 'nightCity']");
+    expect(road).toContain("return ['nightHighway', 'nightTown', 'nightCity']");
     expect(road).not.toContain('<WeatherOverlay');
     expect(road).not.toContain('<TimeOfDayOverlay');
     // Each state uses a forward windshield image; no decorative celestial objects.

@@ -44,6 +44,10 @@ npm run experiment:routing
 npm run benchmark:routing
 ```
 
+Aktuali projekto būsena, kanoninio kodo ribos ir paskutinės patikros aprašytos
+[`docs/CURRENT_STATUS.md`](docs/CURRENT_STATUS.md). Produkcinė aplikacija yra pagrindiniame
+`src/` medyje; `tsp-integration/` ir `tsp-premium-cockpit/` nėra pagrindinio build'o dalis.
+
 `validate:schema` naudoja Node integruotą SQLite ir reikalauja Node 22.5 arba
 naujesnės versijos. Mobilioji aplikacija nuo šio kūrimo įrankio nepriklauso.
 

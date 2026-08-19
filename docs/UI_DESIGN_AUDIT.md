@@ -1,5 +1,8 @@
 # TSP UI design audit
 
+> Istorinė ataskaita. Dabartinę schemos, testų ir projekto medžio būseną žr.
+> [CURRENT_STATUS.md](CURRENT_STATUS.md).
+
 Status: completed
 
 Baseline date: 2026-08-11
