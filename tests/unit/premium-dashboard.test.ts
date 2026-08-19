@@ -147,6 +147,9 @@ describe('premium route dashboard', () => {
     expect(header).not.toContain('tsp-logo-mark.png');
     expect(header).not.toContain('TIKSLUS SIUNTŲ PRISTATYMAS<');
     expect(header).not.toContain('>TSP<');
+    expect(header).toContain('showNotifications = false');
+    expect(source('src/components/driver-now-dashboard.tsx')).toContain('maxWidth: 900');
+    expect(source('src/app/history/[id].tsx')).toContain('maxWidth: 900');
   });
 
   it('keeps sign-in focused and uses the transparent vector TSP wordmark', () => {

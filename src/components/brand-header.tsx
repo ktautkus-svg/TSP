@@ -18,7 +18,7 @@ export interface BrandHeaderProps {
 export function BrandHeader({
   onMenuPress,
   showSyncStatus = true,
-  showNotifications = true,
+  showNotifications = false,
   variant = 'default',
   onBackPress,
   onHomePress,

@@ -155,7 +155,7 @@ type DriverPalette = ReturnType<typeof stitchColorsFor>['driverNow'];
 type DriverStyles = ReturnType<typeof createStyles>;
 
 const createStyles = (palette: DriverPalette) => StyleSheet.create({
-  dashboard: { width: '100%', maxWidth: 520, alignSelf: 'center', gap: spacing.lg },
+  dashboard: { width: '100%', maxWidth: 900, alignSelf: 'center', gap: spacing.lg },
   routeCard: { borderWidth: 1, borderColor: palette.border, borderRadius: radius.md, backgroundColor: palette.surface, padding: spacing.md, gap: spacing.md },
   routeHeading: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing.md },
   routeIdentity: { flex: 1, minWidth: 0, gap: 2 },
