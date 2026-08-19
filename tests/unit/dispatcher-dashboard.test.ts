@@ -32,6 +32,9 @@ describe('dispatcher desktop workspace', () => {
     expect(dispatcherSource).toContain('SelectionDropdown');
     expect(dispatcherSource).toContain("const [openPicker, setOpenPicker] = useState<'route' | 'driver' | 'vehicle' | null>(null)");
     expect(dispatcherSource).toContain('Priskirti maršrutą');
+    expect(dispatcherSource).toContain('describeVehicleLoad');
+    expect(dispatcherSource).toContain('testID="vehicle-load-percent"');
+    expect(dispatcherSource).toContain('Apkrova');
     expect(dispatcherSource).toContain('Niekas neparenkama automatiškai');
     expect(dispatcherSource).not.toContain('availableDrivers[0]');
     expect(dispatcherSource).not.toContain('availableVehicles[0]');

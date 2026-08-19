@@ -36,6 +36,7 @@ import { fonts, radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { formatWeightKg } from '@/ui/format-weight';
+import { describeVehicleLoad } from '@/ui/vehicle-load';
 import { employeeApi, type FuelStatus } from '@/infrastructure/auth/employee-session';
 
 export default function LoadingScreen() {
@@ -391,6 +392,10 @@ export default function LoadingScreen() {
     );
   };
 
+  const vehicleLoad = route
+    ? describeVehicleLoad(route.totalWeightKg, fuelStatus?.vehicle?.maximumPayloadKg)
+    : null;
+
   if (!busy && route?.status === 'planned') {
     return (
       <FoundationScreen
@@ -402,6 +407,7 @@ export default function LoadingScreen() {
           <Text style={styles.summaryTitle}>Maršrutas paruoštas</Text>
           <Text style={styles.summaryText}>Pristatymo taškai: {route.totalStops}</Text>
           <Text style={styles.summaryText}>Bendras svoris: {formatWeightKg(route.totalWeightKg)} kg</Text>
+          {vehicleLoad ? <Text style={[styles.summaryText, vehicleLoad.overCapacity && styles.loadWarning]} testID="vehicle-load-percent">{vehicleLoad.summaryLabel}</Text> : null}
           <Text style={styles.summaryText}>Planuotas atstumas: {route.estimatedDistanceKm === null ? '—' : `${route.estimatedDistanceKm.toFixed(1)} km`}</Text>
           <Text style={styles.summaryText}>Sandėlis / pradžia: {route.startLocation?.normalizedAddress ?? route.startLocation?.originalAddress ?? 'Nenurodyta'}</Text>
           <Text style={styles.summaryText}>Maršruto pabaiga: {route.endLocation?.normalizedAddress ?? route.endLocation?.originalAddress ?? 'Nenurodyta'}</Text>
@@ -467,6 +473,7 @@ export default function LoadingScreen() {
             </View>
           </View>
           <Text style={styles.summaryText}>Žinomas pakrautas svoris: {formatWeightKg(progress.loadedKnownWeightKg)} / {formatWeightKg(progress.totalKnownWeightKg)} kg</Text>
+          {vehicleLoad ? <Text style={[styles.summaryText, vehicleLoad.overCapacity && styles.loadWarning]} testID="vehicle-load-percent">{vehicleLoad.summaryLabel}</Text> : null}
           {clockLabel(route?.plannedDepartureAt) ? (
             <Text style={styles.departureBadge} testID="loading-departure-label">
               Planuojamas išvykimas {clockLabel(route?.plannedDepartureAt)} · ETA pagal planą
@@ -675,6 +682,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   },
   percentPillText: { ...type.secondaryStrong, color: colors.info },
   summaryText: { ...type.body, color: colors.textMuted },
+  loadWarning: { color: colors.warning },
   departureBadge: {
     marginTop: spacing.xs,
     ...type.secondaryStrong,

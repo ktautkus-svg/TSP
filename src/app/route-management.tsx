@@ -22,6 +22,7 @@ import { CheckIcon, ChevronDownIcon, ChevronRightIcon, TrashIcon } from '@/compo
 import { employeeApi, type EmployeeProfile, type ServerFleetVehicle, type ServerRouteAssignment } from '@/infrastructure/auth/employee-session';
 import { uniqueRegionCodes } from '@/domain/route-code';
 import { Alert } from '@/ui/alert';
+import { describeVehicleLoad } from '@/ui/vehicle-load';
 import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
@@ -157,6 +158,9 @@ export default function RouteManagementScreen() {
   const selectedRoute = assignableRoutes.find((route) => route.id === selectedRouteId) ?? null;
   const selectedDriver = drivers.find((driver) => driver.id === selectedDriverId) ?? null;
   const selectedVehicle = vehicles.find((vehicle) => vehicle.id === selectedVehicleId) ?? null;
+  const selectedLoad = selectedRoute && selectedVehicle
+    ? describeVehicleLoad(selectedRoute.total_weight_kg, selectedVehicle.maximumPayloadKg)
+    : null;
   const selectDriver = (driver: EmployeeProfile) => {
     setSelectedDriverId(driver.id);
     setSelectedVehicleId(null);
@@ -478,7 +482,7 @@ export default function RouteManagementScreen() {
                   {requestedRouteId === route.id ? <Text style={styles.newRouteBadge}>Naujai paruoštas</Text> : <StatusBadge status={assignment ? effectiveAssignmentStatus(assignment) : route.status} styles={styles} />}
                 </View>
                 <Text style={styles.routeNumbers}>{route.total_stops} taškų · {Math.round(route.total_weight_kg)} kg · {formatKm(route.estimated_distance_km)}</Text>
-                {assignment ? <Text style={styles.assignmentMeta}>{assignment.driverName}{assignment.vehicle ? ` · ${assignment.vehicle.registrationNumber}` : ' · automobilis nepriskirtas'}</Text> : null}
+                {assignment ? <Text style={styles.assignmentMeta}>{assignment.driverName}{assignment.vehicle ? ` · ${assignment.vehicle.registrationNumber}` : ' · automobilis nepriskirtas'}{assignmentLoadLabel(assignment, route.total_weight_kg)}</Text> : null}
                 <Text numberOfLines={2} style={styles.routeEndpoint}>{endpointLabel(route.start_location_json)} → {endpointLabel(route.end_location_json)}</Text>
                 <View style={styles.routeCardActions}>
                   <Pressable onPress={() => router.push({ pathname: '/route/[id]/overview', params: { id: route.id, mode: 'management' } } as Href)} style={styles.routeSecondaryAction}><Text style={styles.routeSecondaryActionText}>Peržiūrėti</Text></Pressable>
@@ -511,7 +515,7 @@ export default function RouteManagementScreen() {
                     <Text style={styles.activeAssignmentTitle}>{assignmentRouteLabel(assignment)}</Text>
                     <StatusBadge status={status} styles={styles} />
                   </View>
-                  <Text style={styles.assignmentMeta}>{assignment.driverName}{assignment.vehicle ? ` · ${assignment.vehicle.registrationNumber} · ${assignment.vehicle.model}` : ' · automobilis nepriskirtas'}</Text>
+                  <Text style={styles.assignmentMeta}>{assignment.driverName}{assignment.vehicle ? ` · ${assignment.vehicle.registrationNumber} · ${assignment.vehicle.model}` : ' · automobilis nepriskirtas'}{assignmentLoadLabel(assignment, Number(assignment.routeSnapshot.route.total_weight_kg) || localRoute?.total_weight_kg || 0)}</Text>
                   <Text style={styles.routeEndpoint}>{localRoute ? 'Maršrutas yra šiame įrenginyje' : 'Vietinio maršruto šiame įrenginyje nėra'}</Text>
                 </View>
                 <View style={styles.activeAssignmentActions}>
@@ -570,30 +574,38 @@ export default function RouteManagementScreen() {
               label="2. Automobilis"
               placeholder={vehicles.length > 0 ? 'Pasirinkite automobilį' : 'Automobilių nėra'}
               primary={selectedVehicle ? `${selectedVehicle.registrationNumber} · ${selectedVehicle.model}` : undefined}
-              secondary={selectedVehicle ? `Keliamoji galia iki ${Math.round(selectedVehicle.maximumPayloadKg)} kg` : undefined}
+              secondary={selectedVehicle
+                ? (selectedLoad
+                  ? `Keliamoji galia ${Math.round(selectedVehicle.maximumPayloadKg)} kg · ${selectedLoad.summaryLabel}`
+                  : `Keliamoji galia iki ${Math.round(selectedVehicle.maximumPayloadKg)} kg`)
+                : undefined}
               open={openPicker === 'vehicle'}
               onToggle={() => setOpenPicker((current) => current === 'vehicle' ? null : 'vehicle')}
               wide={desktop}
               styles={styles}>
-              {vehicles.length === 0 ? <Text style={styles.dropdownEmpty}>Pridėkite automobilį nustatymuose.</Text> : vehicles.map((vehicle) => (
-                <Pressable
+              {vehicles.length === 0 ? <Text style={styles.dropdownEmpty}>Pridėkite automobilį nustatymuose.</Text> : vehicles.map((vehicle) => {
+                const load = describeVehicleLoad(selectedRoute.total_weight_kg, vehicle.maximumPayloadKg);
+                return <Pressable
                   accessibilityRole="button"
                   key={vehicle.id}
                   onPress={() => { setSelectedVehicleId(vehicle.id); setOpenPicker(null); }}
                   style={[styles.dropdownOption, selectedVehicleId === vehicle.id && styles.dropdownOptionSelected]}>
                   <View style={styles.dropdownOptionContent}>
                     <Text style={styles.dropdownOptionTitle}>{vehicle.registrationNumber} · {vehicle.model}</Text>
-                    <Text style={styles.dropdownOptionMeta}>Iki {Math.round(vehicle.maximumPayloadKg)} kg{vehicle.assignedDriverId === selectedDriverId ? ' · priskirtas pasirinktam vairuotojui' : ''}</Text>
+                    <Text style={[styles.dropdownOptionMeta, load?.overCapacity && styles.loadWarning]}>
+                      Iki {Math.round(vehicle.maximumPayloadKg)} kg{load ? ` · apkrova ${load.percentLabel}` : ''}{vehicle.assignedDriverId === selectedDriverId ? ' · priskirtas pasirinktam vairuotojui' : ''}
+                    </Text>
                   </View>
                   {selectedVehicleId === vehicle.id ? <Text style={styles.selectedMark}>✓</Text> : null}
-                </Pressable>
-              ))}
+                </Pressable>;
+              })}
             </SelectionDropdown>
           </View>
 
           {selectedDriver && selectedVehicle ? <View style={styles.confirmationArea}>
             <View style={styles.confirmationSummary}>
               <Summary label="Bus priskirta" value={`${formatDate(selectedRoute.date)} · ${selectedRoute.total_stops} taškų → ${selectedDriver.displayName} · ${selectedVehicle.registrationNumber}`} styles={styles} />
+              {selectedLoad ? <Summary label="Apkrova" value={`${selectedLoad.percentLabel} · ${selectedLoad.ratioLabel}`} styles={styles} testID="vehicle-load-percent" warning={selectedLoad.overCapacity} /> : null}
               <Summary label="Sandėlis / pradžia" value={endpointLabel(selectedRoute.start_location_json)} styles={styles} />
               {selectedPrice
                 ? <PreliminaryPriceCard price={selectedPrice} styles={styles} />
@@ -677,6 +689,12 @@ function SelectionDropdown({
   </View>;
 }
 
+function assignmentLoadLabel(assignment: ServerRouteAssignment, weightKg: number): string {
+  const load = assignment.vehicle
+    ? describeVehicleLoad(weightKg, assignment.vehicle.maximumPayloadKg)
+    : null;
+  return load ? ` · ${load.summaryLabel}` : '';
+}
 function initials(name: string): string { return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join(''); }
 function formatDate(value: string): string { const date = new Date(`${value}T12:00:00`); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('lt-LT', { month: 'short', day: 'numeric', weekday: 'short' }).format(date); }
 function routeCodesLabel(value: string | null): string {
@@ -711,7 +729,9 @@ function StatusBadge({ status, styles }: { status: string; styles: ReturnType<ty
   const tone = statusTone(status);
   return <Text style={[styles.statusBadge, tone === 'warning' && styles.statusBadgeWarning, tone === 'info' && styles.statusBadgeInfo, tone === 'neutral' && styles.statusBadgeNeutral]}>{statusLabel(status)}</Text>;
 }
-function Summary({ label, value, styles }: { label: string; value: string; styles: ReturnType<typeof createStyles> }) { return <View style={styles.summary}><Text style={styles.summaryLabel}>{label}</Text><Text style={styles.summaryValue}>{value}</Text></View>; }
+function Summary({ label, value, styles, testID, warning }: { label: string; value: string; styles: ReturnType<typeof createStyles>; testID?: string; warning?: boolean }) {
+  return <View style={styles.summary} testID={testID}><Text style={styles.summaryLabel}>{label}</Text><Text style={[styles.summaryValue, warning && styles.loadWarning]}>{value}</Text></View>;
+}
 function PreliminaryPriceCard({ price, styles }: { price: PreliminaryRoutePrice; styles: ReturnType<typeof createStyles> }) {
   return <View style={styles.priceCard} testID="preliminary-route-price">
     <View style={styles.priceHeader}><View style={styles.priceContent}><Text style={styles.priceLabel}>PRELIMINARI MARŠRUTO KAINA</Text><Text style={styles.priceTotal}>{formatMoney(price.totalEur)}</Text></View><Text style={styles.priceSource}>{price.source === 'excel-vehicle' ? 'Excel automobilio tarifai' : 'Įvertinta pagal automobilio dydį'}</Text></View>
@@ -812,6 +832,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   dropdownOptionContent: { flex: 1, minWidth: 0, gap: 2 },
   dropdownOptionTitle: { ...type.bodyStrong, color: colors.text },
   dropdownOptionMeta: { ...type.meta, color: colors.textMuted },
+  loadWarning: { color: colors.warning },
   selectedMark: { ...type.bodyStrong, color: colors.info },
   confirmationArea: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'stretch', gap: spacing.md, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.borderSubtle },
   confirmationSummary: { flexGrow: 1, flexBasis: 480, minWidth: 0, gap: spacing.sm },

@@ -16,6 +16,7 @@ import { RouteRepository } from '@/database/repositories/route-repository';
 import type { DeliveryStop, Route } from '@/domain/route';
 import { employeeApi, type ServerRouteAssignment } from '@/infrastructure/auth/employee-session';
 import { formatWeightKg } from '@/ui/format-weight';
+import { describeVehicleLoad } from '@/ui/vehicle-load';
 import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
@@ -78,18 +79,35 @@ export default function RouteOverviewScreen() {
   }, [load]);
 
   useFocusEffect(useCallback(() => {
-    if (!managementMode || !online) return () => undefined;
+    if (!online) return () => undefined;
     let mounted = true;
-    void Promise.all([
-      employeeApi<{ assignments: ServerRouteAssignment[] }>('/api/admin/assignments'),
-      employeeApi<{ settings: RoutePriceSettings }>('/api/admin/route-price-settings'),
-    ]).then(([assignmentResponse, settingsResponse]) => {
+    const assignmentPath = profile.role === 'driver' ? '/api/assignments' : '/api/admin/assignments';
+    const canReadAssignments = profile.role === 'driver' || ['admin', 'dispatcher'].includes(profile.role);
+    const requests: Promise<void>[] = [];
+    if (canReadAssignments) {
+      requests.push(
+        employeeApi<{ assignments: ServerRouteAssignment[] }>(assignmentPath)
+          .then((assignmentResponse) => {
+            if (!mounted) return;
+            setAssignment(assignmentResponse.assignments.find((item) => item.routeId === routeId && item.status !== 'cancelled') ?? null);
+          }),
+      );
+    }
+    if (managementMode) {
+      requests.push(
+        employeeApi<{ settings: RoutePriceSettings }>('/api/admin/route-price-settings')
+          .then((settingsResponse) => {
+            if (!mounted) return;
+            setPriceSettings(normalizeRoutePriceSettings(settingsResponse.settings));
+          }),
+      );
+    }
+    void Promise.all(requests).catch((reason) => {
       if (!mounted) return;
-      setAssignment(assignmentResponse.assignments.find((item) => item.routeId === routeId && item.status !== 'cancelled') ?? null);
-      setPriceSettings(normalizeRoutePriceSettings(settingsResponse.settings));
-    }).catch((reason) => mounted && setError(reason instanceof Error ? reason.message : 'Priskyrimo duomenų gauti nepavyko.'));
+      if (managementMode) setError(reason instanceof Error ? reason.message : 'Priskyrimo duomenų gauti nepavyko.');
+    });
     return () => { mounted = false; };
-  }, [managementMode, online, routeId]));
+  }, [managementMode, online, profile.role, routeId]));
 
   const begin = () => {
     if (!route) return;
@@ -156,6 +174,9 @@ export default function RouteOverviewScreen() {
   const canEditOrder = profile.role !== 'driver' || profile.permissions?.canReorderAssignedRoute;
   const terminal = route ? ['completed', 'cancelled'].includes(route.status) : false;
   const orderMap = useMemo(() => buildOrderMap(route, stops, pendingOrder), [pendingOrder, route, stops]);
+  const vehicleLoad = route && assignment?.vehicle
+    ? describeVehicleLoad(route.totalWeightKg, assignment.vehicle.maximumPayloadKg)
+    : null;
   const preliminaryPrice = route && assignment?.vehicle ? estimatePreliminaryRoutePrice({
     date: route.date,
     distanceKm: route.estimatedDistanceKm,
@@ -174,6 +195,7 @@ export default function RouteOverviewScreen() {
           <View style={styles.heroHeading}><Text style={styles.routeDate}>{route.date}</Text><Text style={styles.status}>{statusLabel(route.status)}</Text></View>
           <View style={styles.metrics}>
             <Metric label="SVORIS" value={`${formatWeightKg(route.totalWeightKg)} kg`} styles={styles} />
+            {vehicleLoad ? <Metric label="APKROVA" value={vehicleLoad.percentLabel} detail={vehicleLoad.ratioLabel} warning={vehicleLoad.overCapacity} styles={styles} /> : null}
             <Metric label="TAŠKAI" value={String(route.totalStops)} styles={styles} />
             <Metric label="ATSTUMAS" value={route.estimatedDistanceKm === null ? '—' : `${route.estimatedDistanceKm.toFixed(1)} km`} styles={styles} />
             <Metric label="TRUKMĖ" value={route.estimatedDurationMinutes === null ? '—' : formatDuration(route.estimatedDurationMinutes)} styles={styles} />
@@ -183,6 +205,7 @@ export default function RouteOverviewScreen() {
         {managementMode ? <View style={styles.managementSummary} testID="management-route-summary">
           <View style={styles.managementItem}><Text style={styles.sectionLabel}>VAIRUOTOJAS</Text><Text style={styles.managementValue}>{assignment?.driverName ?? 'Nepriskirtas'}</Text></View>
           <View style={styles.managementItem}><Text style={styles.sectionLabel}>AUTOMOBILIS</Text><Text style={styles.managementValue}>{assignment?.vehicle ? `${assignment.vehicle.registrationNumber} · ${assignment.vehicle.model}` : 'Nepriskirtas'}</Text></View>
+          {vehicleLoad ? <View style={styles.managementItem} testID="vehicle-load-percent"><Text style={styles.sectionLabel}>APKROVA</Text><Text style={[styles.managementValue, vehicleLoad.overCapacity && styles.loadWarning]}>{vehicleLoad.summaryLabel}</Text></View> : null}
           <View style={styles.managementItem}><Text style={styles.sectionLabel}>PERDAVIMO BŪSENA</Text><Text style={styles.managementValue}>{assignment ? assignmentStatusLabel(assignment.status) : 'Dar nepriskirtas'}</Text></View>
           <View style={styles.managementItem}><Text style={styles.sectionLabel}>PRELIMINARI KAINA</Text><Text style={styles.managementValue}>{preliminaryPrice ? formatMoney(preliminaryPrice.totalEur) : 'Bus rodoma priskyrus vairuotoją ir automobilį'}</Text></View>
         </View> : null}
@@ -249,8 +272,8 @@ export default function RouteOverviewScreen() {
   </View>;
 }
 
-function Metric({ label, value, styles }: { label: string; value: string; styles: ReturnType<typeof createStyles> }) {
-  return <View style={styles.metric}><Text style={styles.metricLabel}>{label}</Text><Text style={styles.metricValue}>{value}</Text></View>;
+function Metric({ label, value, detail, warning, styles }: { label: string; value: string; detail?: string; warning?: boolean; styles: ReturnType<typeof createStyles> }) {
+  return <View style={[styles.metric, warning && styles.metricWarning]}><Text style={styles.metricLabel}>{label}</Text><Text style={[styles.metricValue, warning && styles.loadWarning]}>{value}</Text>{detail ? <Text style={styles.metricDetail}>{detail}</Text> : null}</View>;
 }
 function statusLabel(status: Route['status']): string { return ({ draft: 'Ruošiamas', planned: 'Suplanuotas', loading: 'Kraunamas', loaded: 'Paruoštas', in_progress: 'Vykdomas', completed: 'Užbaigtas', cancelled: 'Atšauktas' })[status]; }
 function assignmentStatusLabel(status: ServerRouteAssignment['status']): string { return ({ assigned: 'Priskirtas', downloaded: 'Atsisiųstas įrenginyje', in_progress: 'Vykdomas', completed: 'Užbaigtas', cancelled: 'Atšauktas' })[status]; }
@@ -295,7 +318,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   error: { ...type.bodyStrong, color: colors.danger },
   hero: { padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, gap: spacing.md },
   heroHeading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm }, routeDate: { ...type.pageTitle, color: colors.text }, status: { ...type.label, color: colors.info, backgroundColor: colors.infoSoft, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.sm, overflow: 'hidden' },
-  metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }, metric: { flexGrow: 1, flexBasis: 125, minWidth: 0, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.infoSoft, gap: 3 }, metricLabel: { ...type.label, color: colors.textSecondary }, metricValue: { ...type.readout, fontSize: 20, lineHeight: 25, color: colors.text }, direction: { ...type.meta, color: colors.textMuted },
+  metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }, metric: { flexGrow: 1, flexBasis: 125, minWidth: 0, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.infoSoft, gap: 3 }, metricWarning: { backgroundColor: colors.warningSoft }, metricLabel: { ...type.label, color: colors.textSecondary }, metricValue: { ...type.readout, fontSize: 20, lineHeight: 25, color: colors.text }, metricDetail: { ...type.meta, color: colors.textMuted }, loadWarning: { color: colors.warning }, direction: { ...type.meta, color: colors.textMuted },
   managementSummary: { padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
   managementItem: { flexGrow: 1, flexBasis: 220, minWidth: 0, gap: 4 },
   managementValue: { ...type.bodyStrong, color: colors.text },
