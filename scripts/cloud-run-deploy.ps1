@@ -51,6 +51,24 @@ function Set-Secret([string]$name, [string]$value) {
   if (-not $exists) {
     & $gcloudExe secrets create $name --replication-policy=automatic --project $project --quiet | Out-Null
   }
+  # Kiekviena versija apmokestinama atskirai, o deploy'ai kartojasi daug kartu
+  # per diena. Anksciau nauja versija buvo kuriama besalygiskai, todel susikaupe
+  # simtai identisku kopiju, is kuriu naudojama tik viena. Nauja versija kuriame
+  # tik tada, kai reiksme tikrai pasikeite.
+  if ($exists) {
+    $oldAccessPref = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    $currentRaw = & $gcloudExe secrets versions access latest --secret=$name --project $project 2>$null
+    $accessOk = ($LASTEXITCODE -eq 0)
+    $ErrorActionPreference = $oldAccessPref
+    if ($accessOk) {
+      $current = ($currentRaw | Out-String).Trim()
+      if ($current -eq $value.Trim()) {
+        Write-Host "Secret $name nepakito - nauja versija nekuriama."
+        return
+      }
+    }
+  }
   $temporary = Join-Path $runtimeDir "$name.tmp"
   try {
     [IO.File]::WriteAllText($temporary, $value)
