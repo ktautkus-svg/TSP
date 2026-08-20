@@ -1,9 +1,11 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import {
     FileMatrixResultCache,
+    MemoryMatrixResultCache,
 } from './cache/file-matrix-cache';
 import {
     FileGatewayResponseCache,
+    MemoryGatewayResponseCache,
 } from './cache/file-response-cache';
 import { loadGatewayConfig } from './config';
 import { GatewayError } from './errors';
@@ -27,11 +29,16 @@ import {
 const config = loadGatewayConfig();
 const nonceRegistry = new GatewayNonceRegistry();
 const deviceConnectionLimiter = new SlidingWindowRateLimiter(60);
+// Both branches used to build the same file-backed cache, which cannot work on
+// Cloud Run: the filesystem is read-only outside /tmp. In production the cache
+// lives in memory for the life of the instance - request-scoped reuse is what
+// actually saves money, and nothing of Google's is written to disk.
 const responseCache = config.environment === 'production'
-  ? new FileGatewayResponseCache(config.responseCacheDirectory)
+  ? new MemoryGatewayResponseCache()
   : new FileGatewayResponseCache(config.responseCacheDirectory);
+// Same read-only filesystem problem as the response cache above.
 const matrixCache = config.environment === 'production'
-  ? new FileMatrixResultCache(config.cacheDirectory)
+  ? new MemoryMatrixResultCache()
   : new FileMatrixResultCache(config.cacheDirectory);
 const limiter = new GatewayRateLimiter({
   globalPerMinute: config.rateLimitPerMinute,

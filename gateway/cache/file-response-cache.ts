@@ -20,6 +20,8 @@ export interface GatewayResponseCache {
 }
 
 export class FileGatewayResponseCache implements GatewayResponseCache {
+  private writeFailureReported = false;
+
   constructor(private readonly rootDirectory: string) {}
 
   key(namespace: string, identity: unknown): string {
@@ -52,18 +54,35 @@ export class FileGatewayResponseCache implements GatewayResponseCache {
     ttlMs: number,
     now = new Date(),
   ): Promise<void> {
-    const file = join(this.rootDirectory, namespace, `${key}.json`);
-    await mkdir(dirname(file), { recursive: true });
-    await writeFile(
-      file,
-      JSON.stringify({
-        key,
-        storedAt: now.toISOString(),
-        expiresAt: new Date(now.getTime() + ttlMs).toISOString(),
-        value,
-      } satisfies CacheEntry<T>),
-      { encoding: 'utf8', mode: 0o600 },
-    );
+    // A cache is an optimisation, never a precondition. On Cloud Run the
+    // container filesystem is read-only, so mkdir threw EACCES and a perfectly
+    // good geocode result was discarded with a 500 - the address had already
+    // been resolved by Google and paid for. get() has always swallowed its
+    // failures; set() now does the same and simply reports the miss.
+    try {
+      const file = join(this.rootDirectory, namespace, `${key}.json`);
+      await mkdir(dirname(file), { recursive: true });
+      await writeFile(
+        file,
+        JSON.stringify({
+          key,
+          storedAt: now.toISOString(),
+          expiresAt: new Date(now.getTime() + ttlMs).toISOString(),
+          value,
+        } satisfies CacheEntry<T>),
+        { encoding: 'utf8', mode: 0o600 },
+      );
+    } catch (error) {
+      if (!this.writeFailureReported) {
+        this.writeFailureReported = true;
+        // eslint-disable-next-line no-console
+        console.warn(JSON.stringify({
+          event: 'gateway_cache_write_unavailable',
+          directory: this.rootDirectory,
+          reason: error instanceof Error ? error.message : 'unknown',
+        }));
+      }
+    }
   }
 }
 
