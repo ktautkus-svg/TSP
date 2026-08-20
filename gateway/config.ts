@@ -177,7 +177,11 @@ export function loadGatewayConfig(
       24 * 60 * 60_000,
     ),
     pricing,
-    realProviderArmed: env.GATEWAY_REAL_PROVIDER_ARMED === '1',
+    // Trimmed before comparing. CI variables and console paste routinely carry a
+    // stray tab or newline, and a strict === against an untrimmed value fails
+    // silently: the gateway stays disarmed, every geocode returns 503, and the
+    // screen only reports "address unconfirmed". That cost a full evening once.
+    realProviderArmed: (env.GATEWAY_REAL_PROVIDER_ARMED ?? '').trim() === '1',
     usageDirectory: env.GATEWAY_USAGE_DIRECTORY?.trim() || '.gateway-cache/usage',
     dailyUsageUnits: positiveFiniteNumber(env.GATEWAY_DAILY_USAGE_UNITS, 7290),
     weeklyUsageUnits: positiveFiniteNumber(env.GATEWAY_WEEKLY_USAGE_UNITS, 36450),
