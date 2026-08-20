@@ -130,7 +130,7 @@ jobs:
             --allow-unauthenticated \
             --max-instances=1 \
             --set-secrets="${{ steps.secrets.outputs.secrets_arg }}" \
-            --set-env-vars="GATEWAY_AUTH_MODE=none,GATEWAY_ENV=production,APP_VERSION=${APP_VERSION}" \
+            --set-env-vars="GATEWAY_AUTH_MODE=none,GATEWAY_ENV=production,GATEWAY_REAL_PROVIDER_ARMED=0,GATEWAY_DAILY_BUDGET_CENTS=500,GATEWAY_WEEKLY_BUDGET_CENTS=2000,GATEWAY_DAILY_USAGE_UNITS=7290,GATEWAY_WEEKLY_USAGE_UNITS=36450,APP_VERSION=${APP_VERSION}" \
             --quiet
 
       - name: Route production traffic to latest revision

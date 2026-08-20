@@ -32,16 +32,26 @@ konfigūruotas. Cache hitai leidžiami, nes jie nesukuria išorinės užklausos.
 
 Prieš įjungiant realų režimą būtina nustatyti:
 
-- `GATEWAY_REAL_PROVIDER_ARMED=1`;
-- `GATEWAY_DAILY_USAGE_UNITS`;
-- `GATEWAY_WEEKLY_USAGE_UNITS`;
-- pasirinktinai `GATEWAY_DAILY_BUDGET_CENTS` ir `GATEWAY_WEEKLY_BUDGET_CENTS`;
+- `GATEWAY_REAL_PROVIDER_ARMED=1` (įjungti realų providerį);
+- `GATEWAY_DAILY_USAGE_UNITS` (dienos naudojimo vienetai);
+- `GATEWAY_WEEKLY_USAGE_UNITS` (savaitės naudojimo vienetai);
+- pasirinktinai `GATEWAY_DAILY_BUDGET_CENTS` (dienos biudžetas) ir `GATEWAY_WEEKLY_BUDGET_CENTS` (savaitės biudžetas);
 - `GATEWAY_USAGE_DIRECTORY` development režimui; production naudoja Firestore atomic ledger.
 
 Matrix vienetas yra billable elementų skaičius; geocoding ir polyline užklausa
 skaičiuojama kaip vienas vienetas. Production usage ledger saugomas Firestore
 dokumente `tsp_gateway_usage/global` transaction režimu, todėl Cloud Run restartas
 nepradeda savaitės limito iš naujo.
+
+Dabartinis Cloud Run deploy nustatytas taip:
+
+- `GATEWAY_REAL_PROVIDER_ARMED=0`;
+- `GATEWAY_DAILY_BUDGET_CENTS=500` (5 EUR per dieną);
+- `GATEWAY_WEEKLY_BUDGET_CENTS=2000` (20 EUR per savaitę).
+
+Įjungimas atliekamas pakeičiant tik `GATEWAY_REAL_PROVIDER_ARMED=0` į `1`, tačiau
+prieš tai būtina rotuoti lokaliame `.env` atsidūrusius Google raktus ir atnaujinti
+atitinkamus Cloud Secret Manager secret'us.
 
 ## iPhone / Expo Go patikra
 
