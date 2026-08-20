@@ -16,7 +16,7 @@ import {
 } from './rate-limiter';
 import { GatewayNonceRegistry, verifyGatewaySignature } from './security';
 import { OptimizationGatewayService } from './service';
-import { FileGatewayUsageGuard } from './usage-guard';
+import { FileGatewayUsageGuard, FirestoreGatewayUsageGuard } from './usage-guard';
 import {
     parseGatewayGeocodeRequest,
     parseGatewayMatrixRequest,
@@ -59,13 +59,21 @@ const service = new OptimizationGatewayService(
   undefined,
   responseCache,
   undefined,
-  new FileGatewayUsageGuard(config.usageDirectory, {
-    armed: config.realProviderArmed,
-    dailyUnits: config.dailyUsageUnits,
-    weeklyUnits: config.weeklyUsageUnits,
-    dailyBudgetCents: config.dailyBudgetCents,
-    weeklyBudgetCents: config.weeklyBudgetCents,
-  }),
+  config.environment === 'production'
+    ? new FirestoreGatewayUsageGuard({
+        armed: config.realProviderArmed,
+        dailyUnits: config.dailyUsageUnits,
+        weeklyUnits: config.weeklyUsageUnits,
+        dailyBudgetCents: config.dailyBudgetCents,
+        weeklyBudgetCents: config.weeklyBudgetCents,
+      })
+    : new FileGatewayUsageGuard(config.usageDirectory, {
+        armed: config.realProviderArmed,
+        dailyUnits: config.dailyUsageUnits,
+        weeklyUnits: config.weeklyUsageUnits,
+        dailyBudgetCents: config.dailyBudgetCents,
+        weeklyBudgetCents: config.weeklyBudgetCents,
+      }),
 );
 
 export const server = createServer(async (request, response) => {

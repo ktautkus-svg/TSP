@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { Firestore } from '@google-cloud/firestore';
 import { GatewayError } from './errors';
 
 type UsagePeriod = { key: string; units: number; estimatedCostCents: number };
@@ -90,6 +91,38 @@ export class MemoryGatewayUsageGuard implements GatewayUsageGuard {
     const created = { key, units: 0, estimatedCostCents: 0 };
     this.periods.set(key, created);
     return created;
+  }
+}
+
+export class FirestoreGatewayUsageGuard implements GatewayUsageGuard {
+  private readonly db = new Firestore();
+  private readonly reference = this.db.collection('tsp_gateway_usage').doc('global');
+
+  constructor(private readonly config: UsageGuardConfig) {}
+
+  async reserve(units: number, estimatedCostCents: number | null, now = new Date()): Promise<void> {
+    if (!this.config.armed) throw new GatewayError('REAL_PROVIDER_DISABLED', 'Realūs maršrutų provideriai išjungti.', 503, false);
+    const cost = Math.max(0, estimatedCostCents ?? 0);
+    const dailyKey = periodKey(now, 'day');
+    const weeklyKey = periodKey(now, 'week');
+    await this.db.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(this.reference);
+      const periods = (snapshot.data()?.periods ?? {}) as Record<string, UsagePeriod>;
+      const daily = periods[dailyKey] ?? { key: dailyKey, units: 0, estimatedCostCents: 0 };
+      const weekly = periods[weeklyKey] ?? { key: weeklyKey, units: 0, estimatedCostCents: 0 };
+      if (daily.units + units > this.config.dailyUnits) throw budgetError('dienos', this.config.dailyUnits);
+      if (weekly.units + units > this.config.weeklyUnits) throw budgetError('savaitės', this.config.weeklyUnits);
+      if (this.config.dailyBudgetCents !== null && daily.estimatedCostCents + cost > this.config.dailyBudgetCents) throw budgetError('dienos pinigų', this.config.dailyBudgetCents);
+      if (this.config.weeklyBudgetCents !== null && weekly.estimatedCostCents + cost > this.config.weeklyBudgetCents) throw budgetError('savaitės pinigų', this.config.weeklyBudgetCents);
+      transaction.set(this.reference, {
+        periods: {
+          ...periods,
+          [dailyKey]: { ...daily, units: daily.units + units, estimatedCostCents: daily.estimatedCostCents + cost },
+          [weeklyKey]: { ...weekly, units: weekly.units + units, estimatedCostCents: weekly.estimatedCostCents + cost },
+        },
+        updatedAt: now.toISOString(),
+      });
+    });
   }
 }
 

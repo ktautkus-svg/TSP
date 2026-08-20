@@ -36,13 +36,12 @@ Prieš įjungiant realų režimą būtina nustatyti:
 - `GATEWAY_DAILY_USAGE_UNITS`;
 - `GATEWAY_WEEKLY_USAGE_UNITS`;
 - pasirinktinai `GATEWAY_DAILY_BUDGET_CENTS` ir `GATEWAY_WEEKLY_BUDGET_CENTS`;
-- `GATEWAY_USAGE_DIRECTORY` persistent saugykloje.
+- `GATEWAY_USAGE_DIRECTORY` development režimui; production naudoja Firestore atomic ledger.
 
 Matrix vienetas yra billable elementų skaičius; geocoding ir polyline užklausa
-skaičiuojama kaip vienas vienetas. Jei Cloud Run instance gali persikrauti,
-lokalus failinis usage ledger nėra pakankamas ilgalaikiam savaitės limitui:
-ledger turi būti perkeltas į Firestore arba kitą persistent atomic saugyklą
-prieš realų production įjungimą.
+skaičiuojama kaip vienas vienetas. Production usage ledger saugomas Firestore
+dokumente `tsp_gateway_usage/global` transaction režimu, todėl Cloud Run restartas
+nepradeda savaitės limito iš naujo.
 
 ## iPhone / Expo Go patikra
 
