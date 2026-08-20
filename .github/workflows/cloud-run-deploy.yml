@@ -121,6 +121,16 @@ jobs:
 
       - name: Deploy to Cloud Run
         shell: bash
+        # --set-env-vars pakeičia VISUS servise esančius kintamuosius, todėl
+        # routing išlaidų apsaugos reikšmės turi būti perduotos kiekvieno deploy
+        # metu. Konsolėje ranka pakeistas GATEWAY_REAL_PROVIDER_ARMED būtų tyliai
+        # grąžintas atgal, todėl realaus režimo jungiklis yra repo variable.
+        env:
+          ARMED: ${{ vars.GATEWAY_REAL_PROVIDER_ARMED || '0' }}
+          DAILY_BUDGET_CENTS: ${{ vars.GATEWAY_DAILY_BUDGET_CENTS || '500' }}
+          WEEKLY_BUDGET_CENTS: ${{ vars.GATEWAY_WEEKLY_BUDGET_CENTS || '2000' }}
+          DAILY_USAGE_UNITS: ${{ vars.GATEWAY_DAILY_USAGE_UNITS || '7290' }}
+          WEEKLY_USAGE_UNITS: ${{ vars.GATEWAY_WEEKLY_USAGE_UNITS || '36450' }}
         run: |
           APP_VERSION=$(node -p "require('./package.json').version")
           gcloud run deploy "$CLOUD_RUN_SERVICE" \
@@ -130,7 +140,7 @@ jobs:
             --allow-unauthenticated \
             --max-instances=1 \
             --set-secrets="${{ steps.secrets.outputs.secrets_arg }}" \
-            --set-env-vars="GATEWAY_AUTH_MODE=none,GATEWAY_ENV=production,GATEWAY_REAL_PROVIDER_ARMED=0,GATEWAY_DAILY_BUDGET_CENTS=500,GATEWAY_WEEKLY_BUDGET_CENTS=2000,GATEWAY_DAILY_USAGE_UNITS=7290,GATEWAY_WEEKLY_USAGE_UNITS=36450,APP_VERSION=${APP_VERSION}" \
+            --set-env-vars="GATEWAY_AUTH_MODE=none,GATEWAY_ENV=production,GATEWAY_REAL_PROVIDER_ARMED=${ARMED},GATEWAY_DAILY_BUDGET_CENTS=${DAILY_BUDGET_CENTS},GATEWAY_WEEKLY_BUDGET_CENTS=${WEEKLY_BUDGET_CENTS},GATEWAY_DAILY_USAGE_UNITS=${DAILY_USAGE_UNITS},GATEWAY_WEEKLY_USAGE_UNITS=${WEEKLY_USAGE_UNITS},APP_VERSION=${APP_VERSION}" \
             --quiet
 
       - name: Route production traffic to latest revision

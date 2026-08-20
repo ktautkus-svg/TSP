@@ -101,7 +101,27 @@ if ($LASTEXITCODE -ne 0) { throw 'Nepavyko suteikti Cloud Run prieigos prie darb
 # paleidimo metu per Secret Manager. Taip device secret ir Google raktai
 # nepatenka nei į JavaScript bundle, nei į Docker build sluoksnius.
 $secretsArg = ($allSecrets | ForEach-Object { "$($_)=$($_):latest" }) -join ','
-& $gcloudExe run deploy $service --source . --project $project --region $region --allow-unauthenticated --max-instances=1 --set-secrets=$secretsArg --set-env-vars='GATEWAY_AUTH_MODE=none,GATEWAY_ENV=production,APP_VERSION=1.0.0' --quiet
+
+# --set-env-vars pakeičia visus servise esančius kintamuosius. Neperduota routing
+# išlaidų apsaugos reikšmė reikštų arba tylų realaus režimo išjungimą (geokodavimas
+# grąžintų 503 REAL_PROVIDER_DISABLED), arba biudžeto lubų praradimą, todėl visos
+# reikšmės perduodamos aiškiai kiekvieno deploy metu.
+function Get-DeployVar([string]$name, [string]$fallback) {
+  $item = Get-Item "env:$name" -ErrorAction SilentlyContinue
+  if ($item -and $item.Value.Trim()) { return $item.Value.Trim() }
+  return $fallback
+}
+$armed = Get-DeployVar 'GATEWAY_REAL_PROVIDER_ARMED' '0'
+$dailyBudgetCents = Get-DeployVar 'GATEWAY_DAILY_BUDGET_CENTS' '500'
+$weeklyBudgetCents = Get-DeployVar 'GATEWAY_WEEKLY_BUDGET_CENTS' '2000'
+$dailyUsageUnits = Get-DeployVar 'GATEWAY_DAILY_USAGE_UNITS' '7290'
+$weeklyUsageUnits = Get-DeployVar 'GATEWAY_WEEKLY_USAGE_UNITS' '36450'
+$envArg = "GATEWAY_AUTH_MODE=none,GATEWAY_ENV=production,GATEWAY_REAL_PROVIDER_ARMED=$armed,GATEWAY_DAILY_BUDGET_CENTS=$dailyBudgetCents,GATEWAY_WEEKLY_BUDGET_CENTS=$weeklyBudgetCents,GATEWAY_DAILY_USAGE_UNITS=$dailyUsageUnits,GATEWAY_WEEKLY_USAGE_UNITS=$weeklyUsageUnits,APP_VERSION=1.0.0"
+if ($armed -ne '1') {
+  Write-Host 'DĖMESIO: GATEWAY_REAL_PROVIDER_ARMED=0 - geokodavimas, matrix ir polyline grąžins 503 REAL_PROVIDER_DISABLED (adresai nebus patvirtinami).'
+}
+
+& $gcloudExe run deploy $service --source . --project $project --region $region --allow-unauthenticated --max-instances=1 --set-secrets=$secretsArg --set-env-vars=$envArg --quiet
 if ($LASTEXITCODE -ne 0) { throw 'Cloud Run deploy nepavyko. Aukščiau pateikta Google Cloud klaida nurodo blokuojantį veiksmą.' }
 
 $url = (& $gcloudExe run services describe $service --project $project --region $region --format='value(status.url)').Trim()

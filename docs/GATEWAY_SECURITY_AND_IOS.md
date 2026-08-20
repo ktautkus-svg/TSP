@@ -53,6 +53,22 @@ Dabartinis Cloud Run deploy nustatytas taip:
 prieš tai būtina rotuoti lokaliame `.env` atsidūrusius Google raktus ir atnaujinti
 atitinkamus Cloud Secret Manager secret'us.
 
+Kol režimas neįjungtas, `/api/geocode` kiekvienai neužcachintai užklausai grąžina
+`503 REAL_PROVIDER_DISABLED` dar prieš kreipiantis į Google, todėl adresai lieka
+`unconfirmed` ir maršruto suplanuoti neįmanoma. Tai nėra API rakto problema.
+
+Deploy metu naudojamas `--set-env-vars` pakeičia visus serviso kintamuosius, todėl
+Cloud Run konsolėje ranka įjungtas `GATEWAY_REAL_PROVIDER_ARMED=1` būtų tyliai
+grąžintas į `0` per kitą deploy. Ilgalaikis jungiklis:
+
+- GitHub Actions deploy – repository variable `GATEWAY_REAL_PROVIDER_ARMED=1`
+  (Settings → Secrets and variables → Actions → Variables);
+- lokalus `npm run cloud-run:deploy` – to paties pavadinimo aplinkos kintamasis.
+
+Tie patys šaltiniai valdo `GATEWAY_DAILY_BUDGET_CENTS`, `GATEWAY_WEEKLY_BUDGET_CENTS`,
+`GATEWAY_DAILY_USAGE_UNITS` ir `GATEWAY_WEEKLY_USAGE_UNITS`; nenurodžius, lieka
+aukščiau išvardytos konservatyvios reikšmės.
+
 ## iPhone / Expo Go patikra
 
 1. Kompiuterį ir iPhone prijungti prie to paties Wi-Fi; išjungti vien 4G/5G kelią.
