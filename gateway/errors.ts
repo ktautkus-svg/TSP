@@ -11,6 +11,8 @@ export type GatewayErrorCode =
   | 'PROVIDER_NETWORK_ERROR'
   | 'CACHE_MISS'
   | 'CACHE_STALE'
+  | 'REAL_PROVIDER_DISABLED'
+  | 'ROUTING_BUDGET_EXCEEDED'
   | 'CONFIGURATION_ERROR';
 
 export class GatewayError extends Error {

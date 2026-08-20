@@ -90,12 +90,11 @@ export class ProposeRemainingRouteRecalculation {
     };
     // Same rule mid-route as when planning: one recalculation buys one matrix,
     // and repeated taps on "recalculate" cannot each start their own.
+    const selectedProvider = process.env.EXPO_PUBLIC_ROUTING_PROVIDER === 'here'
+      ? new HereTravelCostProvider()
+      : new GoogleTravelCostProvider();
     const provider = new PlanningRunTravelCostProvider(
-      new FallbackTravelCostProvider([
-        new GoogleTravelCostProvider(),
-        new HereTravelCostProvider(),
-        new SyntheticTravelCostProvider('linear'),
-      ]),
+      new FallbackTravelCostProvider([selectedProvider, new SyntheticTravelCostProvider('linear')]),
     );
     const result = await new RoutingEngine(provider).optimize(request);
     const next = result.recommended;

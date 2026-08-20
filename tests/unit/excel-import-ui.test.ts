@@ -186,7 +186,8 @@ describe('compact daily Excel UI', () => {
     expect(alternativesScreen).toContain('encodedPolyline={manualPolyline?.encodedPolyline}');
     expect(alternativesScreen).toContain('fetchManualDrivingPolyline');
     expect(alternativesScreen).toContain("Alert.alert('Nėra taškų'");
-    expect(alternativesScreen).toContain('if (manualMode || !selectedCandidate || !request)');
+    expect(alternativesScreen).toContain('if (!showPolyline || manualMode || !selectedCandidate || !request)');
+    expect(alternativesScreen).toContain('testID="show-route-polyline"');
     expect(alternativesScreen.indexOf('testID="recalculate-manual-sequence"'))
       .toBeLessThan(alternativesScreen.indexOf('testID="manual-order-map"'));
     expect(alternativesScreen).not.toContain('compact\n                totalDistanceKm={manualCandidate');

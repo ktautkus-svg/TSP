@@ -1,40 +1,40 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { buildOptimizationRequestFromRoute } from '@/application/routes/route-request-builder';
-import { resolveRoute, type ResolvedRouteDestination } from '@/application/routes/route-navigation';
+import { useLocalAccess } from '@/application/auth/local-access-context';
+import { pushRouteAssignmentProgress, pushRouteAssignmentRevision } from '@/application/auth/route-assignment-sync';
+import { roleHomePath } from '@/application/navigation/role-home';
 import { CancelDraftRoute, SaveSelectedRouteCandidate } from '@/application/routes/route-commands';
-import { extractOrderedLocationsFromCandidate } from '@/application/routing/route-polyline-service';
+import { resolveRoute, type ResolvedRouteDestination } from '@/application/routes/route-navigation';
+import { buildOptimizationRequestFromRoute } from '@/application/routes/route-request-builder';
 import {
-  buildRouteAlternatives,
-  type LabeledRouteAlternative,
+    buildRouteAlternatives,
+    type LabeledRouteAlternative,
 } from '@/application/routing/route-alternative-modes';
+import { extractOrderedLocationsFromCandidate } from '@/application/routing/route-polyline-service';
 import { RoutingEngine } from '@/application/routing/routing-engine';
-import { evaluateCandidate } from '@/domain/routing/evaluation/candidate-evaluator';
+import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 import { FoundationScreen } from '@/components/foundation-screen';
-import { RouteMapView } from '@/components/route-map';
 import { ManualRouteOrderList } from '@/components/manual-route-order-list';
-import { RouteRepository } from '@/database/repositories/route-repository';
+import { RouteMapView } from '@/components/route-map';
 import { ExcelImportRepository } from '@/database/repositories/excel-import-repository';
+import { RouteRepository } from '@/database/repositories/route-repository';
+import { evaluateCandidate } from '@/domain/routing/evaluation/candidate-evaluator';
 import type { OptimizationStop, RouteCandidate, RouteOptimizationRequest, RouteOptimizationResult, RoutePolylineResult, TravelCostProvider, TravelMatrix } from '@/domain/routing/models';
 import { SQLiteRoutingAuditRepository } from '@/infrastructure/routing/persistence/sqlite-routing-audit-repository';
-import { GatewayPolylineProvider } from '@/infrastructure/routing/providers/gateway-polyline-provider';
 import { FallbackTravelCostProvider } from '@/infrastructure/routing/providers/fallback-travel-cost-provider';
+import { GatewayPolylineProvider } from '@/infrastructure/routing/providers/gateway-polyline-provider';
 import { GoogleTravelCostProvider, HereTravelCostProvider } from '@/infrastructure/routing/providers/gateway-travel-cost-provider';
-import { SyntheticTravelCostProvider } from '@/infrastructure/routing/providers/synthetic-travel-cost-provider';
 import { PlanningRunTravelCostProvider } from '@/infrastructure/routing/providers/planning-run-travel-cost-provider';
+import { SyntheticTravelCostProvider } from '@/infrastructure/routing/providers/synthetic-travel-cost-provider';
+import { Alert } from '@/ui/alert';
+import { devWarn } from '@/ui/dev-log';
 import { clockLabel, durationLabel } from '@/ui/route-eta-labels';
-import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
-import { Alert } from '@/ui/alert';
-import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
-import { useLocalAccess } from '@/application/auth/local-access-context';
-import { roleHomePath } from '@/application/navigation/role-home';
-import { pushRouteAssignmentProgress, pushRouteAssignmentRevision } from '@/application/auth/route-assignment-sync';
-import { devWarn } from '@/ui/dev-log';
+import { radius, spacing, type } from '@/ui/tokens';
 
 export default function RouteAlternativesScreen() {
   const router = useRouter();
@@ -50,6 +50,7 @@ export default function RouteAlternativesScreen() {
   const [labeledAlternatives, setLabeledAlternatives] = useState<LabeledRouteAlternative[]>([]);
   const [polylineResult, setPolylineResult] = useState<RoutePolylineResult | null>(null);
   const [polylineError, setPolylineError] = useState<string | null>(null);
+  const [showPolyline, setShowPolyline] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [expandedCandidateId, setExpandedCandidateId] = useState<string | null>(null);
@@ -149,7 +150,7 @@ export default function RouteAlternativesScreen() {
     // Manual sequencing has its own map and polyline. Keep the selected
     // candidate's paid line off the screen so it cannot cover the reorder
     // controls or show the old order while the driver is editing.
-    if (manualMode || !selectedCandidate || !request) return () => undefined;
+    if (!showPolyline || manualMode || !selectedCandidate || !request) return () => undefined;
     const locations = extractOrderedLocationsFromCandidate(selectedCandidate, request);
     new GatewayPolylineProvider()
       .fetchPolyline({ ...locations, departureAt: request.plannedDepartureAt, trafficMode: 'live' })
@@ -165,7 +166,7 @@ export default function RouteAlternativesScreen() {
         if (active) setPolylineError(reason instanceof Error ? reason.message : 'Maršruto linijos užklausa nepavyko.');
       });
     return () => { active = false; };
-  }, [manualMode, request, selectedCandidate]);
+  }, [manualMode, request, selectedCandidate, showPolyline]);
 
   const saveSelectedRoute = async () => {
     if (!result || !selectedId || !selectedCandidate || savingRef.current) return;
@@ -575,14 +576,23 @@ export default function RouteAlternativesScreen() {
           then looks at it. A 330px map ahead of the list pushed all five choices
           off the bottom of the screen. */}
       {orderedLocations ? (
-        <RouteMapView
-          {...orderedLocations}
-          encodedPolyline={polylineResult?.encodedPolyline}
-          totalDistanceKm={selectedCandidate?.totalDistanceKm}
-          totalDurationMinutes={selectedCandidate?.totalWorkMinutes}
-          allowStraightLineFallback={false}
-          polylineError={polylineError}
-        />
+        <>
+          <Pressable
+            disabled={showPolyline}
+            onPress={() => setShowPolyline(true)}
+            style={[styles.secondaryButton, showPolyline && styles.disabled]}
+            testID="show-route-polyline">
+            <Text style={styles.secondaryText}>{showPolyline ? 'Kelio linija užkrauta' : 'Rodyti tikrą kelio liniją'}</Text>
+          </Pressable>
+          {showPolyline ? <RouteMapView
+            {...orderedLocations}
+            encodedPolyline={polylineResult?.encodedPolyline}
+            totalDistanceKm={selectedCandidate?.totalDistanceKm}
+            totalDurationMinutes={selectedCandidate?.totalWorkMinutes}
+            allowStraightLineFallback={false}
+            polylineError={polylineError}
+          /> : null}
+        </>
       ) : null}
       {request ? (
         <Pressable style={styles.secondaryButton} onPress={toggleManualMode} testID="toggle-manual-sequencing">
@@ -864,10 +874,12 @@ function reuseTravelMatrix(matrix: TravelMatrix): TravelCostProvider {
  * outlives the run that paid for it.
  */
 function createTravelProvider() {
+  const selectedProvider = process.env.EXPO_PUBLIC_ROUTING_PROVIDER === 'here'
+    ? new HereTravelCostProvider()
+    : new GoogleTravelCostProvider();
   return new PlanningRunTravelCostProvider(
     new FallbackTravelCostProvider([
-      new GoogleTravelCostProvider(),
-      new HereTravelCostProvider(),
+      selectedProvider,
       new SyntheticTravelCostProvider('linear'),
     ]),
   );

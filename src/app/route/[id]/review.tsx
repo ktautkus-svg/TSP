@@ -1,46 +1,47 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-
-import { Alert } from '@/ui/alert';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  DeleteDraftStop,
-  ReorderDraftStops,
-  ReplaceDraftStops,
-  SetStopPriority,
-  UpdateDraftRouteLocations,
-  UpdateDraftStop,
+    Pressable,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
+} from 'react-native';
+
+import {
+    DeleteDraftStop,
+    ReorderDraftStops,
+    ReplaceDraftStops,
+    SetStopPriority,
+    UpdateDraftRouteLocations,
+    UpdateDraftStop,
 } from '@/application/routes/route-commands';
 import {
-  applyDominantCityContext,
-  draftStopFromPersisted,
-  manualAddressesToDraftStops,
-  routeEndpointFromGeocode,
+    applyDominantCityContext,
+    draftStopFromPersisted,
+    manualAddressesToDraftStops,
+    routeEndpointFromGeocode,
 } from '@/application/routes/route-draft-mappers';
 import { resolveRoute } from '@/application/routes/route-navigation';
 import { GetDefaultLocations, KRETINGA_WAREHOUSE_ADDRESS } from '@/application/routes/saved-locations';
-import { FoundationScreen } from '@/components/foundation-screen';
+import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 import { ChevronDownIcon, ChevronRightIcon, TrashIcon } from '@/components/app-icons';
+import { FoundationScreen } from '@/components/foundation-screen';
 import { AppButton } from '@/components/ui-primitives';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import { ShipmentLineRepository } from '@/database/repositories/shipment-line-repository';
 import type { DeliveryStop, Route, RouteEndpoint } from '@/domain/route';
 import {
-  GatewayGeocodingProvider,
-  type GeocodeCandidate,
+    GatewayGeocodingProvider,
+    type GeocodeCandidate,
+    type GeocodeResponse,
 } from '@/infrastructure/routing/providers/gateway-geocoding-provider';
-import { radius, spacing, type } from '@/ui/tokens';
+import { Alert } from '@/ui/alert';
+import { devWarn } from '@/ui/dev-log';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
-import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
-import { devWarn } from '@/ui/dev-log';
+import { radius, spacing, type } from '@/ui/tokens';
 
 export default function RouteReviewScreen() {
   const router = useRouter();
@@ -129,10 +130,19 @@ export default function RouteReviewScreen() {
     try {
       await editQueue.current;
       if (await redirectStalePlanningScreen()) return;
+      const responseCache = new Map<string, GeocodeResponse>();
+      const geocode = async (query: string): Promise<GeocodeResponse> => {
+        const key = query.trim().toLocaleLowerCase('lt-LT');
+        const cached = responseCache.get(key);
+        if (cached) return cached;
+        const response = await provider.geocode(query);
+        responseCache.set(key, response);
+        return response;
+      };
       const start = route.startLocation;
       if (!start?.normalizedAddress || start.latitude === null || start.longitude === null) {
         try {
-          const response = await provider.geocode(start?.geocodingQuery ?? start?.originalAddress ?? '');
+          const response = await geocode(start?.geocodingQuery ?? start?.originalAddress ?? '');
           const selected = response.isUnambiguous ? response.result : null;
           if (selected) {
             await new UpdateDraftRouteLocations(db).execute(
@@ -150,7 +160,7 @@ export default function RouteReviewScreen() {
       const end = route.endLocation;
       if (!end?.normalizedAddress || end.latitude === null || end.longitude === null) {
         try {
-          const response = await provider.geocode(end?.geocodingQuery ?? end?.originalAddress ?? '');
+          const response = await geocode(end?.geocodingQuery ?? end?.originalAddress ?? '');
           const selected = response.isUnambiguous ? response.result : null;
           const refreshedRoute = await repository.getById(routeId);
           if (selected && refreshedRoute?.startLocation) {
@@ -171,7 +181,7 @@ export default function RouteReviewScreen() {
         if (stop.addressValidationState === 'auto_confirmed') continue;
         const query = stop.geocodingQuery ?? queries[index] ?? stop.originalAddress;
         try {
-          const response = await provider.geocode(query);
+          const response = await geocode(query);
           const selected = response.isUnambiguous ? response.result : null;
           if (selected) {
             await confirmStop(stop.id, stop.originalAddress, query, selected);

@@ -24,6 +24,26 @@ nepasileidžia be aiškiai įjungto `hmac` režimo ir serverio paslapties. Ilgal
 HMAC paslaptis negali būti dedama į Expo bundle, todėl dabartinis HMAC režimas
 nėra galutinis viešos mobilios aplikacijos autentifikavimo sprendimas.
 
+### Routing išlaidų apsauga
+
+Realūs provideriai yra fail-closed: `GATEWAY_REAL_PROVIDER_ARMED=0` neleidžia
+realios matrix, geocoding ar polyline užklausos net tada, kai API raktas yra
+konfigūruotas. Cache hitai leidžiami, nes jie nesukuria išorinės užklausos.
+
+Prieš įjungiant realų režimą būtina nustatyti:
+
+- `GATEWAY_REAL_PROVIDER_ARMED=1`;
+- `GATEWAY_DAILY_USAGE_UNITS`;
+- `GATEWAY_WEEKLY_USAGE_UNITS`;
+- pasirinktinai `GATEWAY_DAILY_BUDGET_CENTS` ir `GATEWAY_WEEKLY_BUDGET_CENTS`;
+- `GATEWAY_USAGE_DIRECTORY` persistent saugykloje.
+
+Matrix vienetas yra billable elementų skaičius; geocoding ir polyline užklausa
+skaičiuojama kaip vienas vienetas. Jei Cloud Run instance gali persikrauti,
+lokalus failinis usage ledger nėra pakankamas ilgalaikiam savaitės limitui:
+ledger turi būti perkeltas į Firestore arba kitą persistent atomic saugyklą
+prieš realų production įjungimą.
+
 ## iPhone / Expo Go patikra
 
 1. Kompiuterį ir iPhone prijungti prie to paties Wi-Fi; išjungti vien 4G/5G kelią.

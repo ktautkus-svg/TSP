@@ -1,38 +1,37 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { loadGatewayConfig } from './config';
-import { GatewayError } from './errors';
 import {
-  GatewayRateLimiter,
-  SlidingWindowRateLimiter,
-  type RateLimitedGatewayEndpoint,
-} from './rate-limiter';
-import { GatewayNonceRegistry, verifyGatewaySignature } from './security';
-import {
-  parseGatewayGeocodeRequest,
-  parseGatewayMatrixRequest,
-  parseGatewayOcrRequest,
-  parseGatewayPolylineRequest,
-} from './validation';
-import {
-  FileMatrixResultCache,
-  MemoryMatrixResultCache,
+    FileMatrixResultCache,
 } from './cache/file-matrix-cache';
 import {
-  FileGatewayResponseCache,
-  MemoryGatewayResponseCache,
+    FileGatewayResponseCache,
 } from './cache/file-response-cache';
-import { HereMatrixAdapter } from './providers/here-matrix-adapter';
+import { loadGatewayConfig } from './config';
+import { GatewayError } from './errors';
 import { GoogleMatrixAdapter } from './providers/google-matrix-adapter';
+import { HereMatrixAdapter } from './providers/here-matrix-adapter';
+import {
+    GatewayRateLimiter,
+    SlidingWindowRateLimiter,
+    type RateLimitedGatewayEndpoint,
+} from './rate-limiter';
+import { GatewayNonceRegistry, verifyGatewaySignature } from './security';
 import { OptimizationGatewayService } from './service';
+import { FileGatewayUsageGuard } from './usage-guard';
+import {
+    parseGatewayGeocodeRequest,
+    parseGatewayMatrixRequest,
+    parseGatewayOcrRequest,
+    parseGatewayPolylineRequest,
+} from './validation';
 
 const config = loadGatewayConfig();
 const nonceRegistry = new GatewayNonceRegistry();
 const deviceConnectionLimiter = new SlidingWindowRateLimiter(60);
 const responseCache = config.environment === 'production'
-  ? new MemoryGatewayResponseCache()
+  ? new FileGatewayResponseCache(config.responseCacheDirectory)
   : new FileGatewayResponseCache(config.responseCacheDirectory);
 const matrixCache = config.environment === 'production'
-  ? new MemoryMatrixResultCache()
+  ? new FileMatrixResultCache(config.cacheDirectory)
   : new FileMatrixResultCache(config.cacheDirectory);
 const limiter = new GatewayRateLimiter({
   globalPerMinute: config.rateLimitPerMinute,
@@ -59,6 +58,14 @@ const service = new OptimizationGatewayService(
   undefined,
   undefined,
   responseCache,
+  undefined,
+  new FileGatewayUsageGuard(config.usageDirectory, {
+    armed: config.realProviderArmed,
+    dailyUnits: config.dailyUsageUnits,
+    weeklyUnits: config.weeklyUsageUnits,
+    dailyBudgetCents: config.dailyBudgetCents,
+    weeklyBudgetCents: config.weeklyBudgetCents,
+  }),
 );
 
 export const server = createServer(async (request, response) => {

@@ -29,6 +29,12 @@ export type GatewayConfig = {
   liveCacheTtlMs: number;
   noTrafficCacheTtlMs: number;
   pricing: PricingConfig;
+  realProviderArmed: boolean;
+  usageDirectory: string;
+  dailyUsageUnits: number;
+  weeklyUsageUnits: number;
+  dailyBudgetCents: number | null;
+  weeklyBudgetCents: number | null;
 };
 
 const finiteNumber = (
@@ -171,7 +177,20 @@ export function loadGatewayConfig(
       24 * 60 * 60_000,
     ),
     pricing,
+    realProviderArmed: env.GATEWAY_REAL_PROVIDER_ARMED === '1',
+    usageDirectory: env.GATEWAY_USAGE_DIRECTORY?.trim() || '.gateway-cache/usage',
+    dailyUsageUnits: positiveFiniteNumber(env.GATEWAY_DAILY_USAGE_UNITS, 7290),
+    weeklyUsageUnits: positiveFiniteNumber(env.GATEWAY_WEEKLY_USAGE_UNITS, 36450),
+    dailyBudgetCents: optionalBudgetCents(env.GATEWAY_DAILY_BUDGET_CENTS),
+    weeklyBudgetCents: optionalBudgetCents(env.GATEWAY_WEEKLY_BUDGET_CENTS),
   };
+}
+
+function optionalBudgetCents(value: string | undefined): number | null {
+  if (value === undefined || value.trim() === '') return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) throw new GatewayError('CONFIGURATION_ERROR', 'Routing piniginis biudžetas turi būti neneigiamas skaičius centais.', 500, false);
+  return Math.floor(parsed);
 }
 
 export function requireRealProviderKeys(config: GatewayConfig): void {

@@ -1,28 +1,29 @@
-import type { GatewayConfig } from './config';
-import { GatewayError } from './errors';
+import type { RoutePolylineResult } from '../src/domain/routing/models';
 import type { MatrixResultCache } from './cache/file-matrix-cache';
 import {
-  FileGatewayResponseCache,
-  MemoryGatewayResponseCache,
-  type GatewayResponseCache,
+    FileGatewayResponseCache,
+    MemoryGatewayResponseCache,
+    type GatewayResponseCache,
 } from './cache/file-response-cache';
+import type { GatewayConfig } from './config';
+import { GatewayError } from './errors';
 import { GoogleGeocodingAdapter } from './providers/google-geocoding-adapter';
 import { GoogleRoutesAdapter } from './providers/google-routes-adapter';
 import { GoogleVisionAdapter } from './providers/google-vision-adapter';
-import type { RoutePolylineResult } from '../src/domain/routing/models';
 import type {
-  GatewayMatrixRequest,
-  GatewayMatrixResponse,
-  GatewayGeocodeRequest,
-  GatewayGeocodeResponse,
-  GatewayOcrRequest,
-  GatewayOcrResponse,
-  GatewayPolylineRequest,
-  GatewayProvider,
-  GatewayRunMode,
-  MatrixProviderAdapter,
-  ProviderFetchResult,
+    GatewayGeocodeRequest,
+    GatewayGeocodeResponse,
+    GatewayMatrixRequest,
+    GatewayMatrixResponse,
+    GatewayOcrRequest,
+    GatewayOcrResponse,
+    GatewayPolylineRequest,
+    GatewayProvider,
+    GatewayRunMode,
+    MatrixProviderAdapter,
+    ProviderFetchResult,
 } from './types';
+import { MemoryGatewayUsageGuard, type GatewayUsageGuard } from './usage-guard';
 
 export type GatewayAuditEvent = {
   at: string;
@@ -57,6 +58,13 @@ export class OptimizationGatewayService {
     private readonly visionAdapter: GoogleVisionAdapter = new GoogleVisionAdapter(
       config.googleVisionApiKey ?? '',
     ),
+    private readonly usageGuard: GatewayUsageGuard = new MemoryGatewayUsageGuard({
+      armed: true,
+      dailyUnits: Number.MAX_SAFE_INTEGER,
+      weeklyUnits: Number.MAX_SAFE_INTEGER,
+      dailyBudgetCents: null,
+      weeklyBudgetCents: null,
+    }),
   ) {}
 
   async recognizeDocument(request: GatewayOcrRequest): Promise<GatewayOcrResponse> {
@@ -91,6 +99,7 @@ export class OptimizationGatewayService {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.config.requestTimeoutMs);
     try {
+      await this.usageGuard.reserve(1, null);
       const { candidates, responseMs } = await this.geocodingAdapter.geocode(
         request,
         controller.signal,
@@ -142,6 +151,7 @@ export class OptimizationGatewayService {
       this.config.requestTimeoutMs,
     );
     try {
+      await this.usageGuard.reserve(1, null);
       const result = await this.routesAdapter.fetchRoutePolyline(request, controller.signal);
       await this.responseCache.set(
         'polyline',
@@ -245,6 +255,9 @@ export class OptimizationGatewayService {
       this.config.requestTimeoutMs,
     );
     try {
+      const price = this.config.pricing.perThousandElements[request.provider];
+      const estimatedCostCents = price === undefined ? null : (elementCount * price) / 10;
+      await this.usageGuard.reserve(elementCount, estimatedCostCents);
       const result = await adapter.fetchMatrix(request, controller.signal, {
         bypassCache: mode === 'refresh',
       });

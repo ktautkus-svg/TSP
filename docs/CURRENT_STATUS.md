@@ -57,6 +57,19 @@ Esami testai tikrina:
 - atidėtų maršrutų pakartotinį pritaikymą;
 - offline klaidos izoliaciją ir nepažeistus vietinius duomenis.
 
+## Routing API sauga
+
+Realūs provideriai pagal nutylėjimą yra išjungti (`GATEWAY_REAL_PROVIDER_ARMED=0`).
+Gateway prieš realų providerio call tikrina dienos ir savaitės usage limitus, o
+cache hitai limito nenaudoja. Production matrix, geocode ir polyline cache naudoja
+failinį sluoksnį, o routing UI vienai operacijai renkasi tik vieną mokamą providerį;
+po jo klaidos naudojamas synthetic fallback.
+
+Prieš įjungiant realų API reikia patikrinti providerio billing kainas, nustatyti
+`GATEWAY_DAILY_BUDGET_CENTS`, `GATEWAY_WEEKLY_BUDGET_CENTS` ir perkelti usage ledger
+į tikrai persistent atomic saugyklą, jei Cloud Run restartai turi išlikti savaitės
+limite.
+
 ## Dar neatlikta lokaliai
 
 Fizinis iPhone priėmimo testas nėra pakeičiamas automatiniu TypeScript ar PWA testu.
