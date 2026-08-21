@@ -7,9 +7,21 @@ export interface AddressLookupProvider {
 /** Accepts "54.6872, 25.2797" style input so a stop can be pinned directly
  * when geocoding repeatedly fails or the driver already knows the coordinates. */
 const COORDINATE_PATTERN = /^\s*(-?\d{1,3}(?:\.\d+)?)\s*[,;]\s*(-?\d{1,3}(?:\.\d+)?)\s*$/;
+/** Google Maps URLs carry the pin location in one of a few query shapes:
+ * "/@lat,lng,15z", "?q=lat,lng" or the internal "!3dlat!4dlng" place param.
+ * Maps.lt is intentionally not handled here — its share links use the
+ * LKS-94 grid (metres, not degrees), and converting that wrongly would send
+ * the driver to the wrong address, which is worse than not recognising it. */
+const GOOGLE_MAPS_URL_PATTERNS = [
+  /@(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/,
+  /!3d(-?\d{1,3}\.\d+)!4d(-?\d{1,3}\.\d+)/,
+  /[?&]q=(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/,
+];
 
 export function parseCoordinateInput(value: string): { latitude: number; longitude: number } | null {
-  const match = COORDINATE_PATTERN.exec(value);
+  const direct = COORDINATE_PATTERN.exec(value);
+  const fromUrl = direct ? null : GOOGLE_MAPS_URL_PATTERNS.map((pattern) => pattern.exec(value)).find(Boolean) ?? null;
+  const match = direct ?? fromUrl;
   if (!match) return null;
   const latitude = Number(match[1]);
   const longitude = Number(match[2]);
@@ -27,6 +39,13 @@ export async function resolveDeliveryAddresses(
   for (const [index, delivery] of deliveries.entries()) {
     if (!delivery.address.value) {
       resolved.push({ ...delivery, validationState: 'invalid', addressConfidence: 0 });
+      continue;
+    }
+    // Already confirmed for this exact text — skip the paid lookup. Without
+    // this, re-running validation (now automatic on blur) would re-geocode
+    // every already-approved stop again on each edit.
+    if (delivery.validationState === 'valid' && delivery.selectedAddress && delivery.addressQuery === (delivery.address.value ?? '')) {
+      resolved.push(delivery);
       continue;
     }
     const coordinates = parseCoordinateInput(delivery.address.value);

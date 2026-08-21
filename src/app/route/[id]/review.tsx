@@ -715,7 +715,7 @@ function StopEditor(props: {
             geocodingError: null,
           });
         }}
-        placeholder="Adresas arba koordinatės (54.6872, 25.2797) *"
+        placeholder="Adresas, koordinatės arba Google Maps nuoroda *"
         style={styles.input}
       />
       {stop.geocodingQuery && stop.geocodingQuery !== stop.originalAddress ? (
@@ -728,7 +728,7 @@ function StopEditor(props: {
       ))}
       <View style={styles.twoColumns}>
         <TextInput value={weight} onChangeText={setWeight} onBlur={() => { void props.onEdit({ weightKg: nullableNumber(weight) }); }} placeholder="Svoris, kg (neprivaloma)" keyboardType="decimal-pad" style={styles.input} />
-        <TextInput value={time} onChangeText={setTime} onBlur={() => { void props.onEdit(parseTimeWindowInput(time)); }} placeholder="Laiko langas (pvz. 08:00-12:00)" style={styles.input} />
+        <TextInput value={time} onChangeText={setTime} onBlur={() => { void props.onEdit(parseTimeWindowInput(time)); }} placeholder="Pristatymo laikas (pvz. 08:00-12:00)" style={styles.input} />
       </View>
       <TextInput value={recipient} onChangeText={setRecipient} onBlur={() => { void props.onEdit({ recipient: recipient.trim() || null }); }} placeholder="Gavėjas (neprivaloma)" style={styles.input} />
       <TextInput value={notes} onChangeText={setNotes} onBlur={() => { void props.onEdit({ notes: notes.trim() || null }); }} placeholder="Pastabos (neprivaloma)" style={styles.input} />

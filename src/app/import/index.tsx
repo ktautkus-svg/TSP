@@ -194,6 +194,9 @@ export default function ImportScreen() {
       setHomeAddress(homeValue);
       setWarehouseEndpoint(recoveredWarehouse);
       setHomeEndpoint(recoveredHome);
+      // Default to the saved warehouse so dispatchers don't have to pick it
+      // on every route — Kretinga stays an explicit opt-in.
+      setStartMode((current) => current ?? (recoveredWarehouse?.latitude ? 'warehouse' : current));
       return new RouteEndPreference(db).get();
     }).then((preference) => {
       if (active && preference) setEndMode(preference);
@@ -1110,9 +1113,8 @@ export default function ImportScreen() {
 
             <Pressable style={styles.setupRow} onPress={() => setEditingSchedule((current) => !current)} testID="toggle-schedule-edit">
               <View style={styles.setupRowText}>
-                <Text style={styles.setupRowLabel}>PRADŽIA</Text>
-                <Text numberOfLines={1} style={styles.setupRowValue}>{selectedStartAddress}</Text>
-                <Text style={styles.setupRowMeta}>{planningDate} · {planningTime}</Text>
+                <Text style={styles.setupRowLabel}>DATA IR STARTAS</Text>
+                <Text numberOfLines={1} style={styles.setupRowValue}>{planningDate} · {planningTime}</Text>
               </View>
               <View style={styles.setupEditBadge}><PencilIcon size={17} color={colors.brandNavy} /></View>
             </Pressable>
@@ -1369,7 +1371,7 @@ export default function ImportScreen() {
                     <Text style={styles.secondaryText}>{expanded ? 'Uždaryti taisymą' : needsAction ? 'Taisyti šį adresą' : 'Peržiūrėti'}</Text>
                   </Pressable>
                   {expanded && delivery ? (
-                    <DeliveryEditor styles={styles} colors={colors} delivery={delivery} index={excelPreview.groups.indexOf(group)} onChange={updateField} onChooseAddress={chooseAddress} compact />
+                    <DeliveryEditor styles={styles} colors={colors} delivery={delivery} index={excelPreview.groups.indexOf(group)} onChange={updateField} onChooseAddress={chooseAddress} onBlurAddress={() => void revalidate()} compact />
                   ) : null}
                   {expanded && showExcelOptions ? rows.map((row) => (
                     <View key={row.id} style={[styles.excelRow, row.excluded && styles.excludedRow]}>
@@ -1423,6 +1425,7 @@ export default function ImportScreen() {
                 index={index}
                 onChange={updateField}
                 onChooseAddress={chooseAddress}
+                onBlurAddress={() => void revalidate()}
               />
             )) : null}
             {!excelPreview && result.duplicates.length ? (
@@ -1448,6 +1451,7 @@ function DeliveryEditor(props: {
   index: number;
   onChange: (id: string, field: EditableField, value: string) => void;
   onChooseAddress: (id: string, index: number) => void;
+  onBlurAddress?: () => void;
   compact?: boolean;
 }) {
   const { styles, colors } = props;
@@ -1505,13 +1509,14 @@ function DeliveryEditor(props: {
               testID={`delivery-field-${props.delivery.id}-${key}`}
               value={field.value === null ? '' : String(field.value)}
               onChangeText={(value) => props.onChange(props.delivery.id, key, value)}
+              onBlur={key === 'address' ? props.onBlurAddress : undefined}
               style={[
                 styles.input,
                 field.value === null && !required
                   ? styles.neutralBorder
                   : styles[`${level}Border`],
               ]}
-              placeholder={required ? 'Adresas arba koordinatės (54.6872, 25.2797)' : 'Neprivaloma'}
+              placeholder={required ? 'Adresas, koordinatės arba Google Maps nuoroda' : 'Neprivaloma'}
               placeholderTextColor={colors.textMuted}
             />
           </View>
@@ -1942,7 +1947,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   switchThumb: { width: 22, height: 22, borderRadius: radius.pill, backgroundColor: colors.textInverse },
   switchThumbOn: { alignSelf: 'flex-end' },
   endSwitchRow: { flexDirection: 'row', gap: spacing.xs },
-  endSwitchOption: { flex: 1, minHeight: 64, paddingHorizontal: spacing.xs, paddingVertical: spacing.xs, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+  endSwitchOption: { flex: 1, minHeight: 52, paddingHorizontal: spacing.xs, paddingVertical: 6, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
   endSwitchOptionActive: { borderColor: colors.info, backgroundColor: colors.infoSoft },
   endSwitchText: { ...type.secondaryStrong, color: colors.textMuted },
   endSwitchTextActive: { color: colors.info },
