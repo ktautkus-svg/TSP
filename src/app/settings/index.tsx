@@ -1,43 +1,44 @@
+import Constants from 'expo-constants';
+import * as DocumentPicker from 'expo-document-picker';
+import { Stack, useRouter, type Href } from 'expo-router';
+import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { Stack, useRouter, type Href } from 'expo-router';
-import * as DocumentPicker from 'expo-document-picker';
-import Constants from 'expo-constants';
-import { useSQLiteContext } from 'expo-sqlite';
 
+import { roleLabel, sessionStateLabel } from '@/application/auth/employee-permissions';
+import { useLocalAccess } from '@/application/auth/local-access-context';
 import {
-  createPwaBackup,
-  parsePwaBackup,
-  restorePwaBackup,
-  summarizePwaBackup,
+    createPwaBackup,
+    parsePwaBackup,
+    restorePwaBackup,
+    summarizePwaBackup,
 } from '@/application/backup/pwa-backup';
+import { CompanyProfileSettings } from '@/application/settings/company-profile';
 import {
-  NavigationPreference,
-  type NavigationProvider,
+    NavigationPreference,
+    type NavigationProvider,
 } from '@/application/settings/navigation-preference';
 import type { ThemeMode } from '@/application/settings/theme-preference';
-import { FoundationScreen } from '@/components/foundation-screen';
-import { DriverAppTabs } from '@/components/driver-app-tabs';
 import { EmployeesIcon, SettingsIcon, VehicleIcon } from '@/components/app-icons';
+import { DriverAppTabs } from '@/components/driver-app-tabs';
+import { FoundationScreen } from '@/components/foundation-screen';
+import { StatusBadge } from '@/components/ui-primitives';
 import {
-  clearGatewayDeviceSecret,
-  getGatewayDeviceSecret,
-  saveGatewayDeviceSecret,
-  verifyGatewayConnection,
+    clearGatewayDeviceSecret,
+    getGatewayDeviceSecret,
+    saveGatewayDeviceSecret,
+    verifyGatewayConnection,
 } from '@/infrastructure/gateway/device-auth';
 import {
-  isStandalonePwa,
-  requestPersistentStorage,
-  serviceWorkerVersion,
+    isStandalonePwa,
+    requestPersistentStorage,
+    serviceWorkerVersion,
 } from '@/pwa/runtime';
-import { radius, spacing, type } from '@/ui/tokens';
+import { Alert } from '@/ui/alert';
+import { devWarn } from '@/ui/dev-log';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
-import { Alert } from '@/ui/alert';
-import { useLocalAccess } from '@/application/auth/local-access-context';
-import { roleLabel, sessionStateLabel } from '@/application/auth/employee-permissions';
-import { StatusBadge } from '@/components/ui-primitives';
-import { devWarn } from '@/ui/dev-log';
+import { radius, spacing, type } from '@/ui/tokens';
 
 const appVersion = Constants.expoConfig?.version ?? '1.0.0';
 
@@ -61,7 +62,7 @@ type StorageDiagnostics = {
   persistent: boolean | null;
 };
 
-type SettingsSection = 'account' | 'appearance' | 'navigation' | 'gateway' | 'data';
+type SettingsSection = 'account' | 'appearance' | 'navigation' | 'gateway' | 'data' | 'company';
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -70,8 +71,12 @@ export default function SettingsScreen() {
   const { colors, preference, setPreference } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const navigationPreference = useMemo(() => new NavigationPreference(db), [db]);
+  const companyProfileSettings = useMemo(() => new CompanyProfileSettings(db), [db]);
   const [deviceSecret, setDeviceSecret] = useState('');
   const [defaultNavigation, setDefaultNavigation] = useState<NavigationProvider>('waze');
+  const [companyName, setCompanyName] = useState('');
+  const [companyAddress, setCompanyAddress] = useState('');
+  const [companySaved, setCompanySaved] = useState(false);
   const [gatewayConnected, setGatewayConnected] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -100,6 +105,10 @@ export default function SettingsScreen() {
 
   useEffect(() => {
     void refreshDiagnostics();
+    void companyProfileSettings.get().then((profile) => {
+      setCompanyName(profile.name);
+      setCompanyAddress(profile.address);
+    });
     void navigationPreference.get()
       .then(setDefaultNavigation)
       .catch((error) => {
@@ -114,7 +123,12 @@ export default function SettingsScreen() {
         setGatewayConnected(connected);
       }
     })();
-  }, [navigationPreference, refreshDiagnostics]);
+  }, [companyProfileSettings, navigationPreference, refreshDiagnostics]);
+
+  async function saveCompanyProfile() {
+    await companyProfileSettings.save({ name: companyName, address: companyAddress });
+    setCompanySaved(true);
+  }
 
   async function changeDefaultNavigation(value: NavigationProvider) {
     const previous = defaultNavigation;
@@ -330,6 +344,26 @@ export default function SettingsScreen() {
               </View>
               <Text style={styles.chevron}>›</Text>
             </Pressable>
+            <View style={styles.groupDivider} />
+            <View testID="company-profile-setting">
+              <Pressable accessibilityRole="button" accessibilityState={{ expanded: openSection === 'company' }} onPress={() => toggleSection('company')} style={styles.settingsRow}>
+                <View style={styles.flex}>
+                  <Text style={styles.rowTitle}>Įmonės duomenys kelionės lapui</Text>
+                  <Text style={styles.rowValue}>{companyName.trim() ? companyName : 'Nenurodyta'}</Text>
+                </View>
+                <Text style={styles.advancedChevron}>{openSection === 'company' ? '⌃' : '⌄'}</Text>
+              </Pressable>
+              {openSection === 'company' ? (
+                <View style={styles.expandedContent} testID="company-profile-content">
+                  <Text style={styles.meta}>Rodoma spausdinamos kelionės lapų ataskaitos antraštėje.</Text>
+                  <TextInput onChangeText={(value) => { setCompanyName(value); setCompanySaved(false); }} placeholder="Įmonės pavadinimas (pvz. UAB Pavyzdys)" style={styles.input} testID="company-name-input" value={companyName} />
+                  <TextInput onChangeText={(value) => { setCompanyAddress(value); setCompanySaved(false); }} placeholder="Adresas" style={styles.input} testID="company-address-input" value={companyAddress} />
+                  <Pressable onPress={() => { void saveCompanyProfile(); }} style={styles.secondaryButton} testID="save-company-profile">
+                    <Text style={styles.secondaryText}>{companySaved ? 'Išsaugota' : 'Išsaugoti'}</Text>
+                  </Pressable>
+                </View>
+              ) : null}
+            </View>
             <View style={styles.groupDivider} />
             <View testID="default-navigation-setting">
               <Pressable accessibilityRole="button" accessibilityState={{ expanded: openSection === 'navigation' }} onPress={() => toggleSection('navigation')} style={styles.settingsRow}>
