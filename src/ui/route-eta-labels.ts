@@ -48,7 +48,7 @@ export function windowLabel(stop?: DeliveryStop | null, planningMode?: PlanningM
   const to = stop.deliveryTimeTo;
   const isRange = Boolean(from && to && from !== to);
   const value = isRange ? `${from}–${to}` : (from || to);
-  const prefix = isRange ? 'Pristatymo langas' : 'Pageidaujamas laikas';
+  const prefix = 'Pristatymo laikas';
   return planningMode === 'ignore_time_windows'
     ? `${prefix}: ${value} · tik informacijai`
     : `${prefix}: ${value}`;
@@ -121,7 +121,7 @@ export function arrivalWindowStatus(
   _routeDate: string | null | undefined,
 ): { state: ArrivalWindowState; label: string; color: 'success' | 'warning' | 'danger' | 'textMuted' } {
   if (!stop?.deliveryTimeFrom && !stop?.deliveryTimeTo) {
-    return { state: 'unavailable', label: 'Laiko langas nenurodytas', color: 'textMuted' };
+    return { state: 'unavailable', label: 'Pristatymo laikas nenurodytas', color: 'textMuted' };
   }
 
   const etaValue = stop.latestEstimatedArrivalAt ?? stop.plannedArrivalAt;
