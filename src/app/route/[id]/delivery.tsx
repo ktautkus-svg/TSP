@@ -1,65 +1,65 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BackHandler, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import { useLocalAccess } from '@/application/auth/local-access-context';
+import { pullAssignedRoutes, pushRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
+import { roleHomePath } from '@/application/navigation/role-home';
+import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { BackHandler, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useLocalAccess } from '@/application/auth/local-access-context';
-import { roleHomePath } from '@/application/navigation/role-home';
-import { pullAssignedRoutes, pushRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
-import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 
-import { Alert } from '@/ui/alert';
-import { buildNavigationUrls, navigationTargetFromStop } from '@/application/navigation/navigation-url-builder';
 import { navigationUrlForProvider, openWebNavigationInSameContext } from '@/application/navigation/navigation-launcher';
-import { NavigationPreference } from '@/application/settings/navigation-preference';
-import {
-  ProposeRemainingRouteRecalculation,
-  ResolveRouteRecalculation,
-  type RouteRecalculationProposal,
-} from '@/application/routes/route-recalculation';
+import { buildNavigationUrls, navigationTargetFromStop } from '@/application/navigation/navigation-url-builder';
+import { calculateCompositeRouteProgress } from '@/application/routes/composite-route-progress';
 import { CancelDraftRoute } from '@/application/routes/route-commands';
+import { RefreshRouteEtas } from '@/application/routes/route-eta';
+import { resolveRoute } from '@/application/routes/route-navigation';
 import {
-  AddStopDuringDelivery,
-  BeginRouteCompletion,
-  CompleteRoute,
-  ConfirmRouteReturnArrival,
-  GetLatestUndoableAction,
-  GetRouteProgress,
-  MarkStopDelivered,
-  MarkStopFailed,
-  parseOdometer,
-  SaveStartOdometer,
-  SaveCompletionOdometerDraft,
-  SetNextPendingStop,
-  StartRouteReturn,
-  UndoRouteAction,
-  type RouteProgress,
-  type UndoableAction,
+    ProposeRemainingRouteRecalculation,
+    ResolveRouteRecalculation,
+    type RouteRecalculationProposal,
+} from '@/application/routes/route-recalculation';
+import {
+    AddStopDuringDelivery,
+    BeginRouteCompletion,
+    CompleteRoute,
+    ConfirmRouteReturnArrival,
+    GetLatestUndoableAction,
+    GetRouteProgress,
+    MarkStopDelivered,
+    MarkStopFailed,
+    parseOdometer,
+    SaveCompletionOdometerDraft,
+    SaveStartOdometer,
+    SetNextPendingStop,
+    StartRouteReturn,
+    UndoRouteAction,
+    type RouteProgress,
+    type UndoableAction,
 } from '@/application/routes/route-workday';
 import { GetDefaultLocations } from '@/application/routes/saved-locations';
-import { calculateCompositeRouteProgress } from '@/application/routes/composite-route-progress';
-import { resolveRoute } from '@/application/routes/route-navigation';
-import { RefreshRouteEtas } from '@/application/routes/route-eta';
+import { NavigationPreference } from '@/application/settings/navigation-preference';
 import { fallbackRouteWeatherScene, loadRouteWeatherScene, type RouteWeatherScene } from '@/application/weather/route-weather';
-import { FoundationScreen } from '@/components/foundation-screen';
 import { BrandHeader } from '@/components/brand-header';
-import { GroupedMenuRow, GroupedMenuSection } from '@/components/grouped-menu';
 import { ClockIcon, DeliveredIcon, DistanceIcon, FailedIcon, NavigateIcon } from '@/components/dashboard-icons';
+import { FoundationScreen } from '@/components/foundation-screen';
+import { GroupedMenuRow, GroupedMenuSection } from '@/components/grouped-menu';
 import { InstrumentGauge } from '@/components/instrument-gauge';
 import { RoadProgressBar } from '@/components/road-progress-bar';
 import { RouteBottomTabs } from '@/components/route-bottom-tabs';
 import { SwipeActionCard } from '@/components/swipe-action-card';
 import { RouteRepository } from '@/database/repositories/route-repository';
-import { GatewayGeocodingProvider } from '@/infrastructure/routing/providers/gateway-geocoding-provider';
 import { DELIVERY_FAILURE_REASONS, deliveryMatchesFilter, type DeliveryFailureReason } from '@/domain/delivery-failure';
 import type { DeliveryFilter, DeliveryStop, Route, RouteEndpoint } from '@/domain/route';
-import { colors as instrumentColors, fonts, radius, spacing, type } from '@/ui/tokens';
-import type { ColorPalette } from '@/ui/theme-palette';
-import { formatWeightKg } from '@/ui/format-weight';
-import { failedDeliveryLabel, userVisibleStopNote } from '@/ui/route-labels';
-import { arrivalWindowStatus, deliveryWindowValue, durationLabel, etaLabel, legLabel, offlineEtaLabel, scheduleLabel, windowLabel, windowUrgencyColor } from '@/ui/route-eta-labels';
 import { useForegroundInterval } from '@/hooks/use-foreground-interval';
+import { GatewayGeocodingProvider } from '@/infrastructure/routing/providers/gateway-geocoding-provider';
+import { Alert } from '@/ui/alert';
 import { devWarn } from '@/ui/dev-log';
+import { formatWeightKg } from '@/ui/format-weight';
+import { arrivalWindowStatus, deliveryWindowValue, durationLabel, etaLabel, legLabel, offlineEtaLabel, scheduleLabel, windowLabel, windowUrgencyColor } from '@/ui/route-eta-labels';
+import { failedDeliveryLabel, userVisibleStopNote } from '@/ui/route-labels';
+import type { ColorPalette } from '@/ui/theme-palette';
+import { fonts, colors as instrumentColors, radius, spacing, type } from '@/ui/tokens';
 
 function ScheduleDot({ stop, colors, routeDate }: { stop?: DeliveryStop | null; colors: ColorPalette; routeDate?: string | null }) {
   const color = windowUrgencyColor(stop, routeDate);
@@ -239,6 +239,29 @@ export default function DeliveryScreen() {
     setFailedStopId(stopId);
     setFailureReason('Nedirba');
     setFailureComment('');
+  };
+
+  const markAllRemainingDelivered = () => {
+    const pending = stops.filter((stop) => stop.deliveryStatus === 'pending');
+    if (pending.length === 0 || busy) return;
+    Alert.alert(
+      'Pažymėti visus taškus pristatytais?',
+      `Bus pažymėta ${pending.length} likusių taškų kaip pristatyta. Pavieniui šio veiksmo atšaukti nebus galima.`,
+      [
+        { text: 'Atšaukti', style: 'cancel' },
+        {
+          text: 'Pažymėti visus',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              for (const stop of pending) {
+                await delivered(stop.id);
+              }
+            })();
+          },
+        },
+      ],
+    );
   };
 
   const saveFailed = async () => {
@@ -922,6 +945,7 @@ export default function DeliveryScreen() {
                 <Text style={styles.menuSubitemText}>Perskaičiuoti maršrutą</Text>
               </Pressable> : null}
               <Pressable accessibilityLabel={route?.completionStartedAt ? 'Tęsti užbaigimą' : 'Baigti maršrutą'} disabled={busy} style={[styles.menuSubitem, busy && styles.disabled]} onPress={() => { setMenuOpen(false); setActiveMenuExpanded(false); void beginFinish(); }}><Text style={styles.menuSubitemText}>Baigti maršrutą</Text></Pressable>
+              {stops.some((stop) => stop.deliveryStatus === 'pending') ? <Pressable disabled={busy} testID="mark-all-delivered-button" style={[styles.menuSubitem, busy && styles.disabled]} onPress={() => { setMenuOpen(false); setActiveMenuExpanded(false); markAllRemainingDelivered(); }}><Text style={styles.menuSubitemText}>Pažymėti visus pristatytais</Text></Pressable> : null}
               {profile.role !== 'driver' || profile.permissions?.canCancelRoute ? <Pressable disabled={busy} testID="stop-route-button" style={[styles.menuSubitem, busy && styles.disabled]} onPress={() => { setMenuOpen(false); setActiveMenuExpanded(false); stopRoute(); }}><Text style={styles.menuDangerText}>Nutraukti maršrutą</Text></Pressable> : null}
             </View> : null}
           </GroupedMenuSection>

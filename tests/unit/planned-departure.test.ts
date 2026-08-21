@@ -117,7 +117,6 @@ describe('planned departure stays until Start', () => {
   it('shows the planned start on loading and starts live ETAs only from StartRoute', () => {
     expect(loading).toContain('Planuojamas išvykimas');
     expect(loading).toContain('loading-departure-label');
-    expect(loading).toContain('jie bus perskaičiuoti nuo realaus starto');
     expect(loading).toContain('StartRoute');
     expect(loading).toContain('statusRail');
     expect(loading).toContain('orderBadge');

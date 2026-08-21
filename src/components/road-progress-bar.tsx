@@ -8,7 +8,7 @@ import {
     Text,
     View,
 } from 'react-native';
-import Svg, { Circle, Defs, G, Line, LinearGradient, Path, Stop } from 'react-native-svg';
+import Svg, { Defs, LinearGradient, Path, Stop } from 'react-native-svg';
 
 import type { RouteWeatherScene } from '@/application/weather/route-weather';
 import { cockpitColorsFor } from '@/theme';

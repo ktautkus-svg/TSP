@@ -1,32 +1,32 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
 import Constants from 'expo-constants';
-import { Pressable, SafeAreaView, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { Link, useFocusEffect, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Pressable, SafeAreaView, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 
-import { resolveRoute } from '@/application/routes/route-navigation';
+import { useLocalAccess } from '@/application/auth/local-access-context';
+import { pullAssignedRoutes, pushCompletedRouteAssignmentProgress, pushRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
 import { ExportPilotRouteDiagnostic } from '@/application/routes/pilot-route-export';
+import { resolveRoute } from '@/application/routes/route-navigation';
 import { GetRouteProgress, type RouteProgress } from '@/application/routes/route-workday';
+import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 import { AccountMenuSheet } from '@/components/account-menu-sheet';
-import { BrandHeader } from '@/components/brand-header';
-import { DriverNowDashboard } from '@/components/driver-now-dashboard';
-import { DriverAppTabs } from '@/components/driver-app-tabs';
-import { GroupedMenuRow, GroupedMenuSection } from '@/components/grouped-menu';
 import { DispatchIcon, ExecuteRouteIcon, QualityIcon, SettingsIcon, TripSheetIcon } from '@/components/app-icons';
+import { BrandHeader } from '@/components/brand-header';
+import { DriverAppTabs } from '@/components/driver-app-tabs';
+import { DriverNowDashboard } from '@/components/driver-now-dashboard';
+import { GroupedMenuRow, GroupedMenuSection } from '@/components/grouped-menu';
 import { ScreenContainer } from '@/components/screen-container';
 import { AppButton, AppCard } from '@/components/ui-primitives';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import type { DeliveryStop, Route } from '@/domain/route';
-import { fonts, radius, spacing, type } from '@/ui/tokens';
-import { useTheme } from '@/ui/theme';
-import type { ColorPalette } from '@/ui/theme-palette';
+import { Alert } from '@/ui/alert';
+import { devWarn } from '@/ui/dev-log';
 import { formatWeightKg } from '@/ui/format-weight';
 import { groupRouteCodes, routeCodeLabel, type RouteCodeRow } from '@/ui/route-numbers';
-import { Alert } from '@/ui/alert';
-import { useLocalAccess } from '@/application/auth/local-access-context';
-import { pullAssignedRoutes, pushCompletedRouteAssignmentProgress, pushRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
-import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
-import { devWarn } from '@/ui/dev-log';
+import { useTheme } from '@/ui/theme';
+import type { ColorPalette } from '@/ui/theme-palette';
+import { fonts, radius, spacing, type } from '@/ui/tokens';
 
 export default function HomeScreen() {
   const db = useSQLiteContext();
@@ -151,11 +151,11 @@ export default function HomeScreen() {
                   <GroupedMenuRow description="Pasirinkti vairuotoją ir tęsti jo darbą." icon={<ExecuteRouteIcon color={colors.info} />} onPress={() => router.push('/execute-route' as Href)} title="Vykdyti maršrutą" />
                 </GroupedMenuSection></View>
                 <View style={styles.adminMenuGroup}><GroupedMenuSection label="STEBĖJIMAS IR APSKAITA">
-                  <GroupedMenuRow description="Taškų seka, laikai ir pristatymo kokybė." icon={<QualityIcon />} onPress={() => router.push('/quality-control' as Href)} title="Kokybės kontrolė" />
-                  <GroupedMenuRow description="Odometrai, suvestinės ir spausdinimas." icon={<TripSheetIcon />} onPress={() => router.push({ pathname: '/trip-sheet', params: { returnTo: 'home' } } as Href)} title="Kelionės lapai" tone="success" />
+                  <GroupedMenuRow description="Taškų seka, laikai ir pristatymo kokybė." icon={<QualityIcon color={colors.accent} />} onPress={() => router.push('/quality-control' as Href)} title="Kokybės kontrolė" tone="success" />
+                  <GroupedMenuRow description="Odometrai, suvestinės ir spausdinimas." icon={<TripSheetIcon color={colors.textMuted} />} onPress={() => router.push({ pathname: '/trip-sheet', params: { returnTo: 'home' } } as Href)} title="Kelionės lapai" tone="neutral" />
                 </GroupedMenuSection></View>
                 <View style={styles.adminMenuGroup}><GroupedMenuSection label="SISTEMA">
-                  <GroupedMenuRow description="Vairuotojai, automobiliai, vietos ir programėlė." icon={<SettingsIcon />} onPress={() => router.push('/settings' as Href)} title="Nustatymai" />
+                  <GroupedMenuRow description="Vairuotojai, automobiliai, vietos ir programėlė." icon={<SettingsIcon color={colors.textMuted} />} onPress={() => router.push('/settings' as Href)} title="Nustatymai" tone="neutral" />
                 </GroupedMenuSection></View>
               </View>
             </View>

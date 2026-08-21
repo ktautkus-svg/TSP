@@ -2,15 +2,15 @@ import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 
+import type { RouteProgress } from '@/application/routes/route-workday';
 import { RouteMapView } from '@/components/route-map';
 import { driverNowCopy } from '@/data/driver-ui';
-import type { RoutingLocation } from '@/domain/routing/models';
 import type { DeliveryStop, Route } from '@/domain/route';
+import type { RoutingLocation } from '@/domain/routing/models';
 import { useElapsedRouteTime } from '@/hooks/use-elapsed-route-time';
 import { stitchColorsFor } from '@/theme';
 import { useTheme } from '@/ui/theme';
 import { fonts, radius, spacing, type } from '@/ui/tokens';
-import type { RouteProgress } from '@/application/routes/route-workday';
 
 export interface DriverNowDashboardProps {
   readonly route: Route;

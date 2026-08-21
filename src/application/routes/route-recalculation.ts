@@ -1,15 +1,15 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-import { RoutingEngine } from '@/application/routing/routing-engine';
 import { normalizeProviderDepartureAt } from '@/application/parsing/text-parser';
 import { buildOptimizationStop } from '@/application/routes/route-request-builder';
+import { RoutingEngine } from '@/application/routing/routing-engine';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import type { CandidateLeg, CandidateStopSchedule, RouteOptimizationRequest } from '@/domain/routing/models';
 import { SQLiteRoutingAuditRepository } from '@/infrastructure/routing/persistence/sqlite-routing-audit-repository';
 import { FallbackTravelCostProvider } from '@/infrastructure/routing/providers/fallback-travel-cost-provider';
 import { GoogleTravelCostProvider, HereTravelCostProvider } from '@/infrastructure/routing/providers/gateway-travel-cost-provider';
-import { SyntheticTravelCostProvider } from '@/infrastructure/routing/providers/synthetic-travel-cost-provider';
 import { PlanningRunTravelCostProvider } from '@/infrastructure/routing/providers/planning-run-travel-cost-provider';
+import { SyntheticTravelCostProvider } from '@/infrastructure/routing/providers/synthetic-travel-cost-provider';
 import { persistCandidateEtas, RefreshRouteEtas } from './route-eta';
 
 export type RouteRecalculationProposal = {

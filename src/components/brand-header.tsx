@@ -1,9 +1,10 @@
+import { useRouter, type Href } from 'expo-router';
 import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 
-import { TspBrand } from '@/components/tsp-brand';
-import { CloudSyncStatus } from '@/components/cloud-sync-status';
 import { BackIcon, HomeIcon } from '@/components/app-icons';
+import { CloudSyncStatus } from '@/components/cloud-sync-status';
+import { TspBrand } from '@/components/tsp-brand';
 import { colors, spacing } from '@/ui/tokens';
 
 export interface BrandHeaderProps {
@@ -25,15 +26,17 @@ export function BrandHeader({
 }: BrandHeaderProps = {}) {
   const driver = variant === 'driver';
   const { width } = useWindowDimensions();
+  const router = useRouter();
+  const goHome = () => (onHomePress ? onHomePress() : router.push('/' as Href));
   return (
     <View style={[styles.header, driver && styles.driverHeader]} testID="brand-header">
       {onBackPress ? <Pressable accessibilityLabel="Atgal" accessibilityRole="button" onPress={onBackPress} style={styles.navigationButton} testID="brand-header-back">
-        <BackIcon size={22} color={colors.brandNavy} />
-        {width >= 620 ? <Text style={styles.navigationText}>Atgal</Text> : null}
+        <BackIcon size={26} color={colors.brandNavy} />
+        <Text style={styles.navigationText}>Atgal</Text>
       </Pressable> : null}
-      <View style={[styles.brandRow, driver && styles.driverBrandRow]}>
+      <Pressable accessibilityLabel="Į pradžią" accessibilityRole="button" onPress={goHome} style={[styles.brandRow, driver && styles.driverBrandRow]} testID="brand-header-logo">
         <TspBrand inverse={false} />
-      </View>
+      </Pressable>
       {!driver ? <View style={styles.headerActions}>
         {showSyncStatus && width >= 720 ? <CloudSyncStatus compact /> : null}
         {onHomePress ? <Pressable accessibilityLabel="Į pradžią" accessibilityRole="button" onPress={onHomePress} style={styles.navigationButton} testID="brand-header-home">
@@ -86,6 +89,6 @@ const styles = StyleSheet.create({
   notification: { width: 32, height: 40, alignItems: 'center', justifyContent: 'center' },
   notificationDot: { position: 'absolute', top: 7, right: 3, width: 6, height: 6, borderRadius: 9, backgroundColor: colors.accent },
   profileButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  navigationButton: { minWidth: 44, minHeight: 44, paddingHorizontal: spacing.sm, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs },
-  navigationText: { color: colors.brandNavy, fontWeight: '600' },
+  navigationButton: { minWidth: 48, minHeight: 48, paddingHorizontal: spacing.sm, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs },
+  navigationText: { color: colors.brandNavy, fontWeight: '700', fontSize: 15 },
 });

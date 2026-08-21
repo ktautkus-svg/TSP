@@ -1,26 +1,26 @@
-import { useCallback, useMemo, useState } from 'react';
 import Constants from 'expo-constants';
-import { Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
+import { useCallback, useMemo, useState } from 'react';
+import { Pressable, Share, StyleSheet, Text, View } from 'react-native';
 
+import { useLocalAccess } from '@/application/auth/local-access-context';
+import { roleHomePath } from '@/application/navigation/role-home';
+import { ExportPilotRouteDiagnostic } from '@/application/routes/pilot-route-export';
+import { resolveRoute } from '@/application/routes/route-navigation';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { RouteBottomTabs } from '@/components/route-bottom-tabs';
 import { ShipmentLinesSummary } from '@/components/shipment-lines-summary';
-import { ExportPilotRouteDiagnostic } from '@/application/routes/pilot-route-export';
-import { resolveRoute } from '@/application/routes/route-navigation';
-import { useLocalAccess } from '@/application/auth/local-access-context';
-import { roleHomePath } from '@/application/navigation/role-home';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import { ShipmentLineRepository } from '@/database/repositories/shipment-line-repository';
 import type { DeliveryStop, Route } from '@/domain/route';
 import type { ShipmentLine } from '@/domain/shipment-line';
-import { deliveryStatusLabel, formatLithuanianDateTime, loadingStatusLabel } from '@/ui/history-labels';
-import { radius, spacing, type } from '@/ui/tokens';
-import { useTheme } from '@/ui/theme';
-import type { ColorPalette } from '@/ui/theme-palette';
 import { Alert } from '@/ui/alert';
 import { devWarn } from '@/ui/dev-log';
+import { deliveryStatusLabel, formatLithuanianDateTime, loadingStatusLabel } from '@/ui/history-labels';
+import { useTheme } from '@/ui/theme';
+import type { ColorPalette } from '@/ui/theme-palette';
+import { radius, spacing, type } from '@/ui/tokens';
 
 type Audit = Awaited<ReturnType<RouteRepository['listAudit']>>[number];
 

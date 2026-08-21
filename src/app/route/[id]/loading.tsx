@@ -1,43 +1,43 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useLocalAccess } from '@/application/auth/local-access-context';
+import { markRouteDeletedForCloud } from '@/application/sync/route-cloud-sync';
+import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { useLocalAccess } from '@/application/auth/local-access-context';
-import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
-import { markRouteDeletedForCloud } from '@/application/sync/route-cloud-sync';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { ActivateRoute, CancelDraftRoute, ReopenRouteForPlanning } from '@/application/routes/route-commands';
 import { resolveRoute } from '@/application/routes/route-navigation';
 import {
-  GetLatestUndoableAction,
-  GetRouteProgress,
-  MarkAllStopsLoaded,
-  MarkStopLoaded,
-  MarkStopNotLoaded,
-  MarkStopUnloaded,
-  parseOdometer,
-  ReverseStopOrder,
-  SaveStartOdometer,
-  StartRoute,
-  UndoRouteAction,
-  type RouteProgress,
-  type UndoableAction,
+    GetLatestUndoableAction,
+    GetRouteProgress,
+    MarkAllStopsLoaded,
+    MarkStopLoaded,
+    MarkStopNotLoaded,
+    MarkStopUnloaded,
+    parseOdometer,
+    ReverseStopOrder,
+    SaveStartOdometer,
+    StartRoute,
+    UndoRouteAction,
+    type RouteProgress,
+    type UndoableAction,
 } from '@/application/routes/route-workday';
-import { FoundationScreen } from '@/components/foundation-screen';
 import { CheckIcon, CrossIcon, PencilIcon, TruckIcon } from '@/components/app-icons';
+import { FoundationScreen } from '@/components/foundation-screen';
 import { SwipeActionCard } from '@/components/swipe-action-card';
 import { RouteRepository } from '@/database/repositories/route-repository';
-import type { DeliveryStop, Route } from '@/domain/route';
 import { LOADING_FAILURE_REASONS, type LoadingFailureReason } from '@/domain/loading-failure';
+import type { DeliveryStop, Route } from '@/domain/route';
+import { employeeApi, type FuelStatus } from '@/infrastructure/auth/employee-session';
 import { Alert } from '@/ui/alert';
-import { etaLabel, legLabel, windowLabel, clockLabel } from '@/ui/route-eta-labels';
+import { formatWeightKg } from '@/ui/format-weight';
+import { clockLabel, etaLabel, legLabel, windowLabel } from '@/ui/route-eta-labels';
 import { userVisibleStopNote } from '@/ui/route-labels';
-import { fonts, radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
-import { formatWeightKg } from '@/ui/format-weight';
+import { fonts, radius, spacing, type } from '@/ui/tokens';
 import { describeVehicleLoad } from '@/ui/vehicle-load';
-import { employeeApi, type FuelStatus } from '@/infrastructure/auth/employee-session';
 
 export default function LoadingScreen() {
   const { profile, online } = useLocalAccess();
@@ -411,15 +411,11 @@ export default function LoadingScreen() {
           <Text style={styles.summaryText}>Planuotas atstumas: {route.estimatedDistanceKm === null ? '—' : `${route.estimatedDistanceKm.toFixed(1)} km`}</Text>
           <Text style={styles.summaryText}>Sandėlis / pradžia: {route.startLocation?.normalizedAddress ?? route.startLocation?.originalAddress ?? 'Nenurodyta'}</Text>
           <Text style={styles.summaryText}>Maršruto pabaiga: {route.endLocation?.normalizedAddress ?? route.endLocation?.originalAddress ?? 'Nenurodyta'}</Text>
-          {profile.role !== 'driver' ? <Text style={styles.scheduleHint}>Sandėlis jau įrašytas šiame maršrute — priskyrimo lange jo papildomai rinktis nereikia.</Text> : null}
           {clockLabel(route.plannedDepartureAt) ? (
             <Text style={styles.departureBadge} testID="planned-departure-label">
               Planuojamas išvykimas {clockLabel(route.plannedDepartureAt)}
             </Text>
           ) : null}
-          <Text style={styles.scheduleHint}>
-            Atvykimo laikai skaičiuojami nuo šio starto. Paspaudus „Pradėti maršrutą“ jie bus perskaičiuoti nuo realaus starto.
-          </Text>
         </View>
         {profile.role === 'driver' && online ? <View style={styles.fuelCard} testID="fuel-confirmation-card">
           <Text style={styles.summaryTitle}>Kuro likutis · {fuelStatus?.vehicle?.registrationNumber ?? 'automobilis'}</Text>
@@ -853,17 +849,17 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   plannedPrimaryButton: {
     flexDirection: 'row',
     gap: spacing.sm,
-    minHeight: 58,
+    minHeight: 50,
     borderRadius: radius.md,
     backgroundColor: colors.actionPrimary,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  plannedPrimaryText: { ...type.button, color: colors.textInverse, fontSize: 17 },
-  plannedSecondaryButton: { flexDirection: 'row', gap: spacing.sm, minHeight: 52, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
-  plannedSecondaryText: { ...type.button, color: colors.textSecondary },
-  plannedCancelButton: { flexDirection: 'row', gap: spacing.sm, minHeight: 52, borderRadius: radius.md, borderWidth: 1, borderColor: colors.danger, backgroundColor: colors.dangerSoft, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
-  plannedCancelText: { color: colors.danger, fontFamily: fonts.heading, fontSize: 15 },
+  plannedPrimaryText: { ...type.button, color: colors.textInverse, fontSize: 16 },
+  plannedSecondaryButton: { flexDirection: 'row', gap: spacing.sm, minHeight: 46, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
+  plannedSecondaryText: { ...type.button, color: colors.textSecondary, fontSize: 15 },
+  plannedCancelButton: { flexDirection: 'row', gap: spacing.sm, minHeight: 46, borderRadius: radius.md, borderWidth: 1, borderColor: colors.danger, backgroundColor: colors.dangerSoft, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
+  plannedCancelText: { color: colors.danger, fontFamily: fonts.heading, fontSize: 14 },
   cancelRouteButton: { minHeight: 56, borderRadius: radius.md, borderWidth: 1, borderColor: colors.danger, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
   cancelRouteText: { color: colors.danger, fontFamily: fonts.heading, fontSize: 16 },
   disabled: { opacity: 0.45 },
