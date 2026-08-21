@@ -1,12 +1,12 @@
-import { pbkdf2Sync, randomBytes, randomUUID, timingSafeEqual, createHash } from 'node:crypto';
 import { Firestore } from '@google-cloud/firestore';
-import { regionCodeFromSource, uniqueRegionCodes } from '../src/domain/route-code.js';
+import { createHash, pbkdf2Sync, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { calculateCompositeRouteProgress } from '../src/application/routes/composite-route-progress.js';
 import {
-  DEFAULT_ROUTE_PRICE_SETTINGS,
-  normalizeRoutePriceSettings,
-  type RoutePriceSettings,
+    DEFAULT_ROUTE_PRICE_SETTINGS,
+    normalizeRoutePriceSettings,
+    type RoutePriceSettings,
 } from '../src/application/routes/route-price.js';
+import { regionCodeFromSource, uniqueRegionCodes } from '../src/domain/route-code.js';
 
 export const EMPLOYEE_ROLES = ['admin', 'dispatcher', 'driver', 'quality'] as const;
 export type EmployeeRole = (typeof EMPLOYEE_ROLES)[number];
@@ -236,6 +236,8 @@ export type QualityStopMonitor = {
   plannedArrivalAt: string | null;
   deliveredAt: string | null;
   failedAt: string | null;
+  failureReason: string | null;
+  failureComment: string | null;
 };
 
 export type QualityRouteMonitor = {
@@ -1422,6 +1424,8 @@ export function buildQualityRouteMonitor(assignment: RouteAssignment, vehicle: F
       plannedArrivalAt: optionalText(stop.latest_estimated_arrival_at) ?? optionalText(stop.planned_arrival_at),
       deliveredAt: optionalText(stop.delivered_at),
       failedAt: optionalText(stop.failed_at),
+      failureReason: optionalText(stop.failure_reason),
+      failureComment: optionalText(stop.failure_comment),
     };
   });
   const totalWeightKg = finiteNumber(route.total_weight_kg, 0);

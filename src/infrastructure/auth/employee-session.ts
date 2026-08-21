@@ -1,5 +1,5 @@
-import { createGatewayAuthorizationHeaders } from '@/infrastructure/gateway/device-auth';
 import type { EmployeePermissions } from '@/application/auth/employee-permissions';
+import { createGatewayAuthorizationHeaders } from '@/infrastructure/gateway/device-auth';
 
 export const EMPLOYEE_ROLES = ['admin', 'dispatcher', 'driver', 'quality'] as const;
 export type EmployeeRole = (typeof EMPLOYEE_ROLES)[number];
@@ -173,6 +173,8 @@ export type QualityStopMonitor = {
   plannedArrivalAt: string | null;
   deliveredAt: string | null;
   failedAt: string | null;
+  failureReason: string | null;
+  failureComment: string | null;
 };
 
 export type QualityRouteMonitor = {

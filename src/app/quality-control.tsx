@@ -1,6 +1,6 @@
+import { Stack, useRouter, type Href } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
-import { Stack, useRouter, type Href } from 'expo-router';
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { roleHomePath } from '@/application/navigation/role-home';
@@ -8,25 +8,24 @@ import { AccountMenuSheet } from '@/components/account-menu-sheet';
 import { BackIcon } from '@/components/app-icons';
 import { TspBrand } from '@/components/tsp-brand';
 import { classifyDeliveryWindow, minutesLate } from '@/domain/delivery-window-timing';
-import { employeeApi, type QualityRouteMonitor, type QualityStopMonitor } from '@/infrastructure/auth/employee-session';
 import { useForegroundInterval } from '@/hooks/use-foreground-interval';
+import { employeeApi, type QualityRouteMonitor, type QualityStopMonitor } from '@/infrastructure/auth/employee-session';
 import { formatWeightKg } from '@/ui/format-weight';
-import { qualityBrandRed, qualityControlColors as colors } from '@/ui/quality-control-palette';
-import { fonts, radius, spacing, type } from '@/ui/tokens';
+import { qualityControlColors as colors, qualityBrandRed } from '@/ui/quality-control-palette';
 import type { ColorPalette } from '@/ui/theme-palette';
+import { fonts, radius, spacing, type } from '@/ui/tokens';
 
 const REFRESH_INTERVAL_MS = 15_000;
 const STALE_AFTER_MS = 120_000;
 const MINOR_DELAY_MINUTES = 45;
 
-type QualityFilter = 'in_progress' | 'waiting' | 'completed' | 'delivered';
-type FilterTone = 'info' | 'warning' | 'success' | 'delivered';
+type QualityFilter = 'in_progress' | 'waiting' | 'completed';
+type FilterTone = 'info' | 'warning' | 'success';
 
 const FILTERS: readonly { key: QualityFilter; label: string; tone: FilterTone }[] = [
   { key: 'in_progress', label: 'Kelyje', tone: 'info' },
   { key: 'waiting', label: 'Laukia', tone: 'warning' },
   { key: 'completed', label: 'Baigta', tone: 'success' },
-  { key: 'delivered', label: 'Pristatyta', tone: 'delivered' },
 ];
 
 export default function QualityControlScreen() {
@@ -84,16 +83,17 @@ export default function QualityControlScreen() {
   const visible = routes.filter((route) => route.status !== 'completed' || route.date === today);
   const active = visible.filter((route) => route.status === 'in_progress');
   const waiting = visible.filter((route) => ['assigned', 'downloaded'].includes(route.status));
-  const completed = visible.filter((route) => route.status === 'completed');
-  const routesWithDeliveries = visible.filter((route) => route.deliveredStops > 0);
-  const deliveredToday = visible.reduce((sum, route) => sum + route.deliveredStops, 0);
+  // Sort routes with delivery discrepancies (failed stops) first, so problems
+  // are visible without opening every card.
+  const completed = visible
+    .filter((route) => route.status === 'completed')
+    .sort((left, right) => right.failedStops - left.failedStops);
   const vehicleCount = new Set(visible.map((route) => route.vehicle?.id).filter(Boolean)).size;
-  const filteredRoutes = filter === 'in_progress' ? active : filter === 'waiting' ? waiting : filter === 'completed' ? completed : routesWithDeliveries;
+  const filteredRoutes = filter === 'in_progress' ? active : filter === 'waiting' ? waiting : completed;
   const filterCounts: Record<QualityFilter, number> = {
     in_progress: active.length,
     waiting: waiting.length,
     completed: completed.length,
-    delivered: deliveredToday,
   };
 
   return <SafeAreaView style={styles.safeArea}>
@@ -184,6 +184,7 @@ function RouteCard({ route, desktop, mobile, styles }: { route: QualityRouteMoni
       </View>
 
       <Text style={styles.regionCode}>{regionLabel(route.routeNumbers)}</Text>
+      {route.failedStops > 0 ? <Text style={styles.failedBadge}>{route.failedStops} {route.failedStops === 1 ? 'taškas' : 'taškai'} nepristatyta</Text> : null}
 
       <View style={styles.progressGrid}>
         <ProgressReadout label="TAŠKAI" primary={`${route.remainingStops} / ${route.totalStops}`} secondary={`${route.deliveredStops} pristatyta`} percent={route.progressPercent} styles={styles} tone="points" />
@@ -225,7 +226,7 @@ function NextStop({ stop, remainingWeightKg, styles }: { stop: QualityStopMonito
       <Text style={styles.nextRecipient}>{stop.recipient}</Text>
       <Text numberOfLines={2} style={styles.nextAddress}>{stop.address}</Text>
       <View style={styles.nextTimes}>
-        {formatWindow(stop) ? <Text style={styles.nextTime}>Langas {formatWindow(stop)}</Text> : null}
+        {formatWindow(stop) ? <Text style={styles.nextTime}>Pristatymo laikas {formatWindow(stop)}</Text> : null}
         {stop.plannedArrivalAt ? <Text style={styles.nextTime}>Atvykimas {formatClockShort(stop.plannedArrivalAt)}</Text> : null}
       </View>
       <Text style={styles.nextMeta}>{stop.routeNumber ? `Regionas ${stop.routeNumber} · ` : ''}{formatWeightKg(remainingWeightKg)} kg likę</Text>
@@ -244,7 +245,7 @@ function RouteSequenceStop({ stop, nextSequence, styles }: { stop: QualityStopMo
       <Text numberOfLines={1} style={styles.processedRecipient}>{stop.recipient}</Text>
       <Text numberOfLines={2} style={styles.processedAddress}>{stop.address}</Text>
       <View style={styles.sequenceMeta}>
-        {formatWindow(stop) ? <Text style={styles.processedWindow}>Langas {formatWindow(stop)}</Text> : null}
+        {formatWindow(stop) ? <Text style={styles.processedWindow}>Pristatymo laikas {formatWindow(stop)}</Text> : null}
         {stop.routeNumber ? <Text style={styles.processedWindow}>Regionas {stop.routeNumber}</Text> : null}
       </View>
     </View>
@@ -260,7 +261,11 @@ function StatusFilter({ active, label, onPress, tone, value, styles }: { active:
 }
 
 function stopTiming(stop: QualityStopMonitor): { label: string; tone: 'neutral' | 'success' | 'warning' | 'danger' } {
-  if (stop.status === 'failed') return { label: stop.failedAt ? `Nepristatyta ${formatClockShort(stop.failedAt)}` : 'Nepristatyta', tone: 'danger' };
+  if (stop.status === 'failed') {
+    const reason = [stop.failureReason, stop.failureComment].filter(Boolean).join(': ');
+    const clock = stop.failedAt ? ` ${formatClockShort(stop.failedAt)}` : '';
+    return { label: reason ? `Nepristatyta (${reason})${clock}` : `Nepristatyta${clock}`, tone: 'danger' };
+  }
   if (!stop.deliveredAt) return { label: 'Pristatyta', tone: 'success' };
   const clock = formatClockShort(stop.deliveredAt);
   const timing = classifyDeliveryWindow(stop.deliveredAt, stop.deliveryTimeFrom, stop.deliveryTimeTo);
@@ -274,8 +279,8 @@ function stopTiming(stop: QualityStopMonitor): { label: string; tone: 'neutral' 
   return { label: `Laiku · ${clock}`, tone: 'success' };
 }
 
-function filterTitle(filter: QualityFilter): string { return ({ in_progress: 'Kelyje', waiting: 'Laukia starto', completed: 'Baigti šiandien', delivered: 'Maršrutai su pristatytais taškais' })[filter]; }
-function emptyTitle(filter: QualityFilter): string { return ({ in_progress: 'Šiuo metu niekas nevažiuoja', waiting: 'Laukiančių maršrutų nėra', completed: 'Šiandien baigtų maršrutų nėra', delivered: 'Šiandien dar niekas nepristatyta' })[filter]; }
+function filterTitle(filter: QualityFilter): string { return ({ in_progress: 'Kelyje', waiting: 'Laukia starto', completed: 'Baigti šiandien' })[filter]; }
+function emptyTitle(filter: QualityFilter): string { return ({ in_progress: 'Šiuo metu niekas nevažiuoja', waiting: 'Laukiančių maršrutų nėra', completed: 'Šiandien baigtų maršrutų nėra' })[filter]; }
 function vehicleLabel(route: QualityRouteMonitor): string { return route.vehicle ? `${route.vehicle.registrationNumber} · ${route.vehicle.model}` : 'Automobilis nepriskirtas'; }
 function regionLabel(codes: string[]): string { return codes.length > 0 ? `Regionai ${codes.join(', ')}` : 'Regionas nenurodytas'; }
 function initials(name: string): string { return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join(''); }
@@ -309,6 +314,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   cardState: { alignItems: 'flex-end', gap: spacing.xs }, expandIcon: { fontFamily: fonts.heading, fontSize: 21, lineHeight: 22, color: colors.primary },
   status: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.pill }, statusActive: { backgroundColor: colors.infoSoft }, statusWaiting: { backgroundColor: colors.warningSoft }, statusCompleted: { backgroundColor: colors.accentSoft }, statusText: { ...type.label }, statusTextActive: { color: colors.info }, statusTextWaiting: { color: colors.warning }, statusTextCompleted: { color: colors.success },
   regionCode: { ...type.bodyStrong, color: colors.info },
+  failedBadge: { ...type.secondaryStrong, color: colors.danger, marginTop: 2 },
   progressGrid: { flexDirection: 'row', gap: spacing.sm }, progressBlock: { flex: 1, minWidth: 0, padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.surfaceSubtle, borderWidth: 1, borderColor: colors.borderSubtle }, progressReadoutHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.xs }, progressLabel: { ...type.label, color: colors.textMuted }, progressPercent: { ...type.meta, fontFamily: fonts.headingSemiBold, color: colors.primary }, progressPrimary: { ...type.bodyStrong, color: colors.text, marginTop: spacing.xs }, progressSecondary: { ...type.meta, color: colors.textMuted, marginTop: 1 }, progressTrack: { height: 6, marginTop: spacing.sm, borderRadius: radius.pill, overflow: 'hidden', backgroundColor: colors.surfaceMuted }, progressFill: { height: '100%', borderRadius: radius.pill, backgroundColor: colors.info }, progressFillWeight: { backgroundColor: qualityBrandRed }, expandHint: { ...type.meta, textAlign: 'center', color: colors.textMuted },
   startReadout: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md, paddingHorizontal: spacing.sm }, startLabel: { ...type.label, color: colors.textMuted }, startValue: { ...type.bodyStrong, color: colors.primary },
   details: { gap: spacing.md, paddingHorizontal: spacing.lg, paddingBottom: spacing.lg, borderTopWidth: 1, borderTopColor: colors.borderSubtle, paddingTop: spacing.lg },
@@ -317,6 +323,6 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   sequenceNext: { borderLeftColor: colors.info, backgroundColor: colors.infoSoft }, sequenceNextNumber: { backgroundColor: colors.info }, sequenceNextNumberText: { color: colors.textInverse }, sequenceMeta: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   cardFooter: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.borderSubtle }, updated: { ...type.meta, color: colors.textMuted }, updatedStale: { color: colors.warning }, started: { ...type.meta, color: colors.textMuted },
   bottomDock: { borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surface, shadowColor: colors.primary, shadowOpacity: 0.1, shadowRadius: 12, shadowOffset: { width: 0, height: -3 }, elevation: 8 }, bottomDockInner: { width: '100%', maxWidth: 1440, alignSelf: 'center', paddingHorizontal: spacing.sm, paddingTop: spacing.sm, paddingBottom: spacing.sm, gap: spacing.xs }, bottomDockInnerWide: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.xl, gap: spacing.md },
-  filters: { flex: 1, flexDirection: 'row', gap: spacing.xs }, filter: { flex: 1, minWidth: 0, minHeight: 54, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceSubtle, borderWidth: 1, borderColor: colors.border }, filterActive_info: { backgroundColor: colors.info, borderColor: colors.info }, filterActive_warning: { backgroundColor: colors.warning, borderColor: colors.warning }, filterActive_success: { backgroundColor: colors.success, borderColor: colors.success }, filterActive_delivered: { backgroundColor: colors.primary, borderColor: colors.primary }, filterPressed: { opacity: 0.82 }, filterValue: { fontFamily: fonts.heading, fontSize: 20, lineHeight: 22, color: colors.text }, filterValueActive: { color: colors.textInverse }, filterLabel: { ...type.label, fontSize: 9, lineHeight: 12, color: colors.textMuted, marginTop: 2 }, filterLabelActive: { color: colors.textInverse },
+  filters: { flex: 1, flexDirection: 'row', gap: spacing.xs }, filter: { flex: 1, minWidth: 0, minHeight: 54, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceSubtle, borderWidth: 1, borderColor: colors.border }, filterActive_info: { backgroundColor: colors.info, borderColor: colors.info }, filterActive_warning: { backgroundColor: colors.warning, borderColor: colors.warning }, filterActive_success: { backgroundColor: colors.success, borderColor: colors.success }, filterPressed: { opacity: 0.82 }, filterValue: { fontFamily: fonts.heading, fontSize: 20, lineHeight: 22, color: colors.text }, filterValueActive: { color: colors.textInverse }, filterLabel: { ...type.label, fontSize: 9, lineHeight: 12, color: colors.textMuted, marginTop: 2 }, filterLabelActive: { color: colors.textInverse },
   connection: { minHeight: 42, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingLeft: spacing.sm }, connectionWide: { width: 310 }, liveDot: { width: 9, height: 9, borderRadius: radius.pill, backgroundColor: colors.success }, liveDotOffline: { backgroundColor: colors.danger }, liveLabel: { ...type.label, color: colors.text }, refreshTime: { ...type.meta, color: colors.textMuted }, refreshButton: { minHeight: 40, minWidth: 92, paddingHorizontal: spacing.md, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.infoSoft }, refreshPressed: { backgroundColor: colors.primarySoft }, refreshText: { ...type.button, color: colors.info }, disabled: { opacity: 0.55 },
 });
