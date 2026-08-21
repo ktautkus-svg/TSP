@@ -1,31 +1,31 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Modal, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { ActivityIndicator, Modal, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 
-import { assignRouteToDriver, completeAssignedRoute } from '@/application/auth/route-assignment-sync';
+import { useLocalAccess } from '@/application/auth/local-access-context';
 import { effectiveAssignmentStatus, isActiveAssignment } from '@/application/auth/route-assignment-status';
+import { assignRouteToDriver, completeAssignedRoute } from '@/application/auth/route-assignment-sync';
+import { roleHomePath } from '@/application/navigation/role-home';
 import { CancelDraftRoute, ReopenRouteForPlanning } from '@/application/routes/route-commands';
-import { AdminCompleteRoute } from '@/application/routes/route-workday';
 import {
-  DEFAULT_ROUTE_PRICE_SETTINGS,
-  estimatePreliminaryRoutePrice,
-  normalizeRoutePriceSettings,
-  type PreliminaryRoutePrice,
-  type RoutePriceSettings,
+    DEFAULT_ROUTE_PRICE_SETTINGS,
+    estimatePreliminaryRoutePrice,
+    normalizeRoutePriceSettings,
+    type PreliminaryRoutePrice,
+    type RoutePriceSettings,
 } from '@/application/routes/route-price';
+import { AdminCompleteRoute } from '@/application/routes/route-workday';
 import { markRouteDeletedForCloud } from '@/application/sync/route-cloud-sync';
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
-import { useLocalAccess } from '@/application/auth/local-access-context';
-import { roleHomePath } from '@/application/navigation/role-home';
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon, TrashIcon } from '@/components/app-icons';
-import { employeeApi, type EmployeeProfile, type ServerFleetVehicle, type ServerRouteAssignment } from '@/infrastructure/auth/employee-session';
 import { uniqueRegionCodes } from '@/domain/route-code';
+import { employeeApi, type EmployeeProfile, type ServerFleetVehicle, type ServerRouteAssignment } from '@/infrastructure/auth/employee-session';
 import { Alert } from '@/ui/alert';
-import { describeVehicleLoad } from '@/ui/vehicle-load';
-import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
+import { radius, spacing, type } from '@/ui/tokens';
+import { describeVehicleLoad } from '@/ui/vehicle-load';
 
 type LocalRoute = {
   id: string;
@@ -68,6 +68,8 @@ export default function RouteManagementScreen() {
   } | null>(null);
   const [editingAssignment, setEditingAssignment] = useState<ServerRouteAssignment | null>(null);
   const [editingAssignmentDate, setEditingAssignmentDate] = useState('');
+  const [activeSegment, setActiveSegment] = useState<'routes' | 'active'>('routes');
+  const [openCardMenuId, setOpenCardMenuId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const loadLocalRoutes = async () => {
@@ -168,8 +170,10 @@ export default function RouteManagementScreen() {
 
   const selectRoute = (routeId: string | null) => {
     setSelectedRouteId(routeId);
-    setSelectedDriverId(null);
-    setSelectedVehicleId(null);
+    // Quick-assign: when there is exactly one obvious driver and vehicle,
+    // preselect them so the dispatcher only has to confirm, not pick twice.
+    setSelectedDriverId(routeId && freeDrivers.length === 1 ? freeDrivers[0].id : null);
+    setSelectedVehicleId(routeId && vehicles.length === 1 ? vehicles[0].id : null);
     setOpenPicker(null);
     setAssignmentCompleted(null);
   };
@@ -457,7 +461,22 @@ export default function RouteManagementScreen() {
           }} style={styles.secondaryButton}><Text style={styles.secondaryText}>Priskirti kitą</Text></Pressable>
         </View> : null}
 
-        {!assignmentCompleted && !selectedRoute ? <View style={styles.routeSelectionPanel} testID="route-first-selection">
+        {!assignmentCompleted && !selectedRoute ? <View style={styles.segmentedControl} testID="route-management-segments">
+          <Pressable
+            onPress={() => setActiveSegment('routes')}
+            style={[styles.segmentButton, activeSegment === 'routes' && styles.segmentButtonActive]}
+            testID="segment-routes">
+            <Text style={[styles.segmentText, activeSegment === 'routes' && styles.segmentTextActive]}>Maršrutai</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setActiveSegment('active')}
+            style={[styles.segmentButton, activeSegment === 'active' && styles.segmentButtonActive]}
+            testID="segment-active">
+            <Text style={[styles.segmentText, activeSegment === 'active' && styles.segmentTextActive]}>Aktyvūs priskyrimai{activeAssignments.length > 0 ? ` (${activeAssignments.length})` : ''}</Text>
+          </Pressable>
+        </View> : null}
+
+        {!assignmentCompleted && !selectedRoute && activeSegment === 'routes' ? <View style={styles.routeSelectionPanel} testID="route-first-selection">
           <View style={styles.formHeading}>
             <View style={styles.formHeadingText}>
               <Text style={styles.panelTitle}>Pasirinkite maršrutą</Text>
@@ -484,19 +503,58 @@ export default function RouteManagementScreen() {
                 <Text style={styles.routeNumbers}>{route.total_stops} taškų · {Math.round(route.total_weight_kg)} kg · {formatKm(route.estimated_distance_km)}</Text>
                 {assignment ? <Text style={styles.assignmentMeta}>{assignment.driverName}{assignment.vehicle ? ` · ${assignment.vehicle.registrationNumber}` : ' · automobilis nepriskirtas'}{assignmentLoadLabel(assignment, route.total_weight_kg)}</Text> : null}
                 <Text numberOfLines={2} style={styles.routeEndpoint}>{endpointLabel(route.start_location_json)} → {endpointLabel(route.end_location_json)}</Text>
-                <View style={styles.routeCardActions}>
-                  <Pressable onPress={() => router.push({ pathname: '/route/[id]/overview', params: { id: route.id, mode: 'management' } } as Href)} style={styles.routeSecondaryAction}><Text style={styles.routeSecondaryActionText}>Peržiūrėti</Text></Pressable>
-                  {['draft', 'planned', 'in_progress'].includes(route.status) ? <Pressable onPress={() => editSequence(route)} style={styles.routeSecondaryAction}><Text style={styles.routeSecondaryActionText}>Keisti eiliškumą</Text></Pressable> : null}
-                  {canAssign ? <Pressable onPress={() => selectRoute(route.id)} style={styles.routePrimaryAction}><Text style={styles.routePrimaryActionText}>Priskirti</Text><ChevronRightIcon size={18} color={colors.textInverse} /></Pressable> : null}
-                  {['loading', 'loaded', 'in_progress'].includes(route.status) ? <Pressable accessibilityLabel={`Užbaigti ${formatDate(route.date)} maršrutą`} disabled={busy} onPress={() => completeLocalRoute(route)} style={[styles.routeCompleteAction, busy && styles.disabled]} testID={`complete-local-route-${route.id}`}><CheckIcon size={17} color={colors.textInverse} /><Text style={styles.routeCompleteActionText}>Užbaigti</Text></Pressable> : null}
-                  {['draft', 'planned'].includes(route.status) ? <Pressable accessibilityLabel={`Ištrinti ${formatDate(route.date)} maršrutą`} disabled={busy} onPress={() => deleteRoute(route)} style={[styles.routeDeleteAction, busy && styles.disabled]}><TrashIcon size={17} color={colors.danger} /><Text style={styles.routeDeleteActionText}>Ištrinti</Text></Pressable> : null}
-                </View>
+                {(() => {
+                  const canReorder = ['draft', 'planned', 'in_progress'].includes(route.status);
+                  const canComplete = ['loading', 'loaded', 'in_progress'].includes(route.status);
+                  const canDelete = ['draft', 'planned'].includes(route.status);
+                  const primary = canAssign
+                    ? { key: 'assign', label: 'Priskirti', onPress: () => selectRoute(route.id) }
+                    : canComplete
+                      ? { key: 'complete', label: 'Užbaigti', onPress: () => completeLocalRoute(route) }
+                      : { key: 'view', label: 'Peržiūrėti', onPress: () => router.push({ pathname: '/route/[id]/overview', params: { id: route.id, mode: 'management' } } as Href) };
+                  const overflow: { key: string; label: string; danger?: boolean; onPress: () => void }[] = [];
+                  if (primary.key !== 'view') overflow.push({ key: 'view', label: 'Peržiūrėti', onPress: () => router.push({ pathname: '/route/[id]/overview', params: { id: route.id, mode: 'management' } } as Href) });
+                  if (canReorder) overflow.push({ key: 'reorder', label: 'Keisti eiliškumą', onPress: () => editSequence(route) });
+                  if (primary.key !== 'complete' && canComplete) overflow.push({ key: 'complete', label: 'Užbaigti', onPress: () => completeLocalRoute(route) });
+                  if (canDelete) overflow.push({ key: 'delete', label: 'Ištrinti', danger: true, onPress: () => deleteRoute(route) });
+                  const menuOpen = openCardMenuId === route.id;
+                  return <View style={styles.cardActionsWrap}>
+                    <View style={styles.routeCardActions}>
+                      <Pressable
+                        disabled={busy}
+                        onPress={primary.onPress}
+                        style={[canAssign ? styles.routePrimaryAction : styles.routeSecondaryAction, busy && styles.disabled]}>
+                        <Text style={canAssign ? styles.routePrimaryActionText : styles.routeSecondaryActionText}>{primary.label}</Text>
+                        {canAssign ? <ChevronRightIcon size={18} color={colors.textInverse} /> : null}
+                      </Pressable>
+                      {overflow.length > 0 ? <Pressable
+                        accessibilityLabel="Daugiau veiksmų"
+                        onPress={() => setOpenCardMenuId((current) => current === route.id ? null : route.id)}
+                        style={styles.cardMenuButton}
+                        testID={`route-card-menu-${route.id}`}>
+                        <Text style={styles.cardMenuButtonText}>⋯</Text>
+                      </Pressable> : null}
+                    </View>
+                    {menuOpen ? <View style={styles.cardMenuList} testID={`route-card-menu-list-${route.id}`}>
+                      {overflow.map((action) => (
+                        <Pressable
+                          disabled={busy}
+                          key={action.key}
+                          onPress={() => { setOpenCardMenuId(null); action.onPress(); }}
+                          style={[styles.cardMenuItem, busy && styles.disabled]}>
+                          {action.key === 'delete' ? <TrashIcon size={16} color={colors.danger} /> : null}
+                          <Text style={action.danger ? styles.cardMenuItemDangerText : styles.cardMenuItemText}>{action.label}</Text>
+                        </Pressable>
+                      ))}
+                    </View> : null}
+                  </View>;
+                })()}
               </View>;
             })}
           </View>}
         </View> : null}
 
-        {!selectedRoute && activeAssignments.length > 0 ? <View style={styles.activeAssignmentsPanel} testID="active-assignment-management">
+        {!assignmentCompleted && !selectedRoute && activeSegment === 'active' ? <View style={styles.activeAssignmentsPanel} testID="active-assignment-management">
           <View style={styles.formHeading}>
             <View style={styles.formHeadingText}>
               <Text style={styles.panelTitle}>Aktyvūs priskyrimai</Text>
@@ -504,7 +562,10 @@ export default function RouteManagementScreen() {
             </View>
             <Text style={styles.stepBadge}>{activeAssignments.length}</Text>
           </View>
-          <View style={styles.activeAssignmentList}>
+          {activeAssignments.length === 0 ? <View style={styles.empty}>
+            <Text style={styles.emptyTitle}>Aktyvių priskyrimų nėra</Text>
+            <Text style={styles.panelHint}>Priskirkite maršrutą vairuotojui skiltyje „Maršrutai“.</Text>
+          </View> : <View style={styles.activeAssignmentList}>
             {activeAssignments.map((assignment) => {
               const localRoute = routes.find((route) => route.id === assignment.routeId);
               const status = effectiveAssignmentStatus(assignment);
@@ -518,15 +579,41 @@ export default function RouteManagementScreen() {
                   <Text style={styles.assignmentMeta}>{assignment.driverName}{assignment.vehicle ? ` · ${assignment.vehicle.registrationNumber} · ${assignment.vehicle.model}` : ' · automobilis nepriskirtas'}{assignmentLoadLabel(assignment, Number(assignment.routeSnapshot.route.total_weight_kg) || localRoute?.total_weight_kg || 0)}</Text>
                   <Text style={styles.routeEndpoint}>{localRoute ? 'Maršrutas yra šiame įrenginyje' : 'Vietinio maršruto šiame įrenginyje nėra'}</Text>
                 </View>
-                <View style={styles.activeAssignmentActions}>
-                  <Pressable disabled={busy || !online} onPress={() => completeAssignment(assignment)} style={[styles.routeCompleteAction, (busy || !online) && styles.disabled]} testID={`complete-assignment-${assignment.id}`}><CheckIcon size={17} color={colors.textInverse} /><Text style={styles.routeCompleteActionText}>Užbaigti</Text></Pressable>
-                  {localRoute ? <Pressable onPress={() => router.push({ pathname: '/route/[id]/overview', params: { id: localRoute.id, mode: 'management' } } as Href)} style={styles.routeSecondaryAction}><Text style={styles.routeSecondaryActionText}>Peržiūrėti</Text></Pressable> : null}
-                  <Pressable disabled={busy || !online} onPress={() => openAssignmentEditor(assignment)} style={[styles.routeEditAction, (busy || !online) && styles.disabled]} testID={`edit-assignment-${assignment.id}`}><Text style={styles.routeEditActionText}>Redaguoti</Text></Pressable>
-                  <Pressable accessibilityLabel={`Pašalinti ${assignmentRouteLabel(assignment)} priskyrimą`} disabled={busy || !online} onPress={() => removeAssignment(assignment)} style={[styles.routeDeleteAction, (busy || !online) && styles.disabled]}><TrashIcon size={17} color={colors.danger} /><Text style={styles.routeDeleteActionText}>Pašalinti priskyrimą</Text></Pressable>
-                </View>
+                {(() => {
+                  const overflow: { key: string; label: string; danger?: boolean; onPress: () => void }[] = [];
+                  if (localRoute) overflow.push({ key: 'view', label: 'Peržiūrėti', onPress: () => router.push({ pathname: '/route/[id]/overview', params: { id: localRoute.id, mode: 'management' } } as Href) });
+                  overflow.push({ key: 'edit', label: 'Redaguoti', onPress: () => openAssignmentEditor(assignment) });
+                  overflow.push({ key: 'remove', label: 'Pašalinti priskyrimą', danger: true, onPress: () => removeAssignment(assignment) });
+                  const menuOpen = openCardMenuId === assignment.id;
+                  return <View style={styles.cardActionsWrap}>
+                    <View style={styles.activeAssignmentActions}>
+                      <Pressable disabled={busy || !online} onPress={() => completeAssignment(assignment)} style={[styles.routeCompleteAction, (busy || !online) && styles.disabled]} testID={`complete-assignment-${assignment.id}`}><CheckIcon size={17} color={colors.textInverse} /><Text style={styles.routeCompleteActionText}>Užbaigti</Text></Pressable>
+                      <Pressable
+                        accessibilityLabel="Daugiau veiksmų"
+                        disabled={!online}
+                        onPress={() => setOpenCardMenuId((current) => current === assignment.id ? null : assignment.id)}
+                        style={[styles.cardMenuButton, !online && styles.disabled]}
+                        testID={`assignment-card-menu-${assignment.id}`}>
+                        <Text style={styles.cardMenuButtonText}>⋯</Text>
+                      </Pressable>
+                    </View>
+                    {menuOpen ? <View style={styles.cardMenuList} testID={`assignment-card-menu-list-${assignment.id}`}>
+                      {overflow.map((action) => (
+                        <Pressable
+                          disabled={busy || !online}
+                          key={action.key}
+                          onPress={() => { setOpenCardMenuId(null); action.onPress(); }}
+                          style={[styles.cardMenuItem, (busy || !online) && styles.disabled]}>
+                          {action.key === 'remove' ? <TrashIcon size={16} color={colors.danger} /> : null}
+                          <Text style={action.danger ? styles.cardMenuItemDangerText : styles.cardMenuItemText}>{action.label}</Text>
+                        </Pressable>
+                      ))}
+                    </View> : null}
+                  </View>;
+                })()}
               </View>;
             })}
-          </View>
+          </View>}
         </View> : null}
 
         {!assignmentCompleted && selectedRoute ? <View style={styles.assignmentForm} testID="route-assignment-form">
@@ -807,6 +894,18 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   routePrimaryActionText: { ...type.button, color: colors.textInverse },
   routeDeleteAction: { minHeight: 44, paddingHorizontal: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.danger, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs },
   routeDeleteActionText: { ...type.button, color: colors.danger },
+  segmentedControl: { flexDirection: 'row', gap: spacing.xs, padding: 4, borderRadius: radius.md, backgroundColor: colors.surfaceMuted, alignSelf: 'flex-start' },
+  segmentButton: { minHeight: 40, paddingHorizontal: spacing.md, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center' },
+  segmentButtonActive: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderStrong },
+  segmentText: { ...type.button, color: colors.textMuted },
+  segmentTextActive: { color: colors.text },
+  cardActionsWrap: { marginTop: 'auto', gap: spacing.xs },
+  cardMenuButton: { minWidth: 44, minHeight: 44, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+  cardMenuButtonText: { ...type.sectionTitle, color: colors.textSecondary, lineHeight: 20 },
+  cardMenuList: { borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, overflow: 'hidden' },
+  cardMenuItem: { minHeight: 44, paddingHorizontal: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.xs, borderBottomWidth: 1, borderBottomColor: colors.borderSubtle },
+  cardMenuItemText: { ...type.button, color: colors.text },
+  cardMenuItemDangerText: { ...type.button, color: colors.danger },
   changeRouteButton: { minHeight: 44, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface },
   changeRouteText: { ...type.button, color: colors.textSecondary },
   selectedRouteSummary: { padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceSubtle, borderWidth: 1, borderColor: colors.borderSubtle },
