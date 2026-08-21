@@ -1,23 +1,23 @@
-import { useCallback, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Stack, useFocusEffect, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
+import { useCallback, useMemo, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { FoundationScreen } from '@/components/foundation-screen';
-import { DriverAppTabs } from '@/components/driver-app-tabs';
-import { StatBarChart } from '@/components/stat-bar-chart';
-import { StatisticsRepository } from '@/database/repositories/statistics-repository';
-import { buildStatisticsSnapshot, type FailureReasonCount, type StatisticsPeriodTotals, type StatisticsSnapshot, type StatsRouteRow } from '@/domain/statistics';
-import { formatLithuanianDate } from '@/ui/history-labels';
-import { durationLabel } from '@/ui/route-eta-labels';
-import { radius, spacing, type } from '@/ui/tokens';
-import { useTheme } from '@/ui/theme';
-import type { ColorPalette } from '@/ui/theme-palette';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { roleHomePath } from '@/application/navigation/role-home';
-import { employeeApi, type EmployeeProfile, type ServerRouteAssignment } from '@/infrastructure/auth/employee-session';
+import { DriverAppTabs } from '@/components/driver-app-tabs';
+import { FoundationScreen } from '@/components/foundation-screen';
+import { StatBarChart } from '@/components/stat-bar-chart';
+import { StatisticsRepository } from '@/database/repositories/statistics-repository';
 import { uniqueRegionCodes } from '@/domain/route-code';
+import { buildStatisticsSnapshot, type FailureReasonCount, type StatisticsPeriodTotals, type StatisticsSnapshot, type StatsRouteRow } from '@/domain/statistics';
+import { employeeApi, type EmployeeProfile, type ServerRouteAssignment } from '@/infrastructure/auth/employee-session';
 import { devWarn } from '@/ui/dev-log';
+import { formatLithuanianDate } from '@/ui/history-labels';
+import { durationLabel } from '@/ui/route-eta-labels';
+import { useTheme } from '@/ui/theme';
+import type { ColorPalette } from '@/ui/theme-palette';
+import { radius, spacing, type } from '@/ui/tokens';
 
 export default function StatisticsScreen() {
   const db = useSQLiteContext();
@@ -30,6 +30,7 @@ export default function StatisticsScreen() {
   const [drivers, setDrivers] = useState<EmployeeProfile[]>([]);
   const [assignments, setAssignments] = useState<ServerRouteAssignment[]>([]);
   const [selectedDriverId, setSelectedDriverId] = useState('all');
+  const [selectedVehicleId, setSelectedVehicleId] = useState('all');
   const [error, setError] = useState<string | null>(null);
 
   useFocusEffect(useCallback(() => {
@@ -60,8 +61,11 @@ export default function StatisticsScreen() {
   const goHome = () => router.replace(roleHomePath(profile.role) as Href);
 
   const remoteSnapshot = useMemo(() => profile.role === 'admin' && assignments.length > 0
-    ? assignmentStatistics(assignments, selectedDriverId)
-    : null, [assignments, profile.role, selectedDriverId]);
+    ? assignmentStatistics(assignments, selectedDriverId, selectedVehicleId)
+    : null, [assignments, profile.role, selectedDriverId, selectedVehicleId]);
+  const vehicles = useMemo(() => [...new Map(
+    assignments.map((assignment) => assignment.vehicle).filter((vehicle): vehicle is NonNullable<typeof vehicle> => Boolean(vehicle)).map((vehicle) => [vehicle.id, vehicle]),
+  ).values()], [assignments]);
   const displaySnapshot = remoteSnapshot ?? snapshot;
   const empty = displaySnapshot !== null && displaySnapshot.allTime.routeCount === 0;
 
@@ -77,6 +81,12 @@ export default function StatisticsScreen() {
         <View style={styles.driverFilters} testID="statistics-driver-filter">
           <Pressable onPress={() => setSelectedDriverId('all')} style={[styles.driverFilter, selectedDriverId === 'all' && styles.driverFilterActive]}><Text style={[styles.driverFilterText, selectedDriverId === 'all' && styles.driverFilterTextActive]}>Visi vairuotojai</Text></Pressable>
           {drivers.map((driver) => <Pressable key={driver.id} onPress={() => setSelectedDriverId(driver.id)} style={[styles.driverFilter, selectedDriverId === driver.id && styles.driverFilterActive]}><Text style={[styles.driverFilterText, selectedDriverId === driver.id && styles.driverFilterTextActive]}>{driver.displayName}</Text></Pressable>)}
+        </View>
+      ) : null}
+      {profile.role === 'admin' && vehicles.length > 0 ? (
+        <View style={styles.driverFilters} testID="statistics-vehicle-filter">
+          <Pressable onPress={() => setSelectedVehicleId('all')} style={[styles.driverFilter, selectedVehicleId === 'all' && styles.driverFilterActive]}><Text style={[styles.driverFilterText, selectedVehicleId === 'all' && styles.driverFilterTextActive]}>Visi automobiliai</Text></Pressable>
+          {vehicles.map((vehicle) => <Pressable key={vehicle.id} onPress={() => setSelectedVehicleId(vehicle.id)} style={[styles.driverFilter, selectedVehicleId === vehicle.id && styles.driverFilterActive]}><Text style={[styles.driverFilterText, selectedVehicleId === vehicle.id && styles.driverFilterTextActive]}>{vehicle.registrationNumber}</Text></Pressable>)}
         </View>
       ) : null}
       <Pressable style={styles.tripSheetButton} onPress={() => router.push({ pathname: '/trip-sheet', params: { returnTo: 'statistics' } } as Href)} testID="open-trip-sheets">
@@ -178,8 +188,9 @@ export default function StatisticsScreen() {
   );
 }
 
-function assignmentStatistics(assignments: ServerRouteAssignment[], driverId: string): StatisticsSnapshot {
-  const selected = assignments.filter((assignment) => driverId === 'all' || assignment.driverId === driverId);
+function assignmentStatistics(assignments: ServerRouteAssignment[], driverId: string, vehicleId: string): StatisticsSnapshot {
+  const selected = assignments.filter((assignment) => (driverId === 'all' || assignment.driverId === driverId)
+    && (vehicleId === 'all' || assignment.vehicle?.id === vehicleId));
   const rows: StatsRouteRow[] = [];
   const failures = new Map<string, number>();
   for (const assignment of selected) {
