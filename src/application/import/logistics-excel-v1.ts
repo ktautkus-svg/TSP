@@ -1,16 +1,16 @@
 import { strFromU8, unzipSync } from 'fflate';
 
 import {
-  LOGISTICS_EXCEL_V1,
-  type ExcelCellValue,
-  type ExcelColumnMapping,
-  type ExcelDeliveryGroup,
-  type ExcelImportIssueCode,
-  type ExcelImportPreview,
-  type ExcelImportSummary,
-  type ExcelSourceRow,
-  type ExcelWorkbookSheet,
-  type LogisticsExcelTemplate,
+    LOGISTICS_EXCEL_V1,
+    type ExcelCellValue,
+    type ExcelColumnMapping,
+    type ExcelDeliveryGroup,
+    type ExcelImportIssueCode,
+    type ExcelImportPreview,
+    type ExcelImportSummary,
+    type ExcelSourceRow,
+    type ExcelWorkbookSheet,
+    type LogisticsExcelTemplate,
 } from '@/domain/import/excel-models';
 import { normalizeRegionCode } from '@/domain/route-code';
 
@@ -35,6 +35,10 @@ const IGNORED_SHEET_NAMES = new Set([
   'kelių mokestis',
   'keliu mokestis',
   'ataskaita',
+  'atmintinė',
+  'atmintine',
+  'atmintinės',
+  'atmintines',
 ]);
 
 export function normalizeExcelSheetName(name: string): string {

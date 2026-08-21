@@ -1,71 +1,71 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
-import * as DocumentPicker from 'expo-document-picker';
-import * as ImagePicker from 'expo-image-picker';
-import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
-import { Stack, useFocusEffect, useRouter, type Href } from 'expo-router';
-import { useSQLiteContext } from 'expo-sqlite';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { roleHomePath } from '@/application/navigation/role-home';
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
-
-import { Alert } from '@/ui/alert';
-import { resolveDeliveryAddresses } from '@/application/import/address-resolver';
-import { getRouteCreationBlockers, hasRouteCoordinates } from '@/application/import/route-creation-readiness';
+import * as DocumentPicker from 'expo-document-picker';
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
+import * as ImagePicker from 'expo-image-picker';
+import { Stack, useFocusEffect, useRouter, type Href } from 'expo-router';
+import { useSQLiteContext } from 'expo-sqlite';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  excelPreviewToDraftStops,
-  excelPreviewToImportResult,
+    ActivityIndicator,
+    Pressable,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
+} from 'react-native';
+
+import { resolveDeliveryAddresses } from '@/application/import/address-resolver';
+import {
+    excelPreviewToDraftStops,
+    excelPreviewToImportResult,
 } from '@/application/import/excel-route-mapper';
 import { ImagePreprocessingPipeline } from '@/application/import/image-preprocessing';
 import { ImportEngine } from '@/application/import/import-engine';
 import {
-  filterExcelPreviewByRouteCodes,
-  groupExcelRows,
-  parseLogisticsExcelWorkbook,
-  summarizeExcelRows,
+    filterExcelPreviewByRouteCodes,
+    groupExcelRows,
+    parseLogisticsExcelWorkbook,
+    summarizeExcelRows,
 } from '@/application/import/logistics-excel-v1';
+import { getRouteCreationBlockers, hasRouteCoordinates } from '@/application/import/route-creation-readiness';
+import { defaultPlanningDate, defaultPlanningTime, planningDepartureIso } from '@/application/routes/planning-schedule';
 import {
-  CancelDraftRoute,
-  CreateDraftRouteWithStops,
-  RouteCommandError,
-  type DraftStopInput,
+    CancelDraftRoute,
+    CreateDraftRouteWithStops,
+    RouteCommandError,
+    type DraftStopInput,
 } from '@/application/routes/route-commands';
 import {
-  importedDeliveriesToDraftStops,
+    importedDeliveriesToDraftStops,
 } from '@/application/routes/route-draft-mappers';
 import { resolveRoute } from '@/application/routes/route-navigation';
-import { defaultPlanningDate, defaultPlanningTime, planningDepartureIso } from '@/application/routes/planning-schedule';
 import { DEFAULT_HOME_ADDRESS, DEFAULT_WAREHOUSE_ADDRESS, GetDefaultLocations, KRETINGA_WAREHOUSE_ADDRESS, PlanningModePreference, RouteEndPreference, SaveDefaultLocation } from '@/application/routes/saved-locations';
+import { CameraIcon, ChevronDownIcon, ChevronRightIcon, ClipboardIcon, ExcelIcon, GalleryIcon, PdfIcon, PencilIcon, RegionIcon, WindowIcon } from '@/components/app-icons';
+import { FoundationScreen } from '@/components/foundation-screen';
+import { ExcelImportRepository, type ExcelSheetSession } from '@/database/repositories/excel-import-repository';
+import { RouteRepository } from '@/database/repositories/route-repository';
 import { confidenceLevel } from '@/domain/import/confidence';
 import {
-  LOGISTICS_EXCEL_V1,
-  type ExcelColumnMapping,
-  type ExcelImportPreview,
-  type ExcelSourceRow,
+    LOGISTICS_EXCEL_V1,
+    type ExcelColumnMapping,
+    type ExcelImportPreview,
+    type ExcelSourceRow,
 } from '@/domain/import/excel-models';
 import type { ImportDocument, ImportField, ImportResult, ParsedDelivery } from '@/domain/import/models';
 import type { PlanningMode, RouteEndpoint } from '@/domain/route';
-import { FoundationScreen } from '@/components/foundation-screen';
-import { CameraIcon, ChevronDownIcon, ChevronRightIcon, ClipboardIcon, ExcelIcon, GalleryIcon, PdfIcon, PencilIcon, RegionIcon, WindowIcon } from '@/components/app-icons';
-import { RouteRepository } from '@/database/repositories/route-repository';
-import { ExcelImportRepository, type ExcelSheetSession } from '@/database/repositories/excel-import-repository';
 import { readPickedExcelAsset } from '@/infrastructure/import/excel-file-adapter';
 import { ExpoImageTransformAdapter } from '@/infrastructure/import/expo-image-transform-adapter';
 import { GatewayAddressResolver } from '@/infrastructure/import/gateway-address-resolver';
 import { GoogleVisionOcrProvider } from '@/infrastructure/import/ocr/google-vision-ocr-provider';
 import { MockOcrProvider } from '@/infrastructure/import/ocr/mock-ocr-provider';
 import { SQLiteImportAuditRepository } from '@/infrastructure/import/sqlite-import-audit-repository';
-import { radius, spacing, type } from '@/ui/tokens';
+import { Alert } from '@/ui/alert';
+import { devWarn } from '@/ui/dev-log';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
-import { devWarn } from '@/ui/dev-log';
+import { radius, spacing, type } from '@/ui/tokens';
 
 type ManualRowResolution = {
   address: string;
@@ -1511,7 +1511,7 @@ function DeliveryEditor(props: {
                   ? styles.neutralBorder
                   : styles[`${level}Border`],
               ]}
-              placeholder={required ? 'Įveskite ir patvirtinkite adresą' : 'Neprivaloma'}
+              placeholder={required ? 'Adresas arba koordinatės (54.6872, 25.2797)' : 'Neprivaloma'}
               placeholderTextColor={colors.textMuted}
             />
           </View>

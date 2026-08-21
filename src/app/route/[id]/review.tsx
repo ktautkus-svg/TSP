@@ -9,6 +9,7 @@ import {
     View,
 } from 'react-native';
 
+import { parseCoordinateInput } from '@/application/import/address-resolver';
 import {
     DeleteDraftStop,
     ReorderDraftStops,
@@ -694,16 +695,27 @@ function StopEditor(props: {
       <TextInput
         value={address}
         onChangeText={setAddress}
-        onBlur={() => { void props.onEdit({
-          originalAddress: address.trim(),
-          geocodingQuery: address.trim(),
-          normalizedAddress: null,
-          latitude: null,
-          longitude: null,
-          addressValidationState: 'unconfirmed',
-          geocodingError: null,
-        }); }}
-        placeholder="Adresas *"
+        onBlur={() => {
+          const coordinates = parseCoordinateInput(address.trim());
+          void props.onEdit(coordinates ? {
+            originalAddress: address.trim(),
+            geocodingQuery: address.trim(),
+            normalizedAddress: `${coordinates.latitude.toFixed(5)}, ${coordinates.longitude.toFixed(5)} (koordinatės)`,
+            latitude: coordinates.latitude,
+            longitude: coordinates.longitude,
+            addressValidationState: 'auto_confirmed',
+            geocodingError: null,
+          } : {
+            originalAddress: address.trim(),
+            geocodingQuery: address.trim(),
+            normalizedAddress: null,
+            latitude: null,
+            longitude: null,
+            addressValidationState: 'unconfirmed',
+            geocodingError: null,
+          });
+        }}
+        placeholder="Adresas arba koordinatės (54.6872, 25.2797) *"
         style={styles.input}
       />
       {stop.geocodingQuery && stop.geocodingQuery !== stop.originalAddress ? (

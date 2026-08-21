@@ -4,6 +4,20 @@ export interface AddressLookupProvider {
   resolve(address: string): Promise<ResolvedAddressCandidate[]>;
 }
 
+/** Accepts "54.6872, 25.2797" style input so a stop can be pinned directly
+ * when geocoding repeatedly fails or the driver already knows the coordinates. */
+const COORDINATE_PATTERN = /^\s*(-?\d{1,3}(?:\.\d+)?)\s*[,;]\s*(-?\d{1,3}(?:\.\d+)?)\s*$/;
+
+export function parseCoordinateInput(value: string): { latitude: number; longitude: number } | null {
+  const match = COORDINATE_PATTERN.exec(value);
+  if (!match) return null;
+  const latitude = Number(match[1]);
+  const longitude = Number(match[2]);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return null;
+  return { latitude, longitude };
+}
+
 export async function resolveDeliveryAddresses(
   deliveries: ParsedDelivery[],
   provider: AddressLookupProvider,
@@ -13,6 +27,26 @@ export async function resolveDeliveryAddresses(
   for (const [index, delivery] of deliveries.entries()) {
     if (!delivery.address.value) {
       resolved.push({ ...delivery, validationState: 'invalid', addressConfidence: 0 });
+      continue;
+    }
+    const coordinates = parseCoordinateInput(delivery.address.value);
+    if (coordinates) {
+      const candidate: ResolvedAddressCandidate = {
+        normalizedAddress: `${coordinates.latitude.toFixed(5)}, ${coordinates.longitude.toFixed(5)} (koordinatės)`,
+        latitude: coordinates.latitude,
+        longitude: coordinates.longitude,
+        placeId: null,
+        confidence: 1,
+      };
+      resolved.push({
+        ...delivery,
+        addressQuery: delivery.address.value,
+        addressCandidates: [candidate],
+        selectedAddress: candidate,
+        addressConfidence: 1,
+        importConfidence: (delivery.parserConfidence + 1) / 2,
+        validationState: 'valid',
+      });
       continue;
     }
     const addressQuery = queries[index] ?? delivery.address.value;
