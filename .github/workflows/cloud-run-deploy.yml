@@ -136,14 +136,33 @@ jobs:
           GIT_SHA=$(git rev-parse --short HEAD)
           IMAGE="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/cloud-run-source-deploy/${CLOUD_RUN_SERVICE}:sha${GIT_SHA}"
           # Build a uniquely tagged image first. `gcloud run deploy --source`
-          # kept reusing the failed revision logistikos-pristatymai-00177-2n2
-          # and ignored --revision-suffix, so the @/ import fix never started.
-          gcloud builds submit \
+          # kept reusing the failed revision logistikos-pristatymai-00177-2n2.
+          # `gcloud builds submit` without --async also fails: this SA cannot
+          # read the default Cloud Build logs bucket.
+          BUILD_ID=$(gcloud builds submit \
             --project="$GCP_PROJECT_ID" \
             --tag "$IMAGE" \
             --timeout=1200s \
-            --suppress-logs \
-            --quiet
+            --async \
+            --format='value(id)')
+          echo "Cloud Build ${BUILD_ID} -> ${IMAGE}"
+          STATUS=""
+          for _ in $(seq 1 120); do
+            STATUS=$(gcloud builds describe "$BUILD_ID" --project="$GCP_PROJECT_ID" --format='value(status)')
+            echo "$(date -u +%H:%M:%S) Cloud Build ${STATUS}"
+            case "$STATUS" in
+              SUCCESS) break ;;
+              FAILURE|TIMEOUT|CANCELLED|EXPIRED|INTERNAL_ERROR)
+                echo "Cloud Build failed: ${STATUS}"
+                exit 1
+                ;;
+            esac
+            sleep 10
+          done
+          if [ "$STATUS" != SUCCESS ]; then
+            echo "Cloud Build did not finish in time: ${STATUS:-unknown}"
+            exit 1
+          fi
           gcloud run deploy "$CLOUD_RUN_SERVICE" \
             --image "$IMAGE" \
             --project="$GCP_PROJECT_ID" \
