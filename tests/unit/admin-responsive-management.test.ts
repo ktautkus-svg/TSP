@@ -38,6 +38,16 @@ describe('responsive administration workspace', () => {
     expect(storeSource).toContain('transaction.delete(currentRef)');
   });
 
+  it('removes drivers and vehicles while preserving historical route snapshots', () => {
+    expect(adminSource).toContain('method: \'DELETE\'');
+    expect(apiSource).toContain("vehicleMatch && request.method === 'DELETE'");
+    expect(apiSource).toContain("userMatch && request.method === 'DELETE'");
+    expect(storeSource).toContain('async deleteVehicle');
+    expect(storeSource).toContain('async deleteUser');
+    expect(storeSource).toContain("'USER_HAS_ACTIVE_ROUTE'");
+    expect(storeSource).toContain("'VEHICLE_IN_USE'");
+  });
+
   it('updates an assigned route date through the shared employee API', () => {
     expect(apiSource).toContain("adminAssignmentMatch && request.method === 'PATCH'");
     expect(apiSource).toContain('store.updateAssignmentSchedule');

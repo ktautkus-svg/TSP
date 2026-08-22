@@ -58,7 +58,7 @@ describe('several planned routes and durable return stage', () => {
 
     await migrateDatabase(adapter as unknown as SQLiteDatabase);
 
-    expect(adapter.raw.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 21 });
+    expect(adapter.raw.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 22 });
     const columns = adapter.raw.prepare('PRAGMA table_info(routes)').all().map((column) => String(column.name));
     expect(columns).toEqual(expect.arrayContaining([
       'return_destination_kind',

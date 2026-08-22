@@ -38,27 +38,27 @@ export const ROUTE_ALTERNATIVE_LABELS: Record<
   },
   free_fastest: {
     title: 'Greičiausias',
-    group: 'Nepaisant laiko langų',
+    group: 'Nepaisant pristatymo laikų',
     objective: 'fastest',
-    comment: 'Mažiausias vairavimo laikas, langai ignoruojami.',
+    comment: 'Mažiausias vairavimo laikas, pristatymo laikai neapriboja eiliškumo.',
   },
   free_shortest: {
     title: 'Trumpiausias',
-    group: 'Nepaisant laiko langų',
+    group: 'Nepaisant pristatymo laikų',
     objective: 'shortest',
-    comment: 'Mažiausias kilometražas, langai ignoruojami.',
+    comment: 'Mažiausias kilometražas, pristatymo laikai neapriboja eiliškumo.',
   },
   timed_fastest: {
     title: 'Greičiausias',
-    group: 'Pagal laiko langus',
+    group: 'Pagal pristatymo laikus',
     objective: 'fastest',
-    comment: 'Greičiausias variantas, kuris dar taikosi į langus.',
+    comment: 'Greičiausias variantas, derinamas prie nurodytų pristatymo laikų.',
   },
   timed_shortest: {
     title: 'Trumpiausias',
-    group: 'Pagal laiko langus',
+    group: 'Pagal pristatymo laikus',
     objective: 'shortest',
-    comment: 'Trumpiausias variantas, kuris dar taikosi į langus.',
+    comment: 'Trumpiausias variantas, derinamas prie nurodytų pristatymo laikų.',
   },
 };
 

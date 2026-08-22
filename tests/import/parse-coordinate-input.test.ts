@@ -37,7 +37,9 @@ describe('parseCoordinateInput', () => {
     expect(parseCoordinateInput('54.6872, 400')).toBeNull();
   });
 
-  it('does not attempt to parse maps.lt links (different coordinate system)', () => {
-    expect(parseCoordinateInput('https://www.maps.lt/map/?xy=584000,6070000&z=12')).toBeNull();
+  it('converts maps.lt LKS-94 metres to WGS84 coordinates', () => {
+    const result = parseCoordinateInput('https://www.maps.lt/map/?xy=584000,6070000&z=12');
+    expect(result?.latitude).toBeCloseTo(54.76, 1);
+    expect(result?.longitude).toBeCloseTo(25.29, 1);
   });
 });

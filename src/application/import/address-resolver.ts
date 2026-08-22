@@ -8,10 +8,7 @@ export interface AddressLookupProvider {
  * when geocoding repeatedly fails or the driver already knows the coordinates. */
 const COORDINATE_PATTERN = /^\s*(-?\d{1,3}(?:\.\d+)?)\s*[,;]\s*(-?\d{1,3}(?:\.\d+)?)\s*$/;
 /** Google Maps URLs carry the pin location in one of a few query shapes:
- * "/@lat,lng,15z", "?q=lat,lng" or the internal "!3dlat!4dlng" place param.
- * Maps.lt is intentionally not handled here — its share links use the
- * LKS-94 grid (metres, not degrees), and converting that wrongly would send
- * the driver to the wrong address, which is worse than not recognising it. */
+ * "/@lat,lng,15z", "?q=lat,lng" or the internal "!3dlat!4dlng" place param. */
 const GOOGLE_MAPS_URL_PATTERNS = [
   /@(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/,
   /!3d(-?\d{1,3}\.\d+)!4d(-?\d{1,3}\.\d+)/,
@@ -22,11 +19,76 @@ export function parseCoordinateInput(value: string): { latitude: number; longitu
   const direct = COORDINATE_PATTERN.exec(value);
   const fromUrl = direct ? null : GOOGLE_MAPS_URL_PATTERNS.map((pattern) => pattern.exec(value)).find(Boolean) ?? null;
   const match = direct ?? fromUrl;
-  if (!match) return null;
+  if (!match) return parseMapsLtCoordinate(value);
   const latitude = Number(match[1]);
   const longitude = Number(match[2]);
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
   if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return null;
+  return { latitude, longitude };
+}
+
+function parseMapsLtCoordinate(value: string): { latitude: number; longitude: number } | null {
+  if (!/https?:\/\/(?:www\.)?maps\.lt\//i.test(value)) return null;
+  const decoded = safeDecode(value);
+  const coordinateMatch = /(?:[?#&]|\b)xy=([\d.]+)[,;]([\d.]+)/i.exec(decoded);
+  if (!coordinateMatch) return null;
+  const first = Number(coordinateMatch[1]);
+  const second = Number(coordinateMatch[2]);
+  if (!Number.isFinite(first) || !Number.isFinite(second)) return null;
+
+  // Older maps.lt links use LKS-94 (EPSG:3346): easting, northing in metres.
+  if (first >= 200_000 && first <= 900_000 && second >= 5_900_000 && second <= 6_300_000) {
+    return lks94ToWgs84(first, second);
+  }
+  // Newer ArcGIS views may expose Web Mercator coordinates.
+  if (Math.abs(first) > 1_000_000 && Math.abs(second) > 1_000_000) {
+    const longitude = first / 20_037_508.34 * 180;
+    const latitude = 180 / Math.PI * (2 * Math.atan(Math.exp(second / 20_037_508.34 * Math.PI)) - Math.PI / 2);
+    if (latitude >= 53 && latitude <= 57 && longitude >= 20 && longitude <= 27) return { latitude, longitude };
+  }
+  return null;
+}
+
+function safeDecode(value: string): string {
+  try { return decodeURIComponent(value); } catch { return value; }
+}
+
+/** Inverse Transverse Mercator for Lithuania's LKS-94 / EPSG:3346 grid. */
+function lks94ToWgs84(easting: number, northing: number): { latitude: number; longitude: number } | null {
+  const a = 6_378_137;
+  const e2 = 0.00669438002290;
+  const ep2 = e2 / (1 - e2);
+  const k0 = 0.9998;
+  const centralMeridian = 24 * Math.PI / 180;
+  const meridionalArc = northing / k0;
+  const e1 = (1 - Math.sqrt(1 - e2)) / (1 + Math.sqrt(1 - e2));
+  const mu = meridionalArc / (a * (1 - e2 / 4 - 3 * e2 ** 2 / 64 - 5 * e2 ** 3 / 256));
+  const phi1 = mu
+    + (3 * e1 / 2 - 27 * e1 ** 3 / 32) * Math.sin(2 * mu)
+    + (21 * e1 ** 2 / 16 - 55 * e1 ** 4 / 32) * Math.sin(4 * mu)
+    + (151 * e1 ** 3 / 96) * Math.sin(6 * mu)
+    + (1097 * e1 ** 4 / 512) * Math.sin(8 * mu);
+  const sinPhi = Math.sin(phi1);
+  const cosPhi = Math.cos(phi1);
+  const tanPhi = Math.tan(phi1);
+  const n1 = a / Math.sqrt(1 - e2 * sinPhi ** 2);
+  const r1 = a * (1 - e2) / (1 - e2 * sinPhi ** 2) ** 1.5;
+  const t1 = tanPhi ** 2;
+  const c1 = ep2 * cosPhi ** 2;
+  const d = (easting - 500_000) / (n1 * k0);
+  const latitudeRadians = phi1 - (n1 * tanPhi / r1) * (
+    d ** 2 / 2
+    - (5 + 3 * t1 + 10 * c1 - 4 * c1 ** 2 - 9 * ep2) * d ** 4 / 24
+    + (61 + 90 * t1 + 298 * c1 + 45 * t1 ** 2 - 252 * ep2 - 3 * c1 ** 2) * d ** 6 / 720
+  );
+  const longitudeRadians = centralMeridian + (
+    d
+    - (1 + 2 * t1 + c1) * d ** 3 / 6
+    + (5 - 2 * c1 + 28 * t1 - 3 * c1 ** 2 + 8 * ep2 + 24 * t1 ** 2) * d ** 5 / 120
+  ) / cosPhi;
+  const latitude = latitudeRadians * 180 / Math.PI;
+  const longitude = longitudeRadians * 180 / Math.PI;
+  if (latitude < 53 || latitude > 57 || longitude < 20 || longitude > 27) return null;
   return { latitude, longitude };
 }
 

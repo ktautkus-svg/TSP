@@ -557,6 +557,25 @@ export class EmployeeAuthStore {
     return updated!;
   }
 
+  async deleteVehicle(vehicleIdInput: string): Promise<FleetVehicle> {
+    const vehicleId = validateVehicleId(vehicleIdInput);
+    const reference = this.vehicles.doc(vehicleId);
+    const document = await reference.get();
+    const stored = document.data() as FleetVehicle | undefined;
+    const vehicle = stored ? normalizeVehicle(stored) : undefined;
+    if (!vehicle) throw new EmployeeApiError('VEHICLE_NOT_FOUND', 'Automobilis nerastas.', 404);
+
+    const assignments = await this.assignments.get();
+    const activeAssignment = assignments.docs
+      .map((item) => item.data() as RouteAssignment)
+      .find((assignment) => !['completed', 'cancelled'].includes(assignment.status) && assignment.vehicle?.id === vehicleId);
+    if (activeAssignment) {
+      throw new EmployeeApiError('VEHICLE_IN_USE', 'Automobilis naudojamas aktyviame maršrute. Pirmiausia užbaikite arba pašalinkite priskyrimą.', 409);
+    }
+    await reference.delete();
+    return vehicle;
+  }
+
   async getFuelStatus(profile: EmployeeProfile): Promise<FuelStatus> {
     const vehicleQuery = await this.vehicles.where('assignedDriverId', '==', profile.id).limit(1).get();
     const stored = vehicleQuery.docs[0]?.data() as FleetVehicle | undefined;
@@ -782,6 +801,37 @@ export class EmployeeAuthStore {
       await batch.commit();
     }
     return publicProfile({ ...current, ...patch } as StoredUser);
+  }
+
+  async deleteUser(userIdInput: string): Promise<EmployeeProfile> {
+    const userId = safeId(userIdInput);
+    const reference = this.users.doc(userId);
+    const document = await reference.get();
+    const current = document.data() as StoredUser | undefined;
+    if (!current) throw new EmployeeApiError('USER_NOT_FOUND', 'Darbuotojas nerastas.', 404);
+
+    const assignments = await this.assignments.where('driverId', '==', userId).get();
+    const activeAssignment = assignments.docs
+      .map((item) => item.data() as RouteAssignment)
+      .find((assignment) => !['completed', 'cancelled'].includes(assignment.status));
+    if (activeAssignment) {
+      throw new EmployeeApiError('USER_HAS_ACTIVE_ROUTE', 'Darbuotojas turi aktyvų maršrutą. Pirmiausia užbaikite arba pašalinkite priskyrimą.', 409);
+    }
+
+    const [sessions, assignedVehicles] = await Promise.all([
+      this.sessions.where('userId', '==', userId).get(),
+      this.vehicles.where('assignedDriverId', '==', userId).get(),
+    ]);
+    const batch = this.db.batch();
+    sessions.docs.forEach((session) => batch.delete(session.ref));
+    assignedVehicles.docs.forEach((vehicle) => batch.update(vehicle.ref, {
+      assignedDriverId: null,
+      updatedAt: new Date().toISOString(),
+    }));
+    batch.delete(this.usernames.doc(current.username));
+    batch.delete(reference);
+    await batch.commit();
+    return publicProfile(current);
   }
 
   async createAssignment(input: {

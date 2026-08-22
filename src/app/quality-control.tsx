@@ -19,13 +19,13 @@ const REFRESH_INTERVAL_MS = 15_000;
 const STALE_AFTER_MS = 120_000;
 const MINOR_DELAY_MINUTES = 45;
 
-type QualityFilter = 'in_progress' | 'waiting' | 'completed';
-type FilterTone = 'info' | 'warning' | 'success';
+type QualityFilter = 'in_progress' | 'waiting' | 'issues';
+type FilterTone = 'info' | 'warning' | 'danger';
 
 const FILTERS: readonly { key: QualityFilter; label: string; tone: FilterTone }[] = [
   { key: 'in_progress', label: 'Kelyje', tone: 'info' },
   { key: 'waiting', label: 'Laukia', tone: 'warning' },
-  { key: 'completed', label: 'Baigta', tone: 'success' },
+  { key: 'issues', label: 'Neatitikimai', tone: 'danger' },
 ];
 
 export default function QualityControlScreen() {
@@ -41,6 +41,7 @@ export default function QualityControlScreen() {
   const [error, setError] = useState<string | null>(null);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [filter, setFilter] = useState<QualityFilter>('in_progress');
+  const [completedOpen, setCompletedOpen] = useState(false);
   const desktop = width >= 980;
   const mobile = width < 720;
 
@@ -88,12 +89,15 @@ export default function QualityControlScreen() {
   const completed = visible
     .filter((route) => route.status === 'completed')
     .sort((left, right) => right.failedStops - left.failedStops);
+  const issues = visible
+    .filter((route) => route.failedStops > 0)
+    .sort((left, right) => Number(left.status === 'completed') - Number(right.status === 'completed') || right.failedStops - left.failedStops);
   const vehicleCount = new Set(visible.map((route) => route.vehicle?.id).filter(Boolean)).size;
-  const filteredRoutes = filter === 'in_progress' ? active : filter === 'waiting' ? waiting : completed;
+  const filteredRoutes = filter === 'in_progress' ? active : filter === 'waiting' ? waiting : issues;
   const filterCounts: Record<QualityFilter, number> = {
     in_progress: active.length,
     waiting: waiting.length,
-    completed: completed.length,
+    issues: issues.length,
   };
 
   return <SafeAreaView style={styles.safeArea}>
@@ -121,26 +125,35 @@ export default function QualityControlScreen() {
         <Text style={styles.subtitle}>{formatVehicleCount(vehicleCount)} · {visible.length} {visible.length === 1 ? 'maršrutas' : 'maršrutai'}</Text>
       </View>
 
+      <View accessibilityLabel="Maršrutų suvestinė" style={styles.filters}>
+        {FILTERS.map((item) => <StatusFilter
+          key={item.key}
+          active={filter === item.key}
+          label={item.label}
+          onPress={() => setFilter(item.key)}
+          styles={styles}
+          tone={item.tone}
+          value={filterCounts[item.key]}
+        />)}
+      </View>
+
       {error ? <Text accessibilityRole="alert" style={styles.warning}>{error}</Text> : null}
       {busy && routes.length === 0 ? <ActivityIndicator color={colors.info} size="large" /> : null}
       {!busy && filteredRoutes.length === 0 ? <View style={styles.empty}><Text style={styles.emptyTitle}>{emptyTitle(filter)}</Text><Text style={styles.muted}>Duomenys atsinaujina automatiškai kas 15 sekundžių.</Text></View> : null}
 
-      {filteredRoutes.length > 0 ? <RouteSection title={filterTitle(filter)} count={filteredRoutes.length} routes={filteredRoutes} desktop={desktop} mobile={mobile} styles={styles} /> : null}
+      {filteredRoutes.length > 0 ? <RouteSection title={filterTitle(filter)} count={filteredRoutes.length} routes={filteredRoutes} desktop={desktop} mobile={mobile} styles={styles} defaultExpanded={filter === 'issues'} /> : null}
+
+      {filter !== 'issues' && completed.length > 0 ? <View style={styles.completedSection}>
+        <Pressable accessibilityRole="button" accessibilityState={{ expanded: completedOpen }} onPress={() => setCompletedOpen((value) => !value)} style={({ pressed }) => [styles.completedHeader, pressed && styles.cardSummaryPressed]}>
+          <View><Text style={styles.sectionTitle}>Baigta šiandien</Text><Text style={styles.muted}>Užbaigti maršrutai suskleisti, kad netrukdytų stebėti darbo.</Text></View>
+          <View style={styles.completedHeaderRight}><Text style={styles.count}>{completed.length}</Text><Text style={styles.expandIcon}>{completedOpen ? '⌃' : '⌄'}</Text></View>
+        </Pressable>
+        {completedOpen ? <View style={[styles.routeGrid, desktop && styles.routeGridDesktop]}>{completed.map((route) => <RouteCard key={`completed-${route.id}`} route={route} desktop={desktop} mobile={mobile} styles={styles} />)}</View> : null}
+      </View> : null}
     </ScrollView>
 
     <View style={styles.bottomDock}>
       <View style={[styles.bottomDockInner, !mobile && styles.bottomDockInnerWide]}>
-        <View accessibilityLabel="Maršrutų suvestinė" style={styles.filters}>
-          {FILTERS.map((item) => <StatusFilter
-            key={item.key}
-            active={filter === item.key}
-            label={item.label}
-            onPress={() => setFilter(item.key)}
-            styles={styles}
-            tone={item.tone}
-            value={filterCounts[item.key]}
-          />)}
-        </View>
         <View style={[styles.connection, !mobile && styles.connectionWide]}>
           <View style={[styles.liveDot, !online && styles.liveDotOffline]} />
           <View style={styles.flex}>
@@ -156,15 +169,15 @@ export default function QualityControlScreen() {
   </SafeAreaView>;
 }
 
-function RouteSection({ title, count, routes, desktop, mobile, styles }: { title: string; count: number; routes: QualityRouteMonitor[]; desktop: boolean; mobile: boolean; styles: ReturnType<typeof createStyles> }) {
+function RouteSection({ title, count, routes, desktop, mobile, styles, defaultExpanded = false }: { title: string; count: number; routes: QualityRouteMonitor[]; desktop: boolean; mobile: boolean; styles: ReturnType<typeof createStyles>; defaultExpanded?: boolean }) {
   return <View style={styles.section}>
     <View style={styles.sectionHeading}><Text style={styles.sectionTitle}>{title}</Text><Text style={styles.count}>{count}</Text></View>
-    <View style={[styles.routeGrid, desktop && styles.routeGridDesktop]}>{routes.map((route) => <RouteCard key={route.id} route={route} desktop={desktop} mobile={mobile} styles={styles} />)}</View>
+    <View style={[styles.routeGrid, desktop && styles.routeGridDesktop]}>{routes.map((route) => <RouteCard key={route.id} route={route} desktop={desktop} mobile={mobile} styles={styles} defaultExpanded={defaultExpanded} />)}</View>
   </View>;
 }
 
-function RouteCard({ route, desktop, mobile, styles }: { route: QualityRouteMonitor; desktop: boolean; mobile: boolean; styles: ReturnType<typeof createStyles> }) {
-  const [expanded, setExpanded] = useState(false);
+function RouteCard({ route, desktop, mobile, styles, defaultExpanded = false }: { route: QualityRouteMonitor; desktop: boolean; mobile: boolean; styles: ReturnType<typeof createStyles>; defaultExpanded?: boolean }) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const stale = Date.now() - Date.parse(route.updatedAt) > STALE_AFTER_MS && route.status === 'in_progress';
   const completed = route.status === 'completed';
   const deliveredWeightKg = Math.max(0, route.totalWeightKg - route.remainingWeightKg);
@@ -198,6 +211,13 @@ function RouteCard({ route, desktop, mobile, styles }: { route: QualityRouteMoni
     </Pressable>
 
     {expanded ? <View style={styles.details}>
+      {route.failedStops > 0 ? <View style={styles.issueSummary}>
+        <Text style={styles.issueSummaryTitle}>NEATITIKIMAI</Text>
+        {route.stops.filter((stop) => stop.status === 'failed').map((stop) => <View key={`issue-${stop.sequence}`} style={styles.issueRow}>
+          <Text style={styles.issueSequence}>{stop.sequence}</Text>
+          <View style={styles.flex}><Text style={styles.issueAddress}>{stop.address}</Text><Text style={styles.issueReason}>{failureLabel(stop)}</Text></View>
+        </View>)}
+      </View> : null}
       {route.nextStop ? <NextStop stop={route.nextStop} remainingWeightKg={route.remainingWeightKg} styles={styles} /> : <View style={styles.nextStopDone}><Text style={styles.nextDoneText}>{completed ? 'Maršrutas užbaigtas' : 'Visi pristatymo taškai apdoroti'}</Text></View>}
 
       <View style={styles.processedSection}>
@@ -279,8 +299,11 @@ function stopTiming(stop: QualityStopMonitor): { label: string; tone: 'neutral' 
   return { label: `Laiku · ${clock}`, tone: 'success' };
 }
 
-function filterTitle(filter: QualityFilter): string { return ({ in_progress: 'Kelyje', waiting: 'Laukia starto', completed: 'Baigti šiandien' })[filter]; }
-function emptyTitle(filter: QualityFilter): string { return ({ in_progress: 'Šiuo metu niekas nevažiuoja', waiting: 'Laukiančių maršrutų nėra', completed: 'Šiandien baigtų maršrutų nėra' })[filter]; }
+function failureLabel(stop: QualityStopMonitor): string {
+  return [stop.failureReason, stop.failureComment].filter(Boolean).join(' · ') || 'Priežastis nenurodyta';
+}
+function filterTitle(filter: QualityFilter): string { return ({ in_progress: 'Kelyje dabar', waiting: 'Laukia starto', issues: 'Neatitikimai' })[filter]; }
+function emptyTitle(filter: QualityFilter): string { return ({ in_progress: 'Šiuo metu niekas nevažiuoja', waiting: 'Laukiančių maršrutų nėra', issues: 'Neatitikimų nėra' })[filter]; }
 function vehicleLabel(route: QualityRouteMonitor): string { return route.vehicle ? `${route.vehicle.registrationNumber} · ${route.vehicle.model}` : 'Automobilis nepriskirtas'; }
 function regionLabel(codes: string[]): string { return codes.length > 0 ? `Regionai ${codes.join(', ')}` : 'Regionas nenurodytas'; }
 function initials(name: string): string { return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join(''); }
@@ -308,6 +331,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   warning: { ...type.bodyStrong, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.warningSoft, color: colors.warning },
   empty: { padding: spacing.xl, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }, emptyTitle: { ...type.sectionTitle, color: colors.text }, muted: { ...type.secondary, color: colors.textMuted },
   section: { gap: spacing.md }, sectionHeading: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm }, sectionTitle: { ...type.sectionTitle, color: colors.text, fontSize: 20, lineHeight: 26 }, count: { minWidth: 30, textAlign: 'center', paddingVertical: 4, borderRadius: radius.pill, overflow: 'hidden', backgroundColor: colors.infoSoft, ...type.secondaryStrong, color: colors.info },
+  completedSection: { gap: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.md }, completedHeader: { minHeight: 64, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md }, completedHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   routeGrid: { gap: spacing.md }, routeGridDesktop: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start' }, routeCard: { borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, overflow: 'hidden', shadowColor: colors.primary, shadowOpacity: 0.07, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 2 }, routeCardMobile: {}, routeCardDesktop: { width: '48.9%', flexGrow: 1, maxWidth: '50%' }, routeCardCompleted: { borderColor: colors.border },
   cardSummary: { padding: spacing.lg, gap: spacing.md }, cardSummaryPressed: { backgroundColor: colors.surfaceSubtle },
   cardHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing.md }, identity: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }, avatar: { width: 44, height: 44, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.infoSoft }, avatarText: { ...type.bodyStrong, color: colors.info }, flex: { flex: 1, minWidth: 0 }, driverName: { ...type.sectionTitle, color: colors.text }, vehicle: { ...type.secondary, color: colors.textMuted, marginTop: 2 },
@@ -318,11 +342,12 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   progressGrid: { flexDirection: 'row', gap: spacing.sm }, progressBlock: { flex: 1, minWidth: 0, padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.surfaceSubtle, borderWidth: 1, borderColor: colors.borderSubtle }, progressReadoutHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.xs }, progressLabel: { ...type.label, color: colors.textMuted }, progressPercent: { ...type.meta, fontFamily: fonts.headingSemiBold, color: colors.primary }, progressPrimary: { ...type.bodyStrong, color: colors.text, marginTop: spacing.xs }, progressSecondary: { ...type.meta, color: colors.textMuted, marginTop: 1 }, progressTrack: { height: 6, marginTop: spacing.sm, borderRadius: radius.pill, overflow: 'hidden', backgroundColor: colors.surfaceMuted }, progressFill: { height: '100%', borderRadius: radius.pill, backgroundColor: colors.info }, progressFillWeight: { backgroundColor: qualityBrandRed }, expandHint: { ...type.meta, textAlign: 'center', color: colors.textMuted },
   startReadout: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md, paddingHorizontal: spacing.sm }, startLabel: { ...type.label, color: colors.textMuted }, startValue: { ...type.bodyStrong, color: colors.primary },
   details: { gap: spacing.md, paddingHorizontal: spacing.lg, paddingBottom: spacing.lg, borderTopWidth: 1, borderTopColor: colors.borderSubtle, paddingTop: spacing.lg },
+  issueSummary: { gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.danger, backgroundColor: colors.dangerSoft }, issueSummaryTitle: { ...type.label, color: colors.danger }, issueRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm }, issueSequence: { minWidth: 28, textAlign: 'center', paddingVertical: 4, borderRadius: radius.sm, overflow: 'hidden', ...type.secondaryStrong, color: colors.textInverse, backgroundColor: colors.danger }, issueAddress: { ...type.bodyStrong, color: colors.text }, issueReason: { ...type.secondaryStrong, color: colors.danger, marginTop: 2 },
   nextStop: { flexDirection: 'row', alignItems: 'stretch', gap: spacing.md, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.infoSoft, borderWidth: 1, borderColor: colors.border }, nextSequence: { width: 56, alignItems: 'center', justifyContent: 'center', borderRightWidth: 1, borderRightColor: colors.border }, nextSequenceLabel: { ...type.label, color: colors.info }, nextSequenceValue: { fontSize: 26, lineHeight: 32, fontFamily: fonts.heading, color: colors.info }, nextRecipient: { ...type.cardTitle, color: colors.text }, nextAddress: { ...type.body, color: colors.textSecondary, marginTop: 2 }, nextTimes: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.xs }, nextTime: { ...type.meta, fontFamily: fonts.headingSemiBold, color: colors.warning }, nextMeta: { ...type.meta, color: colors.info, marginTop: spacing.xs }, nextStopDone: { minHeight: 74, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.accentSoft }, nextDoneText: { ...type.bodyStrong, color: colors.success },
   processedSection: { gap: spacing.sm }, processedTitle: { ...type.label, color: colors.textMuted }, processedStop: { minHeight: 68, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.sm, borderLeftWidth: 4, borderRadius: radius.sm, backgroundColor: colors.surfaceSubtle }, processedStop_neutral: { borderLeftColor: colors.textMuted }, processedStop_success: { borderLeftColor: colors.success }, processedStop_warning: { borderLeftColor: colors.warning }, processedStop_danger: { borderLeftColor: colors.danger }, processedSequence: { width: 30, height: 30, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceMuted }, processedSequenceText: { ...type.secondaryStrong, color: colors.text }, processedRecipient: { ...type.bodyStrong, color: colors.text }, processedAddress: { ...type.meta, color: colors.textMuted }, processedWindow: { ...type.meta, color: colors.textSecondary, marginTop: 2 }, timingBadge: { maxWidth: 148, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.sm }, timingBadge_neutral: { backgroundColor: colors.surfaceMuted }, timingBadge_success: { backgroundColor: colors.accentSoft }, timingBadge_warning: { backgroundColor: colors.warningSoft }, timingBadge_danger: { backgroundColor: colors.dangerSoft }, timingText: { ...type.meta, fontFamily: fonts.headingSemiBold, textAlign: 'right' }, timingText_neutral: { color: colors.textMuted }, timingText_success: { color: colors.success }, timingText_warning: { color: colors.warning }, timingText_danger: { color: colors.danger }, noProcessed: { ...type.secondary, color: colors.textMuted },
   sequenceNext: { borderLeftColor: colors.info, backgroundColor: colors.infoSoft }, sequenceNextNumber: { backgroundColor: colors.info }, sequenceNextNumberText: { color: colors.textInverse }, sequenceMeta: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   cardFooter: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.borderSubtle }, updated: { ...type.meta, color: colors.textMuted }, updatedStale: { color: colors.warning }, started: { ...type.meta, color: colors.textMuted },
   bottomDock: { borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surface, shadowColor: colors.primary, shadowOpacity: 0.1, shadowRadius: 12, shadowOffset: { width: 0, height: -3 }, elevation: 8 }, bottomDockInner: { width: '100%', maxWidth: 1440, alignSelf: 'center', paddingHorizontal: spacing.sm, paddingTop: spacing.sm, paddingBottom: spacing.sm, gap: spacing.xs }, bottomDockInnerWide: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.xl, gap: spacing.md },
-  filters: { flex: 1, flexDirection: 'row', gap: spacing.xs }, filter: { flex: 1, minWidth: 0, minHeight: 54, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceSubtle, borderWidth: 1, borderColor: colors.border }, filterActive_info: { backgroundColor: colors.info, borderColor: colors.info }, filterActive_warning: { backgroundColor: colors.warning, borderColor: colors.warning }, filterActive_success: { backgroundColor: colors.success, borderColor: colors.success }, filterPressed: { opacity: 0.82 }, filterValue: { fontFamily: fonts.heading, fontSize: 20, lineHeight: 22, color: colors.text }, filterValueActive: { color: colors.textInverse }, filterLabel: { ...type.label, fontSize: 9, lineHeight: 12, color: colors.textMuted, marginTop: 2 }, filterLabelActive: { color: colors.textInverse },
+  filters: { flexDirection: 'row', gap: spacing.xs }, filter: { flex: 1, minWidth: 0, minHeight: 64, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }, filterActive_info: { backgroundColor: colors.info, borderColor: colors.info }, filterActive_warning: { backgroundColor: colors.warning, borderColor: colors.warning }, filterActive_danger: { backgroundColor: colors.danger, borderColor: colors.danger }, filterPressed: { opacity: 0.82 }, filterValue: { fontFamily: fonts.heading, fontSize: 22, lineHeight: 24, color: colors.text }, filterValueActive: { color: colors.textInverse }, filterLabel: { ...type.label, fontSize: 10, lineHeight: 13, color: colors.textMuted, marginTop: 3 }, filterLabelActive: { color: colors.textInverse },
   connection: { minHeight: 42, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingLeft: spacing.sm }, connectionWide: { width: 310 }, liveDot: { width: 9, height: 9, borderRadius: radius.pill, backgroundColor: colors.success }, liveDotOffline: { backgroundColor: colors.danger }, liveLabel: { ...type.label, color: colors.text }, refreshTime: { ...type.meta, color: colors.textMuted }, refreshButton: { minHeight: 40, minWidth: 92, paddingHorizontal: spacing.md, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.infoSoft }, refreshPressed: { backgroundColor: colors.primarySoft }, refreshText: { ...type.button, color: colors.info }, disabled: { opacity: 0.55 },
 });

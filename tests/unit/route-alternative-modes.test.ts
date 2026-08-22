@@ -28,8 +28,8 @@ describe('route alternatives', () => {
     expect(ROUTE_ALTERNATIVE_LABELS.free_shortest.title).toBe('Trumpiausias');
     expect(ROUTE_ALTERNATIVE_LABELS.timed_fastest.title).toBe('Greičiausias');
     expect(ROUTE_ALTERNATIVE_LABELS.timed_shortest.title).toBe('Trumpiausias');
-    expect(ROUTE_ALTERNATIVE_LABELS.free_fastest.group).toBe('Nepaisant laiko langų');
-    expect(ROUTE_ALTERNATIVE_LABELS.timed_fastest.group).toBe('Pagal laiko langus');
+    expect(ROUTE_ALTERNATIVE_LABELS.free_fastest.group).toBe('Nepaisant pristatymo laikų');
+    expect(ROUTE_ALTERNATIVE_LABELS.timed_fastest.group).toBe('Pagal pristatymo laikus');
     for (const mode of ROUTE_ALTERNATIVE_MODES) {
       expect(ROUTE_ALTERNATIVE_LABELS[mode].comment.length).toBeGreaterThan(20);
     }
@@ -95,10 +95,10 @@ describe('route alternatives', () => {
     expect(['Trumpiausias', 'Kitas trumpiausias', 'Trumpiausias = greičiausias']).toContain(four.labeled[4].title);
     expect(four.labeled.map((item) => item.group)).toEqual([
       'Rekomenduojama',
-      'Nepaisant laiko langų',
-      'Nepaisant laiko langų',
-      'Pagal laiko langus',
-      'Pagal laiko langus',
+      'Nepaisant pristatymo laikų',
+      'Nepaisant pristatymo laikų',
+      'Pagal pristatymo laikus',
+      'Pagal pristatymo laikus',
     ]);
     for (const item of four.labeled) {
       expect(item.candidate.id.endsWith(`:${item.mode}`)).toBe(true);

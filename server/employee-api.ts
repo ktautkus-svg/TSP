@@ -162,6 +162,11 @@ export async function handleEmployeeApi(
       if (!vehicle) throw new EmployeeApiError('EMPTY_UPDATE', 'Nenurodyti automobilio pakeitimai.', 400);
       return send(response, 200, { vehicle }, requestId);
     }
+    if (vehicleMatch && request.method === 'DELETE') {
+      requireManagementPermission(profile, 'canManageVehicles');
+      const vehicle = await store.deleteVehicle(decodeURIComponent(vehicleMatch[1]));
+      return send(response, 200, { vehicle }, requestId);
+    }
     const userMatch = pathname.match(/^\/api\/admin\/users\/([^/]+)$/);
     if (userMatch && request.method === 'PATCH') {
       requireManagementPermission(profile, 'canManageEmployees');
@@ -185,6 +190,18 @@ export async function handleEmployeeApi(
         phone: optionalString(body, 'phone'),
         compensation: compensationPatch(body.compensation),
       });
+      return send(response, 200, { user }, requestId);
+    }
+    if (userMatch && request.method === 'DELETE') {
+      requireManagementPermission(profile, 'canManageEmployees');
+      const targetId = decodeURIComponent(userMatch[1]);
+      if (targetId === profile.id) throw new EmployeeApiError('CANNOT_DELETE_SELF', 'Negalite pašalinti paskyros, kuria šiuo metu esate prisijungę.', 409);
+      const target = (await store.listUsers()).find((user) => user.id === targetId);
+      if (!target) throw new EmployeeApiError('USER_NOT_FOUND', 'Darbuotojas nerastas.', 404);
+      if (profile.role !== 'admin' && target.role !== 'driver') {
+        throw new EmployeeApiError('FORBIDDEN', 'Dispečeris gali pašalinti tik vairuotojus.', 403);
+      }
+      const user = await store.deleteUser(targetId);
       return send(response, 200, { user }, requestId);
     }
 

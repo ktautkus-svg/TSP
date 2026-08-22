@@ -171,6 +171,22 @@ export default function AdminScreen() {
     await load();
   });
 
+  const deleteEmployee = (employee: EmployeeProfile) => {
+    Alert.alert(
+      'Pašalinti darbuotoją?',
+      `${employee.displayName} nebegalės prisijungti. Užbaigtų maršrutų istorija liks išsaugota.`,
+      [
+        { text: 'Atšaukti', style: 'cancel' },
+        { text: 'Pašalinti', style: 'destructive', onPress: () => { void run(async () => {
+          await employeeApi(`/api/admin/users/${encodeURIComponent(employee.id)}`, { method: 'DELETE' });
+          if (selectedEmployeeId === employee.id) setSelectedEmployeeId('');
+          setMessage('Darbuotojas pašalintas. Istoriniai maršrutų duomenys išsaugoti.');
+          await load();
+        }); } },
+      ],
+    );
+  };
+
   const togglePermission = (employee: EmployeeProfile, key: EmployeePermissionKey) => run(async () => {
     const permissions = normalizeEmployeePermissions(employee.permissions);
     await employeeApi(`/api/admin/users/${encodeURIComponent(employee.id)}`, {
@@ -378,6 +394,22 @@ export default function AdminScreen() {
     await load();
   });
 
+  const deleteVehicle = (vehicle: ServerFleetVehicle) => {
+    Alert.alert(
+      'Pašalinti automobilį?',
+      `${vehicle.registrationNumber} · ${vehicle.model} bus pašalintas iš parko. Užbaigtuose kelionės lapuose jo duomenys liks.`,
+      [
+        { text: 'Atšaukti', style: 'cancel' },
+        { text: 'Pašalinti', style: 'destructive', onPress: () => { void run(async () => {
+          await employeeApi(`/api/admin/vehicles/${encodeURIComponent(vehicle.id)}`, { method: 'DELETE' });
+          if (selectedVehicleId === vehicle.id) setSelectedVehicleId('');
+          setMessage('Automobilis pašalintas iš parko. Istoriniai kelionės duomenys išsaugoti.');
+          await load();
+        }); } },
+      ],
+    );
+  };
+
   const submitFuelCorrection = () => run(async () => {
     const liters = Number(correctionLiters.replace(',', '.'));
     if (!correctionVehicleId) throw new Error('Pasirinkite automobilį.');
@@ -482,6 +514,7 @@ export default function AdminScreen() {
                 <View style={styles.rowActions}>
                   <Pressable accessibilityLabel={`Redaguoti ${employee.displayName}`} accessibilityRole="button" onPress={() => selectEmployee(employee)} style={styles.smallButton}><Text style={styles.smallButtonText}>Redaguoti</Text></Pressable>
                   {employee.id !== profile.id ? <Pressable accessibilityLabel={`${employee.disabled ? 'Įjungti' : 'Išjungti'} ${employee.displayName}`} accessibilityRole="button" onPress={() => void toggleEmployee(employee)} style={styles.smallButton}><Text style={styles.smallButtonText}>{employee.disabled ? 'Įjungti' : 'Išjungti'}</Text></Pressable> : null}
+                  {employee.id !== profile.id ? <Pressable accessibilityLabel={`Pašalinti ${employee.displayName}`} accessibilityRole="button" onPress={() => deleteEmployee(employee)} style={styles.dangerButton}><Text style={styles.dangerButtonText}>Pašalinti</Text></Pressable> : null}
                 </View>
               </View>)}
             </View>)}
@@ -576,7 +609,10 @@ export default function AdminScreen() {
                       <Text style={styles.listTitle}>{vehicle.registrationNumber} · {vehicle.model}</Text>
                       <Text style={styles.meta}>{vehicle.maximumPayloadKg} kg · {driver ? driver.displayName : 'Nepriskirtas'}</Text>
                     </View>
-                    <Pressable accessibilityLabel={`Redaguoti automobilį ${vehicle.registrationNumber}`} accessibilityRole="button" onPress={() => selectVehicle(vehicle)} style={styles.smallButton}><Text style={styles.smallButtonText}>Redaguoti</Text></Pressable>
+                    <View style={styles.rowActions}>
+                      <Pressable accessibilityLabel={`Redaguoti automobilį ${vehicle.registrationNumber}`} accessibilityRole="button" onPress={() => selectVehicle(vehicle)} style={styles.smallButton}><Text style={styles.smallButtonText}>Redaguoti</Text></Pressable>
+                      <Pressable accessibilityLabel={`Pašalinti automobilį ${vehicle.registrationNumber}`} accessibilityRole="button" onPress={() => deleteVehicle(vehicle)} style={styles.dangerButton}><Text style={styles.dangerButtonText}>Pašalinti</Text></Pressable>
+                    </View>
                   </View>
                 </View>
                 {selectedVehicleId === vehicle.id ? <View style={styles.editor} testID="vehicle-edit-form">

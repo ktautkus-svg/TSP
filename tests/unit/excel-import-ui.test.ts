@@ -43,7 +43,7 @@ describe('compact daily Excel UI', () => {
     expect(importScreen).toContain('saveActiveBatchFileHashes');
     expect(importScreen).toContain('findLatestByFingerprint(excelPreview.fileHash, targetSheet)');
     expect(importScreen).toContain('toggle-paste-field');
-    expect(importScreen).toContain("pathname: '/route/[id]/review'");
+    expect(importScreen).toContain("pathname: '/route/[id]/alternatives'");
     expect(importScreen).toContain("result && (!excelPreview || excelProblemCount === 0)");
     expect(importScreen).not.toContain('Duomenys prasideda nuo');
     expect(importScreen).not.toContain('Excel eilutės →');
@@ -52,7 +52,7 @@ describe('compact daily Excel UI', () => {
     // Time-window handling is a single compact switch now, not a pair of
     // "Atsižvelgti"/"Neatsižvelgti" choice buttons.
     expect(importScreen).toContain('testID="toggle-planning-mode"');
-    expect(importScreen).toContain('Atsižvelgti į pristatymo langus');
+    expect(importScreen).toContain('Atsižvelgti į pristatymo laikus');
     expect(importScreen).toContain('switchTrackOn');
   });
 
@@ -137,7 +137,7 @@ describe('compact daily Excel UI', () => {
     expect(importScreen).toContain('returnToSourceChooser');
     expect(importScreen).toContain('← Šaltiniai');
     expect(importScreen).toContain("returnTo: 'import'");
-    expect(reviewScreen).toContain("<Stack.Screen options={{ gestureEnabled: false, title: 'Adresų patikra' }} />");
+    expect(reviewScreen).toContain("<Stack.Screen options={{ gestureEnabled: false, title: 'Maršruto taškai' }} />");
     expect(manualRouteScreen).toContain("returnTo: 'manual'");
     expect(manualRouteScreen).toContain("pathname: '/route/[id]/review'");
   });
@@ -156,12 +156,13 @@ describe('compact daily Excel UI', () => {
     expect(importScreen).toContain("setStartMode('kretinga')");
     expect(importScreen).toContain('>Numatytasis sandėlis</Text>');
     expect(importScreen).toContain('>Kretingos sandėlis</Text>');
-    expect(importScreen).toContain("{selectedStartAddress} → {endMode === 'home' ? homeAddress : selectedStartAddress}");
+    expect(importScreen).toContain("Sandėlis: {startMode === 'kretinga' ? 'Kretingos' : 'numatytasis'}");
+    expect(importScreen).not.toContain('<Text style={styles.setupRowLabel}>PABAIGA</Text>');
     expect(importScreen).toContain('const startLocation: RouteEndpoint = selectedStartEndpoint');
     expect(reviewScreen).toContain('canonicalWarehouseAddress');
     expect(reviewScreen).toContain('endpoint.normalizedAddress');
     expect(reviewScreen).toContain('testID="review-warehouse-choice"');
-    expect(reviewScreen).toContain('Pasirinkite sandėlį prieš optimizuodami');
+    expect(reviewScreen).toContain('Numatytasis parinktas automatiškai');
     expect(alternativesScreen).toContain('testID="change-warehouse-or-stops"');
     expect(alternativesScreen).toContain('Keisti sandėlį arba taškus');
   });

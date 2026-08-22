@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-export const SCHEMA_VERSION = 21;
+export const SCHEMA_VERSION = 22;
 
 const migrationV1 = `
 PRAGMA journal_mode = WAL;
@@ -1111,6 +1111,29 @@ PRAGMA user_version = 21;
 COMMIT;
 `;
 
+// v22 remembers confirmed address resolutions. Re-importing the same address
+// can then reuse the driver's correction instead of asking again or paying for
+// another provider lookup.
+const migrationV22 = `
+BEGIN IMMEDIATE;
+
+CREATE TABLE address_resolution_memory (
+  address_key TEXT PRIMARY KEY NOT NULL,
+  source_address TEXT NOT NULL,
+  normalized_address TEXT NOT NULL,
+  latitude REAL NOT NULL CHECK (latitude BETWEEN -90 AND 90),
+  longitude REAL NOT NULL CHECK (longitude BETWEEN -180 AND 180),
+  place_id TEXT,
+  confidence REAL NOT NULL DEFAULT 1 CHECK (confidence BETWEEN 0 AND 1),
+  use_count INTEGER NOT NULL DEFAULT 1 CHECK (use_count > 0),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+PRAGMA user_version = 22;
+COMMIT;
+`;
+
 async function ensureRouteReturnColumns(db: SQLiteDatabase): Promise<void> {
   const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(routes)');
   const names = new Set(columns.map((column) => column.name));
@@ -1249,5 +1272,10 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
 
   if (currentVersion < 21) {
     await db.execAsync(migrationV21);
+    currentVersion = 21;
+  }
+
+  if (currentVersion < 22) {
+    await db.execAsync(migrationV22);
   }
 }

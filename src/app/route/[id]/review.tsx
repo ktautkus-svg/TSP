@@ -31,6 +31,7 @@ import { ChevronDownIcon, ChevronRightIcon, TrashIcon } from '@/components/app-i
 import { FoundationScreen } from '@/components/foundation-screen';
 import { AppButton } from '@/components/ui-primitives';
 import { RouteRepository } from '@/database/repositories/route-repository';
+import { AddressResolutionMemoryRepository } from '@/database/repositories/address-resolution-memory-repository';
 import { ShipmentLineRepository } from '@/database/repositories/shipment-line-repository';
 import type { DeliveryStop, Route, RouteEndpoint } from '@/domain/route';
 import {
@@ -52,6 +53,7 @@ export default function RouteReviewScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const repository = useMemo(() => new RouteRepository(db), [db]);
+  const addressMemory = useMemo(() => new AddressResolutionMemoryRepository(db), [db]);
   const provider = useMemo(() => new GatewayGeocodingProvider(), []);
   const [route, setRoute] = useState<Route | null>(null);
   const [defaultWarehouse, setDefaultWarehouse] = useState<RouteEndpoint | null>(null);
@@ -62,6 +64,7 @@ export default function RouteReviewScreen() {
   const [newAddress, setNewAddress] = useState('');
   const [error, setError] = useState<string | null>(null);
   const screenFocused = useRef(false);
+  const automaticValidationRoute = useRef<string | null>(null);
 
   const redirectStalePlanningScreen = useCallback(async (): Promise<boolean> => {
     const current = await repository.getById(routeId);
@@ -226,6 +229,13 @@ export default function RouteReviewScreen() {
       latitude: selected.latitude,
       longitude: selected.longitude,
     });
+    await addressMemory.remember(originalAddress, {
+      normalizedAddress: selected.normalizedAddress,
+      latitude: selected.latitude,
+      longitude: selected.longitude,
+      placeId: selected.placeId,
+      confidence: 1,
+    });
     setCandidates((current) => ({ ...current, [stopId]: [] }));
   };
 
@@ -233,52 +243,6 @@ export default function RouteReviewScreen() {
     try {
       if (await redirectStalePlanningScreen()) return;
       await confirmStop(stop.id, stop.originalAddress, stop.geocodingQuery ?? stop.originalAddress, selected);
-      await reload();
-      void requestSync('mutation');
-    } catch (reason) {
-      await handleDraftActionError(reason);
-    }
-  };
-
-  const selectStart = async (selected: GeocodeCandidate) => {
-    if (!route?.startLocation) return;
-    try {
-      if (await redirectStalePlanningScreen()) return;
-      await new UpdateDraftRouteLocations(db).execute(
-      routeId,
-      routeEndpointFromGeocode(
-        route.startLocation.originalAddress,
-        selected,
-        route.startLocation.geocodingQuery ?? route.startLocation.originalAddress,
-      ),
-      route.endLocation ?? routeEndpointFromGeocode(
-        route.startLocation.originalAddress,
-        selected,
-        route.startLocation.geocodingQuery ?? route.startLocation.originalAddress,
-      ),
-    );
-      setCandidates((current) => ({ ...current, start: [] }));
-      await reload();
-      void requestSync('mutation');
-    } catch (reason) {
-      await handleDraftActionError(reason);
-    }
-  };
-
-  const selectEnd = async (selected: GeocodeCandidate) => {
-    if (!route?.startLocation || !route.endLocation) return;
-    try {
-      if (await redirectStalePlanningScreen()) return;
-      await new UpdateDraftRouteLocations(db).execute(
-      routeId,
-      route.startLocation,
-      routeEndpointFromGeocode(
-        route.endLocation.originalAddress,
-        selected,
-        route.endLocation.geocodingQuery ?? route.endLocation.originalAddress,
-      ),
-    );
-      setCandidates((current) => ({ ...current, end: [] }));
       await reload();
       void requestSync('mutation');
     } catch (reason) {
@@ -308,7 +272,7 @@ export default function RouteReviewScreen() {
       await new UpdateDraftRouteLocations(db).execute(
         routeId,
         nextWarehouse,
-        returnedToStart ? nextWarehouse : route.endLocation ?? nextWarehouse,
+        nextWarehouse,
       );
       setCandidates((current) => ({ ...current, start: [], ...(returnedToStart ? { end: [] } : {}) }));
       await reload();
@@ -437,6 +401,15 @@ export default function RouteReviewScreen() {
     ? stops
     : stops.filter((stop) => stop.addressValidationState !== 'auto_confirmed');
 
+  useEffect(() => {
+    if (!route || running || canCalculate || stops.length === 0 || automaticValidationRoute.current === route.id) return;
+    automaticValidationRoute.current = route.id;
+    void geocodeAll();
+    // The route id is the one-shot boundary. State changes caused by geocoding
+    // must not start a second provider pass.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canCalculate, route?.id, running, stops.length]);
+
   if (!route) {
     return <FoundationScreen showFoundationNotice={false} title="Maršrutas nerastas" description="Grįžkite į pradžios ekraną." />;
   }
@@ -455,11 +428,11 @@ export default function RouteReviewScreen() {
 
   return (
     <>
-    <Stack.Screen options={{ gestureEnabled: false, title: 'Adresų patikra' }} />
+    <Stack.Screen options={{ gestureEnabled: false, title: 'Maršruto taškai' }} />
     <FoundationScreen
       showFoundationNotice={false}
-      title="Patikrinkite adresus"
-      description="Aiškūs adresai patvirtinami automatiškai. Viršuje rodomi tik neaiškūs arba nepatvirtinti taškai.">
+      title="Maršruto taškai"
+      description={allReady ? 'Adresai patikrinti automatiškai. Jei reikia, pažymėkite prioritetinius taškus.' : 'Automatiškai tikrinami adresai. Žemiau rodomi tik tie, kuriems reikia dėmesio.'}>
       <View style={styles.planSummary} testID="route-plan-summary">
         <View style={styles.planMetric}>
           <Text style={styles.planMetricValue}>{stops.length}</Text>
@@ -478,8 +451,8 @@ export default function RouteReviewScreen() {
       </View>
       <View style={styles.card}>
         <View style={styles.warehouseChoice} testID="review-warehouse-choice">
-          <Text style={styles.warehouseChoiceTitle}>Pasirinkite sandėlį prieš optimizuodami</Text>
-          <Text style={styles.auditText}>Sandėlį galima pakeisti ir po optimizavimo, kol maršruto variantas dar nepatvirtintas.</Text>
+          <Text style={styles.warehouseChoiceTitle}>Sandėlis</Text>
+          <Text style={styles.auditText}>Numatytasis parinktas automatiškai. Keiskite tik jei išvykstate iš kito sandėlio.</Text>
           <View style={styles.warehouseChoiceRow}>
             <Pressable
               disabled={running || !defaultWarehouse}
@@ -487,7 +460,6 @@ export default function RouteReviewScreen() {
               style={[styles.warehouseChoiceButton, sameEndpoint(route.startLocation, defaultWarehouse) && styles.warehouseChoiceButtonActive, (running || !defaultWarehouse) && styles.disabled]}
               testID="apply-current-warehouse">
               <Text style={[styles.warehouseChoiceButtonTitle, sameEndpoint(route.startLocation, defaultWarehouse) && styles.warehouseChoiceButtonTitleActive]}>Numatytasis sandėlis</Text>
-              <Text numberOfLines={2} style={styles.auditText}>{defaultWarehouse?.normalizedAddress ?? defaultWarehouse?.originalAddress ?? 'Nenustatytas'}</Text>
             </Pressable>
             <Pressable
               disabled={running}
@@ -495,22 +467,9 @@ export default function RouteReviewScreen() {
               style={[styles.warehouseChoiceButton, isKretingaWarehouse(route.startLocation) && styles.warehouseChoiceButtonActive, running && styles.disabled]}
               testID="apply-kretinga-warehouse">
               <Text style={[styles.warehouseChoiceButtonTitle, isKretingaWarehouse(route.startLocation) && styles.warehouseChoiceButtonTitleActive]}>Kretingos sandėlis</Text>
-              <Text numberOfLines={2} style={styles.auditText}>{KRETINGA_WAREHOUSE_ADDRESS}</Text>
             </Pressable>
           </View>
         </View>
-        <Text style={styles.heading}>Maršruto pradžia</Text>
-        <Text style={styles.query}>{route.startLocation?.normalizedAddress ?? route.startLocation?.originalAddress}</Text>
-        <StateLabel styles={styles} ready={startReady} state={startReady ? 'auto_confirmed' : 'unconfirmed'} />
-        {candidates.start?.map((candidate) => (
-          <Candidate styles={styles} key={candidate.normalizedAddress} candidate={candidate} onPress={() => selectStart(candidate)} />
-        ))}
-        <Text style={styles.heading}>Maršruto pabaiga</Text>
-        <Text style={styles.query}>{route.endLocation?.normalizedAddress ?? route.endLocation?.originalAddress}</Text>
-        <StateLabel styles={styles} ready={endReady} state={endReady ? 'auto_confirmed' : 'unconfirmed'} />
-        {candidates.end?.map((candidate) => (
-          <Candidate styles={styles} key={candidate.normalizedAddress} candidate={candidate} onPress={() => selectEnd(candidate)} />
-        ))}
       </View>
 
       <AppButton
@@ -519,7 +478,7 @@ export default function RouteReviewScreen() {
         onPress={goToAlternatives}
       />
 
-      {!canCalculate ? <AppButton label="Patikrinti nepatvirtintus adresus" loading={running} onPress={geocodeAll} variant="route" /> : null}
+      {running ? <Text style={styles.auditText}>Tikrinami nepatvirtinti adresai…</Text> : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       {allReady ? <Text style={styles.sectionIntro}>Pažymėkite vieną ar kelis prioritetinius taškus (1, 2, 3…). Jie bus apeinami ta eile, bet tarp jų gali įsiterpti kiti taškai, jei geografiškai pakeliui.</Text> : null}
@@ -715,7 +674,7 @@ function StopEditor(props: {
             geocodingError: null,
           });
         }}
-        placeholder="Adresas, koordinatės arba Google Maps nuoroda *"
+        placeholder="Adresas, koordinatės, Google Maps arba maps.lt nuoroda *"
         style={styles.input}
       />
       {stop.geocodingQuery && stop.geocodingQuery !== stop.originalAddress ? (
@@ -727,8 +686,8 @@ function StopEditor(props: {
         <Candidate styles={styles} key={candidate.normalizedAddress} candidate={candidate} onPress={() => props.onCandidate(candidate)} />
       ))}
       <View style={styles.twoColumns}>
-        <TextInput value={weight} onChangeText={setWeight} onBlur={() => { void props.onEdit({ weightKg: nullableNumber(weight) }); }} placeholder="Svoris, kg (neprivaloma)" keyboardType="decimal-pad" style={styles.input} />
-        <TextInput value={time} onChangeText={setTime} onBlur={() => { void props.onEdit(parseTimeWindowInput(time)); }} placeholder="Pristatymo laikas (pvz. 08:00-12:00)" style={styles.input} />
+        <View style={styles.importantField}><Text style={styles.importantFieldLabel}>SVORIS, KG</Text><TextInput value={weight} onChangeText={setWeight} onBlur={() => { void props.onEdit({ weightKg: nullableNumber(weight) }); }} placeholder="Neprivaloma" keyboardType="decimal-pad" style={styles.input} /></View>
+        <View style={styles.importantField}><Text style={styles.importantFieldLabel}>PRISTATYMO LAIKAS</Text><TextInput value={time} onChangeText={setTime} onBlur={() => { void props.onEdit(parseTimeWindowInput(time)); }} placeholder="Pvz. 08:00-12:00" style={styles.input} /></View>
       </View>
       <TextInput value={recipient} onChangeText={setRecipient} onBlur={() => { void props.onEdit({ recipient: recipient.trim() || null }); }} placeholder="Gavėjas (neprivaloma)" style={styles.input} />
       <TextInput value={notes} onChangeText={setNotes} onBlur={() => { void props.onEdit({ notes: notes.trim() || null }); }} placeholder="Pastabos (neprivaloma)" style={styles.input} />
@@ -795,7 +754,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   compactRow: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   compactMain: { flex: 1, minWidth: 0, minHeight: 44, justifyContent: 'center' },
   compactTitle: { ...type.bodyStrong, color: colors.text },
-  compactMeta: { ...type.meta, color: colors.textMuted, marginTop: 2 },
+  compactMeta: { ...type.secondaryStrong, color: colors.textSecondary, marginTop: 2 },
   statusDot: { width: 10, height: 10, borderRadius: radius.pill },
   statusDotOk: { backgroundColor: colors.success },
   statusDotBad: { backgroundColor: colors.danger },
@@ -811,7 +770,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   heading: { ...type.sectionTitle, color: colors.text },
   query: { ...type.body, color: colors.textSecondary },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm },
-  twoColumns: { gap: spacing.sm },
+  twoColumns: { gap: spacing.sm }, importantField: { flex: 1, gap: spacing.xs }, importantFieldLabel: { ...type.label, color: colors.primary },
   input: { minHeight: 46, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderStrong, paddingHorizontal: spacing.md, color: colors.text, backgroundColor: colors.surfaceSubtle, ...type.body },
   auditText: { ...type.meta, color: colors.textMuted },
   warehouseChoice: { gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.info, backgroundColor: colors.infoSoft },

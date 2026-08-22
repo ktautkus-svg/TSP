@@ -16,7 +16,7 @@ import {
     View,
 } from 'react-native';
 
-import { resolveDeliveryAddresses } from '@/application/import/address-resolver';
+import { resolveDeliveryAddresses, type AddressLookupProvider } from '@/application/import/address-resolver';
 import {
     excelPreviewToDraftStops,
     excelPreviewToImportResult,
@@ -41,10 +41,11 @@ import {
     importedDeliveriesToDraftStops,
 } from '@/application/routes/route-draft-mappers';
 import { resolveRoute } from '@/application/routes/route-navigation';
-import { DEFAULT_HOME_ADDRESS, DEFAULT_WAREHOUSE_ADDRESS, GetDefaultLocations, KRETINGA_WAREHOUSE_ADDRESS, PlanningModePreference, RouteEndPreference, SaveDefaultLocation } from '@/application/routes/saved-locations';
+import { GetDefaultLocations, KRETINGA_WAREHOUSE_ADDRESS, PlanningModePreference, SaveDefaultLocation } from '@/application/routes/saved-locations';
 import { CameraIcon, ChevronDownIcon, ChevronRightIcon, ClipboardIcon, ExcelIcon, GalleryIcon, PdfIcon, PencilIcon, RegionIcon, WindowIcon } from '@/components/app-icons';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { ExcelImportRepository, type ExcelSheetSession } from '@/database/repositories/excel-import-repository';
+import { AddressResolutionMemoryRepository } from '@/database/repositories/address-resolution-memory-repository';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import { confidenceLevel } from '@/domain/import/confidence';
 import {
@@ -58,6 +59,7 @@ import type { PlanningMode, RouteEndpoint } from '@/domain/route';
 import { readPickedExcelAsset } from '@/infrastructure/import/excel-file-adapter';
 import { ExpoImageTransformAdapter } from '@/infrastructure/import/expo-image-transform-adapter';
 import { GatewayAddressResolver } from '@/infrastructure/import/gateway-address-resolver';
+import { RememberingAddressResolver } from '@/infrastructure/import/remembering-address-resolver';
 import { GoogleVisionOcrProvider } from '@/infrastructure/import/ocr/google-vision-ocr-provider';
 import { MockOcrProvider } from '@/infrastructure/import/ocr/mock-ocr-provider';
 import { SQLiteImportAuditRepository } from '@/infrastructure/import/sqlite-import-audit-repository';
@@ -83,6 +85,7 @@ export default function ImportScreen() {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const repository = useMemo(() => new RouteRepository(db), [db]);
   const excelRepository = useMemo(() => new ExcelImportRepository(db), [db]);
+  const addressMemory = useMemo(() => new AddressResolutionMemoryRepository(db), [db]);
   const [pastedText, setPastedText] = useState('');
   const [document, setDocument] = useState<ImportDocument | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
@@ -106,7 +109,7 @@ export default function ImportScreen() {
   const [columnMapping, setColumnMapping] = useState<ExcelColumnMapping>(LOGISTICS_EXCEL_V1.columns);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [endMode, setEndMode] = useState<'warehouse' | 'home'>('warehouse');
+  const endMode = 'warehouse' as const;
   const [startMode, setStartMode] = useState<'warehouse' | 'kretinga' | null>(null);
 
   useEffect(() => {
@@ -116,12 +119,12 @@ export default function ImportScreen() {
   const [planningDate, setPlanningDate] = useState(() => defaultPlanningDate());
   const [planningTime, setPlanningTime] = useState(() => defaultPlanningTime());
   const planningTimeTouched = useRef(false);
-  const [warehouseAddress, setWarehouseAddress] = useState('');
-  const [homeAddress, setHomeAddress] = useState('');
   const [warehouseEndpoint, setWarehouseEndpoint] = useState<RouteEndpoint | null>(null);
   const [kretingaEndpoint, setKretingaEndpoint] = useState<RouteEndpoint | null>(null);
-  const [homeEndpoint, setHomeEndpoint] = useState<RouteEndpoint | null>(null);
-  const addressResolver = useMemo(() => new GatewayAddressResolver(), []);
+  const addressResolver = useMemo(
+    () => new RememberingAddressResolver(new GatewayAddressResolver(), addressMemory),
+    [addressMemory],
+  );
   const [manualRowResolutions, setManualRowResolutions] = useState<Record<string, ManualRowResolution>>({});
   const creationInFlight = useRef(false);
   const creationCommandId = useRef<string | null>(null);
@@ -129,13 +132,9 @@ export default function ImportScreen() {
   const excelAsset = useRef<{ name: string; hash: string } | null>(null);
   const excelBatchAssets = useRef(new Map<string, { name: string; bytes: Uint8Array }>());
   const selectedStartEndpoint = startMode === 'kretinga' ? kretingaEndpoint : startMode === 'warehouse' ? warehouseEndpoint : null;
-  const selectedStartAddress = startMode === 'kretinga'
-    ? KRETINGA_WAREHOUSE_ADDRESS
-    : startMode === 'warehouse' ? (warehouseAddress || DEFAULT_WAREHOUSE_ADDRESS) : 'Sandėlis nepasirinktas';
 
   useEffect(() => {
     creationCommandId.current = null;
-    setStartMode(null);
   }, [result?.auditId]);
 
   useEffect(() => {
@@ -166,7 +165,7 @@ export default function ImportScreen() {
 
   useFocusEffect(useCallback(() => {
     let active = true;
-    void new GetDefaultLocations(db).execute().then(async ({ warehouse, home }) => {
+    void new GetDefaultLocations(db).execute().then(async ({ warehouse }) => {
       const save = new SaveDefaultLocation(db);
       const recover = async (saved: typeof warehouse, kind: 'warehouse' | 'home') => {
         if (!saved || hasRouteCoordinates(saved.endpoint)) return saved?.endpoint ?? null;
@@ -183,23 +182,13 @@ export default function ImportScreen() {
         await save.execute(kind, saved.label, endpoint);
         return endpoint;
       };
-      const [recoveredWarehouse, recoveredHome] = await Promise.all([
-        recover(warehouse, 'warehouse'),
-        recover(home, 'home'),
-      ]);
+      const recoveredWarehouse = await recover(warehouse, 'warehouse');
       if (!active) return null;
-      const warehouseValue = recoveredWarehouse?.originalAddress ?? '';
-      const homeValue = recoveredHome?.originalAddress ?? '';
-      setWarehouseAddress(warehouseValue);
-      setHomeAddress(homeValue);
       setWarehouseEndpoint(recoveredWarehouse);
-      setHomeEndpoint(recoveredHome);
       // Default to the saved warehouse so dispatchers don't have to pick it
       // on every route — Kretinga stays an explicit opt-in.
       setStartMode((current) => current ?? (recoveredWarehouse?.latitude ? 'warehouse' : current));
-      return new RouteEndPreference(db).get();
-    }).then((preference) => {
-      if (active && preference) setEndMode(preference);
+      return null;
     }).catch((reason) => {
       devWarn('DEFAULT_LOCATIONS_LOAD_FAILED', reason);
       if (active) setMessage('Išsaugotų vietų atkurti nepavyko. Galite įvesti vietą ranka.');
@@ -692,10 +681,8 @@ export default function ImportScreen() {
       const plannedDepartureAt = planningDepartureIso(planningDate, planningTime);
       if (!plannedDepartureAt) throw new Error('Pasirinkite teisingą maršruto datą ir pradžios laiką.');
       if (!selectedStartEndpoint) throw new Error('Pasirinkta išvykimo vieta nenustatyta. Patikrinkite interneto ryšį ir vietų nustatymus.');
-      if (endMode === 'home' && !homeEndpoint) throw new Error('Namų pabaigos vieta nenustatyta. Patikrinkite vietų nustatymus.');
       const startLocation: RouteEndpoint = selectedStartEndpoint;
-      const endLocation: RouteEndpoint = endMode === 'home' ? homeEndpoint! : selectedStartEndpoint;
-      await new RouteEndPreference(db).save(endMode);
+      const endLocation: RouteEndpoint = selectedStartEndpoint;
       await new PlanningModePreference(db).save(planningMode);
       const baseStops = excelPreview
         ? excelPreviewToDraftStops(excelPreview, result.deliveries)
@@ -749,10 +736,12 @@ export default function ImportScreen() {
         stops: [...baseStops, ...manualStops],
       });
       void requestSync('mutation');
-      // Po importo pereinama į trumpą prioritetų peržiūrą. Patvirtinti adresai
-      // nebetvirtinami antrą kartą, tačiau vairuotojas gali pažymėti kelis
-      // prioritetinius taškus arba iškart skaičiuoti maršrutą.
-      router.push({ pathname: '/route/[id]/review', params: { id: created.routeId, returnTo: 'import' } });
+      // Importo metu adresai jau patikrinami automatiškai. Neverskite
+      // dispečerio spausti dar vieno tarpinio „patikrinti“ mygtuko.
+      router.push({
+        pathname: '/route/[id]/alternatives',
+        params: { id: created.routeId, returnTo: 'import' },
+      });
     };
     try {
       await persistAndOpen();
@@ -811,7 +800,7 @@ export default function ImportScreen() {
       excelPreview,
       planningMode,
       warehouseEndpoint: selectedStartEndpoint,
-      homeEndpoint,
+      homeEndpoint: null,
       endMode,
       manuallyResolvedRowIds: new Set(Object.keys(manualRowResolutions)),
     }),
@@ -1085,35 +1074,33 @@ export default function ImportScreen() {
               <View style={styles.accordionText}>
                 <Text style={styles.setupTitle}>Maršruto nustatymai</Text>
                 <Text numberOfLines={2} style={styles.accordionMeta}>
-                  {planningDate} · {planningTime}{'\n'}{selectedStartAddress} → {endMode === 'home' ? homeAddress : selectedStartAddress}
+                  {planningDate} · {planningTime}{'\n'}Sandėlis: {startMode === 'kretinga' ? 'Kretingos' : 'numatytasis'}
                 </Text>
               </View>
             </View>
 
             <View style={styles.warehouseChoiceBlock} testID="start-location-choice">
-              <Text style={styles.setupRowLabel}>1. PASIRINKITE MARŠRUTO PRADŽIOS SANDĖLĮ</Text>
-              <Text style={styles.setupRowMeta}>Sandėlis įrašomas prieš kuriant ir optimizuojant maršrutą.</Text>
+              <Text style={styles.setupRowLabel}>SANDĖLIS</Text>
+              <Text style={styles.setupRowMeta}>Parinktas numatytasis. Keiskite tik jei maršrutas išvyksta iš kito sandėlio.</Text>
               <View style={styles.endSwitchRow}>
                 <Pressable
                   disabled={!warehouseEndpoint?.latitude}
                   onPress={() => setStartMode('warehouse')}
                   style={[styles.endSwitchOption, startMode === 'warehouse' && styles.endSwitchOptionActive, !warehouseEndpoint?.latitude && styles.disabled]}>
                   <Text style={[styles.endSwitchText, startMode === 'warehouse' && styles.endSwitchTextActive]}>Numatytasis sandėlis</Text>
-                  <Text numberOfLines={2} style={styles.endSwitchAddress}>{warehouseAddress || DEFAULT_WAREHOUSE_ADDRESS}</Text>
                 </Pressable>
                 <Pressable
                   disabled={!kretingaEndpoint?.latitude}
                   onPress={() => setStartMode('kretinga')}
                   style={[styles.endSwitchOption, startMode === 'kretinga' && styles.endSwitchOptionActive, !kretingaEndpoint?.latitude && styles.disabled]}>
                   <Text style={[styles.endSwitchText, startMode === 'kretinga' && styles.endSwitchTextActive]}>Kretingos sandėlis</Text>
-                  <Text numberOfLines={2} style={styles.endSwitchAddress}>{KRETINGA_WAREHOUSE_ADDRESS}</Text>
                 </Pressable>
               </View>
             </View>
 
             <Pressable style={styles.setupRow} onPress={() => setEditingSchedule((current) => !current)} testID="toggle-schedule-edit">
               <View style={styles.setupRowText}>
-                <Text style={styles.setupRowLabel}>DATA IR STARTAS</Text>
+                <Text style={styles.setupRowLabel}>DATA IR IŠVYKIMO LAIKAS</Text>
                 <Text numberOfLines={1} style={styles.setupRowValue}>{planningDate} · {planningTime}</Text>
               </View>
               <View style={styles.setupEditBadge}><PencilIcon size={17} color={colors.brandNavy} /></View>
@@ -1151,7 +1138,7 @@ export default function ImportScreen() {
                   </View>
                 </View>
                 <Pressable style={styles.inlineLinkRow} onPress={() => router.push('/settings/locations' as Href)}>
-                  <Text style={styles.inlineLinkText}>Keisti pradžios adresą nustatymuose</Text>
+                  <Text style={styles.inlineLinkText}>Keisti numatytąjį sandėlį nustatymuose</Text>
                 </Pressable>
               </View>
             ) : null}
@@ -1188,7 +1175,7 @@ export default function ImportScreen() {
               testID="toggle-planning-mode">
               <WindowIcon size={18} color={planningMode === 'with_time_windows' ? colors.brandNavy : colors.textMuted} />
               <View style={styles.setupRowText}>
-                <Text style={styles.setupRowValue}>Atsižvelgti į pristatymo langus</Text>
+                <Text style={styles.setupRowValue}>Atsižvelgti į pristatymo laikus</Text>
                 <Text style={styles.setupRowMeta}>{planningMode === 'with_time_windows' ? 'Įjungta · derinama pagal laikus' : 'Išjungta · trumpiausias kelias'}</Text>
               </View>
               <View style={[styles.switchTrack, planningMode === 'with_time_windows' && styles.switchTrackOn]}>
@@ -1196,35 +1183,12 @@ export default function ImportScreen() {
               </View>
             </Pressable>
 
-            <View style={styles.setupRowStatic}>
-              <View style={styles.setupRowText}>
-                <Text style={styles.setupRowLabel}>PABAIGA</Text>
-                <Text numberOfLines={1} style={styles.setupRowValue}>
-                  {endMode === 'home' ? (homeAddress || DEFAULT_HOME_ADDRESS) : selectedStartAddress}
-                </Text>
-              </View>
-              <View style={styles.endSwitchRow}>
-                <Pressable
-                  disabled={!selectedStartEndpoint?.latitude}
-                  onPress={() => setEndMode('warehouse')}
-                  style={[styles.endSwitchOption, endMode === 'warehouse' && styles.endSwitchOptionActive, !selectedStartEndpoint?.latitude && styles.disabled]}>
-                  <Text style={[styles.endSwitchText, endMode === 'warehouse' && styles.endSwitchTextActive]}>Sandėlis</Text>
-                </Pressable>
-                <Pressable
-                  disabled={!homeEndpoint?.latitude}
-                  onPress={() => setEndMode('home')}
-                  style={[styles.endSwitchOption, endMode === 'home' && styles.endSwitchOptionActive, !homeEndpoint?.latitude && styles.disabled]}>
-                  <Text style={[styles.endSwitchText, endMode === 'home' && styles.endSwitchTextActive]}>Namai</Text>
-                </Pressable>
-              </View>
-            </View>
-
             {!readyForRoute ? (
               <View style={styles.blockerList} testID="route-creation-blockers">
                 {excelPreview && excelProblemCount > 0 ? (
                   <Text style={styles.issueText}>Reikia sutvarkyti {excelProblemCount} pristatymo {excelProblemCount === 1 ? 'tašką' : 'taškus'}.</Text>
                 ) : routeCreationBlockers.slice(0, 2).map((blocker) => <Text key={blocker} style={styles.issueText}>• {blocker}</Text>)}
-                {(!hasRouteCoordinates(selectedStartEndpoint) || (endMode === 'home' && !hasRouteCoordinates(homeEndpoint))) ? (
+                {!hasRouteCoordinates(selectedStartEndpoint) ? (
                   <Pressable style={styles.secondaryButton} onPress={() => router.push('/settings/locations' as Href)}>
                     <Text style={styles.secondaryText}>Atidaryti vietų nustatymus</Text>
                   </Pressable>
@@ -1293,6 +1257,16 @@ export default function ImportScreen() {
                     resolver={addressResolver}
                     resolution={manualRowResolutions[row.id]}
                     onResolved={(rowId, resolution) => {
+                      if (resolution && resolution.latitude !== null && resolution.longitude !== null) {
+                        const sourceAddress = row.rawColumnE ?? row.rawColumnD ?? resolution.address;
+                        void addressMemory.remember(sourceAddress, {
+                          normalizedAddress: resolution.address,
+                          latitude: resolution.latitude,
+                          longitude: resolution.longitude,
+                          placeId: null,
+                          confidence: 1,
+                        });
+                      }
                       setManualRowResolutions((current) => {
                         if (!resolution) {
                           const { [rowId]: _removed, ...rest } = current;
@@ -1365,7 +1339,7 @@ export default function ImportScreen() {
               return (
                 <View key={group.id} style={[styles.excelCompactCard, needsAction && styles.excelProblemCard]} testID={`excel-group-${group.id}`}>
                   <Text style={styles.cardTitle}>{group.normalizedAddress}</Text>
-                  <Text style={styles.compactMeta}>{formatWeight(group.totalWeightGrams)} · {formatGroupTime(rows)}</Text>
+                  <Text style={styles.importantMeta}>{formatWeight(group.totalWeightGrams)} · {formatGroupTime(rows)}</Text>
                   {needsAction ? <Text style={styles.issueText}>{excelProblemText(group, delivery)}</Text> : null}
                   <Pressable style={styles.compactButton} onPress={() => setExpandedExcelGroups((current) => expanded ? current.filter((id) => id !== group.id) : [...current, group.id])}>
                     <Text style={styles.secondaryText}>{expanded ? 'Uždaryti taisymą' : needsAction ? 'Taisyti šį adresą' : 'Peržiūrėti'}</Text>
@@ -1577,7 +1551,7 @@ function UnresolvedRowFixer({
   row: ExcelSourceRow;
   styles: ReturnType<typeof createStyles>;
   colors: ColorPalette;
-  resolver: GatewayAddressResolver;
+  resolver: AddressLookupProvider;
   resolution: ManualRowResolution | undefined;
   onResolved: (rowId: string, resolution: ManualRowResolution | null) => void;
 }) {
@@ -1882,7 +1856,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   headerAction: { minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.sm },
   headerText: { ...type.secondaryStrong, color: colors.brandNavy },
   card: { padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
-  routeSetupTop: { padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
+  routeSetupTop: { padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderLeftWidth: 4, borderColor: colors.border, borderLeftColor: colors.brandNavy, backgroundColor: colors.surfaceElevated, gap: spacing.sm },
   warehouseChoiceBlock: { gap: spacing.sm, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.info, backgroundColor: colors.infoSoft },
   scheduleRow: { flexDirection: 'row', gap: spacing.sm },
   scheduleField: { flex: 1, minWidth: 0, gap: 4 },
@@ -1959,6 +1933,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   excelCompactCard: { padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.xs },
   excelProblemCard: { borderColor: colors.danger, backgroundColor: colors.surface },
   compactMeta: { ...type.secondary, color: colors.textMuted },
+  importantMeta: { ...type.bodyStrong, color: colors.text },
   compactButton: { minHeight: 44, alignSelf: 'flex-start', justifyContent: 'center', paddingHorizontal: spacing.xs },
   compactEditor: { gap: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm },
   endpointText: { ...type.bodyStrong, color: colors.text, paddingVertical: spacing.xs },
