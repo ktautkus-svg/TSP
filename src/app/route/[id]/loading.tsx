@@ -15,29 +15,35 @@ import {
 import { ActivateRoute, CancelDraftRoute, ReopenRouteForPlanning, UpdateStopPhone } from '@/application/routes/route-commands';
 import { resolveRoute } from '@/application/routes/route-navigation';
 import {
-    GetLatestUndoableAction,
-    GetRouteProgress,
-    MarkAllStopsLoaded,
-    MarkStopLoaded,
-    MarkStopNotLoaded,
-    MarkStopUnloaded,
-    parseOdometer,
-    ReverseStopOrder,
-    SaveStartOdometer,
-    StartRoute,
-    UndoRouteAction,
-    type RouteProgress,
-    type UndoableAction,
+  GetLatestUndoableAction,
+  GetRouteProgress,
+  MarkAllStopsLoaded,
+  MarkStopLoaded,
+  MarkStopNotLoaded,
+  MarkStopUnloaded,
+  parseOdometer,
+  ReverseStopOrder,
+  SaveStartOdometer,
+  StartRoute,
+  UndoRouteAction,
+  type RouteProgress,
+  type UndoableAction,
 } from '@/application/routes/route-workday';
 import { CheckIcon, CrossIcon, PencilIcon, TruckIcon } from '@/components/app-icons';
 import { DepartureGateCard } from '@/components/departure-gate-card';
 import { FoundationScreen } from '@/components/foundation-screen';
+import { LoadingSchemaCard } from '@/components/loading-schema-card';
 import { SwipeActionCard } from '@/components/swipe-action-card';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import { LOADING_FAILURE_REASONS, type LoadingFailureReason } from '@/domain/loading-failure';
+import {
+    cargoLayoutFromAssignedVehicle,
+    recommendLoadingSchema,
+    toLoadingSchemaStops,
+} from '@/domain/loading-schema';
 import type { DeliveryStop, Route } from '@/domain/route';
 import type { DepartureReadiness } from '@/domain/departure-readiness';
-import { employeeApi, type FuelStatus } from '@/infrastructure/auth/employee-session';
+import { employeeApi, type FuelStatus, type ServerRouteAssignment } from '@/infrastructure/auth/employee-session';
 import { Alert } from '@/ui/alert';
 import { formatWeightKg } from '@/ui/format-weight';
 import { clockLabel, etaLabel, legLabel, windowLabel } from '@/ui/route-eta-labels';
@@ -72,6 +78,7 @@ export default function LoadingScreen() {
   const [fuelInput, setFuelInput] = useState('');
   const [fuelBusy, setFuelBusy] = useState(false);
   const [readiness, setReadiness] = useState<DepartureReadiness | null>(null);
+  const [assignment, setAssignment] = useState<ServerRouteAssignment | null>(null);
   const [gateBusy, setGateBusy] = useState(false);
   const [phoneDrafts, setPhoneDrafts] = useState<Record<string, string>>({});
   const bulkInFlight = useRef(false);
@@ -151,15 +158,50 @@ export default function LoadingScreen() {
     }
   }, [online, profile.role]);
 
+  const loadAssignment = useCallback(async () => {
+    if (!online) {
+      setAssignment(null);
+      return;
+    }
+    const assignmentPath = profile.role === 'driver' ? '/api/assignments' : '/api/admin/assignments';
+    const canReadAssignments = profile.role === 'driver' || ['admin', 'dispatcher'].includes(profile.role);
+    if (!canReadAssignments) {
+      setAssignment(null);
+      return;
+    }
+    try {
+      const response = await employeeApi(assignmentPath) as { assignments: ServerRouteAssignment[] };
+      setAssignment(response.assignments.find((item) => item.routeId === routeId && item.status !== 'cancelled') ?? null);
+    } catch {
+      setAssignment(null);
+    }
+  }, [online, profile.role, routeId]);
+
   const openDispatcherAssignment = () => {
     router.replace({ pathname: '/route-management', params: { routeId } } as unknown as Href);
   };
 
-  useFocusEffect(useCallback(() => { void load(); void loadFuel(); }, [load, loadFuel]));
+  useFocusEffect(useCallback(() => { void load(); void loadFuel(); void loadAssignment(); }, [load, loadFuel, loadAssignment]));
 
   useEffect(() => {
     if (syncRevision > 0) void load();
   }, [load, syncRevision]);
+
+  const cargoLayout = useMemo(
+    () => cargoLayoutFromAssignedVehicle(assignment?.vehicle ?? fuelStatus?.vehicle),
+    [assignment?.vehicle, fuelStatus?.vehicle],
+  );
+  const loadingSchema = useMemo(
+    () => recommendLoadingSchema(toLoadingSchemaStops(stops), {
+      bodyKind: cargoLayout.bodyKind,
+      hasSideDoor: cargoLayout.hasSideDoor,
+    }),
+    [cargoLayout.bodyKind, cargoLayout.hasSideDoor, stops],
+  );
+  const placementById = useMemo(
+    () => new Map(loadingSchema.placements.map((item) => [item.stopId, item])),
+    [loadingSchema],
+  );
 
   const markLoaded = async (stopId: string) => {
     try {
@@ -485,6 +527,12 @@ export default function LoadingScreen() {
             <Pressable disabled={fuelBusy || !fuelInput.trim()} onPress={() => void submitFuel()} style={[styles.fuelButton, (fuelBusy || !fuelInput.trim()) && styles.disabled]}><Text style={styles.primaryText}>{fuelBusy ? 'Saugoma…' : 'Patvirtinti'}</Text></Pressable>
           </View> : null}
         </View> : null}
+        {stops.length > 0 ? (
+          <LoadingSchemaCard
+            schema={loadingSchema}
+            cargoLayout={cargoLayout}
+          />
+        ) : null}
         <View style={styles.plannedActions}>
         {profile.role === 'driver' ? <Pressable disabled={bulkBusy || Boolean(readiness && !readiness.canBeginLoading)} style={[styles.plannedPrimaryButton, (bulkBusy || Boolean(readiness && !readiness.canBeginLoading)) && styles.disabled]} onPress={beginLoading} testID="begin-loading">
           {bulkBusy ? <ActivityIndicator color="#fff" /> : <>
@@ -549,6 +597,12 @@ export default function LoadingScreen() {
           </View>
         </View>
       ) : null}
+      {progress && stops.length > 0 ? (
+        <LoadingSchemaCard
+          schema={loadingSchema}
+          cargoLayout={cargoLayout}
+        />
+      ) : null}
       {progress && progress.totalStops > 0 ? (
         route?.status === 'loaded' ? (
           <View style={styles.allLoadedState} testID="all-stops-loaded-state">
@@ -600,6 +654,7 @@ export default function LoadingScreen() {
       ) : null}
       {stops.map((stop, index) => {
         const deliveryOrder = stop.activeOrder ?? stop.optimizedOrder ?? stop.originalOrder;
+        const placement = placementById.get(stop.id);
         const expanded = expandedStopId === stop.id;
         const markedNotLoaded = stop.loadingStatus === 'pending' && stop.deliveryStatus === 'failed';
         const statusTone = stop.loadingStatus === 'loaded'
@@ -646,6 +701,13 @@ export default function LoadingScreen() {
               <View style={styles.cardHeaderText}>
                 <Text style={styles.address}>{stop.normalizedAddress ?? stop.originalAddress}{stop.priorityFirst ? ' ⭐' : ''}</Text>
                 <Text style={styles.loadingSequenceLabel}>KROVIMO EILĖ {index + 1} · PRISTATYMO TAŠKAS {deliveryOrder}</Text>
+                {placement ? (
+                  <Text style={styles.schemaHint}>
+                    Schema: {placement.bayLabel} · {placement.stackLabel}
+                    {placement.usePallet ? ' · PLL' : ''}
+                    {placement.sideAccess ? ' · per šoną' : ''}
+                  </Text>
+                ) : null}
                 <Text style={styles.statusCaption}>
                   {statusTone === 'loaded' ? 'Pakrauta' : statusTone === 'notLoaded' ? 'Nepakrauta' : 'Laukia pakrovimo'}
                 </Text>
@@ -859,6 +921,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   address: { color: colors.text, fontSize: 15, fontFamily: fonts.heading },
   statusCaption: { color: colors.textMuted, fontSize: 12, fontFamily: fonts.headingSemiBold },
   loadingSequenceLabel: { color: colors.info, fontSize: 11, fontFamily: fonts.headingExtraBold, letterSpacing: 0.2 },
+  schemaHint: { color: colors.info, fontSize: 12, fontFamily: fonts.bodyMedium },
   weightChip: {
     minWidth: 54,
     paddingHorizontal: 8,

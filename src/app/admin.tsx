@@ -21,6 +21,7 @@ import {
   type EmployeePermissionKey,
 } from '@/application/auth/employee-permissions';
 import { FoundationScreen } from '@/components/foundation-screen';
+import { VAN_BODY_KINDS, vanBodyLabel, type VanBodyKind } from '@/domain/loading-schema';
 import { Alert } from '@/ui/alert';
 import { describeVehicleLoad } from '@/ui/vehicle-load';
 import {
@@ -93,12 +94,16 @@ export default function AdminScreen() {
   const [newVehicleModel, setNewVehicleModel] = useState('');
   const [newVehiclePayload, setNewVehiclePayload] = useState('');
   const [newVehicleNorm, setNewVehicleNorm] = useState('');
+  const [newVehicleBody, setNewVehicleBody] = useState<VanBodyKind>('van_long');
+  const [newVehicleSideDoor, setNewVehicleSideDoor] = useState(false);
   const [selectedVehicleId, setSelectedVehicleId] = useState('');
   const [selectedVehicleDriverId, setSelectedVehicleDriverId] = useState('');
   const [editVehicleNumber, setEditVehicleNumber] = useState('');
   const [editVehicleModel, setEditVehicleModel] = useState('');
   const [editVehiclePayload, setEditVehiclePayload] = useState('');
   const [editVehicleNorm, setEditVehicleNorm] = useState('');
+  const [editVehicleBody, setEditVehicleBody] = useState<VanBodyKind>('van_long');
+  const [editVehicleSideDoor, setEditVehicleSideDoor] = useState(false);
   const [currentPin, setCurrentPin] = useState('');
   const [nextPin, setNextPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
@@ -353,9 +358,12 @@ export default function AdminScreen() {
         model: newVehicleModel,
         maximumPayloadKg,
         fuelNormLPer100Km: parseFuelNorm(newVehicleNorm),
+        cargoBodyKind: newVehicleBody,
+        hasSideDoor: newVehicleSideDoor,
       }),
     });
     setNewVehicleNumber(''); setNewVehicleModel(''); setNewVehiclePayload(''); setNewVehicleNorm('');
+    setNewVehicleBody('van_long'); setNewVehicleSideDoor(false);
     setMessage('Automobilis įtrauktas į parką.');
     await load();
   });
@@ -379,6 +387,8 @@ export default function AdminScreen() {
     setEditVehicleNorm(vehicle.fuelNormLPer100Km === null || vehicle.fuelNormLPer100Km === undefined
       ? ''
       : String(vehicle.fuelNormLPer100Km).replace('.', ','));
+    setEditVehicleBody(vehicle.cargoBodyKind === 'van_short' ? 'van_short' : 'van_long');
+    setEditVehicleSideDoor(vehicle.hasSideDoor === true);
   };
 
   const saveVehicle = () => run(async () => {
@@ -394,6 +404,8 @@ export default function AdminScreen() {
         model: editVehicleModel,
         maximumPayloadKg,
         fuelNormLPer100Km: parseFuelNorm(editVehicleNorm),
+        cargoBodyKind: editVehicleBody,
+        hasSideDoor: editVehicleSideDoor,
       }),
     });
     setSelectedVehicleId(response.vehicle.id);
@@ -484,7 +496,7 @@ export default function AdminScreen() {
         contentMaxWidth={focus ? 900 : desktop ? 1440 : tablet ? 980 : undefined}
         showFoundationNotice={false}
         title={focus === 'employees' ? 'Vairuotojai ir darbuotojai' : focus === 'fleet' ? 'Automobiliai' : 'Administratoriaus panelė'}
-        description={focus === 'employees' ? 'Redaguokite darbuotojo duomenis, PIN ir vairuotojo leidimus.' : focus === 'fleet' ? 'Redaguokite automobilio numerį, modelį, keliamąją galią ir priskyrimą.' : 'Darbuotojai, automobiliai ir maršrutų priskyrimai.'}>
+        description={focus === 'employees' ? 'Redaguokite darbuotojo duomenis, PIN ir vairuotojo leidimus.' : focus === 'fleet' ? 'Redaguokite automobilio numerį, kėbulą, šonines duris ir priskyrimą.' : 'Darbuotojai, automobiliai ir maršrutų priskyrimai.'}>
         {!focus ? <View style={styles.card} testID="admin-account-summary">
           <Text style={styles.title}>{profile.displayName}</Text>
           <Text style={styles.username}>@{username} · {roleLabel(profile.role)}</Text>
@@ -612,7 +624,7 @@ export default function AdminScreen() {
           <View style={[styles.card, (focus === 'employees' || !canManageVehicles) && styles.hidden]} testID="fleet-vehicle-management">
             <CollapsibleHeader title={`Automobilių parkas (${vehicles.length})`} expanded={expandedSection === 'fleet'} onPress={() => toggleSection('fleet')} styles={styles} />
             {expandedSection === 'fleet' ? <>
-            <Text style={styles.meta}>Maksimalus svoris rodo leistiną krovinio svorį. Miestas automobiliams nesaugomas.</Text>
+            <Text style={styles.meta}>Kėbulas ir šoninės durys imami krovimo schemai, kai automobilis priskiriamas maršrutui. Miestas automobiliams nesaugomas.</Text>
             <View style={styles.vehicleList}>
               {vehicles.map((vehicle) => {
                 const driver = users.find((item) => item.id === vehicle.assignedDriverId);
@@ -621,7 +633,7 @@ export default function AdminScreen() {
                   <View style={styles.listRowCompact}>
                     <View style={styles.listContent}>
                       <Text style={styles.listTitle}>{vehicle.registrationNumber} · {vehicle.model}</Text>
-                      <Text style={styles.meta}>{vehicle.maximumPayloadKg} kg · {driver ? driver.displayName : 'Nepriskirtas'}</Text>
+                      <Text style={styles.meta}>{vehicle.maximumPayloadKg} kg · {vehicle.cargoBodyKind === 'van_short' ? '2+2' : '2+3'} · {vehicle.hasSideDoor ? 'šoninės durys' : 'be šoninių durų'} · {driver ? driver.displayName : 'Nepriskirtas'}</Text>
                     </View>
                     <View style={styles.rowActions}>
                       <Pressable accessibilityLabel={`Redaguoti automobilį ${vehicle.registrationNumber}`} accessibilityRole="button" onPress={() => selectVehicle(vehicle)} style={styles.smallButton}><Text style={styles.smallButtonText}>Redaguoti</Text></Pressable>
@@ -631,7 +643,7 @@ export default function AdminScreen() {
                 </View>
                 {selectedVehicleId === vehicle.id ? <View style={styles.editor} testID="vehicle-edit-form">
               <View style={styles.editorHeading}>
-                <View style={styles.listContent}><Text style={styles.title}>Redaguoti automobilį</Text><Text style={styles.meta}>Numeris, modelis, maksimali krovinio masė ir kuro norma.</Text></View>
+                <View style={styles.listContent}><Text style={styles.title}>Redaguoti automobilį</Text><Text style={styles.meta}>Numeris, kėbulas, šoninės durys ir kuro norma.</Text></View>
                 <Pressable accessibilityLabel="Uždaryti automobilio redagavimą" accessibilityRole="button" onPress={() => setSelectedVehicleId('')} style={styles.closeButton}><Text style={styles.closeButtonText}>×</Text></Pressable>
               </View>
               {input(editVehicleNumber, (value) => setEditVehicleNumber(value.toUpperCase().replace(/\s/g, '').slice(0, 12)), 'Valstybinis numeris')}
@@ -640,6 +652,14 @@ export default function AdminScreen() {
                 keyboardType="decimal-pad" placeholder="Maksimalus krovinio svoris, kg" placeholderTextColor={colors.textMuted} style={styles.input} />
               <TextInput accessibilityLabel="Kuro norma" testID="vehicle-fuel-norm" value={editVehicleNorm} onChangeText={(value) => setEditVehicleNorm(value.replace(/[^\d.,]/g, '').slice(0, 5))}
                 keyboardType="decimal-pad" placeholder="Kuro norma, l/100 km (pvz. 13,9)" placeholderTextColor={colors.textMuted} style={styles.input} />
+              <VehicleCargoFields
+                bodyKind={editVehicleBody}
+                hasSideDoor={editVehicleSideDoor}
+                onBodyKindChange={setEditVehicleBody}
+                onSideDoorChange={setEditVehicleSideDoor}
+                styles={styles}
+                testPrefix="edit-vehicle"
+              />
               <Text style={styles.meta}>Pagal šią normą kelionės lape skaičiuojamas sunaudotas kuras ir likutis. Palikus tuščią, imamas apytikslis įvertis pagal keliamąją galią.</Text>
               {canManageFinancials ? <Pressable accessibilityRole="link" onPress={() => router.push({ pathname: '/financial-settings', params: { returnTo: 'admin' } } as unknown as Href)} style={styles.smallButton}><Text style={styles.smallButtonText}>Keisti draudimą ir kelių mokestį →</Text></Pressable> : null}
               <Pressable accessibilityLabel="Išsaugoti automobilio pakeitimus" accessibilityRole="button" disabled={busy || !online} style={[styles.primaryButton, (busy || !online) && styles.disabled]} onPress={() => void saveVehicle()}><Text style={styles.primaryText}>Išsaugoti automobilį</Text></Pressable>
@@ -668,6 +688,14 @@ export default function AdminScreen() {
               keyboardType="decimal-pad" placeholder="Maksimalus krovinio svoris, kg" placeholderTextColor={colors.textMuted} style={styles.input} />
             <TextInput value={newVehicleNorm} onChangeText={(value) => setNewVehicleNorm(value.replace(/[^\d.,]/g, '').slice(0, 5))}
               keyboardType="decimal-pad" placeholder="Kuro norma, l/100 km (pvz. 12)" placeholderTextColor={colors.textMuted} style={styles.input} />
+            <VehicleCargoFields
+              bodyKind={newVehicleBody}
+              hasSideDoor={newVehicleSideDoor}
+              onBodyKindChange={setNewVehicleBody}
+              onSideDoorChange={setNewVehicleSideDoor}
+              styles={styles}
+              testPrefix="new-vehicle"
+            />
             <Pressable disabled={busy || !online} style={[styles.secondaryButton, (busy || !online) && styles.disabled]} onPress={() => void createVehicle()}>
               <Text style={styles.secondaryText}>Pridėti automobilį</Text>
             </Pressable>
@@ -903,6 +931,57 @@ function groupEmployeesByRole(employees: EmployeeProfile[]): { role: EmployeeRol
   return groups
     .map((group) => ({ ...group, employees: employees.filter((employee) => employee.role === group.role) }))
     .filter((group) => group.employees.length > 0);
+}
+
+function VehicleCargoFields({
+  bodyKind,
+  hasSideDoor,
+  onBodyKindChange,
+  onSideDoorChange,
+  styles,
+  testPrefix,
+}: {
+  bodyKind: VanBodyKind;
+  hasSideDoor: boolean;
+  onBodyKindChange: (kind: VanBodyKind) => void;
+  onSideDoorChange: (value: boolean) => void;
+  styles: ReturnType<typeof createStyles>;
+  testPrefix: string;
+}) {
+  return (
+    <>
+      <Text style={styles.sectionLabel}>Kėbulas krovimui</Text>
+      <View style={styles.choiceRow}>
+        {VAN_BODY_KINDS.map((kind) => (
+          <Pressable
+            key={kind}
+            accessibilityRole="button"
+            onPress={() => onBodyKindChange(kind)}
+            style={[styles.choice, bodyKind === kind && styles.choiceActive]}
+            testID={`${testPrefix}-body-${kind}`}>
+            <Text style={[styles.choiceText, bodyKind === kind && styles.choiceTextActive]}>{vanBodyLabel(kind)}</Text>
+          </Pressable>
+        ))}
+      </View>
+      <Text style={styles.sectionLabel}>Šoninės durys</Text>
+      <View style={styles.choiceRow}>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => onSideDoorChange(true)}
+          style={[styles.choice, hasSideDoor && styles.choiceActive]}
+          testID={`${testPrefix}-side-door-yes`}>
+          <Text style={[styles.choiceText, hasSideDoor && styles.choiceTextActive]}>Yra</Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => onSideDoorChange(false)}
+          style={[styles.choice, !hasSideDoor && styles.choiceActive]}
+          testID={`${testPrefix}-side-door-no`}>
+          <Text style={[styles.choiceText, !hasSideDoor && styles.choiceTextActive]}>Nėra</Text>
+        </Pressable>
+      </View>
+    </>
+  );
 }
 
 function Metric({ label, value, styles }: { label: string; value: number | undefined; styles: ReturnType<typeof createStyles> }) {

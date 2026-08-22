@@ -6,6 +6,7 @@ import {
     normalizeRoutePriceSettings,
     type RoutePriceSettings,
 } from '../src/application/routes/route-price.js';
+import { isVanBodyKind, type VanBodyKind } from '../src/domain/loading-schema.js';
 import { regionCodeFromSource, uniqueRegionCodes } from '../src/domain/route-code.js';
 
 export const EMPLOYEE_ROLES = ['admin', 'dispatcher', 'driver', 'quality'] as const;
@@ -110,6 +111,8 @@ export type FleetVehicle = {
    * table in route-price.ts and then to a payload-based estimate.
    */
   fuelNormLPer100Km: number | null;
+  cargoBodyKind: VanBodyKind;
+  hasSideDoor: boolean;
   assignedDriverId: string | null;
   fuelRemainingLiters: number | null;
   fuelUpdatedAt: string | null;
@@ -120,7 +123,7 @@ export type FleetVehicle = {
 
 export type FleetVehicleSnapshot = Pick<FleetVehicle,
   'id' | 'registrationNumber' | 'model' | 'maximumPayloadKg'
-> & Partial<Pick<FleetVehicle, 'fuelNormLPer100Km' | 'fuelRemainingLiters' | 'fuelUpdatedAt' | 'assignmentRevision'>>;
+> & Partial<Pick<FleetVehicle, 'fuelNormLPer100Km' | 'fuelRemainingLiters' | 'fuelUpdatedAt' | 'assignmentRevision' | 'cargoBodyKind' | 'hasSideDoor'>>;
 
 export type CompensationBreakdown = {
   rates: DriverCompensationRates;
@@ -634,11 +637,15 @@ export class EmployeeAuthStore {
     model: string;
     maximumPayloadKg: number;
     fuelNormLPer100Km?: number | null;
+    cargoBodyKind?: string | null;
+    hasSideDoor?: boolean;
   }): Promise<FleetVehicle> {
     const registrationNumber = validateRegistrationNumber(input.registrationNumber);
     const model = validateVehicleModel(input.model);
     const maximumPayloadKg = validateMaximumPayload(input.maximumPayloadKg);
     const fuelNormLPer100Km = validateFuelNorm(input.fuelNormLPer100Km);
+    const cargoBodyKind = validateCargoBodyKind(input.cargoBodyKind);
+    const hasSideDoor = input.hasSideDoor === true;
     const reference = this.vehicles.doc(registrationNumber);
     const now = new Date().toISOString();
     const vehicle: FleetVehicle = {
@@ -647,6 +654,8 @@ export class EmployeeAuthStore {
       model,
       maximumPayloadKg,
       fuelNormLPer100Km,
+      cargoBodyKind,
+      hasSideDoor,
       assignedDriverId: null,
       fuelRemainingLiters: null,
       fuelUpdatedAt: null,
@@ -707,6 +716,8 @@ export class EmployeeAuthStore {
     model?: string;
     maximumPayloadKg?: number;
     fuelNormLPer100Km?: number | null;
+    cargoBodyKind?: string | null;
+    hasSideDoor?: boolean;
   }): Promise<FleetVehicle> {
     const vehicleId = validateVehicleId(vehicleIdInput);
     const currentRef = this.vehicles.doc(vehicleId);
@@ -728,6 +739,10 @@ export class EmployeeAuthStore {
       const fuelNormLPer100Km = input.fuelNormLPer100Km === undefined
         ? current.fuelNormLPer100Km
         : validateFuelNorm(input.fuelNormLPer100Km);
+      const cargoBodyKind = input.cargoBodyKind === undefined
+        ? current.cargoBodyKind
+        : validateCargoBodyKind(input.cargoBodyKind);
+      const hasSideDoor = input.hasSideDoor === undefined ? current.hasSideDoor : input.hasSideDoor === true;
       const updatedAt = new Date().toISOString();
       updated = {
         ...current,
@@ -736,6 +751,8 @@ export class EmployeeAuthStore {
         model,
         maximumPayloadKg,
         fuelNormLPer100Km,
+        cargoBodyKind,
+        hasSideDoor,
         updatedAt,
       };
 
@@ -1394,8 +1411,10 @@ export class EmployeeAuthStore {
     const snapshot = profile.role === 'driver'
       ? await this.assignments.where('driverId', '==', profile.id).get()
       : await this.assignments.get();
+    const vehicles = await this.listVehicles();
+    const liveById = new Map(vehicles.map((vehicle) => [vehicle.id, vehicleSnapshot(vehicle)]));
     return snapshot.docs
-      .map((doc) => doc.data() as RouteAssignment)
+      .map((doc) => withLiveVehicleCargo(doc.data() as RouteAssignment, liveById))
       .sort((a, b) => b.assignedAt.localeCompare(a.assignedAt));
   }
 
@@ -1710,9 +1729,28 @@ function vehicleSnapshot(vehicle: FleetVehicle): FleetVehicleSnapshot {
     registrationNumber: vehicle.registrationNumber,
     model: vehicle.model,
     maximumPayloadKg: vehicle.maximumPayloadKg,
+    cargoBodyKind: vehicle.cargoBodyKind,
+    hasSideDoor: vehicle.hasSideDoor,
     fuelRemainingLiters: vehicle.fuelRemainingLiters,
     fuelUpdatedAt: vehicle.fuelUpdatedAt,
     assignmentRevision: vehicle.assignmentRevision,
+  };
+}
+
+function withLiveVehicleCargo(
+  assignment: RouteAssignment,
+  liveById: Map<string, FleetVehicleSnapshot>,
+): RouteAssignment {
+  const live = assignment.vehicle?.id ? liveById.get(assignment.vehicle.id) : undefined;
+  const base = assignment.vehicle ?? live ?? null;
+  if (!base) return assignment;
+  return {
+    ...assignment,
+    vehicle: {
+      ...base,
+      cargoBodyKind: live?.cargoBodyKind ?? base.cargoBodyKind ?? 'van_long',
+      hasSideDoor: live?.hasSideDoor ?? base.hasSideDoor ?? false,
+    },
   };
 }
 
@@ -1721,6 +1759,8 @@ function normalizeVehicle(vehicle: FleetVehicle): FleetVehicle {
     ...vehicle,
     // Vehicles stored before the norm existed have no such field at all.
     fuelNormLPer100Km: nullableNumber(vehicle.fuelNormLPer100Km),
+    cargoBodyKind: isVanBodyKind(vehicle.cargoBodyKind) ? vehicle.cargoBodyKind : 'van_long',
+    hasSideDoor: vehicle.hasSideDoor === true,
     fuelRemainingLiters: nullableNumber(vehicle.fuelRemainingLiters),
     fuelUpdatedAt: optionalText(vehicle.fuelUpdatedAt),
     assignmentRevision: finiteNumber(vehicle.assignmentRevision, 0),
@@ -2051,6 +2091,14 @@ function validateMaximumPayload(value: number): number {
     throw new EmployeeApiError('INVALID_MAXIMUM_PAYLOAD', 'Maksimalus krovinio svoris turi būti teigiamas skaičius.', 400);
   }
   return Math.round(value);
+}
+
+function validateCargoBodyKind(value: string | null | undefined): VanBodyKind {
+  if (value === undefined || value === null || value === '') return 'van_long';
+  if (!isVanBodyKind(value)) {
+    throw new EmployeeApiError('INVALID_CARGO_BODY', 'Kėbulas turi būti ilgesnis arba trumpesnis van.', 400);
+  }
+  return value;
 }
 
 /** Reports written before corrections existed carry neither a date nor a kind. */
