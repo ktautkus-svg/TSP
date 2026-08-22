@@ -38,7 +38,7 @@ function RoleAccessBoundary({ children }: { children: ReactNode }) {
     || pathname === '/route/new';
   const routePlanning = /\/route\/[^/]+\/(review|alternatives)$/.test(pathname);
   const driverCanPlan = Boolean(profile.permissions?.canCreateRoutes || profile.permissions?.canReorderAssignedRoute);
-  const qualityAllowed = pathname === '/' || pathname === '/quality-control';
+  const qualityAllowed = pathname === '/' || pathname === '/quality-control' || pathname === '/trip-sheet';
   const blocked = (profile.role === 'driver' && (adminOnly || (routePlanning && !driverCanPlan)))
     || (profile.role === 'quality' && !qualityAllowed);
   useEffect(() => {

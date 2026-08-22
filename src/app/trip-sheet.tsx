@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
+import { canEnterTripReadings } from '@/application/auth/employee-permissions';
+import { odometerDistanceKm } from '@/domain/nll182-odometer-log';
 import { pushCompletedRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
 import { CompanyProfileSettings, type CompanyProfile } from '@/application/settings/company-profile';
 import { buildTripSheetWorkbook, MIME_XLSX } from '@/application/trip-sheet/export-xlsx';
@@ -11,7 +13,12 @@ import { buildFuelLedger, type FuelLedgerDay } from '@/application/trip-sheet/fu
 import { FoundationScreen } from '@/components/foundation-screen';
 import { TripSheetRepository, type TripSheetWithRoutes } from '@/database/repositories/trip-sheet-repository';
 import type { FuelType } from '@/domain/vehicle-and-trip';
-import { employeeApi, type ServerFuelEntry, type ServerTripSheet } from '@/infrastructure/auth/employee-session';
+import {
+  employeeApi,
+  type ServerFleetVehicle,
+  type ServerFuelEntry,
+  type ServerTripSheet,
+} from '@/infrastructure/auth/employee-session';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { radius, spacing, type } from '@/ui/tokens';
@@ -47,6 +54,7 @@ type DailyTripRow = {
   compensationPreliminary: boolean;
   assignmentId: string;
   tripSheetId: string;
+  vehicleId: string | null;
   source: DisplayTripSheet['source'];
   fuelEntries: TripFuelEntry[];
 };
@@ -60,12 +68,8 @@ type MonthlyTripGroup = {
 
 type FuelEntryInput = {
   date: string;
-  odometer: number;
   liters: number;
-  pricePerLiter: number | null;
-  station: string | null;
   receiptNumber: string | null;
-  notes: string | null;
 };
 
 export default function TripSheetScreen() {
@@ -82,6 +86,8 @@ export default function TripSheetScreen() {
   const [message, setMessage] = useState<string | null>(null);
   const [companyProfile, setCompanyProfile] = useState<CompanyProfile>({ name: '', address: '' });
   const [vehicleFuelType, setVehicleFuelType] = useState<FuelType>('diesel');
+  const [fleetVehicles, setFleetVehicles] = useState<ServerFleetVehicle[]>([]);
+  const canEditFleetReadings = canEnterTripReadings(profile);
 
   useEffect(() => {
     void new CompanyProfileSettings(db).get().then(setCompanyProfile);
@@ -95,6 +101,10 @@ export default function TripSheetScreen() {
         if (profile.role === 'driver') await pushCompletedRouteAssignmentProgress(db);
         const response = await employeeApi<{ tripSheets: ServerTripSheet[] }>('/api/trip-sheets');
         setSheets(response.tripSheets.map((sheet) => ({ ...sheet, source: 'server', fuelEntries: sheet.fuelEntries ?? [] })));
+        if (canEditFleetReadings) {
+          const fleet = await employeeApi<{ vehicles: ServerFleetVehicle[] }>('/api/admin/vehicles').catch(() => ({ vehicles: [] as ServerFleetVehicle[] }));
+          setFleetVehicles(fleet.vehicles);
+        }
       } else {
         setSheets(await localSheets(repository));
         setMessage('Rodomi šiame įrenginyje išsaugoti kelionės lapai. Prisijungus bus rodomi serverio duomenys.');
@@ -107,7 +117,7 @@ export default function TripSheetScreen() {
     } finally {
       setBusy(false);
     }
-  }, [db, online, profile.role, repository]);
+  }, [canEditFleetReadings, db, online, profile.role, repository]);
 
   useFocusEffect(useCallback(() => { void load(); }, [load]));
 
@@ -191,21 +201,48 @@ export default function TripSheetScreen() {
           method: 'POST',
           body: JSON.stringify({
             filledAt,
-            odometer: input.odometer,
             liters: input.liters,
-            pricePerLiter: input.pricePerLiter ?? undefined,
-            station: input.station ?? undefined,
             receiptNumber: input.receiptNumber ?? undefined,
-            notes: input.notes ?? undefined,
           }),
         });
       } else {
-        await repository.saveFuelEntry({ tripSheetId: row.tripSheetId, filledAt, ...input });
+        await repository.saveFuelEntry({
+          tripSheetId: row.tripSheetId,
+          filledAt,
+          odometer: row.endOdometer ?? row.startOdometer ?? 0,
+          liters: input.liters,
+          pricePerLiter: null,
+          station: null,
+          receiptNumber: input.receiptNumber,
+          notes: null,
+        });
       }
       await load();
       setMessage(`Įpilta ${formatNumber(input.liters)} l – kuro įrašas išsaugotas.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Kuro įrašo išsaugoti nepavyko.');
+      setBusy(false);
+      throw error;
+    }
+  };
+  const saveOdometer = async (input: {
+    vehicleId: string;
+    date: string;
+    startOdometer: number;
+    endOdometer: number;
+  }) => {
+    if (busy) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      await employeeApi('/api/trip-sheets/day-readings', {
+        method: 'POST',
+        body: JSON.stringify(input),
+      });
+      await load();
+      setMessage(`Odometras ${input.date}: ${formatNumber(input.endOdometer - input.startOdometer)} km išsaugotas.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Odometro išsaugoti nepavyko.');
       setBusy(false);
       throw error;
     }
@@ -216,6 +253,14 @@ export default function TripSheetScreen() {
       <FoundationScreen showFoundationNotice={false} title="Kelionės lapai" description={profile.role === 'driver'
         ? 'Jūsų užbaigtų maršrutų faktiniai darbo duomenys.'
         : 'Visų vairuotojų užbaigti maršrutai, odometrai ir automobiliai.'}>
+        {canEditFleetReadings && online ? (
+          <NewOdometerEntry
+            busy={busy}
+            fleetVehicles={fleetVehicles}
+            onSave={saveOdometer}
+            styles={styles}
+          />
+        ) : null}
         <View style={styles.actionRow} testID="trip-sheet-controls">
           <Pressable style={styles.primaryButton} disabled={busy} onPress={() => { void load(); }} testID="refresh-trip-sheets">
             {busy ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.primaryText}>Atnaujinti</Text>}
@@ -233,18 +278,20 @@ export default function TripSheetScreen() {
           {months.map((month) => <Filter key={month} label={formatMonth(month)} active={selectedMonth === month} onPress={() => setSelectedMonth(month)} styles={styles} />)}
         </View> : null}
         {message ? <Text accessibilityRole="alert" style={styles.message}>{message}</Text> : null}
-        {!busy && monthlyGroups.length === 0 ? <View style={styles.empty}><Text style={styles.cardTitle}>Kelionės lapų dar nėra</Text><Text style={styles.meta}>Lapas atsiras automatiškai vairuotojui užbaigus priskirtą maršrutą ir įvedus galutinį odometrą.</Text></View> : null}
-        {monthlyGroups.map((group) => <MonthlyTripSheet companyProfile={companyProfile} compact={width < 820} group={group} key={group.key} onAddFuel={addFuel} savingFuel={busy} styles={styles} vehicleFuelType={vehicleFuelType} />)}
+        {!busy && monthlyGroups.length === 0 ? <View style={styles.empty}><Text style={styles.cardTitle}>Kelionės lapų dar nėra</Text><Text style={styles.meta}>Lapas atsiranda užbaigus maršrutą arba įvedus dienos odometrą.</Text></View> : null}
+        {monthlyGroups.map((group) => <MonthlyTripSheet canEdit={canEditFleetReadings || profile.role === 'driver'} companyProfile={companyProfile} compact={width < 820} group={group} key={group.key} onAddFuel={addFuel} onSaveOdometer={saveOdometer} saving={busy} styles={styles} vehicleFuelType={vehicleFuelType} />)}
       </FoundationScreen>
     </>
   );
 }
 
-function MonthlyTripSheet({ group, compact, onAddFuel, savingFuel, styles, companyProfile, vehicleFuelType }: {
+function MonthlyTripSheet({ group, compact, canEdit, onAddFuel, onSaveOdometer, saving, styles, companyProfile, vehicleFuelType }: {
   group: MonthlyTripGroup;
   compact: boolean;
+  canEdit: boolean;
   onAddFuel: (row: DailyTripRow, input: FuelEntryInput) => Promise<void>;
-  savingFuel: boolean;
+  onSaveOdometer: (input: { vehicleId: string; date: string; startOdometer: number; endOdometer: number }) => Promise<void>;
+  saving: boolean;
   styles: ReturnType<typeof createStyles>;
   companyProfile: CompanyProfile;
   vehicleFuelType: FuelType;
@@ -252,13 +299,13 @@ function MonthlyTripSheet({ group, compact, onAddFuel, savingFuel, styles, compa
   const [expanded, setExpanded] = useState(false);
   const [expandedDay, setExpandedDay] = useState<string | null>(null);
   const [fuelEditorDay, setFuelEditorDay] = useState<string | null>(null);
+  const [odometerEditorDay, setOdometerEditorDay] = useState<string | null>(null);
   const [fuelDate, setFuelDate] = useState('');
-  const [fuelOdometer, setFuelOdometer] = useState('');
   const [fuelLiters, setFuelLiters] = useState('');
-  const [fuelPrice, setFuelPrice] = useState('');
-  const [fuelStation, setFuelStation] = useState('');
   const [fuelReceiptNumber, setFuelReceiptNumber] = useState('');
-  const [fuelNotes, setFuelNotes] = useState('');
+  const [odoDate, setOdoDate] = useState('');
+  const [odoStart, setOdoStart] = useState('');
+  const [odoEnd, setOdoEnd] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
   const totalDistance = group.rows.reduce((sum, row) => sum + (row.distanceKm ?? 0), 0);
   const totalFuel = group.rows.reduce((sum, row) => sum + (row.fuelConsumed ?? 0), 0);
@@ -274,39 +321,58 @@ function MonthlyTripSheet({ group, compact, onAddFuel, savingFuel, styles, compa
   const openFuelEditor = (row: DailyTripRow) => {
     setExpandedDay(row.date);
     setFuelEditorDay(row.date);
+    setOdometerEditorDay(null);
     setFuelDate(row.date);
-    setFuelOdometer(String(row.endOdometer ?? row.startOdometer ?? ''));
     setFuelLiters('');
-    setFuelPrice('');
-    setFuelStation('');
     setFuelReceiptNumber('');
-    setFuelNotes('');
+    setFormError(null);
+  };
+  const openOdometerEditor = (row: DailyTripRow) => {
+    setExpandedDay(row.date);
+    setOdometerEditorDay(row.date);
+    setFuelEditorDay(null);
+    setOdoDate(row.date);
+    setOdoStart(row.startOdometer === null ? '' : String(row.startOdometer).replace('.', ','));
+    setOdoEnd(row.endOdometer === null ? '' : String(row.endOdometer).replace('.', ','));
     setFormError(null);
   };
   const saveFuel = async (row: DailyTripRow) => {
     const liters = parseDecimal(fuelLiters);
-    const odometer = parseDecimal(fuelOdometer);
-    const price = fuelPrice.trim() ? parseDecimal(fuelPrice) : null;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fuelDate)) return setFormError('Įveskite datą formatu YYYY-MM-DD.');
     if (liters === null || liters <= 0) return setFormError('Įveskite įpiltų litrų kiekį.');
-    if (odometer === null || odometer < 0) return setFormError('Įveskite odometro rodmenį pylimo metu.');
-    if (price !== null && price < 0) return setFormError('Litro kaina negali būti neigiama.');
     setFormError(null);
     try {
       await onAddFuel(row, {
         date: fuelDate,
-        odometer,
         liters,
-        pricePerLiter: price,
-        station: fuelStation.trim() || null,
         receiptNumber: fuelReceiptNumber.trim() || null,
-        notes: fuelNotes.trim() || null,
       });
       setFuelEditorDay(null);
     } catch {
       setFormError('Kuro įrašo išsaugoti nepavyko. Patikrinkite ryšį ir bandykite dar kartą.');
     }
   };
+  const saveDayOdometer = async (row: DailyTripRow) => {
+    const start = parseDecimal(odoStart);
+    const end = parseDecimal(odoEnd);
+    if (!row.vehicleId) return setFormError('Šiai dienai nepriskirtas automobilis.');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(odoDate)) return setFormError('Įveskite datą formatu YYYY-MM-DD.');
+    if (start === null || start < 0 || end === null || end < 0) return setFormError('Įveskite odometro pradžią ir pabaigą.');
+    if (end < start) return setFormError('Odometro pabaiga negali būti mažesnė už pradžią.');
+    setFormError(null);
+    try {
+      await onSaveOdometer({ vehicleId: row.vehicleId, date: odoDate, startOdometer: start, endOdometer: end });
+      setOdometerEditorDay(null);
+    } catch {
+      setFormError('Odometro išsaugoti nepavyko. Patikrinkite ryšį ir bandykite dar kartą.');
+    }
+  };
+  const odoDistance = (() => {
+    const start = parseDecimal(odoStart);
+    const end = parseDecimal(odoEnd);
+    if (start === null || end === null || end < start) return null;
+    return odometerDistanceKm(start, end);
+  })();
 
   return <View style={styles.sheet} testID={`monthly-trip-sheet-${group.key}`}>
     <View style={styles.screenView} testID="trip-sheet-screen-view">
@@ -332,13 +398,23 @@ function MonthlyTripSheet({ group, compact, onAddFuel, savingFuel, styles, compa
     <View style={styles.summaryActions}>
       {latestRow ? <Pressable
         accessibilityRole="button"
-        disabled={savingFuel}
+        disabled={saving}
         onPress={() => {
           setExpanded(true);
           openFuelEditor(latestRow);
         }}
         style={styles.addFuelPrimary}>
         <Text style={styles.addFuelPrimaryText}>+ Įvesti kurą</Text>
+      </Pressable> : null}
+      {canEdit && latestRow ? <Pressable
+        accessibilityRole="button"
+        disabled={saving}
+        onPress={() => {
+          setExpanded(true);
+          openOdometerEditor(latestRow);
+        }}
+        style={styles.secondaryButton}>
+        <Text style={styles.secondaryText}>+ Įvesti odometrą</Text>
       </Pressable> : null}
       <Pressable accessibilityRole="button" onPress={() => setExpanded((current) => !current)} style={styles.detailsToggle}>
         <Text style={styles.detailsToggleText}>{expanded ? 'Suskleisti' : `Atidaryti kelionės lapą · ${group.rows.length} d.`}</Text>
@@ -401,28 +477,42 @@ function MonthlyTripSheet({ group, compact, onAddFuel, savingFuel, styles, compa
             {row.fuelEntries.length > 0 ? <View style={styles.fuelEntries}>
               <Text style={styles.fuelEntriesTitle}>KURO PAPILDYMAI</Text>
               {row.fuelEntries.map((entry) => <View key={entry.id} style={styles.fuelEntryRow}>
-                <View style={styles.flex}><Text style={styles.tableStrong}>{formatNumber(entry.liters)} l · {formatNumber(entry.odometer)} km</Text><Text style={styles.meta}>{entry.station || 'Degalinė nenurodyta'} · {formatDateTime(entry.filledAt)}{entry.receiptNumber ? ` · čekis ${entry.receiptNumber}` : ''}</Text></View>
-                <Text style={styles.tableStrong}>{entry.totalCost === null ? '—' : formatMoney(entry.totalCost)}</Text>
+                <View style={styles.flex}><Text style={styles.tableStrong}>{formatNumber(entry.liters)} l</Text><Text style={styles.meta}>{formatDateTime(entry.filledAt)}{entry.receiptNumber ? ` · čekis ${entry.receiptNumber}` : ''}</Text></View>
               </View>)}
             </View> : <Text style={styles.meta}>Šią dieną kuro papildymų dar neįvesta.</Text>}
-            {!editingFuel ? <Pressable onPress={() => openFuelEditor(row)} style={styles.addFuelButton}><Text style={styles.addFuelButtonText}>+ Įvesti kuro papildymą</Text></Pressable> : <View style={styles.fuelForm} testID={`fuel-entry-form-${row.date}`}>
+            {canEdit && !editingFuel && odometerEditorDay !== row.date ? <View style={styles.formActions}>
+              <Pressable onPress={() => openOdometerEditor(row)} style={styles.addFuelButton}><Text style={styles.addFuelButtonText}>Odometras</Text></Pressable>
+              <Pressable onPress={() => openFuelEditor(row)} style={styles.addFuelButton}><Text style={styles.addFuelButtonText}>+ Kuro papildymas</Text></Pressable>
+            </View> : null}
+            {odometerEditorDay === row.date ? <View style={styles.fuelForm} testID={`odometer-entry-form-${row.date}`}>
+              <Text style={styles.cardTitle}>Dienos odometras</Text>
+              <Text style={styles.meta}>Pradžia ir pabaiga. Nuvažiuota skaičiuojama automatiškai.</Text>
+              <View style={styles.formGrid}>
+                <Field label="Data *" value={odoDate} onChangeText={setOdoDate} placeholder="YYYY-MM-DD" styles={styles} />
+                <Field label="Pradžia, km *" value={odoStart} onChangeText={setOdoStart} placeholder="Pvz. 274885" keyboardType="decimal-pad" styles={styles} />
+                <Field label="Pabaiga, km *" value={odoEnd} onChangeText={setOdoEnd} placeholder="Pvz. 275524" keyboardType="decimal-pad" styles={styles} />
+              </View>
+              <Text style={styles.tableStrong}>Nuvažiuota: {odoDistance === null ? '—' : `${formatNumber(odoDistance)} km`}</Text>
+              {formError ? <Text accessibilityRole="alert" style={styles.formError}>{formError}</Text> : null}
+              <View style={styles.formActions}>
+                <Pressable disabled={saving} onPress={() => setOdometerEditorDay(null)} style={styles.cancelFuelButton}><Text style={styles.secondaryText}>Atšaukti</Text></Pressable>
+                <Pressable disabled={saving} onPress={() => void saveDayOdometer(row)} style={[styles.saveFuelButton, saving && styles.disabled]}><Text style={styles.primaryText}>{saving ? 'Saugoma…' : 'Išsaugoti odometrą'}</Text></Pressable>
+              </View>
+            </View> : null}
+            {editingFuel ? <View style={styles.fuelForm} testID={`fuel-entry-form-${row.date}`}>
               <Text style={styles.cardTitle}>Kuro papildymas</Text>
-              <Text style={styles.meta}>Privalomi laukai: litrai, odometras ir data.</Text>
+              <Text style={styles.meta}>Privalomi laukai: litrai ir data. Čekio numeris nebūtinas.</Text>
               <View style={styles.formGrid}>
                 <Field label="Įpilta, l *" value={fuelLiters} onChangeText={setFuelLiters} placeholder="Pvz. 45,5" keyboardType="decimal-pad" styles={styles} />
-                <Field label="Odometras *" value={fuelOdometer} onChangeText={setFuelOdometer} placeholder="Pvz. 675628" keyboardType="decimal-pad" styles={styles} />
                 <Field label="Data *" value={fuelDate} onChangeText={setFuelDate} placeholder="YYYY-MM-DD" styles={styles} />
-                <Field label="Kaina už litrą" value={fuelPrice} onChangeText={setFuelPrice} placeholder="Pvz. 1,49" keyboardType="decimal-pad" styles={styles} />
-                <Field label="Degalinė" value={fuelStation} onChangeText={setFuelStation} placeholder="Pavadinimas arba vieta" styles={styles} />
-                <Field label="Kasos čekio Nr." value={fuelReceiptNumber} onChangeText={setFuelReceiptNumber} placeholder="Pvz. 565638" styles={styles} />
-                <Field label="Pastaba" value={fuelNotes} onChangeText={setFuelNotes} placeholder="Nebūtina" styles={styles} />
+                <Field label="Kasos čekio Nr." value={fuelReceiptNumber} onChangeText={setFuelReceiptNumber} placeholder="Nebūtina" styles={styles} />
               </View>
               {formError ? <Text accessibilityRole="alert" style={styles.formError}>{formError}</Text> : null}
               <View style={styles.formActions}>
-                <Pressable disabled={savingFuel} onPress={() => setFuelEditorDay(null)} style={styles.cancelFuelButton}><Text style={styles.secondaryText}>Atšaukti</Text></Pressable>
-                <Pressable disabled={savingFuel} onPress={() => void saveFuel(row)} style={[styles.saveFuelButton, savingFuel && styles.disabled]}><Text style={styles.primaryText}>{savingFuel ? 'Saugoma…' : 'Išsaugoti'}</Text></Pressable>
+                <Pressable disabled={saving} onPress={() => setFuelEditorDay(null)} style={styles.cancelFuelButton}><Text style={styles.secondaryText}>Atšaukti</Text></Pressable>
+                <Pressable disabled={saving} onPress={() => void saveFuel(row)} style={[styles.saveFuelButton, saving && styles.disabled]}><Text style={styles.primaryText}>{saving ? 'Saugoma…' : 'Išsaugoti'}</Text></Pressable>
               </View>
-            </View>}
+            </View> : null}
           </View> : null}
         </View>;
       })}
@@ -564,6 +654,7 @@ function buildDailyRows(sheets: DisplayTripSheet[]): DailyTripRow[] {
       compensationPreliminary: compensation?.preliminary ?? true,
       assignmentId: targetSheet.assignmentId,
       tripSheetId: targetSheet.id,
+      vehicleId: targetSheet.vehicle?.id ?? null,
       source: targetSheet.source,
       fuelEntries,
     };
@@ -612,6 +703,68 @@ function fuelMissingHint(missing: FuelLedgerDay['missing']): string | null {
 
 function minimum(values: (number | null)[]): number | null { const present = values.filter((value): value is number => value !== null); return present.length > 0 ? Math.min(...present) : null; }
 function maximum(values: (number | null)[]): number | null { const present = values.filter((value): value is number => value !== null); return present.length > 0 ? Math.max(...present) : null; }
+
+function NewOdometerEntry({
+  busy,
+  fleetVehicles,
+  onSave,
+  styles,
+}: {
+  busy: boolean;
+  fleetVehicles: ServerFleetVehicle[];
+  onSave: (input: { vehicleId: string; date: string; startOdometer: number; endOdometer: number }) => Promise<void>;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  const [vehicleId, setVehicleId] = useState('');
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [start, setStart] = useState('');
+  const [end, setEnd] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const startKm = parseDecimal(start);
+  const endKm = parseDecimal(end);
+  const distance = startKm !== null && endKm !== null && endKm >= startKm ? odometerDistanceKm(startKm, endKm) : null;
+  const save = async () => {
+    if (!vehicleId) return setError('Pasirinkite automobilį.');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return setError('Įveskite datą formatu YYYY-MM-DD.');
+    if (startKm === null || startKm < 0 || endKm === null || endKm < 0) return setError('Įveskite odometro pradžią ir pabaigą.');
+    if (endKm < startKm) return setError('Odometro pabaiga negali būti mažesnė už pradžią.');
+    setError(null);
+    try {
+      await onSave({ vehicleId, date, startOdometer: startKm, endOdometer: endKm });
+      setStart('');
+      setEnd('');
+    } catch {
+      setError('Odometro išsaugoti nepavyko.');
+    }
+  };
+  return (
+    <View style={styles.sheet} testID="trip-sheet-odometer-entry">
+      <Text style={styles.cardTitle}>Įvesti dienos odometrą</Text>
+      <Text style={styles.meta}>Data, pradžia ir pabaiga. Nuvažiuota skaičiuojama automatiškai. Kuro čia nepildykite.</Text>
+      <View style={styles.filters}>
+        {fleetVehicles.map((vehicle) => (
+          <Filter
+            key={vehicle.id}
+            label={vehicle.registrationNumber}
+            active={vehicleId === vehicle.id}
+            onPress={() => setVehicleId(vehicle.id)}
+            styles={styles}
+          />
+        ))}
+      </View>
+      <View style={styles.formGrid}>
+        <Field label="Data *" value={date} onChangeText={setDate} placeholder="YYYY-MM-DD" styles={styles} />
+        <Field label="Pradžia, km *" value={start} onChangeText={setStart} placeholder="Pvz. 274885" keyboardType="decimal-pad" styles={styles} />
+        <Field label="Pabaiga, km *" value={end} onChangeText={setEnd} placeholder="Pvz. 275524" keyboardType="decimal-pad" styles={styles} />
+      </View>
+      <Text style={styles.tableStrong}>Nuvažiuota: {distance === null ? '—' : `${formatNumber(distance)} km`}</Text>
+      {error ? <Text accessibilityRole="alert" style={styles.formError}>{error}</Text> : null}
+      <Pressable disabled={busy} onPress={() => void save()} style={[styles.saveFuelButton, busy && styles.disabled]}>
+        <Text style={styles.primaryText}>{busy ? 'Saugoma…' : 'Išsaugoti odometrą'}</Text>
+      </Pressable>
+    </View>
+  );
+}
 
 function Field({ label, styles, ...inputProps }: {
   label: string;

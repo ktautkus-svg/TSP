@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   DRIVER_PERMISSION_KEYS,
+  canEnterTripReadings,
   normalizeDriverPermissions,
 } from '../../src/application/auth/employee-permissions';
 
@@ -129,14 +130,24 @@ describe('dispatcher desktop workspace', () => {
 describe('driver permissions', () => {
   it('defaults every optional planning permission to disabled', () => {
     const permissions = normalizeDriverPermissions();
-    expect(DRIVER_PERMISSION_KEYS).toHaveLength(6);
-    expect(Object.values(permissions)).toEqual([false, false, false, false, false, false]);
+    expect(DRIVER_PERMISSION_KEYS).toHaveLength(7);
+    expect(Object.values(permissions)).toEqual([false, false, false, false, false, false, false]);
   });
 
   it('preserves explicitly enabled permissions while filling missing values', () => {
     const permissions = normalizeDriverPermissions({ canReorderAssignedRoute: true });
     expect(permissions.canReorderAssignedRoute).toBe(true);
     expect(permissions.canCancelRoute).toBe(false);
+    expect(permissions.canEnterTripReadings).toBe(false);
+  });
+
+  it('lets admins, dispatchers and granted users enter trip-sheet odometer and fuel', () => {
+    expect(canEnterTripReadings({ role: 'admin' })).toBe(true);
+    expect(canEnterTripReadings({ role: 'dispatcher' })).toBe(true);
+    expect(canEnterTripReadings({ role: 'driver' })).toBe(false);
+    expect(canEnterTripReadings({ role: 'driver', permissions: { canEnterTripReadings: true } })).toBe(true);
+    expect(canEnterTripReadings({ role: 'quality' })).toBe(false);
+    expect(canEnterTripReadings({ role: 'quality', permissions: { canEnterTripReadings: true } })).toBe(true);
   });
 
   it('syncs the dispatcher own routes through the shared coordinator, never by calling the engine directly', () => {

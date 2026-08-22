@@ -27,6 +27,7 @@ export const DRIVER_PERMISSION_KEYS = [
   'canRecalculateRoute',
   'canCancelRoute',
   'canViewCompensation',
+  'canEnterTripReadings',
 ] as const;
 
 export type DriverPermissionKey = (typeof DRIVER_PERMISSION_KEYS)[number];
@@ -36,6 +37,7 @@ export const MANAGEMENT_PERMISSION_KEYS = [
   'canManageEmployees',
   'canManageVehicles',
   'canManageFinancials',
+  'canEnterTripReadings',
 ] as const;
 export type ManagementPermissionKey = (typeof MANAGEMENT_PERMISSION_KEYS)[number];
 export type ManagementPermissions = Record<ManagementPermissionKey, boolean>;
@@ -49,6 +51,7 @@ export const DEFAULT_DRIVER_PERMISSIONS: DriverPermissions = {
   canRecalculateRoute: false,
   canCancelRoute: false,
   canViewCompensation: false,
+  canEnterTripReadings: false,
 };
 
 export const DRIVER_PERMISSION_LABELS: Record<DriverPermissionKey, { title: string; description: string }> = {
@@ -76,12 +79,17 @@ export const DRIVER_PERMISSION_LABELS: Record<DriverPermissionKey, { title: stri
     title: 'Matyti atlygio skaičiavimą',
     description: 'Vairuotojas kelionės lape ir maršruto suvestinėje mato preliminarų bei galutinį dienos netto atlygį.',
   },
+  canEnterTripReadings: {
+    title: 'Įvesti odometrą ir kurą',
+    description: 'Gali kelionės lape suvesti dienos odometrą ir kuro pylimus.',
+  },
 };
 
 export const DEFAULT_MANAGEMENT_PERMISSIONS: ManagementPermissions = {
   canManageEmployees: false,
   canManageVehicles: false,
   canManageFinancials: false,
+  canEnterTripReadings: false,
 };
 
 export function normalizeDriverPermissions(value?: Partial<DriverPermissions> | null): DriverPermissions {
@@ -104,6 +112,10 @@ export const MANAGEMENT_PERMISSION_LABELS: Record<ManagementPermissionKey, { tit
     title: 'Redaguoti finansinius duomenis',
     description: 'Dispečeris gali keisti kuro, draudimo, kelių mokesčių ir atlygio parametrus.',
   },
+  canEnterTripReadings: {
+    title: 'Įvesti odometrą ir kurą',
+    description: 'Gali kelionės lape suvesti dienos odometrą ir kuro pylimus bet kuriam automobiliui.',
+  },
 };
 
 export function normalizeEmployeePermissions(value?: Partial<EmployeePermissions> | null): EmployeePermissions {
@@ -123,5 +135,13 @@ export function canApproveExpiredDeparture(profile: {
     return normalizeEmployeePermissions(profile.permissions).canManageVehicles;
   }
   return false;
+}
+
+export function canEnterTripReadings(profile: {
+  role: EmployeeRole;
+  permissions?: Partial<EmployeePermissions> | null;
+}): boolean {
+  if (profile.role === 'admin' || profile.role === 'dispatcher') return true;
+  return normalizeEmployeePermissions(profile.permissions).canEnterTripReadings === true;
 }
 

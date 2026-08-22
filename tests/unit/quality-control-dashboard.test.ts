@@ -72,6 +72,8 @@ describe('quality control dashboard', () => {
     expect(dashboardSource).not.toContain("method: 'POST'");
     expect(dashboardSource).not.toContain("method: 'PATCH'");
     expect(layoutSource).toContain("profile.role === 'quality' && !qualityAllowed");
+    expect(layoutSource).toContain("pathname === '/trip-sheet'");
+    expect(dashboardSource).toContain('testID="quality-open-trip-sheets"');
   });
 
   it('publishes driver progress immediately after a delivery and refreshes both sides periodically', () => {

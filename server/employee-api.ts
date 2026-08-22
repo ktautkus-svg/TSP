@@ -155,7 +155,7 @@ export async function handleEmployeeApi(
       return send(response, 201, { user }, requestId);
     }
     if (pathname === '/api/admin/vehicles' && request.method === 'GET') {
-      requireRole(profile, ['admin', 'dispatcher']);
+      requireFleetVehicleListAccess(profile);
       return send(response, 200, { vehicles: await store.listVehicles() }, requestId);
     }
     if (pathname === '/api/admin/vehicles' && request.method === 'POST') {
@@ -304,16 +304,28 @@ export async function handleEmployeeApi(
       return send(response, 204, null, requestId);
     }
     if (pathname === '/api/trip-sheets' && request.method === 'GET') {
-      requireRole(profile, ['admin', 'dispatcher', 'driver']);
+      requireRole(profile, ['admin', 'dispatcher', 'driver', 'quality']);
       return send(response, 200, { tripSheets: await store.listTripSheets(profile) }, requestId);
+    }
+    if (pathname === '/api/trip-sheets/day-readings' && request.method === 'POST') {
+      requireRole(profile, ['admin', 'dispatcher', 'driver', 'quality']);
+      const body = parseObject(await readBody(request, 32_000));
+      const reading = await store.upsertVehicleDayReading(profile, {
+        vehicleId: stringField(body, 'vehicleId'),
+        date: stringField(body, 'date'),
+        startOdometer: numberField(body, 'startOdometer'),
+        endOdometer: numberField(body, 'endOdometer'),
+        driverId: body.driverId === undefined ? undefined : body.driverId === null ? null : stringField(body, 'driverId'),
+      });
+      return send(response, 200, { reading }, requestId);
     }
     const tripSheetFuelMatch = pathname.match(/^\/api\/trip-sheets\/([^/]+)\/fuel-entries$/);
     if (tripSheetFuelMatch && request.method === 'POST') {
-      requireRole(profile, ['admin', 'dispatcher', 'driver']);
+      requireRole(profile, ['admin', 'dispatcher', 'driver', 'quality']);
       const body = parseObject(await readBody(request, 32_000));
       const entry = await store.addFuelEntry(profile, decodeURIComponent(tripSheetFuelMatch[1]), {
         filledAt: stringField(body, 'filledAt'),
-        odometer: numberField(body, 'odometer'),
+        odometer: typeof body.odometer === 'number' ? body.odometer : undefined,
         liters: numberField(body, 'liters'),
         pricePerLiter: typeof body.pricePerLiter === 'number' ? body.pricePerLiter : undefined,
         station: optionalString(body, 'station'),
@@ -510,6 +522,12 @@ function requireManagementPermission(profile: EmployeeProfile, permission: 'canM
   if (profile.role === 'admin') return;
   if (profile.role === 'dispatcher' && profile.permissions[permission]) return;
   throw new EmployeeApiError('FORBIDDEN', 'Šiam veiksmui neturite suteiktos teisės.', 403);
+}
+
+function requireFleetVehicleListAccess(profile: EmployeeProfile): void {
+  if (profile.role === 'admin' || profile.role === 'dispatcher') return;
+  if (profile.permissions.canEnterTripReadings) return;
+  throw new EmployeeApiError('FORBIDDEN', 'Šiam veiksmui neturite teisės.', 403);
 }
 
 function permissionPatch(value: unknown): Record<EmployeePermissionKey, boolean> | undefined {

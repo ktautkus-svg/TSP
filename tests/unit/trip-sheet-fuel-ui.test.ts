@@ -19,12 +19,19 @@ describe('trip sheet fuel workflow', () => {
     }
     expect(source).toContain('Atidaryti kelionės lapą · ${group.rows.length} d.');
     expect(source).toContain('+ Įvesti kurą');
-    expect(source).toContain('+ Įvesti kuro papildymą');
+    expect(source).toContain('+ Kuro papildymas');
     expect(source).toContain('fuel-entry-form-');
+    expect(source).toContain('odometer-entry-form-');
+    expect(source).toContain('trip-sheet-odometer-entry');
     expect(source).toContain('/fuel-entries');
+    expect(source).toContain('/api/trip-sheets/day-readings');
     expect(source).toContain('Kasos čekio Nr.');
+    expect(source).toContain('Privalomi laukai: litrai ir data');
+    expect(source).toContain('Nuvažiuota');
     expect(source).toContain('Eksportuoti Excel');
     expect(source).not.toContain('Sustojimo trukmė');
     expect(source).not.toContain('Stovėjimo laikas');
+    expect(source).not.toContain('Kaina už litrą');
+    expect(source).not.toContain('Degalinė');
   });
 });

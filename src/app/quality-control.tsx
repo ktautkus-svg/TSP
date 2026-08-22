@@ -139,6 +139,17 @@ export default function QualityControlScreen() {
         {!mobile ? <Text numberOfLines={1} style={styles.headerContext}>KOKYBĖS KONTROLĖ</Text> : null}
       </View>
       <View style={styles.headerActions}>
+        {profile.role === 'quality' ? (
+          <Pressable
+            accessibilityLabel="Kelionės lapai"
+            accessibilityRole="button"
+            onPress={() => router.push({ pathname: '/trip-sheet', params: { returnTo: 'quality-control' } } as Href)}
+            style={({ pressed }) => [styles.tripSheetHeaderButton, pressed && styles.cardSummaryPressed]}
+            testID="quality-open-trip-sheets"
+          >
+            <Text style={styles.tripSheetHeaderText}>Kelionės lapai</Text>
+          </Pressable>
+        ) : null}
         <Pressable accessibilityLabel="Atidaryti paskyros meniu" accessibilityRole="button" onPress={() => setAccountMenuOpen(true)} style={({ pressed }) => [styles.accountButton, pressed && styles.accountButtonPressed]}>
           <Text style={styles.accountInitials}>{initials(profile.displayName)}</Text>
         </Pressable>
@@ -450,6 +461,8 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   headerIdentity: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   headerBrandButton: { minWidth: 84, minHeight: 48, justifyContent: 'center' },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  tripSheetHeaderButton: { minHeight: 44, paddingHorizontal: spacing.sm, justifyContent: 'center', borderRadius: radius.md },
+  tripSheetHeaderText: { ...type.button, color: colors.primary },
   headerNavButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   headerDivider: { width: 1, height: 30, backgroundColor: colors.border },
   headerContext: { flexShrink: 1, ...type.label, fontFamily: fonts.heading, color: colors.primary, letterSpacing: 0.7 },

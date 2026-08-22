@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { attachDailyCompensation, buildServerTripSheet, tripSheetFuelNorm, type RouteAssignment } from '../../server/employee-auth-store';
+import { attachDailyCompensation, applyDayReading, buildServerTripSheet, buildVehicleDayTripSheet, tripSheetFuelNorm, type RouteAssignment, type VehicleDayReading } from '../../server/employee-auth-store';
 import { DEFAULT_ROUTE_PRICE_SETTINGS } from '../../src/application/routes/route-price';
 
 describe('server trip sheet', () => {
@@ -74,6 +74,36 @@ describe('server trip sheet', () => {
       distanceKm: 150, distanceSource: 'planned', weightKg: 1500, stops: 15,
       fixedAmountEur: 23, distanceAmountEur: 7.5, weightAmountEur: 9, stopsAmountEur: 9.75,
       totalNetEur: 49.25, preliminary: true,
+    });
+  });
+
+  it('overlays GPS day readings onto a completed assignment and synthesizes days without a route', () => {
+    const assignment: RouteAssignment = {
+      id: 'assignment-nll', routeId: 'route-nll', driverId: 'driver-jevgenij', driverName: 'Jevgenij Finevičius',
+      status: 'completed', progress: null, createdBy: 'admin', assignedAt: '2026-08-07T05:00:00.000Z',
+      updatedAt: '2026-08-07T18:00:00.000Z',
+      vehicle: { id: 'nll182', registrationNumber: 'NLL182', model: 'Renault Master', maximumPayloadKg: 1500 },
+      routeSnapshot: {
+        route: { id: 'route-nll', date: '2026-08-07', status: 'completed', actual_distance_km: 12, start_odometer: 1, end_odometer: 13 },
+        stops: [],
+        shipmentLines: [],
+      },
+    };
+    const reading: VehicleDayReading = {
+      id: 'nll182:2026-08-07', vehicleId: 'nll182', registrationNumber: 'NLL182', date: '2026-08-07',
+      startOdometer: 274885, endOdometer: 275524, distanceKm: 639, driverId: 'driver-jevgenij',
+      driverName: 'Jevgenij Finevičius', createdAt: '2026-08-22T00:00:00.000Z', updatedAt: '2026-08-22T00:00:00.000Z',
+      createdBy: 'gps-import',
+    };
+    const sheet = applyDayReading(buildServerTripSheet(assignment, assignment.vehicle), [reading]);
+    expect(sheet).toMatchObject({ startOdometer: 274885, endOdometer: 275524, actualDistanceKm: 639 });
+    expect(buildVehicleDayTripSheet({ ...reading, date: '2026-08-01', startOdometer: 274885, endOdometer: 274885, distanceKm: 0 }, assignment.vehicle)).toMatchObject({
+      assignmentId: 'vehicle-day-nll182-2026-08-01',
+      date: '2026-08-01',
+      startOdometer: 274885,
+      endOdometer: 274885,
+      actualDistanceKm: 0,
+      fuelEntries: [],
     });
   });
 });

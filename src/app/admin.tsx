@@ -903,7 +903,18 @@ export default function AdminScreen() {
               </View> : null}
               {profile.role === 'admin' && selectedEmployee && editEmployeeRole === 'dispatcher' ? <View style={styles.permissions}>
                 <Text style={styles.sectionLabel}>Dispečerio valdymo teisės</Text>
-                {MANAGEMENT_PERMISSION_KEYS.map((key) => {
+                {MANAGEMENT_PERMISSION_KEYS.filter((key) => key !== 'canEnterTripReadings').map((key) => {
+                  const enabled = normalizeEmployeePermissions(selectedEmployee.permissions)[key];
+                  const copy = MANAGEMENT_PERMISSION_LABELS[key];
+                  return <Pressable key={key} onPress={() => void togglePermission(selectedEmployee, key)} style={styles.permissionRow} testID={`permission-${selectedEmployee.id}-${key}`}>
+                    <View style={styles.permissionCopy}><Text style={styles.permissionTitle}>{copy.title}</Text><Text style={styles.permissionDescription}>{copy.description}</Text></View>
+                    <View style={[styles.switchTrack, enabled && styles.switchTrackOn]}><View style={[styles.switchThumb, enabled && styles.switchThumbOn]} /></View>
+                  </Pressable>;
+                })}
+              </View> : null}
+              {profile.role === 'admin' && selectedEmployee && editEmployeeRole === 'quality' ? <View style={styles.permissions}>
+                <Text style={styles.sectionLabel}>Kelionės lapų teisės</Text>
+                {(['canEnterTripReadings'] as const).map((key) => {
                   const enabled = normalizeEmployeePermissions(selectedEmployee.permissions)[key];
                   const copy = MANAGEMENT_PERMISSION_LABELS[key];
                   return <Pressable key={key} onPress={() => void togglePermission(selectedEmployee, key)} style={styles.permissionRow} testID={`permission-${selectedEmployee.id}-${key}`}>

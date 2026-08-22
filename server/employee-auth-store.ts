@@ -7,6 +7,13 @@ import {
     type RoutePriceSettings,
 } from '../src/application/routes/route-price.js';
 import {
+    NLL182_ODOMETER_DRIVER_NAME,
+    NLL182_ODOMETER_LOG,
+    odometerDistanceKm,
+    parseVehicleDayAssignmentId,
+    vehicleDayAssignmentId,
+} from '../src/domain/nll182-odometer-log.js';
+import {
     bodyKindFromPalletCapacity,
     fleetCargoSpec,
     isPalletCapacity,
@@ -39,6 +46,7 @@ export const DRIVER_PERMISSION_KEYS = [
   'canRecalculateRoute',
   'canCancelRoute',
   'canViewCompensation',
+  'canEnterTripReadings',
 ] as const;
 export type DriverPermissionKey = (typeof DRIVER_PERMISSION_KEYS)[number];
 export type DriverPermissions = Record<DriverPermissionKey, boolean>;
@@ -46,6 +54,7 @@ export const MANAGEMENT_PERMISSION_KEYS = [
   'canManageEmployees',
   'canManageVehicles',
   'canManageFinancials',
+  'canEnterTripReadings',
 ] as const;
 export type ManagementPermissionKey = (typeof MANAGEMENT_PERMISSION_KEYS)[number];
 export type ManagementPermissions = Record<ManagementPermissionKey, boolean>;
@@ -58,11 +67,13 @@ const DEFAULT_DRIVER_PERMISSIONS: DriverPermissions = {
   canRecalculateRoute: false,
   canCancelRoute: false,
   canViewCompensation: false,
+  canEnterTripReadings: false,
 };
 const DEFAULT_MANAGEMENT_PERMISSIONS: ManagementPermissions = {
   canManageEmployees: false,
   canManageVehicles: false,
   canManageFinancials: false,
+  canEnterTripReadings: false,
 };
 
 export const DEFAULT_COMPENSATION_RATES = {
@@ -234,6 +245,21 @@ export type ServerFuelEntry = {
   createdBy: string;
 };
 
+export type VehicleDayReading = {
+  id: string;
+  vehicleId: string;
+  registrationNumber: string;
+  date: string;
+  startOdometer: number;
+  endOdometer: number;
+  distanceKm: number;
+  driverId: string | null;
+  driverName: string | null;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string;
+};
+
 export type ServerTripSheet = {
   id: string;
   assignmentId: string;
@@ -350,6 +376,7 @@ export class EmployeeAuthStore {
   private readonly vehicleFaults = this.db.collection('tsp_vehicle_faults');
   private readonly departureOverrides = this.db.collection('tsp_departure_overrides');
   private readonly fuelEntries = this.db.collection('tsp_fuel_entries');
+  private readonly vehicleDayReadings = this.db.collection('tsp_vehicle_day_readings');
   private readonly settings = this.db.collection('tsp_settings');
   private readonly clients = this.db.collection('tsp_clients');
 
@@ -1462,76 +1489,183 @@ export class EmployeeAuthStore {
   async listTripSheets(profile: EmployeeProfile): Promise<ServerTripSheet[]> {
     const assignments = (await this.listAssignments(profile)).filter((assignment) => assignment.status === 'completed');
     const vehicles = await this.listVehicles();
+    await this.seedNll182OdometerLog(vehicles);
     const currentVehicles = new Map(
       vehicles.filter((vehicle) => vehicle.assignedDriverId).map((vehicle) => [vehicle.assignedDriverId!, vehicleSnapshot(vehicle)]),
     );
+    const vehiclesById = new Map(vehicles.map((vehicle) => [vehicle.id, vehicle]));
     const priceSettings = await this.getRoutePriceSettings();
-    const fuelSnapshot = await this.fuelEntries.get();
+    const [fuelSnapshot, readingSnapshot, fuelReportSnapshot] = await Promise.all([
+      this.fuelEntries.get(),
+      this.vehicleDayReadings.get(),
+      this.fuelReports.get(),
+    ]);
+    const readings = readingSnapshot.docs.map((document) => document.data() as VehicleDayReading);
+    const visibleReadings = readings.filter((reading) => isReadingVisibleTo(profile, reading, vehiclesById.get(reading.vehicleId) ?? null));
     const visibleAssignmentIds = new Set(assignments.map((assignment) => assignment.id));
-    const entries = fuelSnapshot.docs
-      .map((document) => document.data() as ServerFuelEntry)
-      .filter((entry) => visibleAssignmentIds.has(entry.assignmentId));
+    const allEntries = fuelSnapshot.docs.map((document) => document.data() as ServerFuelEntry);
     const entriesByAssignment = new Map<string, ServerFuelEntry[]>();
-    for (const entry of entries) entriesByAssignment.set(entry.assignmentId, [...(entriesByAssignment.get(entry.assignmentId) ?? []), entry]);
-    const fuelReports = (await this.fuelReports.get()).docs
-      .map((document) => normalizeFuelReport(document.data() as FuelReport));
+    const entriesByVehicleDate = new Map<string, ServerFuelEntry[]>();
+    for (const entry of allEntries) {
+      const date = entry.filledAt.slice(0, 10);
+      const vehicleDateKey = `${entry.vehicleId}:${date}`;
+      entriesByVehicleDate.set(vehicleDateKey, [...(entriesByVehicleDate.get(vehicleDateKey) ?? []), entry]);
+      if (visibleAssignmentIds.has(entry.assignmentId) || parseVehicleDayAssignmentId(entry.assignmentId)) {
+        entriesByAssignment.set(entry.assignmentId, [...(entriesByAssignment.get(entry.assignmentId) ?? []), entry]);
+      }
+    }
+    const fuelReports = fuelReportSnapshot.docs.map((document) => normalizeFuelReport(document.data() as FuelReport));
     const sheets = assignments
       .map((assignment) => buildServerTripSheet(assignment, assignment.vehicle ?? currentVehicles.get(assignment.driverId) ?? null))
+      .map((sheet) => applyDayReading(sheet, visibleReadings))
       .map((sheet) => ({
         ...sheet,
         fuelNormLitersPer100Km: tripSheetFuelNorm(sheet.vehicle, priceSettings),
-        // The balance this day's period opens on, so the ledger no longer has
-        // to assume the vehicle's current reading applied back then too.
         fuelAnchor: sheet.vehicle ? fuelAnchorFor(fuelReports, sheet.vehicle.id, sheet.date) : null,
-        fuelEntries: (entriesByAssignment.get(sheet.assignmentId) ?? []).sort((left, right) => left.filledAt.localeCompare(right.filledAt)),
-      }))
+        fuelEntries: fuelEntriesForSheet(sheet, entriesByAssignment, entriesByVehicleDate),
+      }));
+    const covered = new Set(sheets.map((sheet) => `${sheet.vehicle?.id ?? ''}:${sheet.date}`));
+    const synthetic = visibleReadings
+      .filter((reading) => !covered.has(`${reading.vehicleId}:${reading.date}`))
+      .map((reading) => {
+        const vehicle = vehiclesById.get(reading.vehicleId) ?? null;
+        const sheet = buildVehicleDayTripSheet(reading, vehicle ? vehicleSnapshot(vehicle) : null);
+        return {
+          ...sheet,
+          fuelNormLitersPer100Km: tripSheetFuelNorm(sheet.vehicle, priceSettings),
+          fuelAnchor: sheet.vehicle ? fuelAnchorFor(fuelReports, sheet.vehicle.id, sheet.date) : null,
+          fuelEntries: fuelEntriesForSheet(sheet, entriesByAssignment, entriesByVehicleDate),
+        };
+      });
+    const combined = [...sheets, ...synthetic]
       .sort((left, right) => (right.completedAt ?? right.date).localeCompare(left.completedAt ?? left.date));
     const canViewCompensation = profile.role !== 'driver' || profile.permissions.canViewCompensation;
-    if (!canViewCompensation) return sheets;
-    const driverIds = new Set(sheets.map((sheet) => sheet.driverId));
+    if (!canViewCompensation) return combined;
+    const driverIds = new Set(combined.map((sheet) => sheet.driverId));
     const rates = new Map<string, DriverCompensationRates | null>();
     for (const document of (await this.users.get()).docs) {
       const user = document.data() as StoredUser;
       if (driverIds.has(user.id)) rates.set(user.id, normalizeCompensation(user.compensation));
     }
-    return attachDailyCompensation(sheets, rates);
+    return attachDailyCompensation(combined, rates);
+  }
+
+  async upsertVehicleDayReading(profile: EmployeeProfile, input: {
+    vehicleId: string;
+    date: string;
+    startOdometer: number;
+    endOdometer: number;
+    driverId?: string | null;
+  }): Promise<VehicleDayReading> {
+    const date = validateRouteDate(input.date);
+    const startOdometer = validateDayOdometer(input.startOdometer);
+    const endOdometer = validateDayOdometer(input.endOdometer);
+    if (endOdometer < startOdometer) {
+      throw new EmployeeApiError('INVALID_ODOMETER', 'Odometro pabaiga negali būti mažesnė už pradžią.', 400);
+    }
+    const vehicleDocument = await this.vehicles.doc(validateVehicleId(input.vehicleId)).get();
+    const stored = vehicleDocument.data() as FleetVehicle | undefined;
+    const vehicle = stored ? normalizeVehicle(stored) : undefined;
+    if (!vehicle) throw new EmployeeApiError('VEHICLE_NOT_FOUND', 'Automobilis nerastas.', 404);
+    const driver = await this.resolveReadingDriver(vehicle, input.driverId);
+    assertCanEditTripReadings(profile, vehicle, driver.id);
+    const now = new Date().toISOString();
+    const id = `${vehicle.id}:${date}`;
+    const existing = (await this.vehicleDayReadings.doc(id).get()).data() as VehicleDayReading | undefined;
+    const reading: VehicleDayReading = {
+      id,
+      vehicleId: vehicle.id,
+      registrationNumber: vehicle.registrationNumber,
+      date,
+      startOdometer,
+      endOdometer,
+      distanceKm: odometerDistanceKm(startOdometer, endOdometer),
+      driverId: driver.id,
+      driverName: driver.name,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+      createdBy: existing?.createdBy ?? profile.id,
+    };
+    await this.vehicleDayReadings.doc(id).set(reading);
+    return reading;
   }
 
   async addFuelEntry(profile: EmployeeProfile, assignmentIdInput: string, input: {
     filledAt: string;
-    odometer: number;
+    odometer?: number;
     liters: number;
     pricePerLiter?: number;
     station?: string;
     receiptNumber?: string;
     notes?: string;
   }): Promise<ServerFuelEntry> {
-    const assignmentId = safeId(assignmentIdInput);
-    const assignmentDocument = await this.assignments.doc(assignmentId).get();
-    const assignment = assignmentDocument.data() as RouteAssignment | undefined;
-    if (!assignment || assignment.status !== 'completed') throw new EmployeeApiError('TRIP_SHEET_NOT_FOUND', 'Užbaigtas kelionės lapas nerastas.', 404);
-    if (profile.role === 'driver' && assignment.driverId !== profile.id) throw new EmployeeApiError('FORBIDDEN', 'Šis kelionės lapas nepriklauso prisijungusiam vairuotojui.', 403);
-    const vehicle = assignment.vehicle ?? await this.findAssignedVehicleSnapshot(assignment.driverId);
-    if (!vehicle) throw new EmployeeApiError('VEHICLE_NOT_ASSIGNED', 'Kelionės lapui nepriskirtas automobilis.', 409);
     const filledAt = new Date(input.filledAt);
     if (Number.isNaN(filledAt.getTime())) throw new EmployeeApiError('INVALID_FUEL_DATE', 'Neteisinga kuro pylimo data.', 400);
-    if (!Number.isFinite(input.odometer) || input.odometer < 0 || input.odometer > 10_000_000) throw new EmployeeApiError('INVALID_ODOMETER', 'Neteisingas odometro rodmuo.', 400);
     if (!Number.isFinite(input.liters) || input.liters <= 0 || input.liters > 1_000) throw new EmployeeApiError('INVALID_FUEL_AMOUNT', 'Įpilto kuro kiekis turi būti nuo 0,1 iki 1000 litrų.', 400);
     if (input.pricePerLiter !== undefined && (!Number.isFinite(input.pricePerLiter) || input.pricePerLiter < 0 || input.pricePerLiter > 100)) throw new EmployeeApiError('INVALID_FUEL_PRICE', 'Neteisinga litro kaina.', 400);
+    if (input.odometer !== undefined) validateDayOdometer(input.odometer);
+
+    const assignmentId = String(assignmentIdInput ?? '').trim();
+    const vehicleDay = parseVehicleDayAssignmentId(assignmentId);
+    let vehicle: FleetVehicleSnapshot | null = null;
+    let driverId = '';
+    let driverName = '';
+    let routeId = assignmentId;
+    let resolvedAssignmentId = assignmentId;
+    let odometer = input.odometer;
+
+    if (vehicleDay) {
+      const storedVehicle = (await this.vehicles.doc(vehicleDay.vehicleId).get()).data() as FleetVehicle | undefined;
+      const live = storedVehicle ? normalizeVehicle(storedVehicle) : undefined;
+      if (!live) throw new EmployeeApiError('VEHICLE_NOT_FOUND', 'Automobilis nerastas.', 404);
+      vehicle = vehicleSnapshot(live);
+      const readingDoc = await this.vehicleDayReadings.doc(`${live.id}:${vehicleDay.date}`).get();
+      const storedReading = readingDoc.data() as VehicleDayReading | undefined;
+      driverId = storedReading?.driverId ?? live.assignedDriverId ?? profile.id;
+      driverName = storedReading?.driverName ?? profile.displayName;
+      odometer = odometer ?? storedReading?.endOdometer ?? storedReading?.startOdometer ?? 0;
+      assertCanEditTripReadings(profile, live, driverId);
+    } else {
+      resolvedAssignmentId = safeId(assignmentIdInput);
+      const assignmentDocument = await this.assignments.doc(resolvedAssignmentId).get();
+      const assignment = assignmentDocument.data() as RouteAssignment | undefined;
+      if (!assignment || assignment.status !== 'completed') throw new EmployeeApiError('TRIP_SHEET_NOT_FOUND', 'Užbaigtas kelionės lapas nerastas.', 404);
+      driverId = assignment.driverId;
+      driverName = assignment.driverName;
+      routeId = assignment.routeId;
+      const assigned = assignment.vehicle ?? await this.findAssignedVehicleSnapshot(assignment.driverId);
+      if (!assigned) throw new EmployeeApiError('VEHICLE_NOT_ASSIGNED', 'Kelionės lapui nepriskirtas automobilis.', 409);
+      vehicle = assigned;
+      const storedVehicle = (await this.vehicles.doc(assigned.id).get()).data() as FleetVehicle | undefined;
+      assertCanEditTripReadings(profile, storedVehicle ? normalizeVehicle(storedVehicle) : {
+        assignedDriverId: driverId,
+      }, driverId);
+      if (odometer === undefined) {
+        const date = filledAt.toISOString().slice(0, 10);
+        const readingDoc = await this.vehicleDayReadings.doc(`${assigned.id}:${date}`).get();
+        const storedReading = readingDoc.data() as VehicleDayReading | undefined;
+        odometer = storedReading?.endOdometer
+          ?? nullableNumber(assignment.routeSnapshot.route.end_odometer)
+          ?? nullableNumber(assignment.routeSnapshot.route.start_odometer)
+          ?? 0;
+      }
+    }
+    if (!vehicle) throw new EmployeeApiError('VEHICLE_NOT_ASSIGNED', 'Kelionės lapui nepriskirtas automobilis.', 409);
+
     const liters = Math.round(input.liters * 100) / 100;
     const pricePerLiter = input.pricePerLiter === undefined ? null : Math.round(input.pricePerLiter * 1000) / 1000;
     const now = new Date().toISOString();
     const entry: ServerFuelEntry = {
       id: randomUUID(),
-      tripSheetId: `trip-sheet-${assignment.id}`,
-      assignmentId: assignment.id,
-      routeId: assignment.routeId,
-      driverId: assignment.driverId,
-      driverName: assignment.driverName,
+      tripSheetId: `trip-sheet-${resolvedAssignmentId}`,
+      assignmentId: resolvedAssignmentId,
+      routeId,
+      driverId,
+      driverName,
       vehicleId: vehicle.id,
       registrationNumber: vehicle.registrationNumber,
       filledAt: filledAt.toISOString(),
-      odometer: Math.round(input.odometer * 10) / 10,
+      odometer: Math.round((odometer ?? 0) * 10) / 10,
       liters,
       pricePerLiter,
       totalCost: pricePerLiter === null ? null : Math.round(liters * pricePerLiter * 100) / 100,
@@ -1543,6 +1677,54 @@ export class EmployeeAuthStore {
     };
     await this.fuelEntries.doc(entry.id).create(entry);
     return entry;
+  }
+
+  private async seedNll182OdometerLog(vehicles: FleetVehicle[]): Promise<void> {
+    const vehicle = vehicles.find((item) => item.registrationNumber.toUpperCase() === 'NLL182');
+    if (!vehicle) return;
+    const existing = await this.vehicleDayReadings.where('vehicleId', '==', vehicle.id).get();
+    if (existing.size >= NLL182_ODOMETER_LOG.length) return;
+    const have = new Set(existing.docs.map((document) => (document.data() as VehicleDayReading).date));
+    const driver = await this.resolveReadingDriver(vehicle, vehicle.assignedDriverId);
+    const now = new Date().toISOString();
+    for (const day of NLL182_ODOMETER_LOG) {
+      if (have.has(day.date)) continue;
+      const id = `${vehicle.id}:${day.date}`;
+      const reading: VehicleDayReading = {
+        id,
+        vehicleId: vehicle.id,
+        registrationNumber: vehicle.registrationNumber,
+        date: day.date,
+        startOdometer: day.startOdometer,
+        endOdometer: day.endOdometer,
+        distanceKm: odometerDistanceKm(day.startOdometer, day.endOdometer),
+        driverId: driver.id,
+        driverName: driver.name === 'Nepriskirtas' ? NLL182_ODOMETER_DRIVER_NAME : driver.name,
+        createdAt: now,
+        updatedAt: now,
+        createdBy: 'gps-import',
+      };
+      await this.vehicleDayReadings.doc(id).set(reading);
+    }
+  }
+
+  private async resolveReadingDriver(
+    vehicle: FleetVehicle,
+    driverIdInput?: string | null,
+  ): Promise<{ id: string | null; name: string }> {
+    const requested = driverIdInput === undefined ? vehicle.assignedDriverId : driverIdInput;
+    if (requested) {
+      const user = (await this.users.doc(requested).get()).data() as StoredUser | undefined;
+      if (user) return { id: user.id, name: user.displayName };
+      return { id: requested, name: 'Nepriskirtas' };
+    }
+    if (vehicle.registrationNumber.toUpperCase() === 'NLL182') {
+      const users = await this.listUsers();
+      const named = users.find((user) => user.displayName.trim().toLocaleLowerCase('lt') === NLL182_ODOMETER_DRIVER_NAME.toLocaleLowerCase('lt'));
+      if (named) return { id: named.id, name: named.displayName };
+      return { id: null, name: NLL182_ODOMETER_DRIVER_NAME };
+    }
+    return { id: null, name: 'Nepriskirtas' };
   }
 
   async listQualityRoutes(): Promise<QualityRouteMonitor[]> {
@@ -1924,6 +2106,98 @@ export function buildServerTripSheet(assignment: RouteAssignment, vehicle: Fleet
     compensation: null,
     fuelEntries: [],
   };
+}
+
+export function applyDayReading(sheet: ServerTripSheet, readings: VehicleDayReading[]): ServerTripSheet {
+  const vehicleId = sheet.vehicle?.id;
+  if (!vehicleId) return sheet;
+  const reading = readings.find((item) => item.vehicleId === vehicleId && item.date === sheet.date);
+  if (!reading) return sheet;
+  return {
+    ...sheet,
+    startOdometer: reading.startOdometer,
+    endOdometer: reading.endOdometer,
+    actualDistanceKm: reading.distanceKm,
+    driverId: reading.driverId ?? sheet.driverId,
+    driverName: reading.driverName ?? sheet.driverName,
+  };
+}
+
+export function buildVehicleDayTripSheet(reading: VehicleDayReading, vehicle: FleetVehicleSnapshot | null): ServerTripSheet {
+  const assignmentId = vehicleDayAssignmentId(reading.vehicleId, reading.date);
+  return {
+    id: `trip-sheet-${assignmentId}`,
+    assignmentId,
+    routeId: assignmentId,
+    routeNumbers: [],
+    status: 'completed',
+    date: reading.date,
+    driverId: reading.driverId ?? 'unassigned',
+    driverName: reading.driverName ?? 'Nepriskirtas',
+    vehicle,
+    fuelNormLitersPer100Km: null,
+    startOdometer: reading.startOdometer,
+    endOdometer: reading.endOdometer,
+    actualDistanceKm: reading.distanceKm,
+    plannedDistanceKm: null,
+    startedAt: `${reading.date}T00:00:00.000Z`,
+    completedAt: `${reading.date}T23:59:59.000Z`,
+    durationMinutes: null,
+    totalStops: 0,
+    deliveredStops: 0,
+    totalWeightKg: 0,
+    deliveredWeightKg: 0,
+    startAddress: 'GPS odometras',
+    endAddress: 'GPS odometras',
+    compensation: null,
+    fuelEntries: [],
+  };
+}
+
+function fuelEntriesForSheet(
+  sheet: ServerTripSheet,
+  byAssignment: Map<string, ServerFuelEntry[]>,
+  byVehicleDate: Map<string, ServerFuelEntry[]>,
+): ServerFuelEntry[] {
+  const fromAssignment = byAssignment.get(sheet.assignmentId) ?? [];
+  const fromVehicle = sheet.vehicle
+    ? byVehicleDate.get(`${sheet.vehicle.id}:${sheet.date}`) ?? []
+    : [];
+  const seen = new Set<string>();
+  return [...fromAssignment, ...fromVehicle]
+    .filter((entry) => {
+      if (seen.has(entry.id)) return false;
+      seen.add(entry.id);
+      return true;
+    })
+    .sort((left, right) => left.filledAt.localeCompare(right.filledAt));
+}
+
+function isReadingVisibleTo(
+  profile: EmployeeProfile,
+  reading: VehicleDayReading,
+  vehicle: FleetVehicle | null,
+): boolean {
+  if (profile.role !== 'driver') return true;
+  return reading.driverId === profile.id || vehicle?.assignedDriverId === profile.id;
+}
+
+function assertCanEditTripReadings(
+  profile: EmployeeProfile,
+  vehicle: { assignedDriverId: string | null } | null,
+  driverId: string | null,
+): void {
+  if (profile.role === 'admin' || profile.role === 'dispatcher') return;
+  if (profile.permissions.canEnterTripReadings) return;
+  if (profile.role === 'driver' && (driverId === profile.id || vehicle?.assignedDriverId === profile.id)) return;
+  throw new EmployeeApiError('FORBIDDEN', 'Šiam veiksmui neturite teisės.', 403);
+}
+
+function validateDayOdometer(value: number): number {
+  if (!Number.isFinite(value) || value < 0 || value > 10_000_000) {
+    throw new EmployeeApiError('INVALID_ODOMETER', 'Neteisingas odometro rodmuo.', 400);
+  }
+  return Math.round(value * 10) / 10;
 }
 
 export function tripSheetFuelNorm(vehicle: FleetVehicleSnapshot | null, settings: RoutePriceSettings): number | null {

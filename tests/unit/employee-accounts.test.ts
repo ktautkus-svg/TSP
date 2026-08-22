@@ -134,7 +134,14 @@ describe('employee server session', () => {
     expect(employeeStoreSource).toContain("private readonly fuelEntries = this.db.collection('tsp_fuel_entries')");
     expect(employeeStoreSource).toContain('async addFuelEntry');
     expect(employeeStoreSource).toContain("assignment.status !== 'completed'");
-    expect(employeeStoreSource).toContain('fuelEntries: (entriesByAssignment.get(sheet.assignmentId) ?? [])');
+    expect(employeeStoreSource).toContain('fuelEntries: fuelEntriesForSheet(sheet, entriesByAssignment, entriesByVehicleDate)');
+    expect(employeeStoreSource).toContain('async upsertVehicleDayReading');
+    expect(employeeStoreSource).toContain('async seedNll182OdometerLog');
+    expect(employeeStoreSource).toContain("createdBy: 'gps-import'");
+    expect(employeeApiSource).toContain("pathname === '/api/trip-sheets/day-readings'");
+    expect(employeeApiSource).toContain("odometer: typeof body.odometer === 'number' ? body.odometer : undefined");
+    expect(tripSheetSource).toContain("employeeApi('/api/trip-sheets/day-readings'");
+    expect(tripSheetSource).not.toContain('Kaina už litrą');
   });
 
   it('allows management actions only to an admin or an explicitly permitted dispatcher', () => {
