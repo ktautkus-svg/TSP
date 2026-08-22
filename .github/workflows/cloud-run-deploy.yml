@@ -164,52 +164,69 @@ jobs:
             echo "Cloud Build did not finish in time: ${STATUS:-unknown}"
             exit 1
           fi
-          # --revision-suffix is ignored while spec.template.metadata.name is
-          # pinned. Rewrite that name onto the new image. `gcloud run services
-          # replace` needs Cloud Resource Manager, which this project has
-          # disabled, so PUT the Knative Service through the regional Run API.
-          export APP_VERSION GIT_SHA IMAGE
-          NEW_REVISION="${CLOUD_RUN_SERVICE}-s${GIT_SHA}"
-          gcloud run services describe "$CLOUD_RUN_SERVICE" \
+          # Failed source revision 00177-2n2 and later pinned suffixes block new
+          # revisions. Delete anything created that is not serving, then deploy
+          # the new image with an auto-generated revision name.
+          READY_REV=$(gcloud run services describe "$CLOUD_RUN_SERVICE" \
             --project="$GCP_PROJECT_ID" \
             --region="$GCP_REGION" \
-            --format=json \
-            | node ./scripts/prepare-cloud-run-revision.mjs \
-            > /tmp/cloud-run-service.json
-          TOKEN=$(gcloud auth print-access-token)
-          HTTP=$(curl -sS -o /tmp/cloud-run-put.json -w '%{http_code}' -X PUT \
-            -H "Authorization: Bearer ${TOKEN}" \
-            -H "Content-Type: application/json" \
-            "https://${GCP_REGION}-run.googleapis.com/apis/serving.knative.dev/v1/namespaces/${GCP_PROJECT_NUMBER}/services/${CLOUD_RUN_SERVICE}" \
-            --data-binary @/tmp/cloud-run-service.json)
-          echo "Cloud Run PUT ${HTTP}"
-          cat /tmp/cloud-run-put.json
-          echo
-          if [ "$HTTP" != 200 ] && [ "$HTTP" != 201 ]; then
-            echo "Cloud Run service update failed"
-            exit 1
+            --format='value(status.latestReadyRevisionName)')
+          CREATED_REV=$(gcloud run services describe "$CLOUD_RUN_SERVICE" \
+            --project="$GCP_PROJECT_ID" \
+            --region="$GCP_REGION" \
+            --format='value(status.latestCreatedRevisionName)')
+          echo "Ready revision ${READY_REV}; latest created ${CREATED_REV}"
+          if [ -n "$CREATED_REV" ] && [ "$CREATED_REV" != "$READY_REV" ]; then
+            gcloud run revisions delete "$CREATED_REV" \
+              --project="$GCP_PROJECT_ID" \
+              --region="$GCP_REGION" \
+              --quiet || true
           fi
+          gcloud run revisions delete "${CLOUD_RUN_SERVICE}-00177-2n2" \
+            --project="$GCP_PROJECT_ID" \
+            --region="$GCP_REGION" \
+            --quiet || true
+          gcloud run deploy "$CLOUD_RUN_SERVICE" \
+            --image "$IMAGE" \
+            --project="$GCP_PROJECT_ID" \
+            --region="$GCP_REGION" \
+            --allow-unauthenticated \
+            --max-instances=1 \
+            --no-traffic \
+            --clear-revision-suffix \
+            --async \
+            --set-secrets="${{ steps.secrets.outputs.secrets_arg }}" \
+            --set-env-vars="GATEWAY_AUTH_MODE=none,GATEWAY_ENV=production,GATEWAY_REAL_PROVIDER_ARMED=${ARMED},GATEWAY_DAILY_BUDGET_CENTS=${DAILY_BUDGET_CENTS},GATEWAY_WEEKLY_BUDGET_CENTS=${WEEKLY_BUDGET_CENTS},GATEWAY_DAILY_USAGE_UNITS=${DAILY_USAGE_UNITS},GATEWAY_WEEKLY_USAGE_UNITS=${WEEKLY_USAGE_UNITS},APP_VERSION=${APP_VERSION},GIT_SHA=${GIT_SHA}" \
+            --quiet
+          NEW_REV=""
+          READY=""
           for _ in $(seq 1 60); do
-            READY=$(gcloud run revisions describe "$NEW_REVISION" \
+            NEW_REV=$(gcloud run services describe "$CLOUD_RUN_SERVICE" \
+              --project="$GCP_PROJECT_ID" \
+              --region="$GCP_REGION" \
+              --format='value(status.latestCreatedRevisionName)')
+            READY=$(gcloud run revisions describe "$NEW_REV" \
               --project="$GCP_PROJECT_ID" \
               --region="$GCP_REGION" \
               --format='value(status.conditions[?type=Ready].status)' 2>/dev/null || true)
-            echo "$(date -u +%H:%M:%S) revision ${NEW_REVISION} Ready=${READY:-missing}"
-            case "$READY" in
-              True) break ;;
-              False)
-                echo "New Cloud Run revision failed to start"
-                gcloud run revisions describe "$NEW_REVISION" \
-                  --project="$GCP_PROJECT_ID" \
-                  --region="$GCP_REGION" \
-                  --format='yaml(status.conditions)' || true
-                exit 1
-                ;;
-            esac
+            echo "$(date -u +%H:%M:%S) revision ${NEW_REV} Ready=${READY:-missing}"
+            if [ -n "$NEW_REV" ] && [ "$NEW_REV" != "$CREATED_REV" ] && [ "$NEW_REV" != "${CLOUD_RUN_SERVICE}-00177-2n2" ]; then
+              case "$READY" in
+                True) break ;;
+                False)
+                  echo "New Cloud Run revision failed to start"
+                  gcloud run revisions describe "$NEW_REV" \
+                    --project="$GCP_PROJECT_ID" \
+                    --region="$GCP_REGION" \
+                    --format='yaml(status.conditions)' || true
+                  exit 1
+                  ;;
+              esac
+            fi
             sleep 5
           done
           if [ "$READY" != True ]; then
-            echo "Timed out waiting for ${NEW_REVISION}"
+            echo "Timed out waiting for a new Cloud Run revision"
             exit 1
           fi
 

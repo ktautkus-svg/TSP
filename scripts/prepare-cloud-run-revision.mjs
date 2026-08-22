@@ -1,23 +1,22 @@
 #!/usr/bin/env node
 /**
- * Cloud Run ignores --revision-suffix when spec.template.metadata.name is a
- * full pinned revision (here: logistikos-pristatymai-00177-2n2). Rewrite the
- * service spec so replace creates a uniquely named revision of the new image
- * without sending traffic until the workflow's update-traffic step.
+ * Cloud Run pins spec.template.metadata.name after a failed source deploy.
+ * Drop that name so the next update auto-generates a revision, point the
+ * container at the new image, and keep live traffic on the last healthy
+ * revision.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 
-const serviceName = requiredEnv('CLOUD_RUN_SERVICE');
-const gitSha = requiredEnv('GIT_SHA');
 const image = requiredEnv('IMAGE');
 const appVersion = requiredEnv('APP_VERSION');
+const gitSha = requiredEnv('GIT_SHA');
 const service = JSON.parse(readFileSync(0, 'utf8'));
 
 const spec = ensureObject(service, 'spec');
 const template = ensureObject(spec, 'template');
 const metadata = ensureObject(template, 'metadata');
 const previousName = typeof metadata.name === 'string' ? metadata.name : null;
-metadata.name = `${serviceName}-s${gitSha}`;
+delete metadata.name;
 
 const templateSpec = ensureObject(template, 'spec');
 if (!Array.isArray(templateSpec.containers) || templateSpec.containers.length === 0) {
@@ -28,15 +27,15 @@ upsertEnv(templateSpec.containers[0], 'GIT_SHA', gitSha);
 upsertEnv(templateSpec.containers[0], 'APP_VERSION', appVersion);
 
 const readyRevision = service.status?.latestReadyRevisionName;
+const createdRevision = service.status?.latestCreatedRevisionName;
 if (typeof readyRevision === 'string' && readyRevision) {
   spec.traffic = [{ revisionName: readyRevision, percent: 100 }];
 }
 
-// Knative PUT rejects a status block. Keep resourceVersion for concurrency.
 delete service.status;
 
 process.stderr.write(
-  `Pinned revision ${previousName ?? '(none)'} -> ${metadata.name} image ${image}\n`,
+  `Cleared pinned revision ${previousName ?? '(none)'}; last created ${createdRevision ?? '(none)'} -> image ${image}\n`,
 );
 writeFileSync(1, JSON.stringify(service));
 

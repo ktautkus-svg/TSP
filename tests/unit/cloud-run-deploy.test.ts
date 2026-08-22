@@ -9,21 +9,19 @@ const employeeStore = readFileSync(resolve(import.meta.dirname, '../../server/em
 const script = resolve(import.meta.dirname, '../../scripts/prepare-cloud-run-revision.mjs');
 
 describe('Cloud Run deploy', () => {
-  it('builds a unique image then replaces the pinned failed revision instead of reusing it', () => {
+  it('deletes the stuck failed revision then deploys a unique image with an auto-generated name', () => {
     expect(workflow).toContain('gcloud builds submit');
     expect(workflow).toContain('--tag "$IMAGE"');
-    expect(workflow).toContain('--async');
     expect(workflow).toContain('gcloud builds describe');
-    expect(workflow).toContain('prepare-cloud-run-revision.mjs');
-    expect(workflow).toContain('GCP_PROJECT_NUMBER');
-    expect(workflow).toContain('apis/serving.knative.dev/v1/namespaces/${GCP_PROJECT_NUMBER}/services/${CLOUD_RUN_SERVICE}');
-    expect(workflow).not.toContain('gcloud run services replace');
+    expect(workflow).toContain('gcloud run revisions delete');
+    expect(workflow).toContain('--clear-revision-suffix');
+    expect(workflow).toContain('--image "$IMAGE"');
     expect(workflow).not.toContain('--revision-suffix="s${GIT_SHA}"');
     expect(workflow).not.toMatch(/gcloud run deploy[\s\S]*--source \./);
-    expect(workflow).not.toMatch(/gcloud run deploy[\s\S]*--image "\$IMAGE"/);
+    expect(workflow).not.toContain('gcloud run services replace');
   });
 
-  it('rewrites a pinned failed revision name onto a unique image without stealing traffic', () => {
+  it('clears a pinned failed revision name and keeps traffic on the last healthy revision', () => {
     const input = {
       spec: {
         template: {
@@ -37,7 +35,10 @@ describe('Cloud Run deploy', () => {
         },
         traffic: [{ latestRevision: true, percent: 100 }],
       },
-      status: { latestReadyRevisionName: 'logistikos-pristatymai-00042-abc' },
+      status: {
+        latestReadyRevisionName: 'logistikos-pristatymai-00042-abc',
+        latestCreatedRevisionName: 'logistikos-pristatymai-00177-2n2',
+      },
     };
     const result = spawnSync(process.execPath, [script], {
       input: JSON.stringify(input),
@@ -53,7 +54,7 @@ describe('Cloud Run deploy', () => {
     expect(result.status).toBe(0);
     expect(result.stderr).toContain('logistikos-pristatymai-00177-2n2');
     const service = JSON.parse(result.stdout);
-    expect(service.spec.template.metadata.name).toBe('logistikos-pristatymai-s77e385c');
+    expect(service.spec.template.metadata.name).toBeUndefined();
     expect(service.spec.template.spec.containers[0].image).toContain(':sha77e385c');
     expect(service.spec.template.spec.containers[0].env).toEqual([
       { name: 'GIT_SHA', value: '77e385c' },
