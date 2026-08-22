@@ -161,6 +161,17 @@ export type FuelReport = {
   note: string | null;
 };
 
+export type VehicleFaultReport = {
+  id: string;
+  localId: string | null;
+  vehicleId: string;
+  registrationNumber: string;
+  comment: string;
+  reportedBy: string;
+  reportedByName: string;
+  reportedAt: string;
+};
+
 /** The approved balance a period starts from. */
 export type FuelAnchor = {
   liters: number;
@@ -289,6 +300,7 @@ export class EmployeeAuthStore {
   private readonly assignments = this.db.collection('tsp_assignments');
   private readonly vehicles = this.db.collection('tsp_vehicles');
   private readonly fuelReports = this.db.collection('tsp_fuel_reports');
+  private readonly vehicleFaults = this.db.collection('tsp_vehicle_faults');
   private readonly fuelEntries = this.db.collection('tsp_fuel_entries');
   private readonly settings = this.db.collection('tsp_settings');
 
@@ -635,6 +647,36 @@ export class EmployeeAuthStore {
     const snapshot = await this.fuelReports.get();
     return snapshot.docs
       .map((document) => normalizeFuelReport(document.data() as FuelReport))
+      .sort((left, right) => right.reportedAt.localeCompare(left.reportedAt));
+  }
+
+  async reportVehicleFault(profile: EmployeeProfile, input: {
+    localId?: string | null;
+    vehicleId?: string | null;
+    registrationNumber?: string | null;
+    comment: string;
+    reportedAt?: string | null;
+  }): Promise<VehicleFaultReport> {
+    const comment = optionalText(input.comment);
+    if (!comment) throw new EmployeeApiError('INVALID_FAULT', 'Įveskite gedimo aprašymą.', 400);
+    const report: VehicleFaultReport = {
+      id: randomUUID(),
+      localId: optionalText(input.localId ?? null),
+      vehicleId: optionalText(input.vehicleId ?? null) ?? '',
+      registrationNumber: optionalText(input.registrationNumber ?? null) ?? '',
+      comment,
+      reportedBy: profile.id,
+      reportedByName: profile.displayName,
+      reportedAt: input.reportedAt?.trim() || new Date().toISOString(),
+    };
+    await this.vehicleFaults.doc(report.id).set(report);
+    return report;
+  }
+
+  async listVehicleFaults(): Promise<VehicleFaultReport[]> {
+    const snapshot = await this.vehicleFaults.get();
+    return snapshot.docs
+      .map((document) => document.data() as VehicleFaultReport)
       .sort((left, right) => right.reportedAt.localeCompare(left.reportedAt));
   }
 

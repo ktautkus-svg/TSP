@@ -111,6 +111,17 @@ export type FuelStatus = {
   latestReport: FuelReport | null;
 };
 
+export type ServerVehicleFault = {
+  id: string;
+  localId?: string | null;
+  vehicleId: string;
+  registrationNumber: string;
+  comment: string;
+  reportedBy: string;
+  reportedByName: string;
+  reportedAt: string;
+};
+
 export type ServerFuelEntry = {
   id: string;
   tripSheetId: string;

@@ -22,8 +22,38 @@ export type Vehicle = {
   maximumGrossWeightKg: number | null;
   homeLocation: SavedLocation | null;
   warehouseLocation: SavedLocation | null;
+  technicalInspectionDueOn: string | null;
+  roadTaxDueOn: string | null;
+  nextServiceDueOn: string | null;
+  nextServiceOdometer: number | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export const OPERATIONAL_CONTACT_KINDS = ['administration', 'dispatcher', 'warehouse', 'other'] as const;
+export type OperationalContactKind = (typeof OPERATIONAL_CONTACT_KINDS)[number];
+
+export type OperationalContact = {
+  id: string;
+  kind: OperationalContactKind;
+  name: string;
+  roleLabel: string | null;
+  phone: string;
+  isEmergency: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type VehicleFault = {
+  id: string;
+  vehicleId: string;
+  comment: string;
+  reportedBy: string | null;
+  reportedAt: string;
+  notifiedAt: string | null;
+  acknowledgedAt: string | null;
+  createdAt: string;
 };
 
 export type TripSheet = {

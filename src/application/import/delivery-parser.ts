@@ -1,6 +1,7 @@
 import { meanConfidence } from '@/domain/import/confidence';
 import { DOCUMENT_TEMPLATES } from '@/domain/import/document-templates';
 import type { DocumentTemplateId, ImportField, ParsedDelivery } from '@/domain/import/models';
+import { normalizePhone } from '@/domain/phone';
 
 const ADDRESS_PATTERN = /\b([\p{L}][\p{L} .'’-]{1,50}[ \t](?:g\.|gatvė|pr\.|prospektas|al\.|pl\.)[ \t]*\d+[\p{L}]?(?:[-/]\d+)?(?:,?[ \t]*[\p{L}][\p{L} .'-]+)?)/iu;
 const WEIGHT_PATTERN = /\b(\d+(?:[.,]\d+)?)\s*(kg|t)\b/iu;
@@ -146,14 +147,6 @@ function appendPostalCity(address: string, block: string): string {
 function toKilograms(raw: string, unit: string): number {
   const value = Number(raw.replace(',', '.'));
   return unit.toLocaleLowerCase('lt-LT') === 't' ? value * 1000 : value;
-}
-
-function normalizePhone(value: string): string {
-  const digits = value.replace(/\D/g, '');
-  if (digits.startsWith('00370')) return `+370${digits.slice(5)}`;
-  if (digits.startsWith('370')) return `+${digits}`;
-  if (digits.startsWith('8')) return `+370${digits.slice(1)}`;
-  return value;
 }
 
 function escapeRegExp(value: string): string {

@@ -31,6 +31,7 @@ import {
   type FuelReport,
   type ServerFleetVehicle,
   type ServerRouteAssignment,
+  type ServerVehicleFault,
 } from '@/infrastructure/auth/employee-session';
 import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
@@ -56,6 +57,7 @@ export default function AdminScreen() {
   const [assignments, setAssignments] = useState<ServerRouteAssignment[]>([]);
   const [vehicles, setVehicles] = useState<ServerFleetVehicle[]>([]);
   const [fuelReports, setFuelReports] = useState<FuelReport[]>([]);
+  const [vehicleFaults, setVehicleFaults] = useState<ServerVehicleFault[]>([]);
   const [correctionVehicleId, setCorrectionVehicleId] = useState('');
   const [correctionLiters, setCorrectionLiters] = useState('');
   const [correctionDate, setCorrectionDate] = useState(new Date().toISOString().slice(0, 10));
@@ -124,18 +126,20 @@ export default function AdminScreen() {
     });
     setRoutes(localRoutes);
     if (['admin', 'dispatcher'].includes(profile.role) && online) {
-      const [userResponse, assignmentResponse, vehicleResponse, fuelResponse] = await Promise.all([
+      const [userResponse, assignmentResponse, vehicleResponse, fuelResponse, faultResponse] = await Promise.all([
         employeeApi<{ users: EmployeeProfile[] }>('/api/admin/users'),
         employeeApi<{ assignments: ServerRouteAssignment[] }>('/api/admin/assignments'),
         employeeApi<{ vehicles: ServerFleetVehicle[] }>('/api/admin/vehicles'),
         profile.role === 'admin'
           ? employeeApi<{ reports: FuelReport[] }>('/api/admin/fuel-reports')
           : Promise.resolve({ reports: [] as FuelReport[] }),
+        employeeApi<{ faults: ServerVehicleFault[] }>('/api/admin/vehicle-faults').catch(() => ({ faults: [] as ServerVehicleFault[] })),
       ]);
       setUsers(userResponse.users);
       setAssignments(assignmentResponse.assignments);
       setVehicles(vehicleResponse.vehicles);
       setFuelReports(fuelResponse.reports);
+      setVehicleFaults(faultResponse.faults);
     }
   }, [db, online, profile.role]);
 
@@ -658,6 +662,22 @@ export default function AdminScreen() {
               <Text style={styles.secondaryText}>Pridėti automobilį</Text>
             </Pressable>
 
+            </> : null}
+          </View>
+
+          <View style={[styles.card, Boolean(focus) && styles.hidden]} testID="vehicle-fault-inbox">
+            <CollapsibleHeader title={`Neskubūs gedimai (${vehicleFaults.length})`} expanded={expandedSection === 'vehicle-faults'} onPress={() => toggleSection('vehicle-faults')} styles={styles} />
+            {expandedSection === 'vehicle-faults' ? <>
+              <Text style={styles.meta}>Vairuotojo komentarai nestabdo važiavimo. Jie čia atsiranda automatiškai, kai įrenginys turi ryšį.</Text>
+              {vehicleFaults.length === 0 ? <Text style={styles.meta}>Gautų gedimų nėra.</Text> : vehicleFaults.map((fault) => (
+                <View key={fault.id} style={styles.routeManagementRow}>
+                  <View style={styles.listContent}>
+                    <Text style={styles.listTitle}>{fault.reportedByName}{fault.registrationNumber ? ` · ${fault.registrationNumber}` : ''}</Text>
+                    <Text style={styles.meta}>{fault.comment}</Text>
+                    <Text style={styles.meta}>{new Date(fault.reportedAt).toLocaleString('lt-LT')}</Text>
+                  </View>
+                </View>
+              ))}
             </> : null}
           </View>
 
