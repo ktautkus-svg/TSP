@@ -309,6 +309,7 @@ export async function handleEmployeeApi(
         liters: numberField(body, 'liters'),
         pricePerLiter: typeof body.pricePerLiter === 'number' ? body.pricePerLiter : undefined,
         station: optionalString(body, 'station'),
+        receiptNumber: optionalString(body, 'receiptNumber'),
         notes: optionalString(body, 'notes'),
       });
       return send(response, 201, { entry }, requestId);

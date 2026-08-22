@@ -14,7 +14,7 @@ describe('trip sheet fuel workflow', () => {
   });
 
   it('starts with a compact fuel summary and exposes refill entry inside details', () => {
-    for (const label of ['KURO LIKUTIS PRADŽIOJE', 'ĮPILTA', 'SUNAUDOTA PAGAL NORMĄ', 'DABARTINIS LIKUTIS']) {
+    for (const label of ['PASKUTINIS ODOMETRAS', 'KURO LIKUTIS PRADŽIOJE', 'ĮPILTA', 'SUNAUDOTA PAGAL NORMĄ', 'DABARTINIS LIKUTIS']) {
       expect(source).toContain(label);
     }
     expect(source).toContain('Atidaryti kelionės lapą · ${group.rows.length} d.');
@@ -22,5 +22,9 @@ describe('trip sheet fuel workflow', () => {
     expect(source).toContain('+ Įvesti kuro papildymą');
     expect(source).toContain('fuel-entry-form-');
     expect(source).toContain('/fuel-entries');
+    expect(source).toContain('Kasos čekio Nr.');
+    expect(source).toContain('Eksportuoti Excel');
+    expect(source).not.toContain('Sustojimo trukmė');
+    expect(source).not.toContain('Stovėjimo laikas');
   });
 });

@@ -217,6 +217,7 @@ export type ServerFuelEntry = {
   pricePerLiter: number | null;
   totalCost: number | null;
   station: string | null;
+  receiptNumber: string | null;
   notes: string | null;
   createdAt: string;
   createdBy: string;
@@ -1442,6 +1443,7 @@ export class EmployeeAuthStore {
     liters: number;
     pricePerLiter?: number;
     station?: string;
+    receiptNumber?: string;
     notes?: string;
   }): Promise<ServerFuelEntry> {
     const assignmentId = safeId(assignmentIdInput);
@@ -1474,6 +1476,7 @@ export class EmployeeAuthStore {
       pricePerLiter,
       totalCost: pricePerLiter === null ? null : Math.round(liters * pricePerLiter * 100) / 100,
       station: optionalText(input.station),
+      receiptNumber: optionalText(input.receiptNumber),
       notes: optionalText(input.notes),
       createdAt: now,
       createdBy: profile.id,

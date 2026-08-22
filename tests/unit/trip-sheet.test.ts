@@ -28,6 +28,7 @@ function migration(name: string): string {
 function createDb(): { adapter: ExpoLikeDatabase; db: SQLiteDatabase } {
   const adapter = new ExpoLikeDatabase();
   for (let version = 1; version <= 12; version += 1) adapter.raw.exec(migration(`migrationV${version}`));
+  adapter.raw.exec('ALTER TABLE fuel_entries ADD COLUMN receipt_number TEXT');
   return { adapter, db: adapter as unknown as SQLiteDatabase };
 }
 
@@ -118,10 +119,11 @@ describe('trip sheet repository', () => {
       liters: 40.5,
       pricePerLiter: 1.499,
       station: 'TSP degalinė',
+      receiptNumber: 'ČEK-123',
       notes: null,
     });
 
-    expect(entry).toMatchObject({ tripSheetId: sheet.id, odometer: 2025, liters: 40.5, totalCost: 60.71, station: 'TSP degalinė' });
+    expect(entry).toMatchObject({ tripSheetId: sheet.id, odometer: 2025, liters: 40.5, totalCost: 60.71, station: 'TSP degalinė', receiptNumber: 'ČEK-123' });
     await expect(repository.listFuelEntries()).resolves.toHaveLength(1);
   });
 });

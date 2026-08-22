@@ -167,6 +167,7 @@ export type ServerFuelEntry = {
   pricePerLiter: number | null;
   totalCost: number | null;
   station: string | null;
+  receiptNumber: string | null;
   notes: string | null;
   createdAt: string;
   createdBy: string;
