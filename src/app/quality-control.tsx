@@ -1,6 +1,6 @@
 import { Stack, useRouter, type Href } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { roleHomePath } from '@/application/navigation/role-home';
@@ -21,11 +21,19 @@ const MINOR_DELAY_MINUTES = 45;
 
 type QualityFilter = 'in_progress' | 'waiting' | 'issues';
 type FilterTone = 'info' | 'warning' | 'danger';
+type PeriodMode = 'day' | 'week' | 'month' | 'custom';
 
 const FILTERS: readonly { key: QualityFilter; label: string; tone: FilterTone }[] = [
   { key: 'in_progress', label: 'Kelyje', tone: 'info' },
   { key: 'waiting', label: 'Laukia', tone: 'warning' },
   { key: 'issues', label: 'Neatitikimai', tone: 'danger' },
+];
+
+const PERIODS: readonly { key: PeriodMode; label: string }[] = [
+  { key: 'day', label: 'Diena' },
+  { key: 'week', label: 'Savaitė' },
+  { key: 'month', label: 'Mėnuo' },
+  { key: 'custom', label: 'Laikotarpis' },
 ];
 
 export default function QualityControlScreen() {
@@ -42,6 +50,12 @@ export default function QualityControlScreen() {
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [filter, setFilter] = useState<QualityFilter>('in_progress');
   const [completedOpen, setCompletedOpen] = useState(false);
+  const initialDate = useMemo(() => localDateKey(new Date()), []);
+  const [periodMode, setPeriodMode] = useState<PeriodMode>('day');
+  const [anchorDate, setAnchorDate] = useState(initialDate);
+  const [customFrom, setCustomFrom] = useState(initialDate);
+  const [customTo, setCustomTo] = useState(initialDate);
+  const [driverId, setDriverId] = useState<string>('all');
   const desktop = width >= 980;
   const mobile = width < 720;
 
@@ -80,8 +94,11 @@ export default function QualityControlScreen() {
     REFRESH_INTERVAL_MS,
   );
 
-  const today = localDateKey(new Date());
-  const visible = routes.filter((route) => route.status !== 'completed' || route.date === today);
+  const period = useMemo(() => qualityPeriodRange(periodMode, anchorDate, customFrom, customTo), [anchorDate, customFrom, customTo, periodMode]);
+  const drivers = useMemo(() => [...new Map(routes.map((route) => [route.driverId, route.driverName])).entries()]
+    .map(([id, name]) => ({ id, name }))
+    .sort((left, right) => left.name.localeCompare(right.name, 'lt-LT')), [routes]);
+  const visible = routes.filter((route) => route.date >= period.from && route.date <= period.to && (driverId === 'all' || route.driverId === driverId));
   const active = visible.filter((route) => route.status === 'in_progress');
   const waiting = visible.filter((route) => ['assigned', 'downloaded'].includes(route.status));
   // Sort routes with delivery discrepancies (failed stops) first, so problems
@@ -125,8 +142,8 @@ export default function QualityControlScreen() {
       <View style={styles.operationsPanel}>
         <View style={[styles.operationsTop, mobile && styles.operationsTopMobile]}>
           <View style={styles.heading}>
-            <Text style={[styles.pageTitle, mobile && styles.pageTitleMobile]}>{formatDayTitle(new Date())}</Text>
-            <Text style={styles.subtitle}>{formatVehicleCount(vehicleCount)} · {visible.length} {visible.length === 1 ? 'maršrutas' : 'maršrutai'}</Text>
+            <Text style={[styles.pageTitle, mobile && styles.pageTitleMobile]}>{formatPeriodTitle(periodMode, period.from, period.to)}</Text>
+            <Text style={styles.subtitle}>{driverId === 'all' ? 'Visi vairuotojai' : drivers.find((driver) => driver.id === driverId)?.name} · {formatVehicleCount(vehicleCount)} · {visible.length} {visible.length === 1 ? 'maršrutas' : 'maršrutai'}</Text>
           </View>
           <View style={styles.connection}>
             <View style={[styles.liveDot, !online && styles.liveDotOffline]} />
@@ -152,15 +169,53 @@ export default function QualityControlScreen() {
         </View>
       </View>
 
+      <View style={styles.periodPanel} testID="quality-period-panel">
+        <View style={styles.periodHeading}>
+          <View style={styles.flex}>
+            <Text style={styles.periodTitle}>Ką norite peržiūrėti?</Text>
+            <Text style={styles.muted}>Pasirinkite datą arba laikotarpį, tada – konkretų vairuotoją.</Text>
+          </View>
+          <Text style={styles.periodSummary}>{formatDateRange(period.from, period.to)}</Text>
+        </View>
+
+        <View accessibilityLabel="Laikotarpio tipas" accessibilityRole="tablist" style={[styles.periodTabs, mobile && styles.periodTabsMobile]}>
+          {PERIODS.map((item) => <Pressable
+            key={item.key}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: periodMode === item.key }}
+            onPress={() => setPeriodMode(item.key)}
+            style={({ pressed }) => [styles.periodTab, mobile && styles.periodTabMobile, periodMode === item.key && styles.periodTabActive, pressed && styles.filterPressed]}
+            testID={`quality-period-${item.key}`}
+          >
+            <Text style={[styles.periodTabText, periodMode === item.key && styles.periodTabTextActive]}>{item.label}</Text>
+          </Pressable>)}
+        </View>
+
+        <View style={[styles.dateFields, mobile && styles.dateFieldsMobile]}>
+          {periodMode === 'custom' ? <>
+            <DateField label="Nuo" value={customFrom} onChange={setCustomFrom} styles={styles} />
+            <DateField label="Iki" value={customTo} onChange={setCustomTo} styles={styles} />
+          </> : <DateField label={periodMode === 'day' ? 'Data' : periodMode === 'week' ? 'Pasirinkite savaitės dieną' : 'Pasirinkite mėnesio dieną'} value={anchorDate} onChange={setAnchorDate} styles={styles} />}
+        </View>
+
+        <View style={styles.driverFilter}>
+          <Text style={styles.fieldLabel}>VAIRUOTOJAS</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.driverChoices}>
+            <DriverChoice active={driverId === 'all'} label="Visi vairuotojai" onPress={() => setDriverId('all')} styles={styles} />
+            {drivers.map((driver) => <DriverChoice key={driver.id} active={driverId === driver.id} label={driver.name} onPress={() => setDriverId(driver.id)} styles={styles} />)}
+          </ScrollView>
+        </View>
+      </View>
+
       {error ? <Text accessibilityRole="alert" style={styles.warning}>{error}</Text> : null}
       {busy && routes.length === 0 ? <ActivityIndicator color={colors.info} size="large" /> : null}
-      {!busy && filteredRoutes.length === 0 ? <View style={styles.empty}><Text style={styles.emptyTitle}>{emptyTitle(filter)}</Text><Text style={styles.muted}>Duomenys atsinaujina automatiškai kas 15 sekundžių.</Text></View> : null}
+      {!busy && filteredRoutes.length === 0 ? <View style={styles.empty}><Text style={styles.emptyTitle}>{emptyTitle(filter)}</Text><Text style={styles.muted}>Pakeiskite laikotarpį, vairuotoją arba būseną.</Text></View> : null}
 
       {filteredRoutes.length > 0 ? <RouteSection title={filterTitle(filter)} count={filteredRoutes.length} routes={filteredRoutes} desktop={desktop} mobile={mobile} styles={styles} defaultExpanded={filter === 'issues'} /> : null}
 
       {filter !== 'issues' && completed.length > 0 ? <View style={styles.completedSection}>
         <Pressable accessibilityRole="button" accessibilityState={{ expanded: completedOpen }} onPress={() => setCompletedOpen((value) => !value)} style={({ pressed }) => [styles.completedHeader, pressed && styles.cardSummaryPressed]}>
-          <View><Text style={styles.sectionTitle}>Baigta šiandien</Text><Text style={styles.muted}>Užbaigti maršrutai suskleisti, kad netrukdytų stebėti darbo.</Text></View>
+          <View><Text style={styles.sectionTitle}>Baigta pasirinktu laikotarpiu</Text><Text style={styles.muted}>Užbaigti maršrutai suskleisti, kad netrukdytų stebėti darbo.</Text></View>
           <View style={styles.completedHeaderRight}><Text style={styles.count}>{completed.length}</Text><Text style={styles.expandIcon}>{completedOpen ? '⌃' : '⌄'}</Text></View>
         </Pressable>
         {completedOpen ? <View style={[styles.routeGrid, desktop && styles.routeGridDesktop]}>{completed.map((route) => <RouteCard key={`completed-${route.id}`} route={route} desktop={desktop} mobile={mobile} styles={styles} />)}</View> : null}
@@ -203,7 +258,7 @@ function RouteCard({ route, desktop, mobile, styles, defaultExpanded = false }: 
         </View>
       </View>
 
-      <Text style={styles.regionCode}>{regionLabel(route.routeNumbers)}</Text>
+      <Text style={styles.routeDate}>{formatDateKey(route.date)} · {regionLabel(route.routeNumbers)}</Text>
       {route.failedStops > 0 ? <Text style={styles.failedBadge}>{route.failedStops} {route.failedStops === 1 ? 'taškas' : 'taškai'} nepristatyta</Text> : null}
 
       <View style={styles.progressGrid}>
@@ -309,8 +364,29 @@ function stopTiming(stop: QualityStopMonitor): { label: string; tone: 'neutral' 
 function failureLabel(stop: QualityStopMonitor): string {
   return [stop.failureReason, stop.failureComment].filter(Boolean).join(' · ') || 'Priežastis nenurodyta';
 }
-function filterTitle(filter: QualityFilter): string { return ({ in_progress: 'Kelyje dabar', waiting: 'Laukia starto', issues: 'Neatitikimai' })[filter]; }
-function emptyTitle(filter: QualityFilter): string { return ({ in_progress: 'Šiuo metu niekas nevažiuoja', waiting: 'Laukiančių maršrutų nėra', issues: 'Neatitikimų nėra' })[filter]; }
+
+function DateField({ label, value, onChange, styles }: { label: string; value: string; onChange: (value: string) => void; styles: ReturnType<typeof createStyles> }) {
+  return <View style={styles.dateField}>
+    <Text style={styles.fieldLabel}>{label.toUpperCase()}</Text>
+    <TextInput
+      accessibilityLabel={label}
+      onChangeText={onChange}
+      placeholder="YYYY-MM-DD"
+      style={styles.dateInput}
+      value={value}
+      {...({ type: 'date' } as object)}
+    />
+  </View>;
+}
+
+function DriverChoice({ active, label, onPress, styles }: { active: boolean; label: string; onPress: () => void; styles: ReturnType<typeof createStyles> }) {
+  return <Pressable accessibilityRole="button" accessibilityState={{ selected: active }} onPress={onPress} style={({ pressed }) => [styles.driverChoice, active && styles.driverChoiceActive, pressed && styles.filterPressed]}>
+    <View style={[styles.driverChoiceDot, active && styles.driverChoiceDotActive]} />
+    <Text numberOfLines={1} style={[styles.driverChoiceText, active && styles.driverChoiceTextActive]}>{label}</Text>
+  </Pressable>;
+}
+function filterTitle(filter: QualityFilter): string { return ({ in_progress: 'Kelyje', waiting: 'Laukia starto', issues: 'Neatitikimai' })[filter]; }
+function emptyTitle(filter: QualityFilter): string { return ({ in_progress: 'Pasirinktu laikotarpiu vykdomų maršrutų nėra', waiting: 'Pasirinktu laikotarpiu laukiančių maršrutų nėra', issues: 'Pasirinktu laikotarpiu neatitikimų nėra' })[filter]; }
 function vehicleLabel(route: QualityRouteMonitor): string { return route.vehicle ? `${route.vehicle.registrationNumber} · ${route.vehicle.model}` : 'Automobilis nepriskirtas'; }
 function regionLabel(codes: string[]): string { return codes.length > 0 ? `Regionai ${codes.join(', ')}` : 'Regionas nenurodytas'; }
 function initials(name: string): string { return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join(''); }
@@ -323,6 +399,42 @@ function formatClock(value: string | null): string { if (!value) return '—'; c
 function formatClockShort(value: string | null): string { if (!value) return '—'; const date = new Date(value); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('lt-LT', { hour: '2-digit', minute: '2-digit' }).format(date); }
 function formatRelative(value: string): string { const seconds = Math.max(0, Math.floor((Date.now() - Date.parse(value)) / 1000)); if (seconds < 45) return 'ką tik'; if (seconds < 3600) return `prieš ${Math.floor(seconds / 60)} min.`; return formatClock(value); }
 function localDateKey(date: Date): string { const year = date.getFullYear(); const month = String(date.getMonth() + 1).padStart(2, '0'); const day = String(date.getDate()).padStart(2, '0'); return `${year}-${month}-${day}`; }
+
+function qualityPeriodRange(mode: PeriodMode, anchor: string, customFrom: string, customTo: string): { from: string; to: string } {
+  const fallback = localDateKey(new Date());
+  if (mode === 'custom') {
+    const first = validDateKey(customFrom) ? customFrom : fallback;
+    const second = validDateKey(customTo) ? customTo : first;
+    return first <= second ? { from: first, to: second } : { from: second, to: first };
+  }
+  const date = dateFromKey(validDateKey(anchor) ? anchor : fallback);
+  if (mode === 'week') {
+    const mondayOffset = (date.getDay() + 6) % 7;
+    const from = addDays(date, -mondayOffset);
+    return { from: localDateKey(from), to: localDateKey(addDays(from, 6)) };
+  }
+  if (mode === 'month') {
+    const from = new Date(date.getFullYear(), date.getMonth(), 1, 12);
+    const to = new Date(date.getFullYear(), date.getMonth() + 1, 0, 12);
+    return { from: localDateKey(from), to: localDateKey(to) };
+  }
+  const key = localDateKey(date);
+  return { from: key, to: key };
+}
+
+function validDateKey(value: string): boolean { if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false; const parsed = dateFromKey(value); return !Number.isNaN(parsed.getTime()) && localDateKey(parsed) === value; }
+function dateFromKey(value: string): Date { const [year, month, day] = value.split('-').map(Number); return new Date(year, month - 1, day, 12); }
+function addDays(date: Date, amount: number): Date { const result = new Date(date); result.setDate(result.getDate() + amount); return result; }
+function formatDateKey(value: string, includeYear = true): string { return new Intl.DateTimeFormat('lt-LT', { year: includeYear ? 'numeric' : undefined, month: 'short', day: 'numeric' }).format(dateFromKey(value)); }
+function formatDateRange(from: string, to: string): string { return from === to ? formatDateKey(from) : `${formatDateKey(from)} – ${formatDateKey(to)}`; }
+function formatPeriodTitle(mode: PeriodMode, from: string, to: string): string {
+  if (mode === 'day') return formatDayTitle(dateFromKey(from));
+  if (mode === 'month') {
+    const text = new Intl.DateTimeFormat('lt-LT', { year: 'numeric', month: 'long' }).format(dateFromKey(from));
+    return text.charAt(0).toUpperCase() + text.slice(1);
+  }
+  return formatDateRange(from, to);
+}
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background },
@@ -339,6 +451,11 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   operationsTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.lg }, operationsTopMobile: { alignItems: 'stretch', flexDirection: 'column' },
   heading: { flex: 1, minWidth: 0, gap: 3 }, pageTitle: { ...type.pageTitle, color: colors.textInverse, fontSize: 30, lineHeight: 36 }, pageTitleMobile: { fontSize: 24, lineHeight: 30 }, subtitle: { ...type.bodyStrong, color: colors.brandWordmarkGreenLight },
   warning: { ...type.bodyStrong, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.warningSoft, color: colors.warning },
+  periodPanel: { padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.md, shadowColor: colors.primary, shadowOpacity: 0.05, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 1 },
+  periodHeading: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing.lg }, periodTitle: { ...type.sectionTitle, color: colors.text }, periodSummary: { ...type.bodyStrong, color: colors.info, textAlign: 'right' },
+  periodTabs: { flexDirection: 'row', gap: spacing.sm }, periodTabsMobile: { flexWrap: 'wrap' }, periodTab: { flex: 1, minWidth: 120, minHeight: 46, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceSubtle }, periodTabMobile: { minWidth: '46%' }, periodTabActive: { borderColor: colors.info, backgroundColor: colors.info }, periodTabText: { ...type.button, color: colors.textSecondary }, periodTabTextActive: { color: colors.textInverse },
+  dateFields: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.md }, dateFieldsMobile: { flexDirection: 'column', alignItems: 'stretch' }, dateField: { flex: 1, gap: spacing.xs }, fieldLabel: { ...type.label, color: colors.textMuted }, dateInput: { minHeight: 48, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, ...type.bodyStrong, color: colors.text },
+  driverFilter: { gap: spacing.xs }, driverChoices: { gap: spacing.sm, paddingVertical: 2 }, driverChoice: { minHeight: 44, maxWidth: 240, flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceSubtle }, driverChoiceActive: { borderColor: colors.info, backgroundColor: colors.infoSoft }, driverChoiceDot: { width: 8, height: 8, borderRadius: radius.pill, backgroundColor: colors.borderStrong }, driverChoiceDotActive: { backgroundColor: colors.info }, driverChoiceText: { ...type.bodyStrong, color: colors.textSecondary }, driverChoiceTextActive: { color: colors.info },
   empty: { padding: spacing.xl, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }, emptyTitle: { ...type.sectionTitle, color: colors.text }, muted: { ...type.secondary, color: colors.textMuted },
   section: { gap: spacing.md }, sectionHeading: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm }, sectionTitle: { ...type.sectionTitle, color: colors.text, fontSize: 20, lineHeight: 26 }, count: { minWidth: 30, textAlign: 'center', paddingVertical: 4, borderRadius: radius.pill, overflow: 'hidden', backgroundColor: colors.infoSoft, ...type.secondaryStrong, color: colors.info },
   completedSection: { gap: spacing.md }, completedHeader: { minHeight: 64, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.success, backgroundColor: colors.accentSoft, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md }, completedHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
@@ -348,7 +465,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   cardHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing.md }, identity: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }, avatar: { width: 44, height: 44, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.infoSoft }, avatarText: { ...type.bodyStrong, color: colors.info }, flex: { flex: 1, minWidth: 0 }, driverName: { ...type.sectionTitle, color: colors.text }, vehicle: { ...type.secondary, color: colors.textMuted, marginTop: 2 },
   cardState: { alignItems: 'flex-end', gap: spacing.xs }, expandIcon: { fontFamily: fonts.heading, fontSize: 21, lineHeight: 22, color: colors.primary },
   status: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.pill }, statusActive: { backgroundColor: colors.infoSoft }, statusWaiting: { backgroundColor: colors.warningSoft }, statusCompleted: { backgroundColor: colors.accentSoft }, statusText: { ...type.label }, statusTextActive: { color: colors.info }, statusTextWaiting: { color: colors.warning }, statusTextCompleted: { color: colors.success },
-  regionCode: { ...type.bodyStrong, color: colors.info },
+  routeDate: { ...type.bodyStrong, color: colors.info },
   failedBadge: { ...type.secondaryStrong, color: colors.danger, marginTop: 2 },
   progressGrid: { flexDirection: 'row', gap: spacing.sm }, progressBlock: { flex: 1, minWidth: 0, padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.surfaceMuted }, progressReadoutHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.xs }, progressLabel: { ...type.label, color: colors.textMuted }, progressPercent: { ...type.meta, fontFamily: fonts.headingSemiBold, color: colors.primary }, progressPrimary: { ...type.bodyStrong, color: colors.text, marginTop: spacing.xs }, progressSecondary: { ...type.meta, color: colors.textMuted, marginTop: 1 }, progressTrack: { height: 6, marginTop: spacing.sm, borderRadius: radius.pill, overflow: 'hidden', backgroundColor: colors.border }, progressFill: { height: '100%', borderRadius: radius.pill, backgroundColor: colors.info }, progressFillWeight: { backgroundColor: qualityBrandRed }, expandHint: { ...type.meta, textAlign: 'right', color: colors.info },
   startReadout: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md, paddingHorizontal: spacing.sm }, startLabel: { ...type.label, color: colors.textMuted }, startValue: { ...type.bodyStrong, color: colors.primary },

@@ -94,6 +94,17 @@ describe('quality control dashboard', () => {
     expect(syncContextSource).toContain("profile.role === 'quality'");
   });
 
+  it('can review a day, week, month or custom period for all or one driver', () => {
+    expect(dashboardSource).toContain("type PeriodMode = 'day' | 'week' | 'month' | 'custom'");
+    expect(dashboardSource).toContain("{ key: 'week', label: 'Savaitė' }");
+    expect(dashboardSource).toContain("{ key: 'month', label: 'Mėnuo' }");
+    expect(dashboardSource).toContain('qualityPeriodRange(periodMode, anchorDate, customFrom, customTo)');
+    expect(dashboardSource).toContain("route.date >= period.from && route.date <= period.to");
+    expect(dashboardSource).toContain("driverId === 'all' || route.driverId === driverId");
+    expect(dashboardSource).toContain('Visi vairuotojai');
+    expect(dashboardSource).toContain('Baigta pasirinktu laikotarpiu');
+  });
+
   it('matches the current red and blue TSP identity instead of the old green dark theme', () => {
     expect(dashboardSource).not.toContain('useTheme');
     expect(dashboardSource).toContain('qualityBrandRed');
