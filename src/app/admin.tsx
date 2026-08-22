@@ -25,6 +25,7 @@ import {
   PALLET_CAPACITIES,
   bodyKindFromPalletCapacity,
   fleetCargoSpec,
+  fleetTankCapacity,
   resolveVehicleCargo,
   type PalletCapacity,
 } from '@/domain/fleet-cargo-specs';
@@ -100,6 +101,7 @@ export default function AdminScreen() {
   const [newVehicleModel, setNewVehicleModel] = useState('');
   const [newVehiclePayload, setNewVehiclePayload] = useState('');
   const [newVehicleNorm, setNewVehicleNorm] = useState('');
+  const [newVehicleTank, setNewVehicleTank] = useState('');
   const [newVehiclePallets, setNewVehiclePallets] = useState<PalletCapacity>(5);
   const [newVehicleSideDoor, setNewVehicleSideDoor] = useState(false);
   const [selectedVehicleId, setSelectedVehicleId] = useState('');
@@ -108,6 +110,7 @@ export default function AdminScreen() {
   const [editVehicleModel, setEditVehicleModel] = useState('');
   const [editVehiclePayload, setEditVehiclePayload] = useState('');
   const [editVehicleNorm, setEditVehicleNorm] = useState('');
+  const [editVehicleTank, setEditVehicleTank] = useState('');
   const [editVehiclePallets, setEditVehiclePallets] = useState<PalletCapacity>(5);
   const [editVehicleSideDoor, setEditVehicleSideDoor] = useState(false);
   const [currentPin, setCurrentPin] = useState('');
@@ -364,12 +367,14 @@ export default function AdminScreen() {
         model: newVehicleModel,
         maximumPayloadKg,
         fuelNormLPer100Km: parseFuelNorm(newVehicleNorm),
+        fuelTankCapacityLiters: parseFuelTankCapacity(newVehicleTank),
         palletCapacity: newVehiclePallets,
         cargoBodyKind: bodyKindFromPalletCapacity(newVehiclePallets),
         hasSideDoor: newVehicleSideDoor,
       }),
     });
     setNewVehicleNumber(''); setNewVehicleModel(''); setNewVehiclePayload(''); setNewVehicleNorm('');
+    setNewVehicleTank('');
     setNewVehiclePallets(5); setNewVehicleSideDoor(false);
     setMessage('Automobilis įtrauktas į parką.');
     await load();
@@ -394,6 +399,7 @@ export default function AdminScreen() {
     setEditVehicleNorm(vehicle.fuelNormLPer100Km === null || vehicle.fuelNormLPer100Km === undefined
       ? ''
       : String(vehicle.fuelNormLPer100Km).replace('.', ','));
+    setEditVehicleTank(formatStoredLiters(vehicle.fuelTankCapacityLiters) || formatStoredLiters(fleetTankCapacity(vehicle.registrationNumber)));
     const cargo = resolveVehicleCargo(vehicle);
     setEditVehiclePallets(cargo.palletCapacity);
     setEditVehicleSideDoor(cargo.hasSideDoor);
@@ -412,6 +418,7 @@ export default function AdminScreen() {
         model: editVehicleModel,
         maximumPayloadKg,
         fuelNormLPer100Km: parseFuelNorm(editVehicleNorm),
+        fuelTankCapacityLiters: parseFuelTankCapacity(editVehicleTank),
         palletCapacity: editVehiclePallets,
         cargoBodyKind: bodyKindFromPalletCapacity(editVehiclePallets),
         hasSideDoor: editVehicleSideDoor,
@@ -633,7 +640,7 @@ export default function AdminScreen() {
           <View style={[styles.card, (focus === 'employees' || !canManageVehicles) && styles.hidden]} testID="fleet-vehicle-management">
             <CollapsibleHeader title={`Automobilių parkas (${vehicles.length})`} expanded={expandedSection === 'fleet'} onPress={() => toggleSection('fleet')} styles={styles} />
             {expandedSection === 'fleet' ? <>
-            <Text style={styles.meta}>PLL talpa ir šoninės durys yra atskiri automobilio techniniai laukai ir imami krovimo schemai, kai automobilis priskiriamas maršrutui. Miestas automobiliams nesaugomas.</Text>
+            <Text style={styles.meta}>Bako talpa, PLL talpa ir šoninės durys yra automobilio techniniai laukai. Kuro likutis čia nerašomas. Miestas automobiliams nesaugomas.</Text>
             <View style={styles.vehicleList}>
               {vehicles.map((vehicle) => {
                 const driver = users.find((item) => item.id === vehicle.assignedDriverId);
@@ -643,7 +650,7 @@ export default function AdminScreen() {
                   <View style={styles.listRowCompact}>
                     <View style={styles.listContent}>
                       <Text style={styles.listTitle}>{vehicle.registrationNumber} · {vehicle.model}</Text>
-                      <Text style={styles.meta}>{vehicle.maximumPayloadKg} kg · {cargo.palletCapacity} PLL · {cargo.hasSideDoor ? 'šoninės durys' : 'be šoninių durų'} · {driver ? driver.displayName : 'Nepriskirtas'}</Text>
+                      <Text style={styles.meta}>{vehicle.maximumPayloadKg} kg · bakas {formatTankCapacityLabel(vehicle.fuelTankCapacityLiters ?? fleetTankCapacity(vehicle.registrationNumber))} · {cargo.palletCapacity} PLL · {cargo.hasSideDoor ? 'šoninės durys' : 'be šoninių durų'} · {driver ? driver.displayName : 'Nepriskirtas'}</Text>
                     </View>
                     <View style={styles.rowActions}>
                       <Pressable accessibilityLabel={`Redaguoti automobilį ${vehicle.registrationNumber}`} accessibilityRole="button" onPress={() => selectVehicle(vehicle)} style={styles.smallButton}><Text style={styles.smallButtonText}>Redaguoti</Text></Pressable>
@@ -653,21 +660,23 @@ export default function AdminScreen() {
                 </View>
                 {selectedVehicleId === vehicle.id ? <View style={styles.editor} testID="vehicle-edit-form">
               <View style={styles.editorHeading}>
-                <View style={styles.listContent}><Text style={styles.title}>Redaguoti automobilį</Text><Text style={styles.meta}>Numeris, PLL talpa, šoninės durys ir kuro norma.</Text></View>
+                <View style={styles.listContent}><Text style={styles.title}>Redaguoti automobilį</Text><Text style={styles.meta}>Numeris, bako talpa, PLL talpa, šoninės durys ir kuro norma.</Text></View>
                 <Pressable accessibilityLabel="Uždaryti automobilio redagavimą" accessibilityRole="button" onPress={() => setSelectedVehicleId('')} style={styles.closeButton}><Text style={styles.closeButtonText}>×</Text></Pressable>
               </View>
               {input(editVehicleNumber, (value) => {
                 const plate = value.toUpperCase().replace(/\s/g, '').slice(0, 12);
                 setEditVehicleNumber(plate);
-                const spec = fleetCargoSpec(plate);
-                if (spec) {
-                  setEditVehiclePallets(spec.palletCapacity);
-                  setEditVehicleSideDoor(spec.hasSideDoor);
-                }
+                applyKnownPlateDefaults(plate, {
+                  setPallets: setEditVehiclePallets,
+                  setSideDoor: setEditVehicleSideDoor,
+                  setTank: setEditVehicleTank,
+                });
               }, 'Valstybinis numeris')}
               {input(editVehicleModel, setEditVehicleModel, 'Modelis')}
               <TextInput accessibilityLabel="Maksimalus krovinio svoris" value={editVehiclePayload} onChangeText={(value) => setEditVehiclePayload(value.replace(/[^\d.,]/g, '').slice(0, 8))}
                 keyboardType="decimal-pad" placeholder="Maksimalus krovinio svoris, kg" placeholderTextColor={colors.textMuted} style={styles.input} />
+              <TextInput accessibilityLabel="Bako talpa" testID="edit-vehicle-tank-capacity" value={editVehicleTank} onChangeText={(value) => setEditVehicleTank(value.replace(/[^\d.,]/g, '').slice(0, 6))}
+                keyboardType="decimal-pad" placeholder="Bako talpa, l (pvz. 90)" placeholderTextColor={colors.textMuted} style={styles.input} />
               <TextInput accessibilityLabel="Kuro norma" testID="vehicle-fuel-norm" value={editVehicleNorm} onChangeText={(value) => setEditVehicleNorm(value.replace(/[^\d.,]/g, '').slice(0, 5))}
                 keyboardType="decimal-pad" placeholder="Kuro norma, l/100 km (pvz. 13,9)" placeholderTextColor={colors.textMuted} style={styles.input} />
               <VehicleCargoFields
@@ -678,7 +687,7 @@ export default function AdminScreen() {
                 styles={styles}
                 testPrefix="edit-vehicle"
               />
-              <Text style={styles.meta}>Pagal šią normą kelionės lape skaičiuojamas sunaudotas kuras ir likutis. Palikus tuščią, imamas apytikslis įvertis pagal keliamąją galią.</Text>
+              <Text style={styles.meta}>Bako talpa yra fizinis bako tūris, ne kuro likutis. Pagal kuro normą kelionės lape skaičiuojamas sunaudotas kuras ir likutis. Palikus normą tuščią, imamas apytikslis įvertis pagal keliamąją galią.</Text>
               {canManageFinancials ? <Pressable accessibilityRole="link" onPress={() => router.push({ pathname: '/financial-settings', params: { returnTo: 'admin' } } as unknown as Href)} style={styles.smallButton}><Text style={styles.smallButtonText}>Keisti draudimą ir kelių mokestį →</Text></Pressable> : null}
               <Pressable accessibilityLabel="Išsaugoti automobilio pakeitimus" accessibilityRole="button" disabled={busy || !online} style={[styles.primaryButton, (busy || !online) && styles.disabled]} onPress={() => void saveVehicle()}><Text style={styles.primaryText}>Išsaugoti automobilį</Text></Pressable>
               <Text style={styles.sectionLabel}>Priskirti vairuotojui</Text>
@@ -703,15 +712,17 @@ export default function AdminScreen() {
             {input(newVehicleNumber, (value) => {
               const plate = value.toUpperCase().replace(/\s/g, '').slice(0, 12);
               setNewVehicleNumber(plate);
-              const spec = fleetCargoSpec(plate);
-              if (spec) {
-                setNewVehiclePallets(spec.palletCapacity);
-                setNewVehicleSideDoor(spec.hasSideDoor);
-              }
+              applyKnownPlateDefaults(plate, {
+                setPallets: setNewVehiclePallets,
+                setSideDoor: setNewVehicleSideDoor,
+                setTank: setNewVehicleTank,
+              });
             }, 'Valstybinis numeris')}
             {input(newVehicleModel, setNewVehicleModel, 'Modelis')}
             <TextInput value={newVehiclePayload} onChangeText={(value) => setNewVehiclePayload(value.replace(/[^\d.,]/g, '').slice(0, 8))}
               keyboardType="decimal-pad" placeholder="Maksimalus krovinio svoris, kg" placeholderTextColor={colors.textMuted} style={styles.input} />
+            <TextInput accessibilityLabel="Bako talpa" testID="new-vehicle-tank-capacity" value={newVehicleTank} onChangeText={(value) => setNewVehicleTank(value.replace(/[^\d.,]/g, '').slice(0, 6))}
+              keyboardType="decimal-pad" placeholder="Bako talpa, l (pvz. 110)" placeholderTextColor={colors.textMuted} style={styles.input} />
             <TextInput value={newVehicleNorm} onChangeText={(value) => setNewVehicleNorm(value.replace(/[^\d.,]/g, '').slice(0, 5))}
               keyboardType="decimal-pad" placeholder="Kuro norma, l/100 km (pvz. 12)" placeholderTextColor={colors.textMuted} style={styles.input} />
             <VehicleCargoFields
@@ -948,6 +959,37 @@ function parseDecimalInput(value: string): number {
 function assignmentLoadSuffix(weightKg: number, payloadKg: number): string {
   const load = describeVehicleLoad(weightKg, payloadKg);
   return load ? ` · ${load.summaryLabel}` : '';
+}
+
+/** Empty clears the tank size, except known plates still fill from the catalog on the server. */
+function parseFuelTankCapacity(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number(trimmed.replace(',', '.'));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function formatStoredLiters(value: number | null | undefined): string {
+  if (value === null || value === undefined) return '';
+  return String(value).replace('.', ',');
+}
+
+function formatTankCapacityLabel(value: number | null): string {
+  return value === null ? '—' : `${String(value).replace('.', ',')} l`;
+}
+
+function applyKnownPlateDefaults(plate: string, setters: {
+  setPallets: (value: PalletCapacity) => void;
+  setSideDoor: (value: boolean) => void;
+  setTank: (value: string) => void;
+}): void {
+  const spec = fleetCargoSpec(plate);
+  if (spec) {
+    setters.setPallets(spec.palletCapacity);
+    setters.setSideDoor(spec.hasSideDoor);
+  }
+  const tank = fleetTankCapacity(plate);
+  if (tank !== null) setters.setTank(formatStoredLiters(tank));
 }
 
 /** Empty clears the norm, so the vehicle goes back to the payload-based estimate. */

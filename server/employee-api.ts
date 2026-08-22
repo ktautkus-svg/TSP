@@ -168,6 +168,11 @@ export async function handleEmployeeApi(
         fuelNormLPer100Km: body.fuelNormLPer100Km === undefined || body.fuelNormLPer100Km === null
           ? null
           : numberField(body, 'fuelNormLPer100Km'),
+        fuelTankCapacityLiters: body.fuelTankCapacityLiters === undefined
+          ? undefined
+          : body.fuelTankCapacityLiters === null
+            ? null
+            : numberField(body, 'fuelTankCapacityLiters'),
         cargoBodyKind: optionalString(body, 'cargoBodyKind'),
         palletCapacity: typeof body.palletCapacity === 'number' ? body.palletCapacity : undefined,
         hasSideDoor: typeof body.hasSideDoor === 'boolean' ? body.hasSideDoor : undefined,
@@ -180,6 +185,7 @@ export async function handleEmployeeApi(
       const body = parseObject(await readBody(request, 64_000));
       const hasVehicleFields = body.registrationNumber !== undefined || body.model !== undefined
         || body.maximumPayloadKg !== undefined || body.fuelNormLPer100Km !== undefined
+        || body.fuelTankCapacityLiters !== undefined
         || body.cargoBodyKind !== undefined || body.palletCapacity !== undefined
         || body.hasSideDoor !== undefined;
       let vehicle = hasVehicleFields
@@ -190,6 +196,9 @@ export async function handleEmployeeApi(
           fuelNormLPer100Km: body.fuelNormLPer100Km === undefined
             ? undefined
             : body.fuelNormLPer100Km === null ? null : numberField(body, 'fuelNormLPer100Km'),
+          fuelTankCapacityLiters: body.fuelTankCapacityLiters === undefined
+            ? undefined
+            : body.fuelTankCapacityLiters === null ? null : numberField(body, 'fuelTankCapacityLiters'),
           cargoBodyKind: optionalString(body, 'cargoBodyKind'),
           palletCapacity: typeof body.palletCapacity === 'number' ? body.palletCapacity : undefined,
           hasSideDoor: typeof body.hasSideDoor === 'boolean' ? body.hasSideDoor : undefined,

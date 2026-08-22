@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import {
   FLEET_CARGO_SPECS,
+  FLEET_TANK_CAPACITIES,
   bodyKindFromPalletCapacity,
   fleetCargoSpec,
+  fleetTankCapacity,
+  resolveFuelTankCapacity,
   resolveVehicleCargo,
 } from '../../src/domain/fleet-cargo-specs';
 
@@ -59,5 +62,34 @@ describe('fleet cargo specs', () => {
       hasSideDoor: true,
     })).toEqual({ palletCapacity: 5, hasSideDoor: true });
     expect(resolveVehicleCargo(null)).toEqual({ palletCapacity: 5, hasSideDoor: false });
+  });
+});
+
+describe('fleet tank capacities', () => {
+  it('stores MET630 as 110 l and NLL182 as 90 l', () => {
+    expect(FLEET_TANK_CAPACITIES).toEqual({
+      MET630: 110,
+      NLL182: 90,
+    });
+    expect(fleetTankCapacity('met630')).toBe(110);
+    expect(fleetTankCapacity(' NLL182 ')).toBe(90);
+    expect(fleetTankCapacity('LRI744')).toBeNull();
+  });
+
+  it('uses the catalog when a known plate has no stored tank size yet', () => {
+    expect(resolveFuelTankCapacity({ registrationNumber: 'MET630' })).toBe(110);
+    expect(resolveFuelTankCapacity({ registrationNumber: 'NLL182' })).toBe(90);
+    expect(resolveFuelTankCapacity({ registrationNumber: 'ABC123' })).toBeNull();
+  });
+
+  it('lets a stored tank size override the catalog', () => {
+    expect(resolveFuelTankCapacity({
+      registrationNumber: 'MET630',
+      fuelTankCapacityLiters: 105,
+    })).toBe(105);
+    expect(resolveFuelTankCapacity({
+      registrationNumber: 'NLL182',
+      fuelTankCapacityLiters: null,
+    })).toBe(90);
   });
 });

@@ -51,6 +51,8 @@ export type ServerFleetVehicle = {
   maximumPayloadKg: number;
   /** Litres per 100 km, set when editing the vehicle; null falls back to an estimate. */
   fuelNormLPer100Km?: number | null;
+  /** Physical tank size in litres; not the remaining fuel. */
+  fuelTankCapacityLiters?: number | null;
   cargoBodyKind?: 'van_long' | 'van_8pll' | 'van_short';
   palletCapacity?: 5 | 8;
   hasSideDoor?: boolean;
@@ -64,6 +66,7 @@ export type ServerFleetVehicle = {
 
 export type ServerFleetVehicleSnapshot = Pick<ServerFleetVehicle, 'id' | 'registrationNumber' | 'model' | 'maximumPayloadKg'> & {
   fuelNormLPer100Km?: number | null;
+  fuelTankCapacityLiters?: number | null;
   cargoBodyKind?: 'van_long' | 'van_8pll' | 'van_short';
   palletCapacity?: 5 | 8;
   hasSideDoor?: boolean;

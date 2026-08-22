@@ -32,6 +32,38 @@ export function bodyKindFromPalletCapacity(capacity: PalletCapacity): 'van_long'
   return capacity === 8 ? 'van_8pll' : 'van_long';
 }
 
+/** Known diesel tank sizes in litres. Opening balance is a separate fuel reading. */
+export const FLEET_TANK_CAPACITIES: Record<string, number> = {
+  MET630: 110,
+  NLL182: 90,
+};
+
+export function fleetTankCapacity(registration: string | null | undefined): number | null {
+  if (!registration) return null;
+  return FLEET_TANK_CAPACITIES[registration.trim().toUpperCase()] ?? null;
+}
+
+export function isFuelTankCapacity(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 && value <= 400;
+}
+
+/**
+ * Stored tank size wins. If the vehicle document has none yet, known plates
+ * fill in from the catalog so MET630 and NLL182 show 110 l and 90 l without a
+ * separate data model.
+ */
+export function resolveFuelTankCapacity(
+  vehicle: {
+    registrationNumber?: string | null;
+    fuelTankCapacityLiters?: number | null;
+  } | null | undefined,
+): number | null {
+  if (isFuelTankCapacity(vehicle?.fuelTankCapacityLiters)) {
+    return Math.round(vehicle.fuelTankCapacityLiters * 10) / 10;
+  }
+  return fleetTankCapacity(vehicle?.registrationNumber);
+}
+
 export function resolveVehicleCargo(
   vehicle: {
     registrationNumber?: string | null;

@@ -16,7 +16,10 @@ import {
 import {
     bodyKindFromPalletCapacity,
     fleetCargoSpec,
+    fleetTankCapacity,
+    isFuelTankCapacity,
     isPalletCapacity,
+    resolveFuelTankCapacity,
     resolveVehicleCargo,
     type PalletCapacity,
 } from '../src/domain/fleet-cargo-specs.js';
@@ -129,6 +132,8 @@ export type FleetVehicle = {
    * table in route-price.ts and then to a payload-based estimate.
    */
   fuelNormLPer100Km: number | null;
+  /** Physical tank size in litres. Not the current remaining fuel. */
+  fuelTankCapacityLiters: number | null;
   cargoBodyKind: VanBodyKind;
   palletCapacity: PalletCapacity;
   hasSideDoor: boolean;
@@ -142,7 +147,7 @@ export type FleetVehicle = {
 
 export type FleetVehicleSnapshot = Pick<FleetVehicle,
   'id' | 'registrationNumber' | 'model' | 'maximumPayloadKg'
-> & Partial<Pick<FleetVehicle, 'fuelNormLPer100Km' | 'fuelRemainingLiters' | 'fuelUpdatedAt' | 'assignmentRevision' | 'cargoBodyKind' | 'hasSideDoor' | 'palletCapacity'>>;
+> & Partial<Pick<FleetVehicle, 'fuelNormLPer100Km' | 'fuelTankCapacityLiters' | 'fuelRemainingLiters' | 'fuelUpdatedAt' | 'assignmentRevision' | 'cargoBodyKind' | 'hasSideDoor' | 'palletCapacity'>>;
 
 export type CompensationBreakdown = {
   rates: DriverCompensationRates;
@@ -517,12 +522,18 @@ export class EmployeeAuthStore {
     let seeded = false;
     for (const document of snapshot.docs) {
       const raw = document.data() as FleetVehicle;
-      const known = fleetCargoSpec(raw.registrationNumber);
-      if (!known || isPalletCapacity(raw.palletCapacity)) continue;
+      const knownCargo = fleetCargoSpec(raw.registrationNumber);
+      const knownTank = fleetTankCapacity(raw.registrationNumber);
+      const needsCargo = Boolean(knownCargo) && !isPalletCapacity(raw.palletCapacity);
+      const needsTank = knownTank !== null && raw.fuelTankCapacityLiters === undefined;
+      if (!needsCargo && !needsTank) continue;
       await this.updateVehicle(String(raw.id ?? raw.registrationNumber), {
-        palletCapacity: known.palletCapacity,
-        hasSideDoor: known.hasSideDoor,
-        cargoBodyKind: bodyKindFromPalletCapacity(known.palletCapacity),
+        ...(needsCargo && knownCargo ? {
+          palletCapacity: knownCargo.palletCapacity,
+          hasSideDoor: knownCargo.hasSideDoor,
+          cargoBodyKind: bodyKindFromPalletCapacity(knownCargo.palletCapacity),
+        } : {}),
+        ...(needsTank ? { fuelTankCapacityLiters: knownTank } : {}),
       });
       seeded = true;
     }
@@ -685,6 +696,7 @@ export class EmployeeAuthStore {
     model: string;
     maximumPayloadKg: number;
     fuelNormLPer100Km?: number | null;
+    fuelTankCapacityLiters?: number | null;
     cargoBodyKind?: string | null;
     palletCapacity?: number | null;
     hasSideDoor?: boolean;
@@ -693,6 +705,9 @@ export class EmployeeAuthStore {
     const model = validateVehicleModel(input.model);
     const maximumPayloadKg = validateMaximumPayload(input.maximumPayloadKg);
     const fuelNormLPer100Km = validateFuelNorm(input.fuelNormLPer100Km);
+    const fuelTankCapacityLiters = validateFuelTankCapacity(
+      input.fuelTankCapacityLiters ?? fleetTankCapacity(registrationNumber),
+    );
     const cargo = resolveVehicleCargo({
       registrationNumber,
       palletCapacity: input.palletCapacity,
@@ -710,6 +725,7 @@ export class EmployeeAuthStore {
       model,
       maximumPayloadKg,
       fuelNormLPer100Km,
+      fuelTankCapacityLiters,
       cargoBodyKind,
       palletCapacity,
       hasSideDoor,
@@ -773,6 +789,7 @@ export class EmployeeAuthStore {
     model?: string;
     maximumPayloadKg?: number;
     fuelNormLPer100Km?: number | null;
+    fuelTankCapacityLiters?: number | null;
     cargoBodyKind?: string | null;
     palletCapacity?: number | null;
     hasSideDoor?: boolean;
@@ -797,6 +814,12 @@ export class EmployeeAuthStore {
       const fuelNormLPer100Km = input.fuelNormLPer100Km === undefined
         ? current.fuelNormLPer100Km
         : validateFuelNorm(input.fuelNormLPer100Km);
+      const fuelTankCapacityLiters = input.fuelTankCapacityLiters === undefined
+        ? resolveFuelTankCapacity({
+          registrationNumber,
+          fuelTankCapacityLiters: current.fuelTankCapacityLiters,
+        })
+        : validateFuelTankCapacity(input.fuelTankCapacityLiters ?? fleetTankCapacity(registrationNumber));
       const cargo = resolveVehicleCargo({
         registrationNumber,
         palletCapacity: input.palletCapacity !== undefined
@@ -818,6 +841,7 @@ export class EmployeeAuthStore {
         model,
         maximumPayloadKg,
         fuelNormLPer100Km,
+        fuelTankCapacityLiters,
         cargoBodyKind,
         palletCapacity,
         hasSideDoor,
@@ -1955,6 +1979,8 @@ function vehicleSnapshot(vehicle: FleetVehicle): FleetVehicleSnapshot {
     cargoBodyKind: vehicle.cargoBodyKind,
     palletCapacity: vehicle.palletCapacity,
     hasSideDoor: vehicle.hasSideDoor,
+    fuelNormLPer100Km: vehicle.fuelNormLPer100Km,
+    fuelTankCapacityLiters: vehicle.fuelTankCapacityLiters,
     fuelRemainingLiters: vehicle.fuelRemainingLiters,
     fuelUpdatedAt: vehicle.fuelUpdatedAt,
     assignmentRevision: vehicle.assignmentRevision,
@@ -1973,6 +1999,7 @@ function withLiveVehicleCargo(
     cargoBodyKind: live?.cargoBodyKind ?? base.cargoBodyKind,
     palletCapacity: live?.palletCapacity ?? base.palletCapacity,
     hasSideDoor: live?.hasSideDoor ?? base.hasSideDoor,
+    fuelTankCapacityLiters: live?.fuelTankCapacityLiters ?? base.fuelTankCapacityLiters,
   };
   const cargo = resolveVehicleCargo(merged);
   return {
@@ -1982,6 +2009,10 @@ function withLiveVehicleCargo(
       cargoBodyKind: bodyKindFromPalletCapacity(cargo.palletCapacity),
       palletCapacity: cargo.palletCapacity,
       hasSideDoor: cargo.hasSideDoor,
+      fuelTankCapacityLiters: resolveFuelTankCapacity({
+        registrationNumber: merged.registrationNumber,
+        fuelTankCapacityLiters: merged.fuelTankCapacityLiters,
+      }),
     },
   };
 }
@@ -1992,6 +2023,7 @@ function normalizeVehicle(vehicle: FleetVehicle): FleetVehicle {
     ...vehicle,
     // Vehicles stored before the norm existed have no such field at all.
     fuelNormLPer100Km: nullableNumber(vehicle.fuelNormLPer100Km),
+    fuelTankCapacityLiters: resolveFuelTankCapacity(vehicle),
     cargoBodyKind: bodyKindFromPalletCapacity(cargo.palletCapacity),
     palletCapacity: cargo.palletCapacity,
     hasSideDoor: cargo.hasSideDoor,
@@ -2469,6 +2501,15 @@ function validateFuelNorm(value: number | null | undefined): number | null {
   if (value === null || value === undefined) return null;
   if (!Number.isFinite(value) || value <= 0 || value > 200) {
     throw new EmployeeApiError('INVALID_FUEL_NORM', 'Kuro norma turi būti nuo 0 iki 200 l/100 km.', 400);
+  }
+  return Math.round(value * 10) / 10;
+}
+
+/** null means the tank size is unknown. Not the remaining fuel in the tank. */
+function validateFuelTankCapacity(value: number | null | undefined): number | null {
+  if (value === null || value === undefined) return null;
+  if (!isFuelTankCapacity(value)) {
+    throw new EmployeeApiError('INVALID_TANK_CAPACITY', 'Bako talpa turi būti nuo 1 iki 400 litrų.', 400);
   }
   return Math.round(value * 10) / 10;
 }

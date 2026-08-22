@@ -32,6 +32,7 @@ describe('responsive administration workspace', () => {
 
   it('edits fleet vehicle identity and capacity through the server API', () => {
     expect(adminSource).toContain('testID="vehicle-edit-form"');
+    expect(adminSource).toContain('fuelTankCapacityLiters: parseFuelTankCapacity(editVehicleTank)');
     expect(apiSource).toContain('store.updateVehicle');
     expect(storeSource).toContain('async updateVehicle');
     expect(storeSource).toContain('transaction.create(nextRef, updated)');

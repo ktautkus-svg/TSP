@@ -84,9 +84,13 @@ describe('employee server session', () => {
     expect(adminSource).toContain('testID={`${testPrefix}-pallets-${capacity}`}');
     expect(adminSource).toContain('palletCapacity: editVehiclePallets');
     expect(adminSource).toContain('hasSideDoor: editVehicleSideDoor');
+    expect(adminSource).toContain('fuelTankCapacityLiters: parseFuelTankCapacity(editVehicleTank)');
+    expect(adminSource).toContain('testID="edit-vehicle-tank-capacity"');
+    expect(adminSource).toContain('testID="new-vehicle-tank-capacity"');
     expect(employeeStoreSource).toContain('palletCapacity: cargo.palletCapacity');
-    expect(employeeStoreSource).toContain('hasSideDoor: cargo.hasSideDoor');
+    expect(employeeStoreSource).toContain('fuelTankCapacityLiters');
     expect(employeeApiSource).toContain('palletCapacity: typeof body.palletCapacity === \'number\' ? body.palletCapacity : undefined');
+    expect(employeeApiSource).toContain("body.fuelTankCapacityLiters === undefined");
     expect(adminSource).toContain('Patvirtinti priskyrimą');
     expect(employeeApiSource).toContain("pathname === '/api/operations/vehicle-faults'");
     expect(employeeApiSource).toContain("pathname === '/api/admin/vehicle-faults'");
