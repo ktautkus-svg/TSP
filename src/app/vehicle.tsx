@@ -16,6 +16,7 @@ import { VehicleDepartureOverrideRepository } from '@/database/repositories/vehi
 import { VehicleFaultRepository } from '@/database/repositories/vehicle-fault-repository';
 import { evaluateDepartureReadiness, type DepartureOverrideInput } from '@/domain/departure-readiness';
 import type { FuelType, VehicleFault } from '@/domain/vehicle-and-trip';
+import { employeeApi, type FuelStatus, type ServerFleetVehicle, type ServerFleetVehicleSnapshot } from '@/infrastructure/auth/employee-session';
 import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
@@ -48,11 +49,67 @@ export default function VehicleScreen() {
   const [override, setOverride] = useState<DepartureOverrideInput | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [fleetVehicles, setFleetVehicles] = useState<(ServerFleetVehicle | ServerFleetVehicleSnapshot)[]>([]);
+  const [selectedVehicleId, setSelectedVehicleId] = useState('');
   const canApprove = canApproveExpiredDeparture(profile);
 
+  const applyVehicle = useCallback(async (vehicleId: string) => {
+    const fleetVehicle = fleetVehicles.find((vehicle) => vehicle.id === vehicleId);
+    if (!fleetVehicle) return;
+    const local = await repository.getVehicleById(vehicleId) ?? await repository.saveVehicle({
+      id: vehicleId,
+      name: fleetVehicle.model,
+      registrationNumber: fleetVehicle.registrationNumber,
+      fuelType: 'diesel',
+    });
+    setSelectedVehicleId(vehicleId);
+    setName(fleetVehicle.model);
+    setRegistrationNumber(fleetVehicle.registrationNumber);
+    setFuelType(local?.fuelType ?? 'diesel');
+    setInspectionDueOn(local?.technicalInspectionDueOn ?? '');
+    setRoadTaxDueOn(local?.roadTaxDueOn ?? '');
+    setServiceDueOn(local?.nextServiceDueOn ?? '');
+    setServiceOdometer(local?.nextServiceOdometer === null || local?.nextServiceOdometer === undefined ? '' : String(local.nextServiceOdometer));
+    setOpenFaults(await faults.listOpen(vehicleId));
+    const saved = await new VehicleDepartureOverrideRepository(db).getLatest(vehicleId);
+    setOverride(saved ? { status: saved.status, fingerprint: saved.fingerprint } : null);
+  }, [db, faults, fleetVehicles, repository]);
+
   const load = useCallback(async () => {
+    let available: (ServerFleetVehicle | ServerFleetVehicleSnapshot)[] = [];
+    if (online) {
+      if (profile.role === 'admin' || profile.role === 'dispatcher') {
+        available = (await employeeApi<{ vehicles: ServerFleetVehicle[] }>('/api/admin/vehicles')).vehicles;
+      } else if (profile.role === 'driver') {
+        const status = await employeeApi<FuelStatus>('/api/fuel-status');
+        available = status.vehicle ? [status.vehicle] : [];
+      }
+    }
+    setFleetVehicles(available);
+    const preferred = available.find((vehicle) => 'assignedDriverId' in vehicle && vehicle.assignedDriverId === profile.id) ?? available[0];
+    if (preferred) {
+      const local = await repository.getVehicleById(preferred.id) ?? await repository.saveVehicle({
+        id: preferred.id,
+        name: preferred.model,
+        registrationNumber: preferred.registrationNumber,
+        fuelType: 'diesel',
+      });
+      setSelectedVehicleId(preferred.id);
+      setName(preferred.model);
+      setRegistrationNumber(preferred.registrationNumber);
+      setFuelType(local?.fuelType ?? 'diesel');
+      setInspectionDueOn(local?.technicalInspectionDueOn ?? '');
+      setRoadTaxDueOn(local?.roadTaxDueOn ?? '');
+      setServiceDueOn(local?.nextServiceDueOn ?? '');
+      setServiceOdometer(local?.nextServiceOdometer === null || local?.nextServiceOdometer === undefined ? '' : String(local.nextServiceOdometer));
+      setOpenFaults(await faults.listOpen(preferred.id));
+      const saved = await new VehicleDepartureOverrideRepository(db).getLatest(preferred.id);
+      setOverride(saved ? { status: saved.status, fingerprint: saved.fingerprint } : null);
+      return;
+    }
     const vehicle = await repository.getVehicle();
     if (!vehicle) return;
+    setSelectedVehicleId(vehicle.id);
     setName(vehicle.name);
     setRegistrationNumber(vehicle.registrationNumber === 'NENURODYTA' ? '' : vehicle.registrationNumber);
     setFuelType(vehicle.fuelType);
@@ -66,7 +123,7 @@ export default function VehicleScreen() {
     }
     const saved = await new VehicleDepartureOverrideRepository(db).getLatest(vehicle.id);
     setOverride(saved ? { status: saved.status, fingerprint: saved.fingerprint } : null);
-  }, [db, faults, online, repository]);
+  }, [db, faults, online, profile.id, profile.role, repository]);
 
   useEffect(() => {
     void load().catch((error) => setMessage(error instanceof Error ? error.message : 'Automobilio duomenų atkurti nepavyko.'));
@@ -74,7 +131,7 @@ export default function VehicleScreen() {
 
   const preview = evaluateDepartureReadiness({
     vehicle: {
-      id: 'preview',
+      id: selectedVehicleId || 'preview',
       registrationNumber,
       technicalInspectionDueOn: inspectionDueOn || null,
       roadTaxDueOn: roadTaxDueOn || null,
@@ -92,7 +149,9 @@ export default function VehicleScreen() {
       if (odometer !== null && (!Number.isFinite(odometer) || odometer < 0)) {
         throw new Error('Priežiūros odometras turi būti teigiamas skaičius.');
       }
+      if (!selectedVehicleId) throw new Error('Pasirinkite automobilį iš parko.');
       await repository.saveVehicle({
+        id: selectedVehicleId,
         name,
         registrationNumber,
         fuelType,
@@ -114,7 +173,8 @@ export default function VehicleScreen() {
     if (busy) return;
     setBusy(true);
     try {
-      const vehicle = await repository.ensureVehicle();
+      const vehicle = selectedVehicleId ? await repository.getVehicleById(selectedVehicleId) : null;
+      if (!vehicle) throw new Error('Pasirinkite automobilį iš parko.');
       await reportVehicleFault(db, {
         vehicleId: vehicle.id,
         registrationNumber: vehicle.registrationNumber,
@@ -167,12 +227,21 @@ export default function VehicleScreen() {
     <FoundationScreen
       showFoundationNotice={false}
       title="Automobilio priežiūra"
-      description="Terminų galima nesuvesti – darbas netrukdomas. Kai data jau įrašyta ir pasibaigusi, važiuoti neleis, kol administratorius nepatvirtins.">
+      description="Pirmiausia pasirinkite automobilį iš jau suvesto parko. Čia nekuriamas antras automobilio įrašas.">
       <View style={styles.card}>
-        <Text style={styles.label}>Pavadinimas</Text>
-        <TextInput value={name} onChangeText={setName} style={styles.input} placeholder="Darbinis automobilis" placeholderTextColor={colors.textMuted} />
-        <Text style={styles.label}>Valstybinis numeris</Text>
-        <TextInput value={registrationNumber} onChangeText={setRegistrationNumber} autoCapitalize="characters" style={styles.input} placeholder="Nebūtina pradžiai" placeholderTextColor={colors.textMuted} testID="vehicle-registration" />
+        <Text style={styles.sectionTitle}>Automobilis iš parko</Text>
+        {fleetVehicles.length === 0 ? <Text style={styles.warnText}>Priskirto arba suvesto automobilio nėra. Pirmiausia pridėkite jį skiltyje „Automobiliai“.</Text> : null}
+        <View style={styles.vehicleChoices}>
+          {fleetVehicles.map((vehicle) => <Pressable
+            key={vehicle.id}
+            onPress={() => { void applyVehicle(vehicle.id); }}
+            style={[styles.vehicleChoice, selectedVehicleId === vehicle.id && styles.vehicleChoiceSelected]}
+            testID={`select-maintenance-vehicle-${vehicle.id}`}>
+            <Text style={[styles.vehicleChoiceTitle, selectedVehicleId === vehicle.id && styles.vehicleChoiceTitleSelected]}>{vehicle.registrationNumber}</Text>
+            <Text style={[styles.vehicleChoiceMeta, selectedVehicleId === vehicle.id && styles.vehicleChoiceMetaSelected]}>{vehicle.model}</Text>
+          </Pressable>)}
+        </View>
+        {selectedVehicleId ? <Text style={styles.selectedVehicle}>Pasirinkta: {registrationNumber} · {name}</Text> : null}
         <Text style={styles.label}>Kuro rūšis</Text>
         <View style={styles.options}>
           {fuelOptions.map((option) => (
@@ -234,7 +303,7 @@ export default function VehicleScreen() {
           </Text>
         ))}
       </View>
-      <Pressable disabled={busy} onPress={() => { void save(); }} style={[styles.button, busy && styles.disabled]} testID="save-vehicle">
+      <Pressable disabled={busy || !selectedVehicleId} onPress={() => { void save(); }} style={[styles.button, (busy || !selectedVehicleId) && styles.disabled]} testID="save-vehicle">
         <Text style={styles.buttonText}>{busy ? 'Saugoma…' : 'Išsaugoti automobilį'}</Text>
       </Pressable>
       {message ? <Text style={styles.message}>{message}</Text> : null}
@@ -244,6 +313,14 @@ export default function VehicleScreen() {
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   card: { padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
+  vehicleChoices: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  vehicleChoice: { minWidth: 150, minHeight: 64, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surfaceSubtle, padding: spacing.md, justifyContent: 'center' },
+  vehicleChoiceSelected: { borderColor: colors.info, backgroundColor: colors.infoSoft },
+  vehicleChoiceTitle: { ...type.cardTitle, color: colors.text },
+  vehicleChoiceTitleSelected: { color: colors.info },
+  vehicleChoiceMeta: { ...type.secondary, color: colors.textMuted },
+  vehicleChoiceMetaSelected: { color: colors.textSecondary },
+  selectedVehicle: { ...type.bodyStrong, color: colors.info },
   sectionTitle: { ...type.cardTitle, color: colors.text },
   label: { ...type.cardTitle, color: colors.text },
   hint: { ...type.secondary, color: colors.textMuted },

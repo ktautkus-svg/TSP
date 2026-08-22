@@ -26,6 +26,7 @@ const artworkAliases = {
   statistics: 'quality',
   navigation: 'execute',
   account: 'settings',
+  clients: 'quality',
 } as const;
 
 export type MenuArtworkKind = keyof typeof artworkCrops | keyof typeof artworkAliases | 'logout';

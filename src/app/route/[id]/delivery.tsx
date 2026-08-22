@@ -58,6 +58,7 @@ import { isUsablePhone } from '@/domain/phone';
 import type { OperationalContact } from '@/domain/vehicle-and-trip';
 import { useForegroundInterval } from '@/hooks/use-foreground-interval';
 import { GatewayGeocodingProvider } from '@/infrastructure/routing/providers/gateway-geocoding-provider';
+import { employeeApi, type EmployeeProfile } from '@/infrastructure/auth/employee-session';
 import { Alert } from '@/ui/alert';
 import { devWarn } from '@/ui/dev-log';
 import { formatWeightKg } from '@/ui/format-weight';
@@ -149,7 +150,23 @@ export default function DeliveryScreen() {
       setEndOdometer(refreshed.route.completionEndOdometerDraft ?? '');
       const locations = await new GetDefaultLocations(db).execute();
       setReturnLocations({ warehouse: locations.warehouse?.endpoint ?? null, home: locations.home?.endpoint ?? null });
-      setEmergencyContacts((await new OperationalContactRepository(db).list()).filter((contact) => contact.isEmergency && isUsablePhone(contact.phone)));
+      const contactRepository = new OperationalContactRepository(db);
+      try {
+        const directory = await employeeApi<{ contacts: { id: string; name: string; role: EmployeeProfile['role']; phone: string; isEmergency: boolean }[] }>('/api/operations/contacts');
+        for (const contact of directory.contacts) {
+          await contactRepository.save({
+            id: contact.id,
+            kind: contact.role === 'admin' ? 'administration' : contact.role === 'dispatcher' ? 'dispatcher' : 'other',
+            name: contact.name,
+            roleLabel: contact.role === 'admin' ? 'Administracija' : contact.role === 'dispatcher' ? 'Dispečeris' : null,
+            phone: contact.phone,
+            isEmergency: contact.isEmergency,
+          });
+        }
+      } catch {
+        // The last downloaded directory remains usable while offline.
+      }
+      setEmergencyContacts((await contactRepository.list()).filter((contact) => contact.isEmergency && isUsablePhone(contact.phone)));
       const weatherStop = refreshed.stops.find((stop) => stop.deliveryStatus === 'pending');
       const weatherLatitude = weatherStop?.latitude ?? refreshed.route.startLocation?.latitude ?? null;
       const weatherLongitude = weatherStop?.longitude ?? refreshed.route.startLocation?.longitude ?? null;

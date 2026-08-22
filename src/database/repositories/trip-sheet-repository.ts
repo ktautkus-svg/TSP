@@ -3,6 +3,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import type { FuelEntry, FuelType, SavedLocation, TripSheet, Vehicle } from '@/domain/vehicle-and-trip';
 
 export type VehicleSaveInput = {
+  id?: string;
   name: string;
   registrationNumber: string;
   fuelType: FuelType;
@@ -201,9 +202,14 @@ export class TripSheetRepository {
     return row ? mapVehicle(row) : null;
   }
 
+  async getVehicleById(vehicleId: string): Promise<Vehicle | null> {
+    const row = await this.db.getFirstAsync<VehicleRow>('SELECT * FROM vehicles WHERE id = ?', vehicleId);
+    return row ? mapVehicle(row) : null;
+  }
+
   async saveVehicle(input: VehicleSaveInput, now = new Date().toISOString()): Promise<Vehicle> {
-    const existing = await this.getVehicle();
-    const id = existing?.id ?? 'vehicle-primary';
+    const existing = input.id ? await this.getVehicleById(input.id) : await this.getVehicle();
+    const id = input.id ?? existing?.id ?? 'vehicle-primary';
     const columns = await this.db.getAllAsync<{ name: string }>('PRAGMA table_info(vehicles)');
     const hasCompliance = columns.some((column) => column.name === 'technical_inspection_due_on');
     const name = input.name.trim() || 'Darbinis automobilis';

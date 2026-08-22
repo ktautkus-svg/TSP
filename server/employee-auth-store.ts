@@ -298,6 +298,24 @@ export type RouteSnapshot = {
   shipmentLines: Record<string, unknown>[];
 };
 
+export type ClientDirectoryEntry = {
+  id: string;
+  name: string;
+  address: string;
+  phone: string | null;
+  email: string | null;
+  contactPerson: string | null;
+  visitCount: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  lastDeliveredAt: string | null;
+};
+
+type StoredClientDirectoryEntry = ClientDirectoryEntry & {
+  updatedAt: string;
+  updatedBy: string | null;
+};
+
 type StoredUser = EmployeeProfile & {
   pinSalt: string;
   pinHash: string;
@@ -321,6 +339,7 @@ export class EmployeeAuthStore {
   private readonly departureOverrides = this.db.collection('tsp_departure_overrides');
   private readonly fuelEntries = this.db.collection('tsp_fuel_entries');
   private readonly settings = this.db.collection('tsp_settings');
+  private readonly clients = this.db.collection('tsp_clients');
 
   async hasUsers(): Promise<boolean> {
     return !(await this.users.limit(1).get()).empty;
@@ -459,6 +478,123 @@ export class EmployeeAuthStore {
     return snapshot.docs
       .map((document) => normalizeVehicle(document.data() as FleetVehicle))
       .sort((left, right) => left.registrationNumber.localeCompare(right.registrationNumber, 'lt'));
+  }
+
+  async listClients(): Promise<ClientDirectoryEntry[]> {
+    const [assignmentSnapshot, storedSnapshot] = await Promise.all([
+      this.assignments.get(),
+      this.clients.get(),
+    ]);
+    const stored = new Map(storedSnapshot.docs.map((document) => {
+      const value = document.data() as StoredClientDirectoryEntry;
+      return [value.id, value] as const;
+    }));
+    const observed = new Map<string, {
+      id: string;
+      name: string;
+      address: string;
+      phone: string | null;
+      visits: Set<string>;
+      firstSeenAt: string;
+      lastSeenAt: string;
+      lastDeliveredAt: string | null;
+    }>();
+
+    for (const document of assignmentSnapshot.docs) {
+      const assignment = document.data() as RouteAssignment;
+      if (assignment.status === 'cancelled') continue;
+      for (const stop of assignment.routeSnapshot.stops) {
+        const name = optionalText(stop.recipient);
+        const address = optionalText(stop.normalized_address)
+          ?? optionalText(stop.address)
+          ?? optionalText(stop.original_address);
+        if (!name && !address) continue;
+        const id = clientDirectoryId(name ?? 'Klientas', address ?? 'Adresas nenurodytas');
+        const deliveredAt = optionalText(stop.delivered_at);
+        const seenAt = deliveredAt ?? assignment.updatedAt ?? assignment.assignedAt;
+        const current = observed.get(id);
+        if (current) {
+          current.visits.add(assignment.routeId);
+          if (seenAt < current.firstSeenAt) current.firstSeenAt = seenAt;
+          if (seenAt > current.lastSeenAt) current.lastSeenAt = seenAt;
+          if (deliveredAt && (!current.lastDeliveredAt || deliveredAt > current.lastDeliveredAt)) current.lastDeliveredAt = deliveredAt;
+          if (!current.phone) current.phone = optionalText(stop.phone);
+        } else {
+          observed.set(id, {
+            id,
+            name: name ?? 'Klientas nenurodytas',
+            address: address ?? 'Adresas nenurodytas',
+            phone: optionalText(stop.phone),
+            visits: new Set([assignment.routeId]),
+            firstSeenAt: seenAt,
+            lastSeenAt: seenAt,
+            lastDeliveredAt: deliveredAt,
+          });
+        }
+      }
+    }
+
+    const now = new Date().toISOString();
+    let batch = this.db.batch();
+    let pendingWrites = 0;
+    const result: ClientDirectoryEntry[] = [];
+    for (const client of observed.values()) {
+      const saved = stored.get(client.id);
+      const merged: StoredClientDirectoryEntry = {
+        id: client.id,
+        name: saved?.name ?? client.name,
+        address: saved?.address ?? client.address,
+        phone: saved?.phone ?? client.phone,
+        email: saved?.email ?? null,
+        contactPerson: saved?.contactPerson ?? null,
+        visitCount: client.visits.size,
+        firstSeenAt: saved && saved.firstSeenAt < client.firstSeenAt ? saved.firstSeenAt : client.firstSeenAt,
+        lastSeenAt: saved && saved.lastSeenAt > client.lastSeenAt ? saved.lastSeenAt : client.lastSeenAt,
+        lastDeliveredAt: latestOptionalDate(saved?.lastDeliveredAt ?? null, client.lastDeliveredAt),
+        updatedAt: saved?.updatedAt ?? now,
+        updatedBy: saved?.updatedBy ?? null,
+      };
+      batch.set(this.clients.doc(client.id), merged, { merge: true });
+      pendingWrites += 1;
+      if (pendingWrites === 400) {
+        await batch.commit();
+        batch = this.db.batch();
+        pendingWrites = 0;
+      }
+      result.push(merged);
+    }
+    for (const saved of stored.values()) {
+      if (!observed.has(saved.id)) result.push(saved);
+    }
+    if (pendingWrites > 0) await batch.commit();
+    return result.sort((left, right) => {
+      const leftMissing = left.phone || left.email ? 1 : 0;
+      const rightMissing = right.phone || right.email ? 1 : 0;
+      return leftMissing - rightMissing || left.name.localeCompare(right.name, 'lt') || left.address.localeCompare(right.address, 'lt');
+    });
+  }
+
+  async updateClient(profile: EmployeeProfile, clientIdInput: string, input: {
+    phone?: string | null;
+    email?: string | null;
+    contactPerson?: string | null;
+  }): Promise<ClientDirectoryEntry> {
+    const clientId = safeId(clientIdInput);
+    await this.listClients();
+    const reference = this.clients.doc(clientId);
+    const document = await reference.get();
+    const current = document.data() as StoredClientDirectoryEntry | undefined;
+    if (!current) throw new EmployeeApiError('CLIENT_NOT_FOUND', 'Klientas nerastas.', 404);
+    const updated: StoredClientDirectoryEntry = {
+      ...current,
+      phone: input.phone === undefined ? current.phone : optionalText(input.phone),
+      email: input.email === undefined ? current.email : optionalText(input.email),
+      contactPerson: input.contactPerson === undefined ? current.contactPerson : optionalText(input.contactPerson),
+      updatedAt: new Date().toISOString(),
+      updatedBy: profile.id,
+    };
+    await reference.set(updated);
+    return updated;
   }
 
   async createVehicle(input: {
@@ -1555,6 +1691,22 @@ function normalizeVehicle(vehicle: FleetVehicle): FleetVehicle {
     fuelUpdatedAt: optionalText(vehicle.fuelUpdatedAt),
     assignmentRevision: finiteNumber(vehicle.assignmentRevision, 0),
   };
+}
+
+function clientDirectoryId(name: string, address: string): string {
+  const normalized = `${name}|${address}`
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('lt')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return `client-${createHash('sha256').update(normalized).digest('hex').slice(0, 24)}`;
+}
+
+function latestOptionalDate(left: string | null, right: string | null): string | null {
+  if (!left) return right;
+  if (!right) return left;
+  return left > right ? left : right;
 }
 
 export function buildServerTripSheet(assignment: RouteAssignment, vehicle: FleetVehicleSnapshot | null): ServerTripSheet {
