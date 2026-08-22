@@ -485,10 +485,12 @@ export class EmployeeAuthStore {
       this.assignments.get(),
       this.clients.get(),
     ]);
-    const stored = new Map(storedSnapshot.docs.map((document) => {
-      const value = document.data() as StoredClientDirectoryEntry;
-      return [value.id, value] as const;
-    }));
+    const storedEntries = storedSnapshot.docs.map((document) => document.data() as StoredClientDirectoryEntry);
+    const storedByClient = new Map<string, StoredClientDirectoryEntry[]>();
+    for (const entry of storedEntries) {
+      const key = clientDirectoryKey(entry.name, entry.address);
+      storedByClient.set(key, [...(storedByClient.get(key) ?? []), entry]);
+    }
     const observed = new Map<string, {
       id: string;
       name: string;
@@ -514,6 +516,7 @@ export class EmployeeAuthStore {
         const seenAt = deliveredAt ?? assignment.updatedAt ?? assignment.assignedAt;
         const current = observed.get(id);
         if (current) {
+          if (name) current.name = preferredClientName(current.name, name);
           current.visits.add(assignment.routeId);
           if (seenAt < current.firstSeenAt) current.firstSeenAt = seenAt;
           if (seenAt > current.lastSeenAt) current.lastSeenAt = seenAt;
@@ -538,35 +541,63 @@ export class EmployeeAuthStore {
     let batch = this.db.batch();
     let pendingWrites = 0;
     const result: ClientDirectoryEntry[] = [];
+    const consumedStoredKeys = new Set<string>();
+    const flushBatch = async () => {
+      if (pendingWrites === 0) return;
+      await batch.commit();
+      batch = this.db.batch();
+      pendingWrites = 0;
+    };
+    const queueSet = async (entry: StoredClientDirectoryEntry) => {
+      batch.set(this.clients.doc(entry.id), entry, { merge: true });
+      pendingWrites += 1;
+      if (pendingWrites >= 400) await flushBatch();
+    };
+    const queueDelete = async (id: string) => {
+      batch.delete(this.clients.doc(id));
+      pendingWrites += 1;
+      if (pendingWrites >= 400) await flushBatch();
+    };
     for (const client of observed.values()) {
-      const saved = stored.get(client.id);
+      const storedKey = clientDirectoryKey(client.name, client.address);
+      const savedEntries = storedByClient.get(storedKey) ?? [];
+      const saved = mergeStoredClientEntries(savedEntries);
+      consumedStoredKeys.add(storedKey);
       const merged: StoredClientDirectoryEntry = {
         id: client.id,
-        name: saved?.name ?? client.name,
-        address: saved?.address ?? client.address,
+        name: saved ? preferredClientName(client.name, saved.name) : client.name,
+        address: preferredClientAddress(client.address, saved?.address),
         phone: saved?.phone ?? client.phone,
         email: saved?.email ?? null,
         contactPerson: saved?.contactPerson ?? null,
-        visitCount: client.visits.size,
+        visitCount: Math.max(client.visits.size, saved?.visitCount ?? 0),
         firstSeenAt: saved && saved.firstSeenAt < client.firstSeenAt ? saved.firstSeenAt : client.firstSeenAt,
         lastSeenAt: saved && saved.lastSeenAt > client.lastSeenAt ? saved.lastSeenAt : client.lastSeenAt,
         lastDeliveredAt: latestOptionalDate(saved?.lastDeliveredAt ?? null, client.lastDeliveredAt),
         updatedAt: saved?.updatedAt ?? now,
         updatedBy: saved?.updatedBy ?? null,
       };
-      batch.set(this.clients.doc(client.id), merged, { merge: true });
-      pendingWrites += 1;
-      if (pendingWrites === 400) {
-        await batch.commit();
-        batch = this.db.batch();
-        pendingWrites = 0;
+      await queueSet(merged);
+      for (const legacy of savedEntries) {
+        if (legacy.id !== merged.id) await queueDelete(legacy.id);
       }
       result.push(merged);
     }
-    for (const saved of stored.values()) {
-      if (!observed.has(saved.id)) result.push(saved);
+    for (const [key, entries] of storedByClient) {
+      if (consumedStoredKeys.has(key)) continue;
+      const saved = mergeStoredClientEntries(entries);
+      if (!saved) continue;
+      const canonical: StoredClientDirectoryEntry = {
+        ...saved,
+        id: clientDirectoryId(saved.name, saved.address),
+      };
+      await queueSet(canonical);
+      for (const legacy of entries) {
+        if (legacy.id !== canonical.id) await queueDelete(legacy.id);
+      }
+      result.push(canonical);
     }
-    if (pendingWrites > 0) await batch.commit();
+    await flushBatch();
     return result.sort((left, right) => {
       const leftMissing = left.phone || left.email ? 1 : 0;
       const rightMissing = right.phone || right.email ? 1 : 0;
@@ -1693,14 +1724,66 @@ function normalizeVehicle(vehicle: FleetVehicle): FleetVehicle {
   };
 }
 
-function clientDirectoryId(name: string, address: string): string {
-  const normalized = `${name}|${address}`
+export function canonicalClientAddress(address: string): string {
+  return address
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLocaleLowerCase('lt')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return `client-${createHash('sha256').update(normalized).digest('hex').slice(0, 24)}`;
+    .replace(/gatve/g, 'g')
+    .replace(/prospektas/g, 'pr')
+    .replace(/[^a-z0-9]/g, '');
+}
+
+function canonicalClientName(name: string): string {
+  return name
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('lt')
+    .replace(/[^a-z0-9]/g, '');
+}
+
+function clientDirectoryKey(name: string, address: string): string {
+  const addressKey = canonicalClientAddress(address);
+  return addressKey && addressKey !== 'adresasnenurodytas'
+    ? `address:${addressKey}`
+    : `name:${canonicalClientName(name)}`;
+}
+
+export function clientDirectoryId(name: string, address: string): string {
+  return `client-${createHash('sha256').update(clientDirectoryKey(name, address)).digest('hex').slice(0, 24)}`;
+}
+
+function preferredClientName(left: string, right: string): string {
+  const candidates = [left, right]
+    .map((value) => value.trim())
+    .filter((value) => value && value !== 'Klientas nenurodytas');
+  if (candidates.length === 0) return 'Klientas nenurodytas';
+  return candidates.sort((a, b) => a.length - b.length || a.localeCompare(b, 'lt'))[0];
+}
+
+function preferredClientAddress(primary: string, secondary?: string): string {
+  const candidates = [primary, secondary]
+    .filter((value): value is string => Boolean(value && value !== 'Adresas nenurodytas'));
+  if (candidates.length === 0) return 'Adresas nenurodytas';
+  return candidates.sort((a, b) => b.length - a.length || a.localeCompare(b, 'lt'))[0];
+}
+
+function mergeStoredClientEntries(entries: StoredClientDirectoryEntry[]): StoredClientDirectoryEntry | null {
+  if (entries.length === 0) return null;
+  const newestFirst = [...entries].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  const first = newestFirst[0];
+  return {
+    ...first,
+    name: entries.map((entry) => entry.name).reduce(preferredClientName),
+    address: entries.map((entry) => entry.address).reduce((left, right) => preferredClientAddress(left, right)),
+    phone: newestFirst.find((entry) => entry.phone)?.phone ?? null,
+    email: newestFirst.find((entry) => entry.email)?.email ?? null,
+    contactPerson: newestFirst.find((entry) => entry.contactPerson)?.contactPerson ?? null,
+    visitCount: Math.max(...entries.map((entry) => entry.visitCount)),
+    firstSeenAt: entries.map((entry) => entry.firstSeenAt).sort()[0],
+    lastSeenAt: entries.map((entry) => entry.lastSeenAt).sort().at(-1)!,
+    lastDeliveredAt: entries.reduce<string | null>((latest, entry) => latestOptionalDate(latest, entry.lastDeliveredAt), null),
+  };
 }
 
 function latestOptionalDate(left: string | null, right: string | null): string | null {

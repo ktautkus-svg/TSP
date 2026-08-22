@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
+import { canonicalClientAddress, clientDirectoryId } from '../../server/employee-auth-store';
+
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const read = (path: string) => readFileSync(resolve(root, path), 'utf8');
 
@@ -14,7 +16,16 @@ describe('shared client and operational directories', () => {
     expect(store).toContain('assignment.routeSnapshot.stops');
     expect(store).toContain('optionalText(stop.recipient)');
     expect(store).toContain('optionalText(stop.normalized_address)');
-    expect(store).toContain('visitCount: client.visits.size');
+    expect(store).toContain('visitCount: Math.max(client.visits.size');
+  });
+
+  it('merges different recipient labels that point to the same physical address', () => {
+    const fullName = 'Gynybos resursų agentūra / Panevėžio įgulos aptarnavimo centro valgykla';
+    const shorterName = 'Panevėžio įgulos aptarnavimo centro valgykla';
+    expect(clientDirectoryId(fullName, 'Pajuosčio pl. 73, 38190 Panevėžys, Lietuva'))
+      .toBe(clientDirectoryId(shorterName, 'Pajuosčio pl.73, 38190 Panevėžys, Lietuva'));
+    expect(canonicalClientAddress('Pajuosčio pl. 73, 38190 Panevėžys, Lietuva'))
+      .toBe(canonicalClientAddress('Pajuosčio pl.73, 38190 Panevėžys, Lietuva'));
   });
 
   it('exposes a client screen that prioritizes missing contact details', () => {

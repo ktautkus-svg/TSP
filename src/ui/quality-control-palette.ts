@@ -33,7 +33,7 @@ export const qualityControlColors: ColorPalette = {
   brandNavy: '#15174C',
   brandWordmarkBlue: '#174A88',
   brandWordmarkGreen: '#A73835',
-  brandWordmarkGreenLight: '#C8504C',
+  brandWordmarkGreenLight: '#F3B8B5',
 };
 
 export const qualityBrandRed = '#A73835';
