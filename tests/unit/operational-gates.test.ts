@@ -7,7 +7,9 @@ import { describe, expect, it } from 'vitest';
 
 import { ActivateRoute, CreateDraftRoute, ReplaceDraftStops, type DraftStopInput } from '../../src/application/routes/route-commands';
 import { MarkStopLoaded, SaveStartOdometer, StartRoute } from '../../src/application/routes/route-workday';
+import { VehicleDepartureOverrideRepository } from '../../src/database/repositories/vehicle-departure-override-repository';
 import { TripSheetRepository } from '../../src/database/repositories/trip-sheet-repository';
+import { departureBlockerFingerprint, evaluateDepartureReadiness } from '../../src/domain/departure-readiness';
 
 class ExpoLikeDatabase {
   constructor(readonly raw = new DatabaseSync(':memory:')) {}
@@ -64,7 +66,7 @@ async function loadedRoute(db: SQLiteDatabase) {
 }
 
 describe('operational gates do not interrupt unfinished setup', () => {
-  it('starts a route on schema v23 when vehicle, contacts and phones are still empty', async () => {
+  it('starts a route on schema v24 when vehicle, contacts and phones are still empty', async () => {
     const db = createDb();
     await loadedRoute(db);
     await expect(new StartRoute(db).execute('route-1')).resolves.toMatchObject({ idempotent: false });
@@ -86,14 +88,85 @@ describe('operational gates do not interrupt unfinished setup', () => {
     });
   });
 
+  it('starts the route after an administrator confirms driving with the expired date', async () => {
+    const db = createDb();
+    await loadedRoute(db);
+    const now = '2026-08-22T12:00:00.000Z';
+    await new TripSheetRepository(db).saveVehicle({
+      name: 'Darbinis',
+      registrationNumber: 'ABC123',
+      fuelType: 'diesel',
+      technicalInspectionDueOn: '2026-01-01',
+      roadTaxDueOn: '2027-12-31',
+      nextServiceDueOn: '2027-12-31',
+    }, now);
+    await expect(new StartRoute(db, () => now).execute('route-1')).rejects.toMatchObject({
+      code: 'DEPARTURE_BLOCKED',
+    });
+    const vehicle = await new TripSheetRepository(db).getVehicle();
+    const blocked = evaluateDepartureReadiness({
+      vehicle: vehicle ? {
+        id: vehicle.id,
+        registrationNumber: vehicle.registrationNumber,
+        technicalInspectionDueOn: vehicle.technicalInspectionDueOn,
+        roadTaxDueOn: vehicle.roadTaxDueOn,
+        nextServiceDueOn: vehicle.nextServiceDueOn,
+      } : null,
+      now,
+    });
+    await new VehicleDepartureOverrideRepository(db).approve({
+      vehicleId: vehicle!.id,
+      fingerprint: departureBlockerFingerprint(blocked.blockers),
+      summary: 'INSPECTION_EXPIRED:2026-01-01',
+      approvedBy: 'admin-1',
+    }, now);
+    await expect(new StartRoute(db, () => now).execute('route-1')).resolves.toMatchObject({ idempotent: false });
+  });
+
+  it('does not start while the expired-date approval is still pending', async () => {
+    const db = createDb();
+    await loadedRoute(db);
+    const now = '2026-08-22T12:00:00.000Z';
+    await new TripSheetRepository(db).saveVehicle({
+      name: 'Darbinis',
+      registrationNumber: 'ABC123',
+      fuelType: 'diesel',
+      technicalInspectionDueOn: '2026-01-01',
+    }, now);
+    const vehicle = await new TripSheetRepository(db).getVehicle();
+    const blocked = evaluateDepartureReadiness({
+      vehicle: vehicle ? {
+        id: vehicle.id,
+        registrationNumber: vehicle.registrationNumber,
+        technicalInspectionDueOn: vehicle.technicalInspectionDueOn,
+        roadTaxDueOn: vehicle.roadTaxDueOn,
+        nextServiceDueOn: vehicle.nextServiceDueOn,
+      } : null,
+      now,
+    });
+    await new VehicleDepartureOverrideRepository(db).request({
+      vehicleId: vehicle!.id,
+      fingerprint: departureBlockerFingerprint(blocked.blockers),
+      summary: 'INSPECTION_EXPIRED:2026-01-01',
+      requestedBy: 'driver-1',
+    }, now);
+    await expect(new StartRoute(db, () => now).execute('route-1')).rejects.toMatchObject({
+      code: 'DEPARTURE_BLOCKED',
+    });
+  });
+
   it('keeps the loading and delivery screens callable without required phones', () => {
     const loading = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../src/app/route/[id]/loading.tsx'), 'utf8');
     const delivery = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../src/app/route/[id]/delivery.tsx'), 'utf8');
     const contacts = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../src/app/contacts.tsx'), 'utf8');
+    const vehicle = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../src/app/vehicle.tsx'), 'utf8');
     expect(loading).toContain('skambinti iš maršruto galėsite, kai įrašysite');
     expect(loading).not.toContain('be jo važiuoti negalima');
+    expect(loading).toContain('testID="approve-expired-departure"');
     expect(delivery).toContain('testID="call-next-stop"');
     expect(delivery).toContain('testID="emergency-contacts-card"');
     expect(contacts).toContain('Kol jo nėra, maršrutą vis tiek galima vykdyti');
+    expect(vehicle).toContain('testID="approve-expired-departure"');
+    expect(vehicle).toContain('kol administratorius nepatvirtins');
   });
 });

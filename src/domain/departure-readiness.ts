@@ -7,13 +7,15 @@ export type DepartureIssueCode =
   | 'INSPECTION_DUE_SOON'
   | 'ROAD_TAX_DUE_SOON'
   | 'SERVICE_DUE_SOON'
-  | 'OPEN_NON_URGENT_FAULT';
+  | 'OPEN_NON_URGENT_FAULT'
+  | 'EXPIRED_DATE_OVERRIDE';
 
 export type DepartureIssue = {
   code: DepartureIssueCode;
   severity: 'block' | 'warning';
   message: string;
   href?: '/vehicle' | '/contacts';
+  dueOn?: string;
 };
 
 export type VehicleComplianceInput = {
@@ -39,11 +41,19 @@ export type VehicleFaultInput = {
   notifiedAt: string | null;
 };
 
+export type DepartureOverrideStatus = 'none' | 'pending' | 'approved';
+
+export type DepartureOverrideInput = {
+  status: 'pending' | 'approved';
+  fingerprint: string;
+};
+
 export type DepartureReadiness = {
   blockers: DepartureIssue[];
   warnings: DepartureIssue[];
   canDepart: boolean;
   canBeginLoading: boolean;
+  overrideStatus: DepartureOverrideStatus;
 };
 
 function todayOn(nowIso: string): string {
@@ -76,8 +86,9 @@ function deadlineIssues(input: {
     return [{
       code: input.expiredCode,
       severity: 'block',
-      message: `${input.label} baigėsi ${input.dueOn}. Kol terminas neatnaujintas, važiuoti negalima.`,
+      message: `${input.label} baigėsi ${input.dueOn}. Kol terminas neatnaujintas, važiuoti negalima, nebent administratorius patvirtins.`,
       href: '/vehicle',
+      dueOn: input.dueOn,
     }];
   }
   if (remaining <= DEPARTURE_WARNING_DAYS) {
@@ -86,9 +97,74 @@ function deadlineIssues(input: {
       severity: 'warning',
       message: `${input.label} baigiasi ${input.dueOn} (liko ${remaining} d.). Darbas netrukdomas.`,
       href: '/vehicle',
+      dueOn: input.dueOn,
     }];
   }
   return [];
+}
+
+export function departureBlockerFingerprint(issues: readonly DepartureIssue[]): string {
+  return issues
+    .filter((issue) => issue.severity === 'block')
+    .map((issue) => `${issue.code}:${issue.dueOn ?? ''}`)
+    .sort()
+    .join('|');
+}
+
+export function expiredDeadlineSummary(issues: readonly DepartureIssue[]): string {
+  return issues
+    .filter((issue) => issue.severity === 'block')
+    .map((issue) => (issue.dueOn ? `${issue.code}:${issue.dueOn}` : issue.code))
+    .sort()
+    .join(', ');
+}
+
+export function applyDepartureOverride(
+  result: Omit<DepartureReadiness, 'overrideStatus'> & { overrideStatus?: DepartureOverrideStatus },
+  override?: DepartureOverrideInput | null,
+): DepartureReadiness {
+  const fingerprint = departureBlockerFingerprint(result.blockers);
+  if (!fingerprint || !override || override.fingerprint !== fingerprint) {
+    return {
+      blockers: result.blockers,
+      warnings: result.warnings,
+      canDepart: result.blockers.length === 0,
+      canBeginLoading: result.blockers.length === 0,
+      overrideStatus: 'none',
+    };
+  }
+  if (override.status === 'pending') {
+    return {
+      blockers: result.blockers,
+      warnings: result.warnings,
+      canDepart: false,
+      canBeginLoading: false,
+      overrideStatus: 'pending',
+    };
+  }
+  const released = result.blockers.map((issue) => ({
+    ...issue,
+    severity: 'warning' as const,
+    message: issue.dueOn
+      ? `${issue.code === 'INSPECTION_EXPIRED' ? 'Techninės apžiūros' : issue.code === 'ROAD_TAX_EXPIRED' ? 'Kelių mokesčio' : 'Priežiūros'} terminas baigėsi ${issue.dueOn}, bet administratorius patvirtino, kad važiuoti galima.`
+      : issue.message,
+  }));
+  return {
+    blockers: [],
+    warnings: [
+      {
+        code: 'EXPIRED_DATE_OVERRIDE',
+        severity: 'warning',
+        message: 'Administratorius patvirtino, kad su pasibaigusiais terminais vis tiek galima važiuoti.',
+        href: '/vehicle',
+      },
+      ...released,
+      ...result.warnings,
+    ],
+    canDepart: true,
+    canBeginLoading: true,
+    overrideStatus: 'approved',
+  };
 }
 
 export function evaluateDepartureReadiness(input: {
@@ -96,6 +172,7 @@ export function evaluateDepartureReadiness(input: {
   contacts?: readonly OperationalContactInput[];
   faults?: readonly VehicleFaultInput[];
   now?: string;
+  override?: DepartureOverrideInput | null;
 }): DepartureReadiness {
   const today = todayOn(input.now ?? new Date().toISOString());
   const issues: DepartureIssue[] = [];
@@ -137,12 +214,12 @@ export function evaluateDepartureReadiness(input: {
 
   const blockers = issues.filter((issue) => issue.severity === 'block');
   const warnings = issues.filter((issue) => issue.severity === 'warning');
-  return {
+  return applyDepartureOverride({
     blockers,
     warnings,
     canDepart: blockers.length === 0,
     canBeginLoading: blockers.length === 0,
-  };
+  }, input.override);
 }
 
 export function firstBlockerMessage(readiness: DepartureReadiness): string {

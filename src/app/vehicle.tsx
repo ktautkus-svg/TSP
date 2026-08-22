@@ -2,12 +2,19 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSQLiteContext } from 'expo-sqlite';
 
+import { canApproveExpiredDeparture } from '@/application/auth/employee-permissions';
 import { useLocalAccess } from '@/application/auth/local-access-context';
+import {
+  approveExpiredDepartureOverride,
+  pullDepartureOverride,
+  requestExpiredDepartureOverride,
+} from '@/application/operations/departure-readiness';
 import { reportVehicleFault } from '@/application/operations/vehicle-fault-report';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { TripSheetRepository } from '@/database/repositories/trip-sheet-repository';
+import { VehicleDepartureOverrideRepository } from '@/database/repositories/vehicle-departure-override-repository';
 import { VehicleFaultRepository } from '@/database/repositories/vehicle-fault-repository';
-import { evaluateDepartureReadiness } from '@/domain/departure-readiness';
+import { evaluateDepartureReadiness, type DepartureOverrideInput } from '@/domain/departure-readiness';
 import type { FuelType, VehicleFault } from '@/domain/vehicle-and-trip';
 import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
@@ -38,8 +45,10 @@ export default function VehicleScreen() {
   const [serviceOdometer, setServiceOdometer] = useState('');
   const [faultComment, setFaultComment] = useState('');
   const [openFaults, setOpenFaults] = useState<VehicleFault[]>([]);
+  const [override, setOverride] = useState<DepartureOverrideInput | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const canApprove = canApproveExpiredDeparture(profile);
 
   const load = useCallback(async () => {
     const vehicle = await repository.getVehicle();
@@ -52,7 +61,12 @@ export default function VehicleScreen() {
     setServiceDueOn(vehicle.nextServiceDueOn ?? '');
     setServiceOdometer(vehicle.nextServiceOdometer === null ? '' : String(vehicle.nextServiceOdometer));
     setOpenFaults(await faults.listOpen(vehicle.id));
-  }, [faults, repository]);
+    if (online) {
+      await pullDepartureOverride(db).catch(() => undefined);
+    }
+    const saved = await new VehicleDepartureOverrideRepository(db).getLatest(vehicle.id);
+    setOverride(saved ? { status: saved.status, fingerprint: saved.fingerprint } : null);
+  }, [db, faults, online, repository]);
 
   useEffect(() => {
     void load().catch((error) => setMessage(error instanceof Error ? error.message : 'Automobilio duomenų atkurti nepavyko.'));
@@ -67,6 +81,7 @@ export default function VehicleScreen() {
       nextServiceDueOn: serviceDueOn || null,
     },
     faults: openFaults,
+    override,
   });
 
   const save = async () => {
@@ -118,11 +133,41 @@ export default function VehicleScreen() {
     }
   };
 
+  const requestOverride = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await requestExpiredDepartureOverride(db, { requestedBy: profile.id, online });
+      setMessage(online
+        ? 'Prašymas išsiųstas administratoriui. Kol nepatvirtinta, važiuoti negalima.'
+        : 'Prašymas išsaugotas šiame įrenginyje. Prisijungus jis bus perduotas administratoriui.');
+      await load();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Prašymo išsiųsti nepavyko.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const approveOverride = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await approveExpiredDepartureOverride(db, { approvedBy: profile.id, online });
+      setMessage('Patvirtinta: su šiais pasibaigusiais terminais važiuoti galima.');
+      await load();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Patvirtinti nepavyko.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <FoundationScreen
       showFoundationNotice={false}
       title="Automobilio priežiūra"
-      description="Terminų galima nesuvesti – darbas netrukdomas. Kai data jau įrašyta ir pasibaigusi, maršruto pradėti neleis.">
+      description="Terminų galima nesuvesti – darbas netrukdomas. Kai data jau įrašyta ir pasibaigusi, važiuoti neleis, kol administratorius nepatvirtins.">
       <View style={styles.card}>
         <Text style={styles.label}>Pavadinimas</Text>
         <TextInput value={name} onChangeText={setName} style={styles.input} placeholder="Darbinis automobilis" placeholderTextColor={colors.textMuted} />
@@ -139,7 +184,7 @@ export default function VehicleScreen() {
       </View>
       <View style={styles.card} testID="vehicle-compliance-card">
         <Text style={styles.sectionTitle}>Priežiūros terminai</Text>
-        <Text style={styles.hint}>Datos formatu YYYY-MM-DD. Tuščia data nestoja darbo. Suvedus ir pasibaigus – važiuoti neleis.</Text>
+        <Text style={styles.hint}>Datos formatu YYYY-MM-DD. Tuščia data nestoja darbo. Suvedus ir pasibaigus – važiuoti neleis, kol administratorius nepatvirtins.</Text>
         <Text style={styles.label}>Techninė apžiūra iki</Text>
         <TextInput value={inspectionDueOn} onChangeText={setInspectionDueOn} autoCapitalize="none" keyboardType="numbers-and-punctuation" style={styles.input} placeholder="YYYY-MM-DD" placeholderTextColor={colors.textMuted} testID="vehicle-inspection-due" />
         <Text style={styles.label}>Kelių mokestis iki</Text>
@@ -154,6 +199,19 @@ export default function VehicleScreen() {
         {preview.warnings.filter((issue) => issue.code !== 'OPEN_NON_URGENT_FAULT').map((issue) => (
           <Text key={issue.code} style={styles.warnText}>{issue.message}</Text>
         ))}
+        {preview.blockers.length > 0 && preview.overrideStatus === 'pending' ? (
+          <Text style={styles.warnText} testID="departure-override-pending">Laukiama administratoriaus patvirtinimo, kad galima važiuoti.</Text>
+        ) : null}
+        {preview.blockers.length > 0 && canApprove ? (
+          <Pressable disabled={busy} onPress={() => { void approveOverride(); }} style={[styles.button, busy && styles.disabled]} testID="approve-expired-departure">
+            <Text style={styles.buttonText}>{busy ? 'Saugoma…' : 'Patvirtinti, kad galima važiuoti'}</Text>
+          </Pressable>
+        ) : null}
+        {preview.blockers.length > 0 && !canApprove && preview.overrideStatus !== 'pending' ? (
+          <Pressable disabled={busy} onPress={() => { void requestOverride(); }} style={[styles.secondaryButton, busy && styles.disabled]} testID="request-expired-departure">
+            <Text style={styles.secondaryText}>{busy ? 'Siunčiama…' : 'Prašyti administratoriaus leidimo važiuoti'}</Text>
+          </Pressable>
+        ) : null}
       </View>
       <View style={styles.card} testID="vehicle-fault-card">
         <Text style={styles.sectionTitle}>Neskubūs gedimai</Text>

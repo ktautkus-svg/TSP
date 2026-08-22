@@ -114,3 +114,14 @@ export function normalizeEmployeePermissions(value?: Partial<EmployeePermissions
   };
 }
 
+export function canApproveExpiredDeparture(profile: {
+  role: EmployeeRole;
+  permissions?: Partial<EmployeePermissions> | null;
+}): boolean {
+  if (profile.role === 'admin') return true;
+  if (profile.role === 'dispatcher') {
+    return normalizeEmployeePermissions(profile.permissions).canManageVehicles;
+  }
+  return false;
+}
+

@@ -306,6 +306,58 @@ export async function handleEmployeeApi(
       requireRole(profile, ['admin', 'dispatcher']);
       return send(response, 200, { faults: await store.listVehicleFaults() }, requestId);
     }
+    if (pathname === '/api/operations/departure-overrides' && request.method === 'POST') {
+      requireRole(profile, ['admin', 'dispatcher', 'driver']);
+      const body = parseObject(await readBody(request, 32_000));
+      const override = await store.requestDepartureOverride(profile, {
+        localId: optionalString(body, 'localId') ?? null,
+        vehicleId: optionalString(body, 'vehicleId') ?? null,
+        registrationNumber: optionalString(body, 'registrationNumber') ?? null,
+        fingerprint: stringField(body, 'fingerprint'),
+        summary: stringField(body, 'summary'),
+        requestedAt: optionalString(body, 'requestedAt') ?? null,
+      });
+      return send(response, 201, { override }, requestId);
+    }
+    if (pathname === '/api/operations/departure-overrides' && request.method === 'GET') {
+      requireRole(profile, ['admin', 'dispatcher', 'driver']);
+      const params = new URL(request.url ?? '', 'http://localhost').searchParams;
+      return send(response, 200, {
+        override: await store.getLatestDepartureOverride({
+          vehicleId: params.get('vehicleId'),
+          registrationNumber: params.get('registrationNumber'),
+        }),
+      }, requestId);
+    }
+    if (pathname === '/api/admin/departure-overrides' && request.method === 'GET') {
+      requireRole(profile, ['admin', 'dispatcher']);
+      return send(response, 200, { overrides: await store.listDepartureOverrides() }, requestId);
+    }
+    if (pathname === '/api/admin/departure-overrides' && request.method === 'POST') {
+      requireManagementPermission(profile, 'canManageVehicles');
+      const body = parseObject(await readBody(request, 32_000));
+      const override = await store.approveDepartureOverride(profile, {
+        id: optionalString(body, 'id') ?? null,
+        localId: optionalString(body, 'localId') ?? null,
+        vehicleId: optionalString(body, 'vehicleId') ?? null,
+        registrationNumber: optionalString(body, 'registrationNumber') ?? null,
+        fingerprint: stringField(body, 'fingerprint'),
+        summary: stringField(body, 'summary'),
+        note: optionalString(body, 'note') ?? null,
+      });
+      return send(response, 200, { override }, requestId);
+    }
+    const overrideReviewMatch = pathname.match(/^\/api\/admin\/departure-overrides\/([^/]+)\/review$/);
+    if (overrideReviewMatch && request.method === 'POST') {
+      requireManagementPermission(profile, 'canManageVehicles');
+      const body = parseObject(await readBody(request, 8_000));
+      const override = await store.reviewDepartureOverride(
+        decodeURIComponent(overrideReviewMatch[1]),
+        profile,
+        optionalString(body, 'note') ?? null,
+      );
+      return send(response, 200, { override }, requestId);
+    }
     if (pathname === '/api/admin/fuel-reports' && request.method === 'GET') {
       requireRole(profile, ['admin']);
       return send(response, 200, { reports: await store.listFuelReports() }, requestId);

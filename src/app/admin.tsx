@@ -29,6 +29,7 @@ import {
   type EmployeeProfile,
   type EmployeeRole,
   type FuelReport,
+  type ServerDepartureOverride,
   type ServerFleetVehicle,
   type ServerRouteAssignment,
   type ServerVehicleFault,
@@ -58,6 +59,7 @@ export default function AdminScreen() {
   const [vehicles, setVehicles] = useState<ServerFleetVehicle[]>([]);
   const [fuelReports, setFuelReports] = useState<FuelReport[]>([]);
   const [vehicleFaults, setVehicleFaults] = useState<ServerVehicleFault[]>([]);
+  const [departureOverrides, setDepartureOverrides] = useState<ServerDepartureOverride[]>([]);
   const [correctionVehicleId, setCorrectionVehicleId] = useState('');
   const [correctionLiters, setCorrectionLiters] = useState('');
   const [correctionDate, setCorrectionDate] = useState(new Date().toISOString().slice(0, 10));
@@ -126,7 +128,7 @@ export default function AdminScreen() {
     });
     setRoutes(localRoutes);
     if (['admin', 'dispatcher'].includes(profile.role) && online) {
-      const [userResponse, assignmentResponse, vehicleResponse, fuelResponse, faultResponse] = await Promise.all([
+      const [userResponse, assignmentResponse, vehicleResponse, fuelResponse, faultResponse, overrideResponse] = await Promise.all([
         employeeApi<{ users: EmployeeProfile[] }>('/api/admin/users'),
         employeeApi<{ assignments: ServerRouteAssignment[] }>('/api/admin/assignments'),
         employeeApi<{ vehicles: ServerFleetVehicle[] }>('/api/admin/vehicles'),
@@ -134,12 +136,14 @@ export default function AdminScreen() {
           ? employeeApi<{ reports: FuelReport[] }>('/api/admin/fuel-reports')
           : Promise.resolve({ reports: [] as FuelReport[] }),
         employeeApi<{ faults: ServerVehicleFault[] }>('/api/admin/vehicle-faults').catch(() => ({ faults: [] as ServerVehicleFault[] })),
+        employeeApi<{ overrides: ServerDepartureOverride[] }>('/api/admin/departure-overrides').catch(() => ({ overrides: [] as ServerDepartureOverride[] })),
       ]);
       setUsers(userResponse.users);
       setAssignments(assignmentResponse.assignments);
       setVehicles(vehicleResponse.vehicles);
       setFuelReports(fuelResponse.reports);
       setVehicleFaults(faultResponse.faults);
+      setDepartureOverrides(overrideResponse.overrides);
     }
   }, [db, online, profile.role]);
 
@@ -440,6 +444,12 @@ export default function AdminScreen() {
     await load();
   });
 
+  const reviewDepartureOverride = (override: ServerDepartureOverride) => run(async () => {
+    await employeeApi(`/api/admin/departure-overrides/${encodeURIComponent(override.id)}/review`, { method: 'POST' });
+    setMessage('Patvirtinta: vairuotojas gali važiuoti su šiais pasibaigusiais terminais.');
+    await load();
+  });
+
   const changePin = () => run(async () => {
     if (nextPin !== confirmPin) throw new Error('Naujo PIN pakartojimas nesutampa.');
     await employeeApi(`/api/admin/users/${encodeURIComponent(profile.id)}`, {
@@ -676,6 +686,35 @@ export default function AdminScreen() {
                     <Text style={styles.meta}>{fault.comment}</Text>
                     <Text style={styles.meta}>{new Date(fault.reportedAt).toLocaleString('lt-LT')}</Text>
                   </View>
+                </View>
+              ))}
+            </> : null}
+          </View>
+
+          <View style={[styles.card, Boolean(focus) && styles.hidden]} testID="departure-override-inbox">
+            <CollapsibleHeader
+              title={`Išvykimo patvirtinimai (${departureOverrides.filter((item) => item.status === 'pending').length})`}
+              expanded={expandedSection === 'departure-overrides'}
+              onPress={() => toggleSection('departure-overrides')}
+              styles={styles}
+            />
+            {expandedSection === 'departure-overrides' ? <>
+              <Text style={styles.meta}>Tušti terminai darbo nestabdo. Čia tvirtinama tik tada, kai įrašyta data jau pasibaigė, o važiuoti vis tiek reikia.</Text>
+              {departureOverrides.filter((item) => item.status === 'pending').length === 0 ? <Text style={styles.meta}>Laukiančių patvirtinimų nėra.</Text> : null}
+              {departureOverrides.filter((item) => item.status === 'pending').map((override) => (
+                <View key={override.id} style={styles.routeManagementRow}>
+                  <View style={styles.listContent}>
+                    <Text style={styles.listTitle}>{override.requestedByName}{override.registrationNumber ? ` · ${override.registrationNumber}` : ''}</Text>
+                    <Text style={styles.meta}>{override.summary}</Text>
+                    <Text style={styles.meta}>{new Date(override.requestedAt).toLocaleString('lt-LT')}</Text>
+                  </View>
+                  {canManageVehicles ? (
+                    <View style={styles.rowActions}>
+                      <Pressable disabled={busy || !online} onPress={() => void reviewDepartureOverride(override)} style={styles.smallButton} testID={`approve-departure-override-${override.id}`}>
+                        <Text style={styles.smallButtonText}>Patvirtinti, kad galima važiuoti</Text>
+                      </Pressable>
+                    </View>
+                  ) : null}
                 </View>
               ))}
             </> : null}

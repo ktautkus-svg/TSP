@@ -122,6 +122,23 @@ export type ServerVehicleFault = {
   reportedAt: string;
 };
 
+export type ServerDepartureOverride = {
+  id: string;
+  localId?: string | null;
+  vehicleId: string;
+  registrationNumber: string;
+  fingerprint: string;
+  summary: string;
+  status: 'pending' | 'approved';
+  requestedBy: string;
+  requestedByName: string;
+  requestedAt: string;
+  approvedBy: string | null;
+  approvedByName: string | null;
+  approvedAt: string | null;
+  note: string | null;
+};
+
 export type ServerFuelEntry = {
   id: string;
   tripSheetId: string;

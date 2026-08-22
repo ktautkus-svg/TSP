@@ -1,3 +1,4 @@
+import { canApproveExpiredDeparture } from '@/application/auth/employee-permissions';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { markRouteDeletedForCloud } from '@/application/sync/route-cloud-sync';
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
@@ -6,7 +7,11 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { loadDepartureReadiness } from '@/application/operations/departure-readiness';
+import {
+    approveExpiredDepartureOverride,
+    refreshDepartureReadiness,
+    requestExpiredDepartureOverride,
+} from '@/application/operations/departure-readiness';
 import { ActivateRoute, CancelDraftRoute, ReopenRouteForPlanning, UpdateStopPhone } from '@/application/routes/route-commands';
 import { resolveRoute } from '@/application/routes/route-navigation';
 import {
@@ -67,6 +72,7 @@ export default function LoadingScreen() {
   const [fuelInput, setFuelInput] = useState('');
   const [fuelBusy, setFuelBusy] = useState(false);
   const [readiness, setReadiness] = useState<DepartureReadiness | null>(null);
+  const [gateBusy, setGateBusy] = useState(false);
   const [phoneDrafts, setPhoneDrafts] = useState<Record<string, string>>({});
   const bulkInFlight = useRef(false);
   const odometerPrompted = useRef(false);
@@ -94,7 +100,7 @@ export default function LoadingScreen() {
         setStops(persisted.stops);
         setProgress(null);
         setUndo(null);
-        setReadiness(await loadDepartureReadiness(db, []));
+        setReadiness(await refreshDepartureReadiness(db, [], { online }));
         setError(null);
         return;
       }
@@ -110,7 +116,7 @@ export default function LoadingScreen() {
         return;
       }
       if (refreshed.route.status === 'loaded' && !odometerPrompted.current) {
-        const nextReadiness = await loadDepartureReadiness(db, await repository.getStops(routeId, 'loading'));
+        const nextReadiness = await refreshDepartureReadiness(db, await repository.getStops(routeId, 'loading'), { online });
         if (nextReadiness.canDepart) {
           odometerPrompted.current = true;
           setOdometerModalVisible(true);
@@ -121,7 +127,7 @@ export default function LoadingScreen() {
       setStops(loadingStops);
       setProgress(await new GetRouteProgress(db).execute(routeId));
       setUndo(await new GetLatestUndoableAction(db).execute(routeId));
-      setReadiness(await loadDepartureReadiness(db, loadingStops));
+      setReadiness(await refreshDepartureReadiness(db, loadingStops, { online }));
       if (refreshed.route.startOdometer !== null) setOdometer(String(refreshed.route.startOdometer));
       setError(null);
     } catch (reason) {
@@ -129,7 +135,7 @@ export default function LoadingScreen() {
     } finally {
       setBusy(false);
     }
-  }, [db, repository, routeId, router]);
+  }, [db, online, repository, routeId, router]);
 
   const loadFuel = useCallback(async () => {
     if (profile.role !== 'driver' || !online) return;
@@ -298,6 +304,32 @@ export default function LoadingScreen() {
     }
   };
 
+  const requestOverride = async () => {
+    if (gateBusy) return;
+    setGateBusy(true);
+    try {
+      await requestExpiredDepartureOverride(db, { requestedBy: profile.id, online });
+      setReadiness(await refreshDepartureReadiness(db, stops, { online }));
+    } catch (reason) {
+      Alert.alert('Prašymas neišsiųstas', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
+    } finally {
+      setGateBusy(false);
+    }
+  };
+
+  const approveOverride = async () => {
+    if (gateBusy) return;
+    setGateBusy(true);
+    try {
+      await approveExpiredDepartureOverride(db, { approvedBy: profile.id, online });
+      setReadiness(await refreshDepartureReadiness(db, stops, { online }));
+    } catch (reason) {
+      Alert.alert('Patvirtinti nepavyko', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
+    } finally {
+      setGateBusy(false);
+    }
+  };
+
   const saveStopPhone = async (stop: DeliveryStop) => {
     const value = phoneDrafts[stop.id] ?? stop.phone ?? '';
     try {
@@ -316,7 +348,7 @@ export default function LoadingScreen() {
       return;
     }
     if (readiness && !readiness.canBeginLoading) {
-      Alert.alert('Važiuoti negalima', readiness.blockers[0]?.message ?? 'Pirmiausia suveskite privalomą informaciją.');
+      Alert.alert('Važiuoti negalima', readiness.blockers[0]?.message ?? 'Pasibaigęs automobilio terminas. Važiuoti negalima.');
       return;
     }
     Alert.alert(
@@ -436,7 +468,15 @@ export default function LoadingScreen() {
           {vehicleLoad ? <Text style={[styles.summaryText, vehicleLoad.overCapacity && styles.loadWarning]} testID="vehicle-load-percent">{vehicleLoad.summaryLabel}</Text> : null}
           <Text style={styles.summaryText}>Planuotas atstumas: {route.estimatedDistanceKm === null ? '—' : `${route.estimatedDistanceKm.toFixed(1)} km`}</Text>
         </View>
-        {readiness ? <DepartureGateCard readiness={readiness} /> : null}
+        {readiness ? (
+          <DepartureGateCard
+            readiness={readiness}
+            canApprove={canApproveExpiredDeparture(profile)}
+            busy={gateBusy}
+            onApprove={() => { void approveOverride(); }}
+            onRequestApproval={() => { void requestOverride(); }}
+          />
+        ) : null}
         {profile.role === 'driver' && online ? <View style={styles.fuelCard} testID="fuel-confirmation-card">
           <Text style={styles.summaryTitle}>Kuro likutis · {fuelStatus?.vehicle?.registrationNumber ?? 'automobilis'}</Text>
           {fuelStatus?.approvalPending ? <Text style={styles.fuelPending}>Pakeitimas laukia administratoriaus patvirtinimo. Maršrutą galite tęsti.</Text> : fuelStatus?.requiresConfirmation ? <Text style={styles.summaryText}>Patvirtinkite esamą likutį. Jei skaičius pasikeitė, administratorius gaus prašymą.</Text> : <Text style={styles.summaryText}>Patvirtinta: {fuelStatus?.vehicle?.fuelRemainingLiters ?? fuelStatus?.latestReport?.reportedLiters ?? '—'} l</Text>}
@@ -494,7 +534,15 @@ export default function LoadingScreen() {
           {vehicleLoad ? <Text style={[styles.summaryText, vehicleLoad.overCapacity && styles.loadWarning]} testID="vehicle-load-percent">{vehicleLoad.summaryLabel}</Text> : null}
           {progress.notLoadedStops > 0 ? <Text style={styles.notLoadedSummary}>Nepakrauta: {progress.notLoadedStops}</Text> : null}
           {progress.totalUnknownWeightStops > 0 ? <Text style={styles.summaryText}>{progress.loadedUnknownWeightStops} / {progress.totalUnknownWeightStops} pakrautų taškų svoris nežinomas</Text> : null}
-          {readiness ? <DepartureGateCard readiness={readiness} /> : null}
+          {readiness ? (
+          <DepartureGateCard
+            readiness={readiness}
+            canApprove={canApproveExpiredDeparture(profile)}
+            busy={gateBusy}
+            onApprove={() => { void approveOverride(); }}
+            onRequestApproval={() => { void requestOverride(); }}
+          />
+        ) : null}
           <View style={styles.loadingOrderNotice} testID="loading-order-notice">
             <TruckIcon size={18} color={colors.info} />
             <Text style={styles.loadingOrderText}>KROVIMO EILĖ: 1 = PIRMAS Į AUTOMOBILĮ. PRISTATYMO NUMERIS GALI BŪTI KITAS.</Text>
@@ -524,7 +572,7 @@ export default function LoadingScreen() {
           style={[styles.primaryButton, Boolean(readiness && !readiness.canDepart) && styles.disabled]}
           onPress={() => {
             if (readiness && !readiness.canDepart) {
-              Alert.alert('Važiuoti negalima', readiness.blockers[0]?.message ?? 'Pirmiausia suveskite privalomą informaciją.');
+              Alert.alert('Važiuoti negalima', readiness.blockers[0]?.message ?? 'Pasibaigęs automobilio terminas. Važiuoti negalima.');
               return;
             }
             setOdometerModalVisible(true);

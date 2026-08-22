@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { evaluateDepartureReadiness } from '../../src/domain/departure-readiness';
+import { evaluateDepartureReadiness, departureBlockerFingerprint } from '../../src/domain/departure-readiness';
 import { isUsablePhone, normalizePhone, telUrl } from '../../src/domain/phone';
 
 const now = '2026-08-22T12:00:00.000Z';
@@ -69,6 +69,56 @@ describe('departure readiness', () => {
     });
     expect(readiness.canDepart).toBe(true);
     expect(readiness.warnings[0]?.code).toBe('OPEN_NON_URGENT_FAULT');
+  });
+
+  it('lets an administrator confirm driving after a saved deadline has expired', () => {
+    const blocked = evaluateDepartureReadiness({
+      vehicle: vehicle({ technicalInspectionDueOn: '2026-08-01' }),
+      now,
+    });
+    const fingerprint = departureBlockerFingerprint(blocked.blockers);
+    const readiness = evaluateDepartureReadiness({
+      vehicle: vehicle({ technicalInspectionDueOn: '2026-08-01' }),
+      now,
+      override: { status: 'approved', fingerprint },
+    });
+    expect(readiness.canDepart).toBe(true);
+    expect(readiness.canBeginLoading).toBe(true);
+    expect(readiness.overrideStatus).toBe('approved');
+    expect(readiness.blockers).toEqual([]);
+    expect(readiness.warnings.some((issue) => issue.code === 'EXPIRED_DATE_OVERRIDE')).toBe(true);
+  });
+
+  it('keeps the block while the administrator has only been asked, not confirmed', () => {
+    const blocked = evaluateDepartureReadiness({
+      vehicle: vehicle({ technicalInspectionDueOn: '2026-08-01' }),
+      now,
+    });
+    const readiness = evaluateDepartureReadiness({
+      vehicle: vehicle({ technicalInspectionDueOn: '2026-08-01' }),
+      now,
+      override: { status: 'pending', fingerprint: departureBlockerFingerprint(blocked.blockers) },
+    });
+    expect(readiness.canDepart).toBe(false);
+    expect(readiness.overrideStatus).toBe('pending');
+  });
+
+  it('requires a new approval if another saved deadline expires', () => {
+    const first = evaluateDepartureReadiness({
+      vehicle: vehicle({ technicalInspectionDueOn: '2026-08-01' }),
+      now,
+    });
+    const readiness = evaluateDepartureReadiness({
+      vehicle: vehicle({
+        technicalInspectionDueOn: '2026-08-01',
+        roadTaxDueOn: '2026-07-01',
+      }),
+      now,
+      override: { status: 'approved', fingerprint: departureBlockerFingerprint(first.blockers) },
+    });
+    expect(readiness.canDepart).toBe(false);
+    expect(readiness.overrideStatus).toBe('none');
+    expect(readiness.blockers.map((issue) => issue.code)).toEqual(['INSPECTION_EXPIRED', 'ROAD_TAX_EXPIRED']);
   });
 });
 

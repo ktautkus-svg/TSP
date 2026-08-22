@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-export const SCHEMA_VERSION = 23;
+export const SCHEMA_VERSION = 24;
 
 const migrationV1 = `
 PRAGMA journal_mode = WAL;
@@ -1174,6 +1174,31 @@ PRAGMA user_version = 23;
 COMMIT;
 `;
 
+const migrationV24 = `
+BEGIN IMMEDIATE;
+
+CREATE TABLE vehicle_departure_overrides (
+  id TEXT PRIMARY KEY NOT NULL,
+  vehicle_id TEXT NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+  fingerprint TEXT NOT NULL CHECK (length(trim(fingerprint)) > 0),
+  summary TEXT NOT NULL CHECK (length(trim(summary)) > 0),
+  status TEXT NOT NULL CHECK (status IN ('pending', 'approved')),
+  requested_by TEXT,
+  requested_at TEXT NOT NULL,
+  approved_by TEXT,
+  approved_at TEXT,
+  note TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX vehicle_departure_overrides_by_vehicle
+  ON vehicle_departure_overrides(vehicle_id, updated_at);
+
+PRAGMA user_version = 24;
+COMMIT;
+`;
+
 async function ensureRouteReturnColumns(db: SQLiteDatabase): Promise<void> {
   const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(routes)');
   const names = new Set(columns.map((column) => column.name));
@@ -1322,5 +1347,10 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
 
   if (currentVersion < 23) {
     await db.execAsync(migrationV23);
+    currentVersion = 23;
+  }
+
+  if (currentVersion < 24) {
+    await db.execAsync(migrationV24);
   }
 }
