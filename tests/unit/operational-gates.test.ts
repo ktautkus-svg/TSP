@@ -160,9 +160,11 @@ describe('operational gates do not interrupt unfinished setup', () => {
     const delivery = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../src/app/route/[id]/delivery.tsx'), 'utf8');
     const contacts = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../src/app/contacts.tsx'), 'utf8');
     const vehicle = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../src/app/vehicle.tsx'), 'utf8');
+    const gateCard = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../src/components/departure-gate-card.tsx'), 'utf8');
     expect(loading).toContain('skambinti iš maršruto galėsite, kai įrašysite');
     expect(loading).not.toContain('be jo važiuoti negalima');
-    expect(loading).toContain('testID="approve-expired-departure"');
+    expect(loading).toContain('onApprove');
+    expect(gateCard).toContain('testID="approve-expired-departure"');
     expect(delivery).toContain('testID="call-next-stop"');
     expect(delivery).toContain('testID="emergency-contacts-card"');
     expect(contacts).toContain('Kol jo nėra, maršrutą vis tiek galima vykdyti');
