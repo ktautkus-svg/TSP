@@ -93,6 +93,7 @@ export type FuelEntry = {
   fullTank: boolean;
   fuelType: FuelType;
   station: string | null;
+  receiptNumber: string | null;
   notes: string | null;
   createdAt: string;
 };

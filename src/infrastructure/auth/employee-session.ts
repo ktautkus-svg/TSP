@@ -126,6 +126,19 @@ export type ServerVehicleFault = {
   reportedAt: string;
 };
 
+export type ServerClientDirectoryEntry = {
+  id: string;
+  name: string;
+  address: string;
+  phone: string | null;
+  email: string | null;
+  contactPerson: string | null;
+  visitCount: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  lastDeliveredAt: string | null;
+};
+
 export type ServerDepartureOverride = {
   id: string;
   localId?: string | null;
@@ -158,6 +171,7 @@ export type ServerFuelEntry = {
   pricePerLiter: number | null;
   totalCost: number | null;
   station: string | null;
+  receiptNumber: string | null;
   notes: string | null;
   createdAt: string;
   createdBy: string;

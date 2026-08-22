@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-export const SCHEMA_VERSION = 24;
+export const SCHEMA_VERSION = 25;
 
 const migrationV1 = `
 PRAGMA journal_mode = WAL;
@@ -1199,6 +1199,15 @@ PRAGMA user_version = 24;
 COMMIT;
 `;
 
+const migrationV25 = `
+BEGIN IMMEDIATE;
+
+ALTER TABLE fuel_entries ADD COLUMN receipt_number TEXT;
+
+PRAGMA user_version = 25;
+COMMIT;
+`;
+
 async function ensureRouteReturnColumns(db: SQLiteDatabase): Promise<void> {
   const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(routes)');
   const names = new Set(columns.map((column) => column.name));
@@ -1352,5 +1361,10 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
 
   if (currentVersion < 24) {
     await db.execAsync(migrationV24);
+    currentVersion = 24;
+  }
+
+  if (currentVersion < 25) {
+    await db.execAsync(migrationV25);
   }
 }

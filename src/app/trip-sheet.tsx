@@ -6,6 +6,7 @@ import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, Vi
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { pushCompletedRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
 import { CompanyProfileSettings, type CompanyProfile } from '@/application/settings/company-profile';
+import { buildTripSheetWorkbook, MIME_XLSX } from '@/application/trip-sheet/export-xlsx';
 import { buildFuelLedger, type FuelLedgerDay } from '@/application/trip-sheet/fuel-balance';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { TripSheetRepository, type TripSheetWithRoutes } from '@/database/repositories/trip-sheet-repository';
@@ -24,7 +25,7 @@ const FUEL_TYPE_LABELS: Record<FuelType, string> = {
   other: 'Kita',
 };
 
-type TripFuelEntry = Pick<ServerFuelEntry, 'id' | 'filledAt' | 'odometer' | 'liters' | 'pricePerLiter' | 'totalCost' | 'station' | 'notes'>;
+type TripFuelEntry = Pick<ServerFuelEntry, 'id' | 'filledAt' | 'odometer' | 'liters' | 'pricePerLiter' | 'totalCost' | 'station' | 'receiptNumber' | 'notes'>;
 type DisplayTripSheet = Omit<ServerTripSheet, 'fuelEntries'> & { source: 'server' | 'local'; fuelEntries: TripFuelEntry[] };
 type DailyTripRow = {
   date: string;
@@ -63,6 +64,7 @@ type FuelEntryInput = {
   liters: number;
   pricePerLiter: number | null;
   station: string | null;
+  receiptNumber: string | null;
   notes: string | null;
 };
 
@@ -134,6 +136,50 @@ export default function TripSheetScreen() {
     if (Platform.OS === 'web' && typeof window !== 'undefined') window.print();
     else setMessage('PDF arba spausdinimą atidarykite interneto naršyklėje.');
   };
+  const exportExcel = () => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') {
+      setMessage('Excel eksportą atidarykite interneto naršyklėje.');
+      return;
+    }
+    try {
+      const bytes = buildTripSheetWorkbook({
+        companyName: companyProfile.name,
+        companyAddress: companyProfile.address,
+        groups: monthlyGroups.map((group) => ({
+          month: group.month,
+          driverName: group.driverName,
+          registrationNumber: group.vehicle?.registrationNumber ?? 'be-numerio',
+          vehicleModel: group.vehicle?.model ?? 'Automobilis nepriskirtas',
+          fuelNormLitersPer100Km: group.rows[0]?.fuelNorm ?? null,
+          fuelType: FUEL_TYPE_LABELS[vehicleFuelType],
+          rows: group.rows.map((row) => ({
+            date: row.date,
+            route: tripRouteLabel(row),
+            distanceKm: row.distanceKm,
+            fuelStartLiters: row.fuelStart,
+            fuelAddedLiters: row.fuelAdded ?? 0,
+            receiptNumbers: row.fuelEntries.map((entry) => entry.receiptNumber).filter((value): value is string => Boolean(value)),
+            fuelConsumedLiters: row.fuelConsumed,
+            fuelEndLiters: row.fuelEnd,
+            startOdometer: row.startOdometer,
+            endOdometer: row.endOdometer,
+          })),
+        })),
+      });
+      const payload = new Uint8Array(bytes.byteLength);
+      payload.set(bytes);
+      const blob = new Blob([payload.buffer], { type: MIME_XLSX });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `keliones-lapai-${selectedMonth === 'all' ? new Date().toISOString().slice(0, 10) : selectedMonth}.xlsx`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setMessage(`Excel ataskaita paruošta: ${monthlyGroups.length} lap.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Excel ataskaitos sukurti nepavyko.');
+    }
+  };
   const addFuel = async (row: DailyTripRow, input: FuelEntryInput) => {
     if (busy) return;
     setBusy(true);
@@ -149,6 +195,7 @@ export default function TripSheetScreen() {
             liters: input.liters,
             pricePerLiter: input.pricePerLiter ?? undefined,
             station: input.station ?? undefined,
+            receiptNumber: input.receiptNumber ?? undefined,
             notes: input.notes ?? undefined,
           }),
         });
@@ -174,6 +221,7 @@ export default function TripSheetScreen() {
             {busy ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.primaryText}>Atnaujinti</Text>}
           </Pressable>
           <Pressable style={styles.secondaryButton} onPress={print} testID="print-trip-sheets"><Text style={styles.secondaryText}>Spausdinti / PDF</Text></Pressable>
+          <Pressable style={styles.secondaryButton} onPress={exportExcel} testID="export-trip-sheets-xlsx"><Text style={styles.secondaryText}>Eksportuoti Excel</Text></Pressable>
         </View>
         {!online ? <Pressable style={styles.secondaryButton} disabled={busy} onPress={() => { void syncLocal(); }} testID="sync-trip-sheets"><Text style={styles.secondaryText}>Atnaujinti iš įrenginio maršrutų</Text></Pressable> : null}
         {profile.role !== 'driver' && drivers.length > 1 ? <View style={styles.filters} testID="trip-sheet-driver-filter">
@@ -209,6 +257,7 @@ function MonthlyTripSheet({ group, compact, onAddFuel, savingFuel, styles, compa
   const [fuelLiters, setFuelLiters] = useState('');
   const [fuelPrice, setFuelPrice] = useState('');
   const [fuelStation, setFuelStation] = useState('');
+  const [fuelReceiptNumber, setFuelReceiptNumber] = useState('');
   const [fuelNotes, setFuelNotes] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
   const totalDistance = group.rows.reduce((sum, row) => sum + (row.distanceKm ?? 0), 0);
@@ -230,6 +279,7 @@ function MonthlyTripSheet({ group, compact, onAddFuel, savingFuel, styles, compa
     setFuelLiters('');
     setFuelPrice('');
     setFuelStation('');
+    setFuelReceiptNumber('');
     setFuelNotes('');
     setFormError(null);
   };
@@ -249,6 +299,7 @@ function MonthlyTripSheet({ group, compact, onAddFuel, savingFuel, styles, compa
         liters,
         pricePerLiter: price,
         station: fuelStation.trim() || null,
+        receiptNumber: fuelReceiptNumber.trim() || null,
         notes: fuelNotes.trim() || null,
       });
       setFuelEditorDay(null);
@@ -271,7 +322,7 @@ function MonthlyTripSheet({ group, compact, onAddFuel, savingFuel, styles, compa
     </View>
 
     <View style={styles.metrics}>
-      <Metric label="NUVAŽIUOTA" value={`${formatNumber(totalDistance)} km`} styles={styles} />
+      <Metric label="PASKUTINIS ODOMETRAS" value={lastOdometer === null ? '—' : `${formatNumber(lastOdometer)} km`} styles={styles} />
       <Metric label="KURO LIKUTIS PRADŽIOJE" value={firstFuel === null ? '—' : `${formatNumber(firstFuel)} l`} styles={styles} />
       <Metric label="ĮPILTA" value={`${formatNumber(totalFuelAdded)} l`} styles={styles} />
       <Metric label="SUNAUDOTA PAGAL NORMĄ" value={`${formatNumber(totalFuel)} l`} styles={styles} />
@@ -350,7 +401,7 @@ function MonthlyTripSheet({ group, compact, onAddFuel, savingFuel, styles, compa
             {row.fuelEntries.length > 0 ? <View style={styles.fuelEntries}>
               <Text style={styles.fuelEntriesTitle}>KURO PAPILDYMAI</Text>
               {row.fuelEntries.map((entry) => <View key={entry.id} style={styles.fuelEntryRow}>
-                <View style={styles.flex}><Text style={styles.tableStrong}>{formatNumber(entry.liters)} l · {formatNumber(entry.odometer)} km</Text><Text style={styles.meta}>{entry.station || 'Degalinė nenurodyta'} · {formatDateTime(entry.filledAt)}</Text></View>
+                <View style={styles.flex}><Text style={styles.tableStrong}>{formatNumber(entry.liters)} l · {formatNumber(entry.odometer)} km</Text><Text style={styles.meta}>{entry.station || 'Degalinė nenurodyta'} · {formatDateTime(entry.filledAt)}{entry.receiptNumber ? ` · čekis ${entry.receiptNumber}` : ''}</Text></View>
                 <Text style={styles.tableStrong}>{entry.totalCost === null ? '—' : formatMoney(entry.totalCost)}</Text>
               </View>)}
             </View> : <Text style={styles.meta}>Šią dieną kuro papildymų dar neįvesta.</Text>}
@@ -363,6 +414,7 @@ function MonthlyTripSheet({ group, compact, onAddFuel, savingFuel, styles, compa
                 <Field label="Data *" value={fuelDate} onChangeText={setFuelDate} placeholder="YYYY-MM-DD" styles={styles} />
                 <Field label="Kaina už litrą" value={fuelPrice} onChangeText={setFuelPrice} placeholder="Pvz. 1,49" keyboardType="decimal-pad" styles={styles} />
                 <Field label="Degalinė" value={fuelStation} onChangeText={setFuelStation} placeholder="Pavadinimas arba vieta" styles={styles} />
+                <Field label="Kasos čekio Nr." value={fuelReceiptNumber} onChangeText={setFuelReceiptNumber} placeholder="Pvz. 565638" styles={styles} />
                 <Field label="Pastaba" value={fuelNotes} onChangeText={setFuelNotes} placeholder="Nebūtina" styles={styles} />
               </View>
               {formError ? <Text accessibilityRole="alert" style={styles.formError}>{formError}</Text> : null}
@@ -394,41 +446,41 @@ function MonthlyTripSheet({ group, compact, onAddFuel, savingFuel, styles, compa
       <View style={styles.printTable}>
         <View style={[styles.printRow, styles.printHeadRow]}>
           <Text style={[styles.printCell, styles.printCellDate, styles.printHeadText]}>Data</Text>
-          <Text style={[styles.printCell, styles.printCellUsage, styles.printHeadText]}>Naudojimo laikas</Text>
           <Text style={[styles.printCell, styles.printCellRoute, styles.printHeadText]}>Maršrutas</Text>
           <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>Atstumas, km</Text>
-          <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>Važiavimo laikas</Text>
-          <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>Sustojimo trukmė</Text>
-          <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>Stovėjimo laikas</Text>
+          <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>Kuras dienos pradžioje, L</Text>
+          <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>Įpilta kuro, L</Text>
+          <Text style={[styles.printCell, styles.printCellReceipt, styles.printHeadText]}>Kasos čekio Nr.</Text>
           <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>Degalų sąnaudos pagal normą, L</Text>
-          <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>Įpilta degalų, L</Text>
-          <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>Degalų nupilta, L</Text>
+          <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>Kuro likutis, L</Text>
+          <Text style={[styles.printCell, styles.printCellOdometer, styles.printHeadText]}>Odometras pradžioje</Text>
+          <Text style={[styles.printCell, styles.printCellOdometer, styles.printHeadText]}>Odometras pabaigoje</Text>
         </View>
         {group.rows.map((row) => (
           <View key={row.date} style={styles.printRow}>
             <Text style={[styles.printCell, styles.printCellDate]}>{row.date}</Text>
-            <Text style={[styles.printCell, styles.printCellUsage]}>00:00:00-23:59:59</Text>
-            <Text style={[styles.printCell, styles.printCellRoute]}>{row.startAddress}{row.startAddress !== row.endAddress ? ` - ${row.endAddress}` : ''}</Text>
+            <Text style={[styles.printCell, styles.printCellRoute]}>{tripRouteLabel(row)}</Text>
             <Text style={[styles.printCell, styles.printCellNum]}>{formatNumber(row.distanceKm)}</Text>
-            <Text style={[styles.printCell, styles.printCellNum]}>00:00:00</Text>
-            <Text style={[styles.printCell, styles.printCellNum]}>00:00:00</Text>
-            <Text style={[styles.printCell, styles.printCellNum]}>24:00:00</Text>
-            <Text style={[styles.printCell, styles.printCellNum]}>{row.fuelConsumed === null ? '0,00' : formatNumber(row.fuelConsumed)}</Text>
+            <Text style={[styles.printCell, styles.printCellNum]}>{row.fuelStart === null ? '—' : formatNumber(row.fuelStart)}</Text>
             <Text style={[styles.printCell, styles.printCellNum]}>{formatNumber(row.fuelAdded)}</Text>
-            <Text style={[styles.printCell, styles.printCellNum]}>0,00</Text>
+            <Text style={[styles.printCell, styles.printCellReceipt]}>{row.fuelEntries.map((entry) => entry.receiptNumber).filter(Boolean).join(' / ') || '—'}</Text>
+            <Text style={[styles.printCell, styles.printCellNum]}>{row.fuelConsumed === null ? '0,00' : formatNumber(row.fuelConsumed)}</Text>
+            <Text style={[styles.printCell, styles.printCellNum]}>{row.fuelEnd === null ? '—' : formatNumber(row.fuelEnd)}</Text>
+            <Text style={[styles.printCell, styles.printCellOdometer]}>{formatNumber(row.startOdometer)}</Text>
+            <Text style={[styles.printCell, styles.printCellOdometer]}>{formatNumber(row.endOdometer)}</Text>
           </View>
         ))}
         <View style={[styles.printRow, styles.printTotalRow]}>
           <Text style={[styles.printCell, styles.printCellDate]} />
-          <Text style={[styles.printCell, styles.printCellUsage]} />
           <Text style={[styles.printCell, styles.printCellRoute, styles.printHeadText]}>Iš viso:</Text>
           <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>{formatNumber(totalDistance)}</Text>
           <Text style={[styles.printCell, styles.printCellNum]} />
-          <Text style={[styles.printCell, styles.printCellNum]} />
-          <Text style={[styles.printCell, styles.printCellNum]} />
-          <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>{formatNumber(totalFuel)}</Text>
           <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>{formatNumber(totalFuelAdded)}</Text>
-          <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>0,00</Text>
+          <Text style={[styles.printCell, styles.printCellReceipt]} />
+          <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>{formatNumber(totalFuel)}</Text>
+          <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>{lastFuel === null ? '—' : formatNumber(lastFuel)}</Text>
+          <Text style={[styles.printCell, styles.printCellOdometer, styles.printHeadText]}>{formatNumber(firstOdometer)}</Text>
+          <Text style={[styles.printCell, styles.printCellOdometer, styles.printHeadText]}>{formatNumber(lastOdometer)}</Text>
         </View>
       </View>
 
@@ -600,6 +652,10 @@ function localSheet(sheet: TripSheetWithRoutes, fuelEntries: TripFuelEntry[] = [
 function formatDate(value: string): string { const date = new Date(`${value}T12:00:00`); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('lt-LT', { dateStyle: 'long' }).format(date); }
 function formatShortDate(value: string): string { const date = new Date(`${value}T12:00:00`); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('lt-LT', { month: '2-digit', day: '2-digit' }).format(date); }
 function formatDateTime(value: string): string { const date = new Date(value); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('lt-LT', { dateStyle: 'short', timeStyle: 'short' }).format(date); }
+function tripRouteLabel(row: DailyTripRow): string {
+  if (row.routeNumbers.length > 0) return row.routeNumbers.join(' · ');
+  return row.startAddress === row.endAddress ? row.startAddress : `${row.startAddress} - ${row.endAddress}`;
+}
 function formatMonth(value: string): string { const date = new Date(`${value}-15T12:00:00`); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('lt-LT', { year: 'numeric', month: 'long' }).format(date); }
 function formatNumber(value: number | null): string { return value === null ? '—' : new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(value); }
 function parseDecimal(value: string): number | null { const parsed = Number(value.trim().replace(',', '.')); return Number.isFinite(parsed) ? parsed : null; }
@@ -622,11 +678,9 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   message: { ...type.secondary, color: colors.textMuted }, empty: { padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surface, gap: spacing.xs },
   sheet: { padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, gap: spacing.md },
   screenView: { gap: spacing.md },
-  // Print-only accountant report: hidden on screen, shown for @media print
-  // via a data-testid selector in +html.tsx. Mirrors the paper trip-sheet
-  // template columns exactly, including the driving/stop/parking time
-  // columns this app does not track (kept as the same fixed placeholders
-  // the paper template already uses).
+  // Print-only accountant report: hidden on screen and shown for @media print
+  // via a data-testid selector in +html.tsx. It contains only measured or
+  // entered operational data; untracked stop/parking placeholders are omitted.
   printSheet: { display: 'none', gap: 6 },
   printTitle: { fontSize: 16, fontWeight: '700', color: '#000000', textAlign: 'center' },
   printCompanyLine: { fontSize: 11, fontWeight: '700', color: '#000000', textAlign: 'center' },
@@ -639,9 +693,10 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   printCell: { fontSize: 8, color: '#000000', paddingHorizontal: 3, paddingVertical: 2, borderRightWidth: 1, borderBottomWidth: 1, borderColor: '#000000' },
   printHeadText: { fontWeight: '700' },
   printCellDate: { flexBasis: '8%' },
-  printCellUsage: { flexBasis: '12%' },
-  printCellRoute: { flexBasis: '24%' },
-  printCellNum: { flexBasis: '8%', textAlign: 'right' as const },
+  printCellRoute: { flexBasis: '18%' },
+  printCellNum: { flexBasis: '9%', textAlign: 'right' as const },
+  printCellReceipt: { flexBasis: '10%' },
+  printCellOdometer: { flexBasis: '10%', textAlign: 'right' as const },
   printSignatures: { marginTop: 8, gap: 6 },
   printSignatureLine: { fontSize: 9, color: '#000000' },
   printSummaryTable: { marginTop: 6, borderWidth: 1, borderColor: '#000000' },

@@ -69,6 +69,7 @@ export default function DispatcherHomeScreen() {
         <View style={styles.menuGroup}><GroupedMenuSection label="IŠTEKLIAI">
           <GroupedMenuRow description={canManageEmployees ? 'Duomenys, prisijungimai ir leidimai.' : 'Redagavimo teisė nesuteikta.'} disabled={!canManageEmployees} icon={<MenuArtwork kind="drivers" />} onPress={() => open({ pathname: '/admin', params: { section: 'employees', returnTo: 'dispatcher' } } as Href)} title="Vairuotojai" />
           <GroupedMenuRow description={canManageVehicles ? 'Numeriai, modeliai ir keliamoji galia.' : 'Redagavimo teisė nesuteikta.'} disabled={!canManageVehicles} icon={<MenuArtwork kind="vehicles" />} onPress={() => open({ pathname: '/admin', params: { section: 'fleet', returnTo: 'dispatcher' } } as Href)} title="Automobiliai" tone="neutral" />
+          <GroupedMenuRow description="Iš maršrutų sukaupti pavadinimai, adresai ir trūkstami kontaktai." icon={<MenuArtwork kind="clients" />} onPress={() => open('/clients' as Href)} title="Klientai" tone="info" />
         </GroupedMenuSection></View>
         <View style={styles.menuGroup}><GroupedMenuSection label="APSKAITA">
           <GroupedMenuRow description={canManageFinancials ? 'Kuras, draudimas, mokesčiai ir atlygis.' : 'Parametrai tik peržiūrai.'} icon={<MenuArtwork kind="finance" />} onPress={() => open({ pathname: '/financial-settings', params: { returnTo: 'dispatcher' } } as unknown as Href)} title="Finansiniai duomenys" tone="neutral" />

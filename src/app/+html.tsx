@@ -49,6 +49,8 @@ export default function RootHtml({ children }: PropsWithChildren) {
             [data-testid="trip-sheet-month-filter"],
             [data-testid="trip-sheet-screen-view"] { display: none !important; }
             [data-testid="trip-sheet-print-view"] { display: flex !important; }
+            [data-testid^="monthly-trip-sheet-"] { break-after: page; page-break-after: always; }
+            [data-testid^="monthly-trip-sheet-"]:last-of-type { break-after: auto; page-break-after: auto; }
           }
         ` }} />
       </head>

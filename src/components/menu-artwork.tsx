@@ -18,17 +18,24 @@ const artworkCrops = {
 
 const artworkAliases = {
   route: 'execute',
-  edit: 'quality',
-  drivers: 'quality',
-  vehicles: 'dispatch',
-  finance: 'settings',
-  history: 'trip-sheet',
-  statistics: 'quality',
-  navigation: 'execute',
-  account: 'settings',
 } as const;
 
-export type MenuArtworkKind = keyof typeof artworkCrops | keyof typeof artworkAliases | 'logout';
+/** Distinct objects for secondary actions that were previously aliased to the
+ * same five Stitch crops. Different actions must never look identical. */
+const emojiArtwork = {
+  edit: '📝',
+  drivers: '👥',
+  vehicles: '🚚',
+  finance: '💶',
+  history: '🗂️',
+  statistics: '📊',
+  navigation: '☎️',
+  account: '👤',
+  clients: '🏢',
+  logout: '🚪',
+} as const;
+
+export type MenuArtworkKind = keyof typeof artworkCrops | keyof typeof artworkAliases | keyof typeof emojiArtwork;
 
 /**
  * Operational menu artwork based on the approved Stitch menu direction.
@@ -60,10 +67,11 @@ export function MenuArtwork({ kind, size = 58 }: { kind: MenuArtworkKind; size?:
     );
   }
 
+  const emoji = emojiArtwork[kind as keyof typeof emojiArtwork] ?? '•';
   return (
     <View style={[styles.emojiFrame, { width: size, height: size }]}>
       <Text style={{ fontSize: size * 0.62, lineHeight: size * 0.78 }}>
-        🚪
+        {emoji}
       </Text>
     </View>
   );

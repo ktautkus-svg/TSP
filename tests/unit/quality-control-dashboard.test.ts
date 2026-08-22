@@ -103,6 +103,8 @@ describe('quality control dashboard', () => {
     expect(dashboardSource).toContain("driverId === 'all' || route.driverId === driverId");
     expect(dashboardSource).toContain('Visi vairuotojai');
     expect(dashboardSource).toContain('Baigta pasirinktu laikotarpiu');
+    expect(dashboardSource).toContain("{ key: 'completed', label: 'Įvykdyti', tone: 'success' }");
+    expect(dashboardSource).toContain("completed: completed.length");
   });
 
   it('matches the current red and blue TSP identity instead of the old green dark theme', () => {

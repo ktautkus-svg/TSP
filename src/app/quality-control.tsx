@@ -19,13 +19,14 @@ const REFRESH_INTERVAL_MS = 15_000;
 const STALE_AFTER_MS = 120_000;
 const MINOR_DELAY_MINUTES = 45;
 
-type QualityFilter = 'in_progress' | 'waiting' | 'issues';
-type FilterTone = 'info' | 'warning' | 'danger';
+type QualityFilter = 'in_progress' | 'waiting' | 'completed' | 'issues';
+type FilterTone = 'info' | 'warning' | 'success' | 'danger';
 type PeriodMode = 'day' | 'week' | 'month' | 'custom';
 
 const FILTERS: readonly { key: QualityFilter; label: string; tone: FilterTone }[] = [
   { key: 'in_progress', label: 'Kelyje', tone: 'info' },
   { key: 'waiting', label: 'Laukia', tone: 'warning' },
+  { key: 'completed', label: 'Įvykdyti', tone: 'success' },
   { key: 'issues', label: 'Neatitikimai', tone: 'danger' },
 ];
 
@@ -110,10 +111,17 @@ export default function QualityControlScreen() {
     .filter((route) => route.failedStops > 0)
     .sort((left, right) => Number(left.status === 'completed') - Number(right.status === 'completed') || right.failedStops - left.failedStops);
   const vehicleCount = new Set(visible.map((route) => route.vehicle?.id).filter(Boolean)).size;
-  const filteredRoutes = filter === 'in_progress' ? active : filter === 'waiting' ? waiting : issues;
+  const filteredRoutes = filter === 'in_progress'
+    ? active
+    : filter === 'waiting'
+      ? waiting
+      : filter === 'completed'
+        ? completed
+        : issues;
   const filterCounts: Record<QualityFilter, number> = {
     in_progress: active.length,
     waiting: waiting.length,
+    completed: completed.length,
     issues: issues.length,
   };
 
@@ -213,7 +221,7 @@ export default function QualityControlScreen() {
 
       {filteredRoutes.length > 0 ? <RouteSection title={filterTitle(filter)} count={filteredRoutes.length} routes={filteredRoutes} desktop={desktop} mobile={mobile} styles={styles} defaultExpanded={filter === 'issues'} /> : null}
 
-      {filter !== 'issues' && completed.length > 0 ? <View style={styles.completedSection}>
+      {!['issues', 'completed'].includes(filter) && completed.length > 0 ? <View style={styles.completedSection}>
         <Pressable accessibilityRole="button" accessibilityState={{ expanded: completedOpen }} onPress={() => setCompletedOpen((value) => !value)} style={({ pressed }) => [styles.completedHeader, pressed && styles.cardSummaryPressed]}>
           <View><Text style={styles.sectionTitle}>Baigta pasirinktu laikotarpiu</Text><Text style={styles.muted}>Užbaigti maršrutai suskleisti, kad netrukdytų stebėti darbo.</Text></View>
           <View style={styles.completedHeaderRight}><Text style={styles.count}>{completed.length}</Text><Text style={styles.expandIcon}>{completedOpen ? '⌃' : '⌄'}</Text></View>
@@ -385,8 +393,8 @@ function DriverChoice({ active, label, onPress, styles }: { active: boolean; lab
     <Text numberOfLines={1} style={[styles.driverChoiceText, active && styles.driverChoiceTextActive]}>{label}</Text>
   </Pressable>;
 }
-function filterTitle(filter: QualityFilter): string { return ({ in_progress: 'Kelyje', waiting: 'Laukia starto', issues: 'Neatitikimai' })[filter]; }
-function emptyTitle(filter: QualityFilter): string { return ({ in_progress: 'Pasirinktu laikotarpiu vykdomų maršrutų nėra', waiting: 'Pasirinktu laikotarpiu laukiančių maršrutų nėra', issues: 'Pasirinktu laikotarpiu neatitikimų nėra' })[filter]; }
+function filterTitle(filter: QualityFilter): string { return ({ in_progress: 'Kelyje', waiting: 'Laukia starto', completed: 'Įvykdyti maršrutai', issues: 'Neatitikimai' })[filter]; }
+function emptyTitle(filter: QualityFilter): string { return ({ in_progress: 'Pasirinktu laikotarpiu vykdomų maršrutų nėra', waiting: 'Pasirinktu laikotarpiu laukiančių maršrutų nėra', completed: 'Pasirinktu laikotarpiu įvykdytų maršrutų nėra', issues: 'Pasirinktu laikotarpiu neatitikimų nėra' })[filter]; }
 function vehicleLabel(route: QualityRouteMonitor): string { return route.vehicle ? `${route.vehicle.registrationNumber} · ${route.vehicle.model}` : 'Automobilis nepriskirtas'; }
 function regionLabel(codes: string[]): string { return codes.length > 0 ? `Regionai ${codes.join(', ')}` : 'Regionas nenurodytas'; }
 function initials(name: string): string { return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join(''); }
@@ -475,6 +483,6 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   processedSection: { gap: spacing.sm }, processedTitle: { ...type.label, color: colors.textMuted }, processedStop: { minHeight: 68, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.sm, borderLeftWidth: 4, borderRadius: radius.sm, backgroundColor: colors.surfaceSubtle }, processedStop_neutral: { borderLeftColor: colors.textMuted }, processedStop_success: { borderLeftColor: colors.success }, processedStop_warning: { borderLeftColor: colors.warning }, processedStop_danger: { borderLeftColor: colors.danger }, processedSequence: { width: 30, height: 30, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceMuted }, processedSequenceText: { ...type.secondaryStrong, color: colors.text }, processedRecipient: { ...type.bodyStrong, color: colors.text }, processedAddress: { ...type.meta, color: colors.textMuted }, processedWindow: { ...type.meta, color: colors.textSecondary, marginTop: 2 }, timingBadge: { maxWidth: 148, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.sm }, timingBadge_neutral: { backgroundColor: colors.surfaceMuted }, timingBadge_success: { backgroundColor: colors.accentSoft }, timingBadge_warning: { backgroundColor: colors.warningSoft }, timingBadge_danger: { backgroundColor: colors.dangerSoft }, timingText: { ...type.meta, fontFamily: fonts.headingSemiBold, textAlign: 'right' }, timingText_neutral: { color: colors.textMuted }, timingText_success: { color: colors.success }, timingText_warning: { color: colors.warning }, timingText_danger: { color: colors.danger }, noProcessed: { ...type.secondary, color: colors.textMuted },
   sequenceNext: { borderLeftColor: colors.info, backgroundColor: colors.infoSoft }, sequenceNextNumber: { backgroundColor: colors.info }, sequenceNextNumberText: { color: colors.textInverse }, sequenceMeta: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   cardFooter: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.borderSubtle }, updated: { ...type.meta, color: colors.textMuted }, updatedStale: { color: colors.warning }, started: { ...type.meta, color: colors.textMuted },
-  filters: { flexDirection: 'row', gap: spacing.sm }, filter: { flex: 1, minWidth: 0, minHeight: 64, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primarySoft, borderWidth: 1, borderColor: colors.borderStrong }, filterActive_info: { backgroundColor: colors.info, borderColor: colors.info }, filterActive_warning: { backgroundColor: colors.warning, borderColor: colors.warning }, filterActive_danger: { backgroundColor: colors.danger, borderColor: colors.danger }, filterPressed: { opacity: 0.82 }, filterValue: { fontFamily: fonts.heading, fontSize: 22, lineHeight: 24, color: colors.textInverse }, filterValueActive: { color: colors.textInverse }, filterLabel: { ...type.label, fontSize: 10, lineHeight: 13, color: colors.borderStrong, marginTop: 3 }, filterLabelActive: { color: colors.textInverse },
+  filters: { flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' }, filter: { flex: 1, minWidth: 150, minHeight: 68, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderStrong }, filterActive_info: { backgroundColor: colors.info, borderColor: colors.info }, filterActive_warning: { backgroundColor: colors.warning, borderColor: colors.warning }, filterActive_success: { backgroundColor: colors.success, borderColor: colors.success }, filterActive_danger: { backgroundColor: colors.danger, borderColor: colors.danger }, filterPressed: { opacity: 0.82 }, filterValue: { fontFamily: fonts.heading, fontSize: 24, lineHeight: 27, color: colors.primary }, filterValueActive: { color: colors.textInverse }, filterLabel: { ...type.label, fontSize: 11, lineHeight: 14, color: colors.textSecondary, marginTop: 3 }, filterLabelActive: { color: colors.textInverse },
   connection: { minWidth: 250, minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.sm, borderRadius: radius.md, backgroundColor: colors.primaryDark }, liveDot: { width: 9, height: 9, borderRadius: radius.pill, backgroundColor: colors.success }, liveDotOffline: { backgroundColor: colors.danger }, liveLabel: { ...type.label, color: colors.textInverse }, refreshTime: { ...type.meta, color: colors.borderStrong }, refreshButton: { minHeight: 38, minWidth: 92, paddingHorizontal: spacing.md, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface }, refreshPressed: { backgroundColor: colors.infoSoft }, refreshText: { ...type.button, color: colors.info }, disabled: { opacity: 0.55 },
 });

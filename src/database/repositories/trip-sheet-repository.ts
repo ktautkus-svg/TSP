@@ -3,6 +3,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import type { FuelEntry, FuelType, SavedLocation, TripSheet, Vehicle } from '@/domain/vehicle-and-trip';
 
 export type VehicleSaveInput = {
+  id?: string;
   name: string;
   registrationNumber: string;
   fuelType: FuelType;
@@ -86,6 +87,7 @@ type FuelEntryRow = {
   full_tank: number;
   fuel_type: FuelType;
   station: string | null;
+  receipt_number: string | null;
   notes: string | null;
   created_at: string;
 };
@@ -183,6 +185,7 @@ function mapFuelEntry(row: FuelEntryRow): FuelEntry {
     fullTank: row.full_tank === 1,
     fuelType: row.fuel_type,
     station: row.station,
+    receiptNumber: row.receipt_number,
     notes: row.notes,
     createdAt: row.created_at,
   };
@@ -201,9 +204,14 @@ export class TripSheetRepository {
     return row ? mapVehicle(row) : null;
   }
 
+  async getVehicleById(vehicleId: string): Promise<Vehicle | null> {
+    const row = await this.db.getFirstAsync<VehicleRow>('SELECT * FROM vehicles WHERE id = ?', vehicleId);
+    return row ? mapVehicle(row) : null;
+  }
+
   async saveVehicle(input: VehicleSaveInput, now = new Date().toISOString()): Promise<Vehicle> {
-    const existing = await this.getVehicle();
-    const id = existing?.id ?? 'vehicle-primary';
+    const existing = input.id ? await this.getVehicleById(input.id) : await this.getVehicle();
+    const id = input.id ?? existing?.id ?? 'vehicle-primary';
     const columns = await this.db.getAllAsync<{ name: string }>('PRAGMA table_info(vehicles)');
     const hasCompliance = columns.some((column) => column.name === 'technical_inspection_due_on');
     const name = input.name.trim() || 'Darbinis automobilis';
@@ -305,6 +313,7 @@ export class TripSheetRepository {
     liters: number;
     pricePerLiter: number | null;
     station: string | null;
+    receiptNumber: string | null;
     notes: string | null;
   }, now = new Date().toISOString()): Promise<FuelEntry> {
     const sheet = await this.db.getFirstAsync<{ vehicle_id: string }>('SELECT vehicle_id FROM trip_sheets WHERE id = ?', input.tripSheetId);
@@ -316,10 +325,10 @@ export class TripSheetRepository {
     await this.db.runAsync(
       `INSERT INTO fuel_entries (
          id, vehicle_id, trip_sheet_id, filled_at, odometer, liters, price_per_liter,
-         total_cost, full_tank, fuel_type, station, notes, created_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
+         total_cost, full_tank, fuel_type, station, receipt_number, notes, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
       id, sheet.vehicle_id, input.tripSheetId, input.filledAt, input.odometer, input.liters,
-      input.pricePerLiter, totalCost, vehicle.fuel_type, input.station, input.notes, now,
+      input.pricePerLiter, totalCost, vehicle.fuel_type, input.station, input.receiptNumber, input.notes, now,
     );
     const row = await this.db.getFirstAsync<FuelEntryRow>('SELECT * FROM fuel_entries WHERE id = ?', id);
     if (!row) throw new Error('Kuro įrašo išsaugoti nepavyko.');

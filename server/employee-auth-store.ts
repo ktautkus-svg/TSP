@@ -220,6 +220,7 @@ export type ServerFuelEntry = {
   pricePerLiter: number | null;
   totalCost: number | null;
   station: string | null;
+  receiptNumber: string | null;
   notes: string | null;
   createdAt: string;
   createdBy: string;
@@ -301,6 +302,24 @@ export type RouteSnapshot = {
   shipmentLines: Record<string, unknown>[];
 };
 
+export type ClientDirectoryEntry = {
+  id: string;
+  name: string;
+  address: string;
+  phone: string | null;
+  email: string | null;
+  contactPerson: string | null;
+  visitCount: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  lastDeliveredAt: string | null;
+};
+
+type StoredClientDirectoryEntry = ClientDirectoryEntry & {
+  updatedAt: string;
+  updatedBy: string | null;
+};
+
 type StoredUser = EmployeeProfile & {
   pinSalt: string;
   pinHash: string;
@@ -324,6 +343,7 @@ export class EmployeeAuthStore {
   private readonly departureOverrides = this.db.collection('tsp_departure_overrides');
   private readonly fuelEntries = this.db.collection('tsp_fuel_entries');
   private readonly settings = this.db.collection('tsp_settings');
+  private readonly clients = this.db.collection('tsp_clients');
 
   async hasUsers(): Promise<boolean> {
     return !(await this.users.limit(1).get()).empty;
@@ -462,6 +482,154 @@ export class EmployeeAuthStore {
     return snapshot.docs
       .map((document) => normalizeVehicle(document.data() as FleetVehicle))
       .sort((left, right) => left.registrationNumber.localeCompare(right.registrationNumber, 'lt'));
+  }
+
+  async listClients(): Promise<ClientDirectoryEntry[]> {
+    const [assignmentSnapshot, storedSnapshot] = await Promise.all([
+      this.assignments.get(),
+      this.clients.get(),
+    ]);
+    const storedEntries = storedSnapshot.docs.map((document) => document.data() as StoredClientDirectoryEntry);
+    const storedByClient = new Map<string, StoredClientDirectoryEntry[]>();
+    for (const entry of storedEntries) {
+      const key = clientDirectoryKey(entry.name, entry.address);
+      storedByClient.set(key, [...(storedByClient.get(key) ?? []), entry]);
+    }
+    const observed = new Map<string, {
+      id: string;
+      name: string;
+      address: string;
+      phone: string | null;
+      visits: Set<string>;
+      firstSeenAt: string;
+      lastSeenAt: string;
+      lastDeliveredAt: string | null;
+    }>();
+
+    for (const document of assignmentSnapshot.docs) {
+      const assignment = document.data() as RouteAssignment;
+      if (assignment.status === 'cancelled') continue;
+      for (const stop of assignment.routeSnapshot.stops) {
+        const name = optionalText(stop.recipient);
+        const address = optionalText(stop.normalized_address)
+          ?? optionalText(stop.address)
+          ?? optionalText(stop.original_address);
+        if (!name && !address) continue;
+        const id = clientDirectoryId(name ?? 'Klientas', address ?? 'Adresas nenurodytas');
+        const deliveredAt = optionalText(stop.delivered_at);
+        const seenAt = deliveredAt ?? assignment.updatedAt ?? assignment.assignedAt;
+        const current = observed.get(id);
+        if (current) {
+          if (name) current.name = preferredClientName(current.name, name);
+          current.visits.add(assignment.routeId);
+          if (seenAt < current.firstSeenAt) current.firstSeenAt = seenAt;
+          if (seenAt > current.lastSeenAt) current.lastSeenAt = seenAt;
+          if (deliveredAt && (!current.lastDeliveredAt || deliveredAt > current.lastDeliveredAt)) current.lastDeliveredAt = deliveredAt;
+          if (!current.phone) current.phone = optionalText(stop.phone);
+        } else {
+          observed.set(id, {
+            id,
+            name: name ?? 'Klientas nenurodytas',
+            address: address ?? 'Adresas nenurodytas',
+            phone: optionalText(stop.phone),
+            visits: new Set([assignment.routeId]),
+            firstSeenAt: seenAt,
+            lastSeenAt: seenAt,
+            lastDeliveredAt: deliveredAt,
+          });
+        }
+      }
+    }
+
+    const now = new Date().toISOString();
+    let batch = this.db.batch();
+    let pendingWrites = 0;
+    const result: ClientDirectoryEntry[] = [];
+    const consumedStoredKeys = new Set<string>();
+    const flushBatch = async () => {
+      if (pendingWrites === 0) return;
+      await batch.commit();
+      batch = this.db.batch();
+      pendingWrites = 0;
+    };
+    const queueSet = async (entry: StoredClientDirectoryEntry) => {
+      batch.set(this.clients.doc(entry.id), entry, { merge: true });
+      pendingWrites += 1;
+      if (pendingWrites >= 400) await flushBatch();
+    };
+    const queueDelete = async (id: string) => {
+      batch.delete(this.clients.doc(id));
+      pendingWrites += 1;
+      if (pendingWrites >= 400) await flushBatch();
+    };
+    for (const client of observed.values()) {
+      const storedKey = clientDirectoryKey(client.name, client.address);
+      const savedEntries = storedByClient.get(storedKey) ?? [];
+      const saved = mergeStoredClientEntries(savedEntries);
+      consumedStoredKeys.add(storedKey);
+      const merged: StoredClientDirectoryEntry = {
+        id: client.id,
+        name: saved ? preferredClientName(client.name, saved.name) : client.name,
+        address: preferredClientAddress(client.address, saved?.address),
+        phone: saved?.phone ?? client.phone,
+        email: saved?.email ?? null,
+        contactPerson: saved?.contactPerson ?? null,
+        visitCount: Math.max(client.visits.size, saved?.visitCount ?? 0),
+        firstSeenAt: saved && saved.firstSeenAt < client.firstSeenAt ? saved.firstSeenAt : client.firstSeenAt,
+        lastSeenAt: saved && saved.lastSeenAt > client.lastSeenAt ? saved.lastSeenAt : client.lastSeenAt,
+        lastDeliveredAt: latestOptionalDate(saved?.lastDeliveredAt ?? null, client.lastDeliveredAt),
+        updatedAt: saved?.updatedAt ?? now,
+        updatedBy: saved?.updatedBy ?? null,
+      };
+      await queueSet(merged);
+      for (const legacy of savedEntries) {
+        if (legacy.id !== merged.id) await queueDelete(legacy.id);
+      }
+      result.push(merged);
+    }
+    for (const [key, entries] of storedByClient) {
+      if (consumedStoredKeys.has(key)) continue;
+      const saved = mergeStoredClientEntries(entries);
+      if (!saved) continue;
+      const canonical: StoredClientDirectoryEntry = {
+        ...saved,
+        id: clientDirectoryId(saved.name, saved.address),
+      };
+      await queueSet(canonical);
+      for (const legacy of entries) {
+        if (legacy.id !== canonical.id) await queueDelete(legacy.id);
+      }
+      result.push(canonical);
+    }
+    await flushBatch();
+    return result.sort((left, right) => {
+      const leftMissing = left.phone || left.email ? 1 : 0;
+      const rightMissing = right.phone || right.email ? 1 : 0;
+      return leftMissing - rightMissing || left.name.localeCompare(right.name, 'lt') || left.address.localeCompare(right.address, 'lt');
+    });
+  }
+
+  async updateClient(profile: EmployeeProfile, clientIdInput: string, input: {
+    phone?: string | null;
+    email?: string | null;
+    contactPerson?: string | null;
+  }): Promise<ClientDirectoryEntry> {
+    const clientId = safeId(clientIdInput);
+    await this.listClients();
+    const reference = this.clients.doc(clientId);
+    const document = await reference.get();
+    const current = document.data() as StoredClientDirectoryEntry | undefined;
+    if (!current) throw new EmployeeApiError('CLIENT_NOT_FOUND', 'Klientas nerastas.', 404);
+    const updated: StoredClientDirectoryEntry = {
+      ...current,
+      phone: input.phone === undefined ? current.phone : optionalText(input.phone),
+      email: input.email === undefined ? current.email : optionalText(input.email),
+      contactPerson: input.contactPerson === undefined ? current.contactPerson : optionalText(input.contactPerson),
+      updatedAt: new Date().toISOString(),
+      updatedBy: profile.id,
+    };
+    await reference.set(updated);
+    return updated;
   }
 
   async createVehicle(input: {
@@ -1294,6 +1462,7 @@ export class EmployeeAuthStore {
     liters: number;
     pricePerLiter?: number;
     station?: string;
+    receiptNumber?: string;
     notes?: string;
   }): Promise<ServerFuelEntry> {
     const assignmentId = safeId(assignmentIdInput);
@@ -1326,6 +1495,7 @@ export class EmployeeAuthStore {
       pricePerLiter,
       totalCost: pricePerLiter === null ? null : Math.round(liters * pricePerLiter * 100) / 100,
       station: optionalText(input.station),
+      receiptNumber: optionalText(input.receiptNumber),
       notes: optionalText(input.notes),
       createdAt: now,
       createdBy: profile.id,
@@ -1595,6 +1765,74 @@ function normalizeVehicle(vehicle: FleetVehicle): FleetVehicle {
     fuelUpdatedAt: optionalText(vehicle.fuelUpdatedAt),
     assignmentRevision: finiteNumber(vehicle.assignmentRevision, 0),
   };
+}
+
+export function canonicalClientAddress(address: string): string {
+  return address
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('lt')
+    .replace(/gatve/g, 'g')
+    .replace(/prospektas/g, 'pr')
+    .replace(/[^a-z0-9]/g, '');
+}
+
+function canonicalClientName(name: string): string {
+  return name
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('lt')
+    .replace(/[^a-z0-9]/g, '');
+}
+
+function clientDirectoryKey(name: string, address: string): string {
+  const addressKey = canonicalClientAddress(address);
+  return addressKey && addressKey !== 'adresasnenurodytas'
+    ? `address:${addressKey}`
+    : `name:${canonicalClientName(name)}`;
+}
+
+export function clientDirectoryId(name: string, address: string): string {
+  return `client-${createHash('sha256').update(clientDirectoryKey(name, address)).digest('hex').slice(0, 24)}`;
+}
+
+function preferredClientName(left: string, right: string): string {
+  const candidates = [left, right]
+    .map((value) => value.trim())
+    .filter((value) => value && value !== 'Klientas nenurodytas');
+  if (candidates.length === 0) return 'Klientas nenurodytas';
+  return candidates.sort((a, b) => a.length - b.length || a.localeCompare(b, 'lt'))[0];
+}
+
+function preferredClientAddress(primary: string, secondary?: string): string {
+  const candidates = [primary, secondary]
+    .filter((value): value is string => Boolean(value && value !== 'Adresas nenurodytas'));
+  if (candidates.length === 0) return 'Adresas nenurodytas';
+  return candidates.sort((a, b) => b.length - a.length || a.localeCompare(b, 'lt'))[0];
+}
+
+function mergeStoredClientEntries(entries: StoredClientDirectoryEntry[]): StoredClientDirectoryEntry | null {
+  if (entries.length === 0) return null;
+  const newestFirst = [...entries].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  const first = newestFirst[0];
+  return {
+    ...first,
+    name: entries.map((entry) => entry.name).reduce(preferredClientName),
+    address: entries.map((entry) => entry.address).reduce((left, right) => preferredClientAddress(left, right)),
+    phone: newestFirst.find((entry) => entry.phone)?.phone ?? null,
+    email: newestFirst.find((entry) => entry.email)?.email ?? null,
+    contactPerson: newestFirst.find((entry) => entry.contactPerson)?.contactPerson ?? null,
+    visitCount: Math.max(...entries.map((entry) => entry.visitCount)),
+    firstSeenAt: entries.map((entry) => entry.firstSeenAt).sort()[0],
+    lastSeenAt: entries.map((entry) => entry.lastSeenAt).sort().at(-1)!,
+    lastDeliveredAt: entries.reduce<string | null>((latest, entry) => latestOptionalDate(latest, entry.lastDeliveredAt), null),
+  };
+}
+
+function latestOptionalDate(left: string | null, right: string | null): string | null {
+  if (!left) return right;
+  if (!right) return left;
+  return left > right ? left : right;
 }
 
 export function buildServerTripSheet(assignment: RouteAssignment, vehicle: FleetVehicleSnapshot | null): ServerTripSheet {

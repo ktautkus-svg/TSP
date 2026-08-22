@@ -91,6 +91,23 @@ export async function handleEmployeeApi(
       return send(response, 204, null, requestId, { 'set-cookie': expiredSessionCookie() });
     }
 
+    if (pathname === '/api/operations/contacts' && request.method === 'GET') {
+      const users = await store.listUsers();
+      return send(response, 200, {
+        contacts: users
+          .filter((user) => !user.disabled && user.phone)
+          .map((user) => ({
+            id: `employee-${user.id}`,
+            employeeId: user.id,
+            name: user.displayName,
+            role: user.role,
+            phone: user.phone,
+            email: user.email,
+            isEmergency: user.role === 'admin' || user.role === 'dispatcher',
+          })),
+      }, requestId);
+    }
+
     if (pathname === '/api/admin/route-price-settings' && request.method === 'GET') {
       requireRole(profile, ['admin', 'dispatcher']);
       return send(response, 200, { settings: await store.getRoutePriceSettings() }, requestId);
@@ -105,6 +122,21 @@ export async function handleEmployeeApi(
       requireRole(profile, ['admin', 'dispatcher']);
       const users = await store.listUsers();
       return send(response, 200, { users: profile.role === 'admin' ? users : users.filter((user) => user.role === 'driver') }, requestId);
+    }
+    if (pathname === '/api/admin/clients' && request.method === 'GET') {
+      requireRole(profile, ['admin', 'dispatcher']);
+      return send(response, 200, { clients: await store.listClients() }, requestId);
+    }
+    const clientMatch = pathname.match(/^\/api\/admin\/clients\/([^/]+)$/);
+    if (clientMatch && request.method === 'PATCH') {
+      requireRole(profile, ['admin', 'dispatcher']);
+      const body = parseObject(await readBody(request, 32_000));
+      const client = await store.updateClient(profile, decodeURIComponent(clientMatch[1]), {
+        phone: body.phone === undefined ? undefined : optionalString(body, 'phone') ?? null,
+        email: body.email === undefined ? undefined : optionalString(body, 'email') ?? null,
+        contactPerson: body.contactPerson === undefined ? undefined : optionalString(body, 'contactPerson') ?? null,
+      });
+      return send(response, 200, { client }, requestId);
     }
     if (pathname === '/api/admin/users' && request.method === 'POST') {
       requireManagementPermission(profile, 'canManageEmployees');
@@ -282,6 +314,7 @@ export async function handleEmployeeApi(
         liters: numberField(body, 'liters'),
         pricePerLiter: typeof body.pricePerLiter === 'number' ? body.pricePerLiter : undefined,
         station: optionalString(body, 'station'),
+        receiptNumber: optionalString(body, 'receiptNumber'),
         notes: optionalString(body, 'notes'),
       });
       return send(response, 201, { entry }, requestId);
