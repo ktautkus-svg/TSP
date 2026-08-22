@@ -15,7 +15,9 @@ describe('Cloud Run deploy', () => {
     expect(workflow).toContain('--async');
     expect(workflow).toContain('gcloud builds describe');
     expect(workflow).toContain('prepare-cloud-run-revision.mjs');
-    expect(workflow).toContain('gcloud run services replace');
+    expect(workflow).toContain('GCP_PROJECT_NUMBER');
+    expect(workflow).toContain('apis/serving.knative.dev/v1/namespaces/${GCP_PROJECT_NUMBER}/services/${CLOUD_RUN_SERVICE}');
+    expect(workflow).not.toContain('gcloud run services replace');
     expect(workflow).not.toContain('--revision-suffix="s${GIT_SHA}"');
     expect(workflow).not.toMatch(/gcloud run deploy[\s\S]*--source \./);
     expect(workflow).not.toMatch(/gcloud run deploy[\s\S]*--image "\$IMAGE"/);
@@ -59,6 +61,7 @@ describe('Cloud Run deploy', () => {
       { name: 'APP_VERSION', value: '1.0.0' },
     ]);
     expect(service.spec.traffic).toEqual([{ revisionName: 'logistikos-pristatymai-00042-abc', percent: 100 }]);
+    expect(service.status).toBeUndefined();
   });
 
   it('opens PORT 8080 before importing the internal gateway', () => {

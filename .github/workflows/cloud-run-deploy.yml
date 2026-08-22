@@ -19,6 +19,7 @@ concurrency:
 
 env:
   GCP_PROJECT_ID: logistika-504113
+  GCP_PROJECT_NUMBER: '39855768031'
   GCP_REGION: europe-north1
   CLOUD_RUN_SERVICE: logistikos-pristatymai
   GCP_SERVICE_ACCOUNT: github-deploy@logistika-504113.iam.gserviceaccount.com
@@ -163,21 +164,54 @@ jobs:
             echo "Cloud Build did not finish in time: ${STATUS:-unknown}"
             exit 1
           fi
-          # --revision-suffix is ignored while spec.template.metadata.name is the
-          # failed revision logistikos-pristatymai-00177-2n2. Rewrite that name
-          # onto the new image and replace, keeping live traffic on the last
-          # healthy revision until the next step.
+          # --revision-suffix is ignored while spec.template.metadata.name is
+          # pinned. Rewrite that name onto the new image. `gcloud run services
+          # replace` needs Cloud Resource Manager, which this project has
+          # disabled, so PUT the Knative Service through the regional Run API.
           export APP_VERSION GIT_SHA IMAGE
+          NEW_REVISION="${CLOUD_RUN_SERVICE}-s${GIT_SHA}"
           gcloud run services describe "$CLOUD_RUN_SERVICE" \
             --project="$GCP_PROJECT_ID" \
             --region="$GCP_REGION" \
             --format=json \
             | node ./scripts/prepare-cloud-run-revision.mjs \
             > /tmp/cloud-run-service.json
-          gcloud run services replace /tmp/cloud-run-service.json \
-            --project="$GCP_PROJECT_ID" \
-            --region="$GCP_REGION" \
-            --quiet
+          TOKEN=$(gcloud auth print-access-token)
+          HTTP=$(curl -sS -o /tmp/cloud-run-put.json -w '%{http_code}' -X PUT \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            "https://${GCP_REGION}-run.googleapis.com/apis/serving.knative.dev/v1/namespaces/${GCP_PROJECT_NUMBER}/services/${CLOUD_RUN_SERVICE}" \
+            --data-binary @/tmp/cloud-run-service.json)
+          echo "Cloud Run PUT ${HTTP}"
+          cat /tmp/cloud-run-put.json
+          echo
+          if [ "$HTTP" != 200 ] && [ "$HTTP" != 201 ]; then
+            echo "Cloud Run service update failed"
+            exit 1
+          fi
+          for _ in $(seq 1 60); do
+            READY=$(gcloud run revisions describe "$NEW_REVISION" \
+              --project="$GCP_PROJECT_ID" \
+              --region="$GCP_REGION" \
+              --format='value(status.conditions[?type=Ready].status)' 2>/dev/null || true)
+            echo "$(date -u +%H:%M:%S) revision ${NEW_REVISION} Ready=${READY:-missing}"
+            case "$READY" in
+              True) break ;;
+              False)
+                echo "New Cloud Run revision failed to start"
+                gcloud run revisions describe "$NEW_REVISION" \
+                  --project="$GCP_PROJECT_ID" \
+                  --region="$GCP_REGION" \
+                  --format='yaml(status.conditions)' || true
+                exit 1
+                ;;
+            esac
+            sleep 5
+          done
+          if [ "$READY" != True ]; then
+            echo "Timed out waiting for ${NEW_REVISION}"
+            exit 1
+          fi
 
       - name: Route production traffic to latest revision
         shell: bash

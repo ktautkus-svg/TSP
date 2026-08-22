@@ -32,6 +32,9 @@ if (typeof readyRevision === 'string' && readyRevision) {
   spec.traffic = [{ revisionName: readyRevision, percent: 100 }];
 }
 
+// Knative PUT rejects a status block. Keep resourceVersion for concurrency.
+delete service.status;
+
 process.stderr.write(
   `Pinned revision ${previousName ?? '(none)'} -> ${metadata.name} image ${image}\n`,
 );
