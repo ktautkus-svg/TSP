@@ -265,4 +265,10 @@ describe('loading schema UI wiring', () => {
     expect(card).not.toContain('onSideDoorChange');
     expect(loading).toContain('{placement.sideAccess ? \' · per šoną\' : \'\'}');
   });
+
+  it('keeps server-compiled loading schema free of unresolved path aliases', () => {
+    const source = readFileSync('src/domain/loading-schema.ts', 'utf8');
+    expect(source).toContain("from './fleet-cargo-specs'");
+    expect(source).not.toContain("@/domain/fleet-cargo-specs");
+  });
 });

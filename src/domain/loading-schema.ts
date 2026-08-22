@@ -4,7 +4,7 @@ import {
   isPalletCapacity,
   resolveVehicleCargo,
   type PalletCapacity,
-} from '@/domain/fleet-cargo-specs';
+} from './fleet-cargo-specs';
 
 export const PALLET_WEIGHT_KG = 200;
 
