@@ -103,8 +103,8 @@ describe('compact daily Excel UI', () => {
     expect(deliveryScreen).not.toContain('ShipmentLinesSummary');
     expect(loadingScreen).not.toContain('stop.orderNumber');
     expect(deliveryScreen).not.toContain('stop.orderNumber');
-    expect(loadingScreen).not.toContain('stop.phone');
-    expect(deliveryScreen).not.toContain('stop.phone');
+    expect(loadingScreen).toContain('stop.phone');
+    expect(deliveryScreen).toContain('stop.phone');
     expect(loadingScreen).toContain('etaLabel(stop)');
     expect(loadingScreen).toContain('Pažymėti visus kaip pakrautus');
     // The tick is a real SVG icon now, not a ✓ glyph in the label.

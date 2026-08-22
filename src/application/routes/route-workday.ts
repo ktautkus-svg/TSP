@@ -5,6 +5,7 @@ import { isDeliveryFailureReason } from '@/domain/delivery-failure';
 import { isLoadingFailureReason, type LoadingFailureReason } from '@/domain/loading-failure';
 import type { DeliveryStop, Route, RouteCompletionSummary, RouteEndpoint } from '@/domain/route';
 import { assertRouteTransition } from '@/domain/transitions';
+import { firstBlockerMessage, loadDepartureReadiness } from '@/application/operations/departure-readiness';
 import { RouteCommandError } from './route-commands';
 import { RefreshRouteEtas } from './route-eta';
 
@@ -393,8 +394,12 @@ export class StartRoute extends WorkdayCommand {
     if ((pending?.count ?? 0) > 0) {
       throw new RouteCommandError('INVALID_ROUTE_STATE', 'Prieš pradėdami pakraukite visus taškus.');
     }
-    assertRouteTransition('loaded', 'in_progress');
     const stops = await this.routes.getStops(routeId);
+    const readiness = await loadDepartureReadiness(this.db, stops, this.clock());
+    if (!readiness.canDepart) {
+      throw new RouteCommandError('DEPARTURE_BLOCKED', firstBlockerMessage(readiness));
+    }
+    assertRouteTransition('loaded', 'in_progress');
     const now = this.clock();
     await this.db.withTransactionAsync(async () => {
       await this.db.runAsync(

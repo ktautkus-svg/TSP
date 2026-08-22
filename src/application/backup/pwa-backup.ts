@@ -14,6 +14,9 @@ export const BACKUP_FORMAT_VERSION = 1;
 // `owner_employee_id` and are backed up normally.
 const tables = [
   'vehicles',
+  'vehicle_faults',
+  'vehicle_departure_overrides',
+  'operational_contacts',
   'routes',
   'delivery_stops',
   'import_sources',

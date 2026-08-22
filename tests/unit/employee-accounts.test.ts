@@ -81,6 +81,14 @@ describe('employee server session', () => {
     expect(adminSource).toContain('testID="fleet-vehicle-management"');
     expect(adminSource).toContain('Miestas automobiliams nesaugomas');
     expect(adminSource).toContain('Patvirtinti priskyrimą');
+    expect(employeeApiSource).toContain("pathname === '/api/operations/vehicle-faults'");
+    expect(employeeApiSource).toContain("pathname === '/api/admin/vehicle-faults'");
+    expect(employeeStoreSource).toContain("collection('tsp_vehicle_faults')");
+    expect(adminSource).toContain('testID="vehicle-fault-inbox"');
+    expect(employeeApiSource).toContain("pathname === '/api/operations/departure-overrides'");
+    expect(employeeApiSource).toContain("pathname === '/api/admin/departure-overrides'");
+    expect(employeeStoreSource).toContain("collection('tsp_departure_overrides')");
+    expect(adminSource).toContain('testID="departure-override-inbox"');
   });
 
   it('allows an administrator to rename an employee login safely', () => {

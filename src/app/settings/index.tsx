@@ -331,8 +331,16 @@ export default function SettingsScreen() {
             <View style={styles.groupDivider} />
             <Pressable style={styles.settingsRow} onPress={() => router.push('/vehicle' as Href)} testID="open-vehicle-settings">
               <View style={styles.flex}>
-                <Text style={styles.rowTitle}>Transporto priemonė</Text>
-                <Text style={styles.rowValue}>Vardas, numeris ir kuro tipas šiame įrenginyje</Text>
+                <Text style={styles.rowTitle}>Automobilio priežiūra</Text>
+                <Text style={styles.rowValue}>Terminai, kelių mokestis ir neskubūs gedimai</Text>
+              </View>
+              <Text style={styles.chevron}>›</Text>
+            </Pressable>
+            <View style={styles.groupDivider} />
+            <Pressable style={styles.settingsRow} onPress={() => router.push('/contacts' as Href)} testID="open-contacts-settings">
+              <View style={styles.flex}>
+                <Text style={styles.rowTitle}>Kontaktai ir ryšys</Text>
+                <Text style={styles.rowValue}>Administracija, kritiniai numeriai ir skambinimas</Text>
               </View>
               <Text style={styles.chevron}>›</Text>
             </Pressable>

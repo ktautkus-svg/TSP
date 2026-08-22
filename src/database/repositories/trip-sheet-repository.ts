@@ -2,6 +2,16 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import type { FuelEntry, FuelType, SavedLocation, TripSheet, Vehicle } from '@/domain/vehicle-and-trip';
 
+export type VehicleSaveInput = {
+  name: string;
+  registrationNumber: string;
+  fuelType: FuelType;
+  technicalInspectionDueOn?: string | null;
+  roadTaxDueOn?: string | null;
+  nextServiceDueOn?: string | null;
+  nextServiceOdometer?: number | null;
+};
+
 type VehicleRow = {
   id: string;
   name: string;
@@ -16,6 +26,10 @@ type VehicleRow = {
   maximum_gross_weight_kg: number | null;
   home_location_json: string | null;
   warehouse_location_json: string | null;
+  technical_inspection_due_on: string | null;
+  road_tax_due_on: string | null;
+  next_service_due_on: string | null;
+  next_service_odometer: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -120,6 +134,10 @@ function mapVehicle(row: VehicleRow): Vehicle {
     maximumGrossWeightKg: row.maximum_gross_weight_kg,
     homeLocation: parseSavedLocation(row.home_location_json),
     warehouseLocation: parseSavedLocation(row.warehouse_location_json),
+    technicalInspectionDueOn: row.technical_inspection_due_on ?? null,
+    roadTaxDueOn: row.road_tax_due_on ?? null,
+    nextServiceDueOn: row.next_service_due_on ?? null,
+    nextServiceOdometer: row.next_service_odometer ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -183,21 +201,54 @@ export class TripSheetRepository {
     return row ? mapVehicle(row) : null;
   }
 
-  async saveVehicle(input: { name: string; registrationNumber: string; fuelType: FuelType }, now = new Date().toISOString()): Promise<Vehicle> {
+  async saveVehicle(input: VehicleSaveInput, now = new Date().toISOString()): Promise<Vehicle> {
     const existing = await this.getVehicle();
     const id = existing?.id ?? 'vehicle-primary';
+    const columns = await this.db.getAllAsync<{ name: string }>('PRAGMA table_info(vehicles)');
+    const hasCompliance = columns.some((column) => column.name === 'technical_inspection_due_on');
+    const name = input.name.trim() || 'Darbinis automobilis';
+    const registrationNumber = input.registrationNumber.trim().toUpperCase() || 'NENURODYTA';
+    if (!hasCompliance) {
+      await this.db.runAsync(
+        `INSERT INTO vehicles (id, name, registration_number, fuel_type, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           name = excluded.name,
+           registration_number = excluded.registration_number,
+           fuel_type = excluded.fuel_type,
+           updated_at = excluded.updated_at`,
+        id,
+        name,
+        registrationNumber,
+        input.fuelType,
+        existing?.createdAt ?? now,
+        now,
+      );
+      return (await this.getVehicle())!;
+    }
     await this.db.runAsync(
-      `INSERT INTO vehicles (id, name, registration_number, fuel_type, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)
+      `INSERT INTO vehicles (
+         id, name, registration_number, fuel_type,
+         technical_inspection_due_on, road_tax_due_on, next_service_due_on, next_service_odometer,
+         created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          name = excluded.name,
          registration_number = excluded.registration_number,
          fuel_type = excluded.fuel_type,
+         technical_inspection_due_on = excluded.technical_inspection_due_on,
+         road_tax_due_on = excluded.road_tax_due_on,
+         next_service_due_on = excluded.next_service_due_on,
+         next_service_odometer = excluded.next_service_odometer,
          updated_at = excluded.updated_at`,
       id,
-      input.name.trim() || 'Darbinis automobilis',
-      input.registrationNumber.trim().toUpperCase() || 'NENURODYTA',
+      name,
+      registrationNumber,
       input.fuelType,
+      optionalDate(input.technicalInspectionDueOn, existing?.technicalInspectionDueOn ?? null),
+      optionalDate(input.roadTaxDueOn, existing?.roadTaxDueOn ?? null),
+      optionalDate(input.nextServiceDueOn, existing?.nextServiceDueOn ?? null),
+      input.nextServiceOdometer === undefined ? existing?.nextServiceOdometer ?? null : input.nextServiceOdometer,
       existing?.createdAt ?? now,
       now,
     );
@@ -375,4 +426,10 @@ export class TripSheetRepository {
     for (const { date } of dates) await this.syncCompletedDate(date, now);
     return this.list();
   }
+}
+
+function optionalDate(value: string | null | undefined, fallback: string | null): string | null {
+  if (value === undefined) return fallback;
+  const trimmed = value?.trim() ?? '';
+  return trimmed.length === 0 ? null : trimmed;
 }

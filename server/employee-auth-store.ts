@@ -161,6 +161,34 @@ export type FuelReport = {
   note: string | null;
 };
 
+export type VehicleFaultReport = {
+  id: string;
+  localId: string | null;
+  vehicleId: string;
+  registrationNumber: string;
+  comment: string;
+  reportedBy: string;
+  reportedByName: string;
+  reportedAt: string;
+};
+
+export type DepartureOverrideRecord = {
+  id: string;
+  localId: string | null;
+  vehicleId: string;
+  registrationNumber: string;
+  fingerprint: string;
+  summary: string;
+  status: 'pending' | 'approved';
+  requestedBy: string;
+  requestedByName: string;
+  requestedAt: string;
+  approvedBy: string | null;
+  approvedByName: string | null;
+  approvedAt: string | null;
+  note: string | null;
+};
+
 /** The approved balance a period starts from. */
 export type FuelAnchor = {
   liters: number;
@@ -289,6 +317,8 @@ export class EmployeeAuthStore {
   private readonly assignments = this.db.collection('tsp_assignments');
   private readonly vehicles = this.db.collection('tsp_vehicles');
   private readonly fuelReports = this.db.collection('tsp_fuel_reports');
+  private readonly vehicleFaults = this.db.collection('tsp_vehicle_faults');
+  private readonly departureOverrides = this.db.collection('tsp_departure_overrides');
   private readonly fuelEntries = this.db.collection('tsp_fuel_entries');
   private readonly settings = this.db.collection('tsp_settings');
 
@@ -636,6 +666,202 @@ export class EmployeeAuthStore {
     return snapshot.docs
       .map((document) => normalizeFuelReport(document.data() as FuelReport))
       .sort((left, right) => right.reportedAt.localeCompare(left.reportedAt));
+  }
+
+  async reportVehicleFault(profile: EmployeeProfile, input: {
+    localId?: string | null;
+    vehicleId?: string | null;
+    registrationNumber?: string | null;
+    comment: string;
+    reportedAt?: string | null;
+  }): Promise<VehicleFaultReport> {
+    const comment = optionalText(input.comment);
+    if (!comment) throw new EmployeeApiError('INVALID_FAULT', 'Įveskite gedimo aprašymą.', 400);
+    const report: VehicleFaultReport = {
+      id: randomUUID(),
+      localId: optionalText(input.localId ?? null),
+      vehicleId: optionalText(input.vehicleId ?? null) ?? '',
+      registrationNumber: optionalText(input.registrationNumber ?? null) ?? '',
+      comment,
+      reportedBy: profile.id,
+      reportedByName: profile.displayName,
+      reportedAt: input.reportedAt?.trim() || new Date().toISOString(),
+    };
+    await this.vehicleFaults.doc(report.id).set(report);
+    return report;
+  }
+
+  async listVehicleFaults(): Promise<VehicleFaultReport[]> {
+    const snapshot = await this.vehicleFaults.get();
+    return snapshot.docs
+      .map((document) => document.data() as VehicleFaultReport)
+      .sort((left, right) => right.reportedAt.localeCompare(left.reportedAt));
+  }
+
+  async requestDepartureOverride(profile: EmployeeProfile, input: {
+    localId?: string | null;
+    vehicleId?: string | null;
+    registrationNumber?: string | null;
+    fingerprint: string;
+    summary: string;
+    requestedAt?: string | null;
+  }): Promise<DepartureOverrideRecord> {
+    const fingerprint = optionalText(input.fingerprint);
+    const summary = optionalText(input.summary);
+    if (!fingerprint || !summary) {
+      throw new EmployeeApiError('INVALID_OVERRIDE', 'Nenurodyti pasibaigę terminai.', 400);
+    }
+    const existing = await this.findDepartureOverride(fingerprint, {
+      localId: input.localId,
+      vehicleId: input.vehicleId,
+      registrationNumber: input.registrationNumber,
+    });
+    if (existing) return existing;
+    const now = new Date().toISOString();
+    const record: DepartureOverrideRecord = {
+      id: randomUUID(),
+      localId: optionalText(input.localId ?? null),
+      vehicleId: optionalText(input.vehicleId ?? null) ?? '',
+      registrationNumber: optionalText(input.registrationNumber ?? null) ?? '',
+      fingerprint,
+      summary,
+      status: 'pending',
+      requestedBy: profile.id,
+      requestedByName: profile.displayName,
+      requestedAt: input.requestedAt?.trim() || now,
+      approvedBy: null,
+      approvedByName: null,
+      approvedAt: null,
+      note: null,
+    };
+    await this.departureOverrides.doc(record.id).set(record);
+    return record;
+  }
+
+  async approveDepartureOverride(profile: EmployeeProfile, input: {
+    id?: string | null;
+    localId?: string | null;
+    vehicleId?: string | null;
+    registrationNumber?: string | null;
+    fingerprint: string;
+    summary: string;
+    note?: string | null;
+  }): Promise<DepartureOverrideRecord> {
+    const fingerprint = optionalText(input.fingerprint);
+    const summary = optionalText(input.summary);
+    if (!fingerprint || !summary) {
+      throw new EmployeeApiError('INVALID_OVERRIDE', 'Nenurodyti pasibaigę terminai.', 400);
+    }
+    const existing = input.id
+      ? await this.getDepartureOverride(input.id)
+      : await this.findDepartureOverride(fingerprint, {
+        localId: input.localId,
+        vehicleId: input.vehicleId,
+        registrationNumber: input.registrationNumber,
+      });
+    const now = new Date().toISOString();
+    if (existing) {
+      if (existing.status === 'approved') return existing;
+      const updated: DepartureOverrideRecord = {
+        ...existing,
+        fingerprint,
+        summary,
+        status: 'approved',
+        approvedBy: profile.id,
+        approvedByName: profile.displayName,
+        approvedAt: now,
+        note: optionalText(input.note ?? existing.note),
+      };
+      await this.departureOverrides.doc(existing.id).set(updated);
+      return updated;
+    }
+    const record: DepartureOverrideRecord = {
+      id: randomUUID(),
+      localId: optionalText(input.localId ?? null),
+      vehicleId: optionalText(input.vehicleId ?? null) ?? '',
+      registrationNumber: optionalText(input.registrationNumber ?? null) ?? '',
+      fingerprint,
+      summary,
+      status: 'approved',
+      requestedBy: profile.id,
+      requestedByName: profile.displayName,
+      requestedAt: now,
+      approvedBy: profile.id,
+      approvedByName: profile.displayName,
+      approvedAt: now,
+      note: optionalText(input.note ?? null),
+    };
+    await this.departureOverrides.doc(record.id).set(record);
+    return record;
+  }
+
+  async reviewDepartureOverride(id: string, profile: EmployeeProfile, note?: string | null): Promise<DepartureOverrideRecord> {
+    const existing = await this.getDepartureOverride(id);
+    if (!existing) throw new EmployeeApiError('OVERRIDE_NOT_FOUND', 'Išvykimo patvirtinimas nerastas.', 404);
+    return this.approveDepartureOverride(profile, {
+      id: existing.id,
+      fingerprint: existing.fingerprint,
+      summary: existing.summary,
+      note,
+    });
+  }
+
+  async getDepartureOverride(id: string): Promise<DepartureOverrideRecord | null> {
+    const document = await this.departureOverrides.doc(id).get();
+    return document.exists ? document.data() as DepartureOverrideRecord : null;
+  }
+
+  async findDepartureOverride(fingerprint: string, match: {
+    localId?: string | null;
+    vehicleId?: string | null;
+    registrationNumber?: string | null;
+  }): Promise<DepartureOverrideRecord | null> {
+    const snapshot = await this.departureOverrides.get();
+    const records = snapshot.docs.map((document) => document.data() as DepartureOverrideRecord);
+    const localId = optionalText(match.localId ?? null);
+    const vehicleId = optionalText(match.vehicleId ?? null);
+    const registrationNumber = optionalText(match.registrationNumber ?? null)?.toUpperCase();
+    const matching = records.filter((record) => {
+      if (record.fingerprint !== fingerprint) return false;
+      if (localId && record.localId === localId) return true;
+      if (vehicleId && record.vehicleId === vehicleId) return true;
+      if (registrationNumber && record.registrationNumber.toUpperCase() === registrationNumber) return true;
+      return false;
+    });
+    matching.sort((left, right) => {
+      const rank = (record: DepartureOverrideRecord) => record.status === 'approved' ? 0 : 1;
+      return rank(left) - rank(right) || right.requestedAt.localeCompare(left.requestedAt);
+    });
+    return matching[0] ?? null;
+  }
+
+  async getLatestDepartureOverride(match: {
+    vehicleId?: string | null;
+    registrationNumber?: string | null;
+  }): Promise<DepartureOverrideRecord | null> {
+    const snapshot = await this.departureOverrides.get();
+    const vehicleId = optionalText(match.vehicleId ?? null);
+    const registrationNumber = optionalText(match.registrationNumber ?? null)?.toUpperCase();
+    const matching = snapshot.docs
+      .map((document) => document.data() as DepartureOverrideRecord)
+      .filter((record) => {
+        if (vehicleId && record.vehicleId === vehicleId) return true;
+        if (registrationNumber && record.registrationNumber.toUpperCase() === registrationNumber) return true;
+        return false;
+      })
+      .sort((left, right) => {
+        const leftAt = left.approvedAt ?? left.requestedAt;
+        const rightAt = right.approvedAt ?? right.requestedAt;
+        return rightAt.localeCompare(leftAt);
+      });
+    return matching[0] ?? null;
+  }
+
+  async listDepartureOverrides(): Promise<DepartureOverrideRecord[]> {
+    const snapshot = await this.departureOverrides.get();
+    return snapshot.docs
+      .map((document) => document.data() as DepartureOverrideRecord)
+      .sort((left, right) => right.requestedAt.localeCompare(left.requestedAt));
   }
 
   /**

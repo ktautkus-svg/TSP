@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-export const SCHEMA_VERSION = 22;
+export const SCHEMA_VERSION = 24;
 
 const migrationV1 = `
 PRAGMA journal_mode = WAL;
@@ -1134,6 +1134,71 @@ PRAGMA user_version = 22;
 COMMIT;
 `;
 
+const migrationV23 = `
+BEGIN IMMEDIATE;
+
+ALTER TABLE vehicles ADD COLUMN technical_inspection_due_on TEXT;
+ALTER TABLE vehicles ADD COLUMN road_tax_due_on TEXT;
+ALTER TABLE vehicles ADD COLUMN next_service_due_on TEXT;
+ALTER TABLE vehicles ADD COLUMN next_service_odometer REAL
+  CHECK (next_service_odometer IS NULL OR next_service_odometer >= 0);
+
+CREATE TABLE vehicle_faults (
+  id TEXT PRIMARY KEY NOT NULL,
+  vehicle_id TEXT NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+  comment TEXT NOT NULL CHECK (length(trim(comment)) > 0),
+  reported_by TEXT,
+  reported_at TEXT NOT NULL,
+  notified_at TEXT,
+  acknowledged_at TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX vehicle_faults_by_vehicle ON vehicle_faults(vehicle_id, reported_at);
+
+CREATE TABLE operational_contacts (
+  id TEXT PRIMARY KEY NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('administration','dispatcher','warehouse','other')),
+  name TEXT NOT NULL CHECK (length(trim(name)) > 0),
+  role_label TEXT,
+  phone TEXT NOT NULL CHECK (length(trim(phone)) > 0),
+  is_emergency INTEGER NOT NULL DEFAULT 0 CHECK (is_emergency IN (0, 1)),
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX operational_contacts_by_kind ON operational_contacts(kind, sort_order, created_at);
+
+PRAGMA user_version = 23;
+COMMIT;
+`;
+
+const migrationV24 = `
+BEGIN IMMEDIATE;
+
+CREATE TABLE vehicle_departure_overrides (
+  id TEXT PRIMARY KEY NOT NULL,
+  vehicle_id TEXT NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+  fingerprint TEXT NOT NULL CHECK (length(trim(fingerprint)) > 0),
+  summary TEXT NOT NULL CHECK (length(trim(summary)) > 0),
+  status TEXT NOT NULL CHECK (status IN ('pending', 'approved')),
+  requested_by TEXT,
+  requested_at TEXT NOT NULL,
+  approved_by TEXT,
+  approved_at TEXT,
+  note TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX vehicle_departure_overrides_by_vehicle
+  ON vehicle_departure_overrides(vehicle_id, updated_at);
+
+PRAGMA user_version = 24;
+COMMIT;
+`;
+
 async function ensureRouteReturnColumns(db: SQLiteDatabase): Promise<void> {
   const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(routes)');
   const names = new Set(columns.map((column) => column.name));
@@ -1277,5 +1342,15 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
 
   if (currentVersion < 22) {
     await db.execAsync(migrationV22);
+    currentVersion = 22;
+  }
+
+  if (currentVersion < 23) {
+    await db.execAsync(migrationV23);
+    currentVersion = 23;
+  }
+
+  if (currentVersion < 24) {
+    await db.execAsync(migrationV24);
   }
 }

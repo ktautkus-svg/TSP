@@ -167,7 +167,8 @@ export default function RootLayout() {
               <Stack.Screen name="statistics" options={{ title: 'Statistika' }} />
               <Stack.Screen name="trip-sheet" options={{ title: 'Kelionės lapas' }} />
               <Stack.Screen name="fuel" options={{ title: 'Degalai' }} />
-              <Stack.Screen name="vehicle" options={{ title: 'Transporto priemonė' }} />
+              <Stack.Screen name="vehicle" options={{ title: 'Automobilio priežiūra' }} />
+              <Stack.Screen name="contacts" options={{ title: 'Kontaktai ir ryšys' }} />
               <Stack.Screen name="admin" options={{ title: 'Administratoriaus panelė' }} />
               <Stack.Screen name="dispatcher" options={{ title: 'Dispečerio skydelis' }} />
               <Stack.Screen name="route-management" options={{ title: 'Redaguoti maršrutus' }} />

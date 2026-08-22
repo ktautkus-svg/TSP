@@ -1,3 +1,4 @@
+import { canApproveExpiredDeparture } from '@/application/auth/employee-permissions';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { markRouteDeletedForCloud } from '@/application/sync/route-cloud-sync';
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
@@ -6,7 +7,12 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { ActivateRoute, CancelDraftRoute, ReopenRouteForPlanning } from '@/application/routes/route-commands';
+import {
+    approveExpiredDepartureOverride,
+    refreshDepartureReadiness,
+    requestExpiredDepartureOverride,
+} from '@/application/operations/departure-readiness';
+import { ActivateRoute, CancelDraftRoute, ReopenRouteForPlanning, UpdateStopPhone } from '@/application/routes/route-commands';
 import { resolveRoute } from '@/application/routes/route-navigation';
 import {
     GetLatestUndoableAction,
@@ -24,11 +30,13 @@ import {
     type UndoableAction,
 } from '@/application/routes/route-workday';
 import { CheckIcon, CrossIcon, PencilIcon, TruckIcon } from '@/components/app-icons';
+import { DepartureGateCard } from '@/components/departure-gate-card';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { SwipeActionCard } from '@/components/swipe-action-card';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import { LOADING_FAILURE_REASONS, type LoadingFailureReason } from '@/domain/loading-failure';
 import type { DeliveryStop, Route } from '@/domain/route';
+import type { DepartureReadiness } from '@/domain/departure-readiness';
 import { employeeApi, type FuelStatus } from '@/infrastructure/auth/employee-session';
 import { Alert } from '@/ui/alert';
 import { formatWeightKg } from '@/ui/format-weight';
@@ -63,6 +71,9 @@ export default function LoadingScreen() {
   const [fuelStatus, setFuelStatus] = useState<FuelStatus | null>(null);
   const [fuelInput, setFuelInput] = useState('');
   const [fuelBusy, setFuelBusy] = useState(false);
+  const [readiness, setReadiness] = useState<DepartureReadiness | null>(null);
+  const [gateBusy, setGateBusy] = useState(false);
+  const [phoneDrafts, setPhoneDrafts] = useState<Record<string, string>>({});
   const bulkInFlight = useRef(false);
   const odometerPrompted = useRef(false);
   // See alternatives.tsx: suppresses this screen's own status guard while a
@@ -89,6 +100,7 @@ export default function LoadingScreen() {
         setStops(persisted.stops);
         setProgress(null);
         setUndo(null);
+        setReadiness(await refreshDepartureReadiness(db, [], { online }));
         setError(null);
         return;
       }
@@ -104,13 +116,18 @@ export default function LoadingScreen() {
         return;
       }
       if (refreshed.route.status === 'loaded' && !odometerPrompted.current) {
-        odometerPrompted.current = true;
-        setOdometerModalVisible(true);
+        const nextReadiness = await refreshDepartureReadiness(db, await repository.getStops(routeId, 'loading'), { online });
+        if (nextReadiness.canDepart) {
+          odometerPrompted.current = true;
+          setOdometerModalVisible(true);
+        }
       }
       setRoute(refreshed.route);
-      setStops(await repository.getStops(routeId, 'loading'));
+      const loadingStops = await repository.getStops(routeId, 'loading');
+      setStops(loadingStops);
       setProgress(await new GetRouteProgress(db).execute(routeId));
       setUndo(await new GetLatestUndoableAction(db).execute(routeId));
+      setReadiness(await refreshDepartureReadiness(db, loadingStops, { online }));
       if (refreshed.route.startOdometer !== null) setOdometer(String(refreshed.route.startOdometer));
       setError(null);
     } catch (reason) {
@@ -118,7 +135,7 @@ export default function LoadingScreen() {
     } finally {
       setBusy(false);
     }
-  }, [db, repository, routeId, router]);
+  }, [db, online, repository, routeId, router]);
 
   const loadFuel = useCallback(async () => {
     if (profile.role !== 'driver' || !online) return;
@@ -287,10 +304,51 @@ export default function LoadingScreen() {
     }
   };
 
+  const requestOverride = async () => {
+    if (gateBusy) return;
+    setGateBusy(true);
+    try {
+      await requestExpiredDepartureOverride(db, { requestedBy: profile.id, online });
+      setReadiness(await refreshDepartureReadiness(db, stops, { online }));
+    } catch (reason) {
+      Alert.alert('Prašymas neišsiųstas', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
+    } finally {
+      setGateBusy(false);
+    }
+  };
+
+  const approveOverride = async () => {
+    if (gateBusy) return;
+    setGateBusy(true);
+    try {
+      await approveExpiredDepartureOverride(db, { approvedBy: profile.id, online });
+      setReadiness(await refreshDepartureReadiness(db, stops, { online }));
+    } catch (reason) {
+      Alert.alert('Patvirtinti nepavyko', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
+    } finally {
+      setGateBusy(false);
+    }
+  };
+
+  const saveStopPhone = async (stop: DeliveryStop) => {
+    const value = phoneDrafts[stop.id] ?? stop.phone ?? '';
+    try {
+      await new UpdateStopPhone(db).execute(routeId, stop.id, value);
+      await load();
+      void requestSync('mutation');
+    } catch (reason) {
+      Alert.alert('Telefonas neišsaugotas', reason instanceof Error ? reason.message : 'Patikrinkite numerį.');
+    }
+  };
+
   const beginLoading = () => {
     if (bulkInFlight.current) return;
     if (profile.role === 'driver' && online && fuelStatus?.requiresConfirmation) {
       Alert.alert('Patvirtinkite kuro likutį', 'Prieš pradedant krovimą patvirtinkite šio automobilio kuro likutį.');
+      return;
+    }
+    if (readiness && !readiness.canBeginLoading) {
+      Alert.alert('Važiuoti negalima', readiness.blockers[0]?.message ?? 'Pasibaigęs automobilio terminas. Važiuoti negalima.');
       return;
     }
     Alert.alert(
@@ -410,6 +468,15 @@ export default function LoadingScreen() {
           {vehicleLoad ? <Text style={[styles.summaryText, vehicleLoad.overCapacity && styles.loadWarning]} testID="vehicle-load-percent">{vehicleLoad.summaryLabel}</Text> : null}
           <Text style={styles.summaryText}>Planuotas atstumas: {route.estimatedDistanceKm === null ? '—' : `${route.estimatedDistanceKm.toFixed(1)} km`}</Text>
         </View>
+        {readiness ? (
+          <DepartureGateCard
+            readiness={readiness}
+            canApprove={canApproveExpiredDeparture(profile)}
+            busy={gateBusy}
+            onApprove={() => { void approveOverride(); }}
+            onRequestApproval={() => { void requestOverride(); }}
+          />
+        ) : null}
         {profile.role === 'driver' && online ? <View style={styles.fuelCard} testID="fuel-confirmation-card">
           <Text style={styles.summaryTitle}>Kuro likutis · {fuelStatus?.vehicle?.registrationNumber ?? 'automobilis'}</Text>
           {fuelStatus?.approvalPending ? <Text style={styles.fuelPending}>Pakeitimas laukia administratoriaus patvirtinimo. Maršrutą galite tęsti.</Text> : fuelStatus?.requiresConfirmation ? <Text style={styles.summaryText}>Patvirtinkite esamą likutį. Jei skaičius pasikeitė, administratorius gaus prašymą.</Text> : <Text style={styles.summaryText}>Patvirtinta: {fuelStatus?.vehicle?.fuelRemainingLiters ?? fuelStatus?.latestReport?.reportedLiters ?? '—'} l</Text>}
@@ -419,7 +486,7 @@ export default function LoadingScreen() {
           </View> : null}
         </View> : null}
         <View style={styles.plannedActions}>
-        {profile.role === 'driver' ? <Pressable disabled={bulkBusy} style={[styles.plannedPrimaryButton, bulkBusy && styles.disabled]} onPress={beginLoading} testID="begin-loading">
+        {profile.role === 'driver' ? <Pressable disabled={bulkBusy || Boolean(readiness && !readiness.canBeginLoading)} style={[styles.plannedPrimaryButton, (bulkBusy || Boolean(readiness && !readiness.canBeginLoading)) && styles.disabled]} onPress={beginLoading} testID="begin-loading">
           {bulkBusy ? <ActivityIndicator color="#fff" /> : <>
             <TruckIcon size={22} color="#FFFFFF" />
             <Text style={styles.plannedPrimaryText}>Pradėti krovimą</Text>
@@ -467,6 +534,15 @@ export default function LoadingScreen() {
           {vehicleLoad ? <Text style={[styles.summaryText, vehicleLoad.overCapacity && styles.loadWarning]} testID="vehicle-load-percent">{vehicleLoad.summaryLabel}</Text> : null}
           {progress.notLoadedStops > 0 ? <Text style={styles.notLoadedSummary}>Nepakrauta: {progress.notLoadedStops}</Text> : null}
           {progress.totalUnknownWeightStops > 0 ? <Text style={styles.summaryText}>{progress.loadedUnknownWeightStops} / {progress.totalUnknownWeightStops} pakrautų taškų svoris nežinomas</Text> : null}
+          {readiness ? (
+          <DepartureGateCard
+            readiness={readiness}
+            canApprove={canApproveExpiredDeparture(profile)}
+            busy={gateBusy}
+            onApprove={() => { void approveOverride(); }}
+            onRequestApproval={() => { void requestOverride(); }}
+          />
+        ) : null}
           <View style={styles.loadingOrderNotice} testID="loading-order-notice">
             <TruckIcon size={18} color={colors.info} />
             <Text style={styles.loadingOrderText}>KROVIMO EILĖ: 1 = PIRMAS Į AUTOMOBILĮ. PRISTATYMO NUMERIS GALI BŪTI KITAS.</Text>
@@ -491,7 +567,17 @@ export default function LoadingScreen() {
         )
       ) : null}
       {route?.status === 'loaded' ? (
-        <Pressable style={styles.primaryButton} onPress={() => setOdometerModalVisible(true)} testID="open-start-odometer">
+        <Pressable
+          disabled={Boolean(readiness && !readiness.canDepart)}
+          style={[styles.primaryButton, Boolean(readiness && !readiness.canDepart) && styles.disabled]}
+          onPress={() => {
+            if (readiness && !readiness.canDepart) {
+              Alert.alert('Važiuoti negalima', readiness.blockers[0]?.message ?? 'Pasibaigęs automobilio terminas. Važiuoti negalima.');
+              return;
+            }
+            setOdometerModalVisible(true);
+          }}
+          testID="open-start-odometer">
           <Text style={styles.primaryText}>{route.startOdometer === null ? 'Įvesti odometrą ir pradėti' : 'Pradėti maršrutą'}</Text>
         </Pressable>
       ) : null}
@@ -577,6 +663,19 @@ export default function LoadingScreen() {
                 {windowLabel(stop, route?.planningMode ?? null) ? <Text style={route?.planningMode === 'ignore_time_windows' ? styles.informational : styles.meta}>{windowLabel(stop, route?.planningMode ?? null)}</Text> : null}
                 {userVisibleStopNote(stop.notes) ? <Text style={styles.notes}>Pastabos: {userVisibleStopNote(stop.notes)}</Text> : null}
                 {markedNotLoaded ? <Text style={styles.notLoadedReason}>Nepakrauta: {stop.failureReason}</Text> : null}
+                <Text style={styles.meta}>Kliento telefonas {stop.phone ? stop.phone : 'nesuvestas — skambinti iš maršruto galėsite, kai įrašysite'}</Text>
+                <TextInput
+                  keyboardType="phone-pad"
+                  onChangeText={(value) => setPhoneDrafts((current) => ({ ...current, [stop.id]: value }))}
+                  placeholder="+370..."
+                  placeholderTextColor={colors.textMuted}
+                  style={styles.input}
+                  testID={`stop-phone-${stop.id}`}
+                  value={phoneDrafts[stop.id] ?? stop.phone ?? ''}
+                />
+                <Pressable onPress={() => { void saveStopPhone(stop); }} style={styles.reverseButton} testID={`save-stop-phone-${stop.id}`}>
+                  <Text style={styles.reverseText}>Išsaugoti telefoną</Text>
+                </Pressable>
                 <View style={styles.loadingActions}>
                   <Pressable style={[styles.loadButton, stop.loadingStatus === 'loaded' && styles.loadedButton]} onPress={() => stop.loadingStatus === 'loaded' ? markUnloaded(stop.id) : markLoaded(stop.id)}>
                     <Text style={styles.loadButtonText}>{stop.loadingStatus === 'loaded' ? 'Atžymėti' : markedNotLoaded ? 'Pakrauti vis tiek' : 'Pakrauta'}</Text>

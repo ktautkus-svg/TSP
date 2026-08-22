@@ -10,6 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { navigationUrlForProvider, openWebNavigationInSameContext } from '@/application/navigation/navigation-launcher';
 import { buildNavigationUrls, navigationTargetFromStop } from '@/application/navigation/navigation-url-builder';
+import { callPhone } from '@/application/operations/call-phone';
 import { calculateCompositeRouteProgress } from '@/application/routes/composite-route-progress';
 import { CancelDraftRoute } from '@/application/routes/route-commands';
 import { RefreshRouteEtas } from '@/application/routes/route-eta';
@@ -50,8 +51,11 @@ import { RoadProgressBar } from '@/components/road-progress-bar';
 import { RouteBottomTabs } from '@/components/route-bottom-tabs';
 import { SwipeActionCard } from '@/components/swipe-action-card';
 import { RouteRepository } from '@/database/repositories/route-repository';
+import { OperationalContactRepository } from '@/database/repositories/operational-contact-repository';
 import { DELIVERY_FAILURE_REASONS, deliveryMatchesFilter, type DeliveryFailureReason } from '@/domain/delivery-failure';
 import type { DeliveryFilter, DeliveryStop, Route, RouteEndpoint } from '@/domain/route';
+import { isUsablePhone } from '@/domain/phone';
+import type { OperationalContact } from '@/domain/vehicle-and-trip';
 import { useForegroundInterval } from '@/hooks/use-foreground-interval';
 import { GatewayGeocodingProvider } from '@/infrastructure/routing/providers/gateway-geocoding-provider';
 import { Alert } from '@/ui/alert';
@@ -116,6 +120,7 @@ export default function DeliveryScreen() {
   const [activeView, setActiveView] = useState<DeliveryView>(view === 'stops' ? 'stops' : 'dashboard');
   const [weatherScene, setWeatherScene] = useState<RouteWeatherScene | null>(null);
   const [returnLocations, setReturnLocations] = useState<{ warehouse: RouteEndpoint | null; home: RouteEndpoint | null }>({ warehouse: null, home: null });
+  const [emergencyContacts, setEmergencyContacts] = useState<OperationalContact[]>([]);
   const completionDismissed = useRef(false);
   // See alternatives.tsx: keeps the periodic reload from resolving a route we
   // just cancelled ourselves into a /history redirect mid-navigation.
@@ -144,6 +149,7 @@ export default function DeliveryScreen() {
       setEndOdometer(refreshed.route.completionEndOdometerDraft ?? '');
       const locations = await new GetDefaultLocations(db).execute();
       setReturnLocations({ warehouse: locations.warehouse?.endpoint ?? null, home: locations.home?.endpoint ?? null });
+      setEmergencyContacts((await new OperationalContactRepository(db).list()).filter((contact) => contact.isEmergency && isUsablePhone(contact.phone)));
       const weatherStop = refreshed.stops.find((stop) => stop.deliveryStatus === 'pending');
       const weatherLatitude = weatherStop?.latitude ?? refreshed.route.startLocation?.latitude ?? null;
       const weatherLongitude = weatherStop?.longitude ?? refreshed.route.startLocation?.longitude ?? null;
@@ -387,6 +393,18 @@ export default function DeliveryScreen() {
     } catch (reason) {
       Alert.alert('Navigacija neatidaryta', reason instanceof Error ? reason.message : 'Adresas netinkamas navigacijai.');
     }
+  };
+
+  const callStop = (stop: DeliveryStop) => {
+    void callPhone(stop.phone ?? '').catch((reason) => {
+      Alert.alert('Skambinti nepavyko', reason instanceof Error ? reason.message : 'Taškui trūksta telefono numerio.');
+    });
+  };
+
+  const callEmergency = (contact: OperationalContact) => {
+    void callPhone(contact.phone).catch((reason) => {
+      Alert.alert('Skambinti nepavyko', reason instanceof Error ? reason.message : 'Patikrinkite administracijos numerį.');
+    });
   };
 
   const chooseNextStop = async (stop: DeliveryStop) => {
@@ -712,6 +730,20 @@ export default function DeliveryScreen() {
                       <Text style={[styles.arrivalStatusText, { color: colors[nextStopWindow.color] }]}>{nextStopWindow.label}</Text>
                     </View>
                   </View>
+                  <View style={styles.contactRow} testID="dashboard-client-contact">
+                    <View style={styles.flex}>
+                      <Text style={styles.arrivalWindowLabel}>KLIENTO TELEFONAS</Text>
+                      <Text style={styles.nextStopAddress}>{isUsablePhone(nextStop.phone) ? nextStop.phone : 'Nesuvestas'}</Text>
+                    </View>
+                    <Pressable
+                      accessibilityLabel="Skambinti klientui"
+                      disabled={!isUsablePhone(nextStop.phone)}
+                      onPress={() => callStop(nextStop)}
+                      style={[styles.callButton, !isUsablePhone(nextStop.phone) && styles.disabled]}
+                      testID="call-next-stop">
+                      <Text style={styles.callButtonText}>SKAMBINTI</Text>
+                    </Pressable>
+                  </View>
                   <View style={styles.dashboardStopActions} testID="dashboard-stop-actions">
                     <Pressable accessibilityLabel="Naviguoti į kitą stotelę" accessibilityRole="button" style={[styles.dashboardActionButton, styles.dashboardNavigateButton]} onPress={() => { void navigate(nextStop); }}>
                       <NavigateIcon size={28} />
@@ -775,6 +807,26 @@ export default function DeliveryScreen() {
                   )}
                 </View>
               )}
+              {emergencyContacts.length > 0 ? (
+                <View style={styles.nextStopCard} testID="emergency-contacts-card">
+                  <Text style={styles.dashboardCardLabel}>ADMINISTRACIJA · KRITINIS ATVEJIS</Text>
+                  {emergencyContacts.map((contact) => (
+                    <View key={contact.id} style={styles.contactRow}>
+                      <View style={styles.flex}>
+                        <Text style={styles.nextStopAddress}>{contact.name}</Text>
+                        <Text style={styles.meta}>{contact.phone}{contact.roleLabel ? ` · ${contact.roleLabel}` : ''}</Text>
+                      </View>
+                      <Pressable
+                        accessibilityLabel={`Skambinti ${contact.name}`}
+                        onPress={() => callEmergency(contact)}
+                        style={styles.callButton}
+                        testID={`call-emergency-${contact.id}`}>
+                        <Text style={styles.callButtonText}>SKAMBINTI</Text>
+                      </Pressable>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
               {route?.startOdometer === null ? (
                 <View style={styles.reminder}>
                   <Text style={styles.heading}>Trūksta pradinio odometro</Text>
@@ -855,6 +907,12 @@ export default function DeliveryScreen() {
                 {windowLabel(stop, route?.planningMode ?? null) ? <Text style={route?.planningMode === 'ignore_time_windows' ? styles.informational : styles.meta}>{windowLabel(stop, route?.planningMode ?? null)}</Text> : null}
                 {offlineEtaLabel(stop) ? <Text style={styles.offline}>{offlineEtaLabel(stop)}</Text> : null}
                 {userVisibleStopNote(stop.notes) ? <Text style={styles.meta}>Pastabos: {userVisibleStopNote(stop.notes)}</Text> : null}
+                <Text style={styles.meta}>Telefonas: {isUsablePhone(stop.phone) ? stop.phone : 'nesuvestas'}</Text>
+                {isUsablePhone(stop.phone) ? (
+                  <Pressable accessibilityLabel="Skambinti klientui" onPress={() => callStop(stop)} style={styles.callButton} testID={`call-stop-${stop.id}`}>
+                    <Text style={styles.callButtonText}>SKAMBINTI KLIENTUI</Text>
+                  </Pressable>
+                ) : null}
                 {stop.deliveryStatus === 'failed' ? (
                   <Text style={styles.failure}>{failedDeliveryLabel(stop.failureReason, stop.failureComment)}</Text>
                 ) : null}
@@ -1202,6 +1260,10 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   dashboardFailedButton: { backgroundColor: colors.danger },
   dashboardActionIcon: { color: colors.textInverse, fontFamily: fonts.headingExtraBold, fontSize: 26, lineHeight: 28 },
   dashboardActionText: { ...type.label, color: colors.textInverse },
+  flex: { flex: 1, minWidth: 0 },
+  contactRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  callButton: { minHeight: 44, minWidth: 112, borderRadius: radius.md, backgroundColor: colors.actionRoute, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
+  callButtonText: { ...type.button, color: colors.textInverse, fontSize: 13 },
   completeRouteButton: { minHeight: 58, borderRadius: radius.md, backgroundColor: colors.success, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
   returnChoiceRow: { gap: spacing.sm },
   returnChoiceButton: { minHeight: 56, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },

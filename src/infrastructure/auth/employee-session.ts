@@ -111,6 +111,34 @@ export type FuelStatus = {
   latestReport: FuelReport | null;
 };
 
+export type ServerVehicleFault = {
+  id: string;
+  localId?: string | null;
+  vehicleId: string;
+  registrationNumber: string;
+  comment: string;
+  reportedBy: string;
+  reportedByName: string;
+  reportedAt: string;
+};
+
+export type ServerDepartureOverride = {
+  id: string;
+  localId?: string | null;
+  vehicleId: string;
+  registrationNumber: string;
+  fingerprint: string;
+  summary: string;
+  status: 'pending' | 'approved';
+  requestedBy: string;
+  requestedByName: string;
+  requestedAt: string;
+  approvedBy: string | null;
+  approvedByName: string | null;
+  approvedAt: string | null;
+  note: string | null;
+};
+
 export type ServerFuelEntry = {
   id: string;
   tripSheetId: string;

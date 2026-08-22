@@ -14,6 +14,8 @@ import { assertRouteTransition } from '@/domain/transitions';
 import type { DraftShipmentLineInput } from '@/domain/shipment-line';
 import type { CandidateLeg, CandidateStopSchedule } from '@/domain/routing/models';
 import { persistCandidateEtas } from './route-eta';
+import { firstBlockerMessage, loadDepartureReadiness } from '@/application/operations/departure-readiness';
+import { isUsablePhone, normalizePhone } from '@/domain/phone';
 
 export type RouteCommandErrorCode =
   | 'ACTIVE_ROUTE_EXISTS'
@@ -25,7 +27,8 @@ export type RouteCommandErrorCode =
   | 'CANDIDATE_STOP_MISMATCH'
   | 'ROUTE_CREATION_FAILED'
   | 'PERSISTED_STOP_ID_CONFLICT'
-  | 'NO_CONFIRMED_STOPS';
+  | 'NO_CONFIRMED_STOPS'
+  | 'DEPARTURE_BLOCKED';
 
 export class RouteCommandError extends Error {
   constructor(
@@ -413,6 +416,32 @@ export class UpdateDraftStop extends RouteCommandBase {
   }
 }
 
+export class UpdateStopPhone extends RouteCommandBase {
+  async execute(routeId: string, stopId: string, phoneInput: string): Promise<void> {
+    const route = await this.requireRoute(routeId);
+    if (['completed', 'cancelled'].includes(route.status)) {
+      throw new RouteCommandError('INVALID_ROUTE_STATE', 'Užbaigto maršruto kontakto keisti negalima.');
+    }
+    const current = (await this.routes.getStops(routeId)).find((stop) => stop.id === stopId);
+    if (!current) throw new RouteCommandError('STOP_NOT_FOUND', 'Pristatymo taškas nerastas.', { stopId });
+    const phone = normalizePhone(phoneInput);
+    if (!isUsablePhone(phone)) {
+      throw new RouteCommandError('INVALID_STOP', 'Įveskite veikiantį kliento telefono numerį.');
+    }
+    const now = this.clock();
+    await this.db.withTransactionAsync(async () => {
+      await this.db.runAsync(
+        'UPDATE delivery_stops SET phone = ?, updated_at = ? WHERE id = ? AND route_id = ?',
+        phone,
+        now,
+        stopId,
+        routeId,
+      );
+      await this.audit(routeId, 'stop_phone_updated', { phone: current.phone }, { phone }, stopId);
+    });
+  }
+}
+
 export class SetStopPriority extends RouteCommandBase {
   /** Selection order becomes priority order: first click = 1, second = 2, etc. */
   async execute(routeId: string, stopId: string, priorityFirst: boolean): Promise<void> {
@@ -634,6 +663,10 @@ export class ActivateRoute extends RouteCommandBase {
     if (route.status === 'loading') return { idempotent: true };
     if (route.status !== 'planned') {
       throw new RouteCommandError('INVALID_ROUTE_STATE', 'Krovimą galima pradėti tik pasirinkus maršruto variantą.');
+    }
+    const readiness = await loadDepartureReadiness(this.db, [], this.clock());
+    if (!readiness.canBeginLoading) {
+      throw new RouteCommandError('DEPARTURE_BLOCKED', firstBlockerMessage(readiness));
     }
     assertRouteTransition(route.status, 'loading');
     await this.db.withTransactionAsync(async () => {
