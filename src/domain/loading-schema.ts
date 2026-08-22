@@ -94,6 +94,44 @@ export function vanBodyLabel(kind: VanBodyKind): string {
   return kind === 'van_short' ? 'Trumpesnis van · 2+2' : 'Ilgesnis van · 2+3';
 }
 
+export type AssignedVehicleCargo = {
+  registrationNumber?: string | null;
+  model?: string | null;
+  cargoBodyKind?: VanBodyKind | null;
+  hasSideDoor?: boolean | null;
+};
+
+export type VehicleCargoLayout = {
+  bodyKind: VanBodyKind;
+  hasSideDoor: boolean;
+  assigned: boolean;
+  vehicleLabel: string | null;
+};
+
+export function cargoLayoutFromAssignedVehicle(
+  vehicle: AssignedVehicleCargo | null | undefined,
+): VehicleCargoLayout {
+  if (!vehicle) {
+    return { bodyKind: 'van_long', hasSideDoor: false, assigned: false, vehicleLabel: null };
+  }
+  const registration = vehicle.registrationNumber?.trim() || null;
+  const model = vehicle.model?.trim() || null;
+  return {
+    bodyKind: isVanBodyKind(vehicle.cargoBodyKind) ? vehicle.cargoBodyKind : 'van_long',
+    hasSideDoor: vehicle.hasSideDoor === true,
+    assigned: true,
+    vehicleLabel: [registration, model].filter(Boolean).join(' · ') || registration,
+  };
+}
+
+export function vehicleCargoSummary(layout: VehicleCargoLayout): string {
+  const doors = layout.hasSideDoor ? 'šoninės durys yra' : 'šoninių durų nėra';
+  if (!layout.assigned) {
+    return `Automobilis nepriskirtas · ${vanBodyLabel(layout.bodyKind)} · ${doors}`;
+  }
+  return `${layout.vehicleLabel} · ${vanBodyLabel(layout.bodyKind)} · ${doors}`;
+}
+
 export function baysForVanBody(kind: VanBodyKind): BayDefinition[] {
   return kind === 'van_short' ? SHORT_BAYS : LONG_BAYS;
 }

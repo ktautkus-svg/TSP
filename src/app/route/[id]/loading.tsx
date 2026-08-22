@@ -15,21 +15,20 @@ import {
 import { ActivateRoute, CancelDraftRoute, ReopenRouteForPlanning, UpdateStopPhone } from '@/application/routes/route-commands';
 import { resolveRoute } from '@/application/routes/route-navigation';
 import {
-    GetLatestUndoableAction,
-    GetRouteProgress,
-    MarkAllStopsLoaded,
-    MarkStopLoaded,
-    MarkStopNotLoaded,
-    MarkStopUnloaded,
-    parseOdometer,
-    ReverseStopOrder,
-    SaveStartOdometer,
-    StartRoute,
-    UndoRouteAction,
-    type RouteProgress,
-    type UndoableAction,
+  GetLatestUndoableAction,
+  GetRouteProgress,
+  MarkAllStopsLoaded,
+  MarkStopLoaded,
+  MarkStopNotLoaded,
+  MarkStopUnloaded,
+  parseOdometer,
+  ReverseStopOrder,
+  SaveStartOdometer,
+  StartRoute,
+  UndoRouteAction,
+  type RouteProgress,
+  type UndoableAction,
 } from '@/application/routes/route-workday';
-import { VanBodyPreference } from '@/application/settings/van-body-preference';
 import { CheckIcon, CrossIcon, PencilIcon, TruckIcon } from '@/components/app-icons';
 import { DepartureGateCard } from '@/components/departure-gate-card';
 import { FoundationScreen } from '@/components/foundation-screen';
@@ -38,13 +37,13 @@ import { SwipeActionCard } from '@/components/swipe-action-card';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import { LOADING_FAILURE_REASONS, type LoadingFailureReason } from '@/domain/loading-failure';
 import {
+    cargoLayoutFromAssignedVehicle,
     recommendLoadingSchema,
     toLoadingSchemaStops,
-    type VanBodyKind,
 } from '@/domain/loading-schema';
 import type { DeliveryStop, Route } from '@/domain/route';
 import type { DepartureReadiness } from '@/domain/departure-readiness';
-import { employeeApi, type FuelStatus } from '@/infrastructure/auth/employee-session';
+import { employeeApi, type FuelStatus, type ServerRouteAssignment } from '@/infrastructure/auth/employee-session';
 import { Alert } from '@/ui/alert';
 import { formatWeightKg } from '@/ui/format-weight';
 import { clockLabel, etaLabel, legLabel, windowLabel } from '@/ui/route-eta-labels';
@@ -63,7 +62,6 @@ export default function LoadingScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const repository = useMemo(() => new RouteRepository(db), [db]);
-  const vanBodyPreference = useMemo(() => new VanBodyPreference(db), [db]);
   const [route, setRoute] = useState<Route | null>(null);
   const [stops, setStops] = useState<DeliveryStop[]>([]);
   const [progress, setProgress] = useState<RouteProgress | null>(null);
@@ -80,8 +78,7 @@ export default function LoadingScreen() {
   const [fuelInput, setFuelInput] = useState('');
   const [fuelBusy, setFuelBusy] = useState(false);
   const [readiness, setReadiness] = useState<DepartureReadiness | null>(null);
-  const [vanBody, setVanBody] = useState<VanBodyKind>('van_long');
-  const [hasSideDoor, setHasSideDoor] = useState(false);
+  const [assignment, setAssignment] = useState<ServerRouteAssignment | null>(null);
   const [gateBusy, setGateBusy] = useState(false);
   const [phoneDrafts, setPhoneDrafts] = useState<Record<string, string>>({});
   const bulkInFlight = useRef(false);
@@ -161,41 +158,50 @@ export default function LoadingScreen() {
     }
   }, [online, profile.role]);
 
+  const loadAssignment = useCallback(async () => {
+    if (!online) {
+      setAssignment(null);
+      return;
+    }
+    const assignmentPath = profile.role === 'driver' ? '/api/assignments' : '/api/admin/assignments';
+    const canReadAssignments = profile.role === 'driver' || ['admin', 'dispatcher'].includes(profile.role);
+    if (!canReadAssignments) {
+      setAssignment(null);
+      return;
+    }
+    try {
+      const response = await employeeApi(assignmentPath) as { assignments: ServerRouteAssignment[] };
+      setAssignment(response.assignments.find((item) => item.routeId === routeId && item.status !== 'cancelled') ?? null);
+    } catch {
+      setAssignment(null);
+    }
+  }, [online, profile.role, routeId]);
+
   const openDispatcherAssignment = () => {
     router.replace({ pathname: '/route-management', params: { routeId } } as unknown as Href);
   };
 
-  useFocusEffect(useCallback(() => { void load(); void loadFuel(); }, [load, loadFuel]));
+  useFocusEffect(useCallback(() => { void load(); void loadFuel(); void loadAssignment(); }, [load, loadFuel, loadAssignment]));
 
   useEffect(() => {
     if (syncRevision > 0) void load();
   }, [load, syncRevision]);
 
-  useEffect(() => {
-    void vanBodyPreference.get().then((config) => {
-      setVanBody(config.bodyKind);
-      setHasSideDoor(config.hasSideDoor);
-    });
-  }, [vanBodyPreference]);
-
+  const cargoLayout = useMemo(
+    () => cargoLayoutFromAssignedVehicle(assignment?.vehicle ?? fuelStatus?.vehicle),
+    [assignment?.vehicle, fuelStatus?.vehicle],
+  );
   const loadingSchema = useMemo(
-    () => recommendLoadingSchema(toLoadingSchemaStops(stops), { bodyKind: vanBody, hasSideDoor }),
-    [hasSideDoor, stops, vanBody],
+    () => recommendLoadingSchema(toLoadingSchemaStops(stops), {
+      bodyKind: cargoLayout.bodyKind,
+      hasSideDoor: cargoLayout.hasSideDoor,
+    }),
+    [cargoLayout.bodyKind, cargoLayout.hasSideDoor, stops],
   );
   const placementById = useMemo(
     () => new Map(loadingSchema.placements.map((item) => [item.stopId, item])),
     [loadingSchema],
   );
-
-  const changeVanBody = (kind: VanBodyKind) => {
-    setVanBody(kind);
-    void vanBodyPreference.save({ bodyKind: kind });
-  };
-
-  const changeSideDoor = (value: boolean) => {
-    setHasSideDoor(value);
-    void vanBodyPreference.save({ hasSideDoor: value });
-  };
 
   const markLoaded = async (stopId: string) => {
     try {
@@ -524,10 +530,7 @@ export default function LoadingScreen() {
         {stops.length > 0 ? (
           <LoadingSchemaCard
             schema={loadingSchema}
-            bodyKind={vanBody}
-            hasSideDoor={hasSideDoor}
-            onBodyKindChange={changeVanBody}
-            onSideDoorChange={changeSideDoor}
+            cargoLayout={cargoLayout}
           />
         ) : null}
         <View style={styles.plannedActions}>
@@ -597,10 +600,7 @@ export default function LoadingScreen() {
       {progress && stops.length > 0 ? (
         <LoadingSchemaCard
           schema={loadingSchema}
-          bodyKind={vanBody}
-          hasSideDoor={hasSideDoor}
-          onBodyKindChange={changeVanBody}
-          onSideDoorChange={changeSideDoor}
+          cargoLayout={cargoLayout}
         />
       ) : null}
       {progress && progress.totalStops > 0 ? (

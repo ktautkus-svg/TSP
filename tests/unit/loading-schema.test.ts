@@ -3,8 +3,10 @@ import { describe, expect, it } from 'vitest';
 
 import {
   PALLET_WEIGHT_KG,
+  cargoLayoutFromAssignedVehicle,
   recommendLoadingSchema,
   toLoadingSchemaStops,
+  vehicleCargoSummary,
 } from '../../src/domain/loading-schema';
 
 function stop(input: {
@@ -176,6 +178,27 @@ describe('van loading schema', () => {
     expect(schema.placements.find((item) => item.stopId === 'first')?.sideAccess).toBe(false);
     expect(schema.sideUnloadCount).toBe(0);
   });
+
+  it('takes side doors and body kind from the assigned vehicle', () => {
+    const assigned = cargoLayoutFromAssignedVehicle({
+      registrationNumber: 'LRI744',
+      model: 'Renault Master',
+      cargoBodyKind: 'van_short',
+      hasSideDoor: true,
+    });
+    expect(assigned).toMatchObject({
+      bodyKind: 'van_short',
+      hasSideDoor: true,
+      assigned: true,
+      vehicleLabel: 'LRI744 · Renault Master',
+    });
+    expect(vehicleCargoSummary(assigned)).toContain('šoninės durys yra');
+    expect(cargoLayoutFromAssignedVehicle(null)).toMatchObject({
+      bodyKind: 'van_long',
+      hasSideDoor: false,
+      assigned: false,
+    });
+  });
 });
 
 describe('loading schema UI wiring', () => {
@@ -183,12 +206,11 @@ describe('loading schema UI wiring', () => {
     const loading = readFileSync('src/app/route/[id]/loading.tsx', 'utf8');
     const card = readFileSync('src/components/loading-schema-card.tsx', 'utf8');
     expect(loading).toContain('<LoadingSchemaCard');
+    expect(loading).toContain('cargoLayoutFromAssignedVehicle(assignment?.vehicle ?? fuelStatus?.vehicle)');
     expect(card).toContain('testID="loading-schema-card"');
-    expect(card).toContain('testID={`van-body-${kind}`}');
-    expect(card).toContain('testID="van-side-door-yes"');
-    expect(card).toContain('testID="van-side-door-no"');
+    expect(card).toContain('testID="loading-schema-vehicle"');
     expect(card).toContain('per šoną');
-    expect(loading).toContain('onSideDoorChange={changeSideDoor}');
+    expect(card).not.toContain('onSideDoorChange');
     expect(loading).toContain('{placement.sideAccess ? \' · per šoną\' : \'\'}');
   });
 });

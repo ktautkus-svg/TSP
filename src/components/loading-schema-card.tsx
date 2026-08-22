@@ -1,12 +1,11 @@
 import { useMemo } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 import {
-  VAN_BODY_KINDS,
-  vanBodyLabel,
+  vehicleCargoSummary,
   type LoadingBayView,
   type LoadingSchema,
-  type VanBodyKind,
+  type VehicleCargoLayout,
 } from '@/domain/loading-schema';
 import { formatWeightKg } from '@/ui/format-weight';
 import { radius, spacing, type } from '@/ui/tokens';
@@ -15,16 +14,10 @@ import type { ColorPalette } from '@/ui/theme-palette';
 
 export function LoadingSchemaCard({
   schema,
-  bodyKind,
-  hasSideDoor,
-  onBodyKindChange,
-  onSideDoorChange,
+  cargoLayout,
 }: {
   schema: LoadingSchema;
-  bodyKind: VanBodyKind;
-  hasSideDoor: boolean;
-  onBodyKindChange: (kind: VanBodyKind) => void;
-  onSideDoorChange: (value: boolean) => void;
+  cargoLayout: VehicleCargoLayout;
 }) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -35,39 +28,12 @@ export function LoadingSchemaCard({
     <View style={styles.card} testID="loading-schema-card">
       <Text style={styles.title}>Krovimo schema</Text>
       <Text style={styles.hint}>
-        Maršrutas jau sudėliotas — pirmo taško viduryje nedėti. Jei yra šoninės durys, sunkų vidurio
-        tašką kraukite prie šono. Kitaip 9 iš 10 kartų be PLL.
+        Maršrutas jau sudėliotas — pirmo taško viduryje nedėti. Šoninės durys ir kėbulas imami iš
+        priskirto automobilio techninių duomenų.
       </Text>
-      <View style={styles.bodyRow}>
-        {VAN_BODY_KINDS.map((kind) => (
-          <Pressable
-            key={kind}
-            accessibilityRole="button"
-            onPress={() => onBodyKindChange(kind)}
-            style={[styles.bodyChip, bodyKind === kind && styles.bodyChipActive]}
-            testID={`van-body-${kind}`}>
-            <Text style={[styles.bodyChipText, bodyKind === kind && styles.bodyChipTextActive]}>
-              {vanBodyLabel(kind)}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-      <View style={styles.bodyRow}>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => onSideDoorChange(true)}
-          style={[styles.bodyChip, hasSideDoor && styles.bodyChipActive]}
-          testID="van-side-door-yes">
-          <Text style={[styles.bodyChipText, hasSideDoor && styles.bodyChipTextActive]}>Šoninės durys yra</Text>
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => onSideDoorChange(false)}
-          style={[styles.bodyChip, !hasSideDoor && styles.bodyChipActive]}
-          testID="van-side-door-no">
-          <Text style={[styles.bodyChipText, !hasSideDoor && styles.bodyChipTextActive]}>Šoninių durų nėra</Text>
-        </Pressable>
-      </View>
+      <Text style={styles.vehicle} testID="loading-schema-vehicle">
+        {vehicleCargoSummary(cargoLayout)}
+      </Text>
       <Text style={styles.cab}>Kabina</Text>
       <View style={styles.frontRow}>
         {front.map((bay) => <BayCell key={bay.id} bay={bay} styles={styles} />)}
@@ -135,19 +101,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   },
   title: { ...type.cardTitle, color: colors.text },
   hint: { ...type.secondary, color: colors.textSecondary },
-  bodyRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  bodyChip: {
-    minHeight: 44,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
-    backgroundColor: colors.surface,
-    justifyContent: 'center',
-  },
-  bodyChipActive: { backgroundColor: colors.actionRoute, borderColor: colors.actionRoute },
-  bodyChipText: { ...type.secondaryStrong, color: colors.text },
-  bodyChipTextActive: { color: colors.textInverse },
+  vehicle: { ...type.secondaryStrong, color: colors.text },
   cab: { ...type.label, color: colors.textMuted, textAlign: 'center', textTransform: 'uppercase' },
   doors: { ...type.label, color: colors.textMuted, textAlign: 'center', textTransform: 'uppercase' },
   frontRow: { flexDirection: 'row', gap: spacing.sm },
