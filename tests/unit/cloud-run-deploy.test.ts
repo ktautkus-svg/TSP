@@ -13,10 +13,10 @@ describe('Cloud Run deploy', () => {
     expect(workflow).toContain('gcloud builds submit');
     expect(workflow).toContain('--tag "$IMAGE"');
     expect(workflow).toContain('gcloud builds describe');
-    expect(workflow).toContain('gcloud run revisions delete');
-    expect(workflow).toContain('--clear-revision-suffix');
+    expect(workflow).toContain('prepare-cloud-run-revision.mjs');
+    expect(workflow).toContain('--revision-suffix="n${GIT_SHA}"');
     expect(workflow).toContain('--image "$IMAGE"');
-    expect(workflow).not.toContain('--revision-suffix="s${GIT_SHA}"');
+    expect(workflow).not.toContain('--clear-revision-suffix');
     expect(workflow).not.toMatch(/gcloud run deploy[\s\S]*--source \./);
     expect(workflow).not.toContain('gcloud run services replace');
   });
