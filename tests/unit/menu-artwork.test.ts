@@ -8,6 +8,11 @@ describe('menu artwork semantics', () => {
   it('uses a distinct visual object for every secondary menu action', () => {
     const expected = ['edit', 'drivers', 'vehicles', 'finance', 'history', 'statistics', 'navigation', 'account', 'clients', 'logout'];
     for (const kind of expected) expect(source).toContain(`${kind}:`);
+    expect(source).toContain('tsp-menu-secondary-3d.png');
+    expect(source).toContain("type DirectArtworkKind = 'service'");
+    expect(source).toContain('tsp-menu-service-3d.png');
+    expect(source).not.toContain('emojiArtwork');
+    expect(source).not.toContain('<Text');
     expect(source).not.toContain("drivers: 'quality'");
     expect(source).not.toContain("clients: 'quality'");
     expect(source).not.toContain("vehicles: 'dispatch'");
