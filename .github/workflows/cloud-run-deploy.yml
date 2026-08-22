@@ -200,20 +200,28 @@ jobs:
             --set-env-vars="GATEWAY_AUTH_MODE=none,GATEWAY_ENV=production,GATEWAY_REAL_PROVIDER_ARMED=${ARMED},GATEWAY_DAILY_BUDGET_CENTS=${DAILY_BUDGET_CENTS},GATEWAY_WEEKLY_BUDGET_CENTS=${WEEKLY_BUDGET_CENTS},GATEWAY_DAILY_USAGE_UNITS=${DAILY_USAGE_UNITS},GATEWAY_WEEKLY_USAGE_UNITS=${WEEKLY_USAGE_UNITS},APP_VERSION=${APP_VERSION},GIT_SHA=${GIT_SHA}" \
             --quiet
           READY=""
-          for _ in $(seq 1 60); do
+          for _ in $(seq 1 90); do
             CREATED=$(gcloud run services describe "$CLOUD_RUN_SERVICE" \
               --project="$GCP_PROJECT_ID" \
               --region="$GCP_REGION" \
               --format='value(status.latestCreatedRevisionName)')
-            READY=$(gcloud run revisions describe "$NEW_REV" \
+            READY=missing
+            CREATED_READY=missing
+            if gcloud run revisions describe "$NEW_REV" \
               --project="$GCP_PROJECT_ID" \
               --region="$GCP_REGION" \
-              --format='value(status.conditions[?type=Ready].status)' 2>/dev/null || true)
-            CREATED_READY=$(gcloud run revisions describe "$CREATED" \
+              --format=json > /tmp/want-rev.json 2>/tmp/want-rev.err; then
+              READY=$(node ./scripts/cloud-run-ready-status.mjs < /tmp/want-rev.json)
+            else
+              echo "want describe failed: $(tr '\n' ' ' < /tmp/want-rev.err)"
+            fi
+            if gcloud run revisions describe "$CREATED" \
               --project="$GCP_PROJECT_ID" \
               --region="$GCP_REGION" \
-              --format='value(status.conditions[?type=Ready].status)' 2>/dev/null || true)
-            echo "$(date -u +%H:%M:%S) want ${NEW_REV} Ready=${READY:-missing}; created ${CREATED} Ready=${CREATED_READY:-missing}"
+              --format=json > /tmp/created-rev.json 2>/tmp/created-rev.err; then
+              CREATED_READY=$(node ./scripts/cloud-run-ready-status.mjs < /tmp/created-rev.json)
+            fi
+            echo "$(date -u +%H:%M:%S) want ${NEW_REV} Ready=${READY}; created ${CREATED} Ready=${CREATED_READY}"
             if [ "$READY" = True ]; then
               break
             fi
@@ -223,16 +231,15 @@ jobs:
             fi
             if [ "$READY" = False ] || { [ "$CREATED" = "$NEW_REV" ] && [ "$CREATED_READY" = False ]; }; then
               echo "New Cloud Run revision failed to start"
-              gcloud run revisions describe "$NEW_REV" \
-                --project="$GCP_PROJECT_ID" \
-                --region="$GCP_REGION" \
-                --format='yaml(status.conditions)' || true
+              node -e "console.log(JSON.stringify(JSON.parse(require('fs').readFileSync('/tmp/want-rev.json','utf8')).status,null,2))" || true
               exit 1
             fi
             sleep 5
           done
           if [ "$READY" != True ]; then
             echo "Timed out waiting for ${NEW_REV}"
+            cat /tmp/want-rev.err || true
+            node -e "console.log(JSON.stringify(JSON.parse(require('fs').readFileSync('/tmp/want-rev.json','utf8')).status,null,2))" || true
             exit 1
           fi
 

@@ -14,6 +14,7 @@ describe('Cloud Run deploy', () => {
     expect(workflow).toContain('--tag "$IMAGE"');
     expect(workflow).toContain('gcloud builds describe');
     expect(workflow).toContain('prepare-cloud-run-revision.mjs');
+    expect(workflow).toContain('cloud-run-ready-status.mjs');
     expect(workflow).toContain('--revision-suffix="n${GIT_SHA}"');
     expect(workflow).toContain('--image "$IMAGE"');
     expect(workflow).not.toContain('--clear-revision-suffix');
@@ -63,6 +64,23 @@ describe('Cloud Run deploy', () => {
     ]);
     expect(service.spec.traffic).toEqual([{ revisionName: 'logistikos-pristatymai-00042-abc', percent: 100 }]);
     expect(service.status).toBeUndefined();
+  });
+
+  it('reads Ready from a Cloud Run revision status document', () => {
+    const readyScript = resolve(import.meta.dirname, '../../scripts/cloud-run-ready-status.mjs');
+    const result = spawnSync(process.execPath, [readyScript], {
+      input: JSON.stringify({
+        status: {
+          conditions: [
+            { type: 'Active', status: 'Unknown' },
+            { type: 'Ready', status: 'True' },
+          ],
+        },
+      }),
+      encoding: 'utf8',
+    });
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toBe('True');
   });
 
   it('opens PORT 8080 before importing the internal gateway', () => {
