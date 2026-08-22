@@ -18,64 +18,68 @@ process.env.GATEWAY_PORT = String(internalGatewayPort);
 process.env.GATEWAY_ALLOWED_ORIGIN = '';
 
 async function start(): Promise<void> {
-  const { server: gatewayServer } = await import('../gateway/server.js');
   const server = createServer(async (request, response) => {
-  const requestId = header(request, 'x-request-id') ?? randomUUID();
-  response.setHeader('x-request-id', requestId);
-  response.setHeader('x-content-type-options', 'nosniff');
-  response.setHeader('referrer-policy', 'same-origin');
+    const requestId = header(request, 'x-request-id') ?? randomUUID();
+    response.setHeader('x-request-id', requestId);
+    response.setHeader('x-content-type-options', 'nosniff');
+    response.setHeader('referrer-policy', 'same-origin');
 
-  try {
-    const url = new URL(request.url ?? '/', 'http://localhost');
-    if (url.pathname === '/health') {
-      return json(response, 200, {
-        status: 'ok',
-        service: 'logistikos-pristatymai-pwa',
-        version: process.env.APP_VERSION ?? 'development',
-      });
-    }
-    if (await handleEmployeeApi(request, response, url.pathname, requestId)) return;
-    if (url.pathname.startsWith('/api/')) {
-      if (url.pathname !== '/api/device/check') await authenticateApiRequest(request);
-      return proxyApi(request, response, url.pathname, requestId);
-    }
-    if (request.method !== 'GET' && request.method !== 'HEAD') {
-      return json(response, 405, { error: { code: 'METHOD_NOT_ALLOWED' } });
-    }
-    return serveApplication(url.pathname, response, request.method === 'HEAD');
-  } catch (error) {
-    log({ event: 'request_failed', requestId, error: safeError(error) });
-    if (!response.headersSent) {
-      if (error instanceof EmployeeApiError) {
-        return json(response, error.status, { error: { code: error.code, message: error.message } });
+    try {
+      const url = new URL(request.url ?? '/', 'http://localhost');
+      if (url.pathname === '/health') {
+        return json(response, 200, {
+          status: 'ok',
+          service: 'logistikos-pristatymai-pwa',
+          version: process.env.APP_VERSION ?? 'development',
+        });
       }
-      return json(response, 500, {
-        error: {
-          code: 'INTERNAL_ERROR',
-          message: 'Serveris laikinai negali įvykdyti užklausos.',
-        },
-      });
+      if (await handleEmployeeApi(request, response, url.pathname, requestId)) return;
+      if (url.pathname.startsWith('/api/')) {
+        if (url.pathname !== '/api/device/check') await authenticateApiRequest(request);
+        return proxyApi(request, response, url.pathname, requestId);
+      }
+      if (request.method !== 'GET' && request.method !== 'HEAD') {
+        return json(response, 405, { error: { code: 'METHOD_NOT_ALLOWED' } });
+      }
+      return serveApplication(url.pathname, response, request.method === 'HEAD');
+    } catch (error) {
+      log({ event: 'request_failed', requestId, error: safeError(error) });
+      if (!response.headersSent) {
+        if (error instanceof EmployeeApiError) {
+          return json(response, error.status, { error: { code: error.code, message: error.message } });
+        }
+        return json(response, 500, {
+          error: {
+            code: 'INTERNAL_ERROR',
+            message: 'Serveris laikinai negali įvykdyti užklausos.',
+          },
+        });
+      }
+      response.end();
     }
-    response.end();
-  }
   });
 
   server.requestTimeout = requestTimeoutMs;
   server.headersTimeout = requestTimeoutMs + 5_000;
-  server.listen(publicPort, '0.0.0.0', () => {
-    log({
-      event: 'pwa_server_started',
-      port: publicPort,
-      internalGatewayPort,
-      version: process.env.APP_VERSION ?? 'development',
+  await new Promise<void>((resolveListen, rejectListen) => {
+    server.once('error', rejectListen);
+    server.listen(publicPort, '0.0.0.0', () => {
+      log({
+        event: 'pwa_server_started',
+        port: publicPort,
+        internalGatewayPort,
+        version: process.env.APP_VERSION ?? 'development',
+      });
+      resolveListen();
     });
   });
 
+  const { server: gatewayServer } = await import('../gateway/server.js');
   for (const signal of ['SIGTERM', 'SIGINT'] as const) {
     process.on(signal, () => {
       log({ event: 'shutdown_started', signal });
       server.close(() => gatewayServer.close(() => process.exit(0)));
-      (setTimeout(() => process.exit(1), 10_000) as any).unref();
+      (setTimeout(() => process.exit(1), 10_000) as unknown as { unref: () => void }).unref();
     });
   }
 }
