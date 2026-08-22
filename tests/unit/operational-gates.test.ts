@@ -72,6 +72,7 @@ describe('operational gates do not interrupt unfinished setup', () => {
 
   it('blocks start only after an entered inspection date has expired', async () => {
     const db = createDb();
+    await loadedRoute(db);
     await new TripSheetRepository(db).saveVehicle({
       name: 'Darbinis',
       registrationNumber: 'ABC123',
@@ -80,7 +81,6 @@ describe('operational gates do not interrupt unfinished setup', () => {
       roadTaxDueOn: '2027-12-31',
       nextServiceDueOn: '2027-12-31',
     }, '2026-08-22T12:00:00.000Z');
-    await loadedRoute(db);
     await expect(new StartRoute(db, () => '2026-08-22T12:00:00.000Z').execute('route-1')).rejects.toMatchObject({
       code: 'DEPARTURE_BLOCKED',
     });
