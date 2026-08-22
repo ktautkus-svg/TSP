@@ -2,6 +2,9 @@
 
 Visi PNG failai paruošti 1280 × 720 formatu, be naršyklės rėmų.
 
+- `00-pagrindinis-valdymo-centras-3d-1280x720.png` — pagrindinis administratoriaus meniu su 3D ikonėlėmis.
+- `00b-dispecerio-skydelis-3d-1280x720.png` — visas dispečerio meniu su 3D ikonėlėmis.
+
 1. `01-dokumentu-importas-1280x720.png` — tikras Excel ir penki lapai / vairuotojai.
 2. `02-adresu-patikra-1280x720.png` — 6/6 patvirtinti taškai, 1 210 kg, sandėlis ir optimizavimas.
 3. `03-marsruto-variantai-1280x720.png` — rekomenduojamas ir alternatyvūs variantai.
