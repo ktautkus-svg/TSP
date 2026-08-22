@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSQLiteContext } from 'expo-sqlite';
 
@@ -41,7 +41,7 @@ export default function VehicleScreen() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     const vehicle = await repository.getVehicle();
     if (!vehicle) return;
     setName(vehicle.name);
@@ -52,11 +52,11 @@ export default function VehicleScreen() {
     setServiceDueOn(vehicle.nextServiceDueOn ?? '');
     setServiceOdometer(vehicle.nextServiceOdometer === null ? '' : String(vehicle.nextServiceOdometer));
     setOpenFaults(await faults.listOpen(vehicle.id));
-  };
+  }, [faults, repository]);
 
   useEffect(() => {
     void load().catch((error) => setMessage(error instanceof Error ? error.message : 'Automobilio duomenų atkurti nepavyko.'));
-  }, [repository, faults]);
+  }, [load]);
 
   const preview = evaluateDepartureReadiness({
     vehicle: {
