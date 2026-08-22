@@ -6,6 +6,13 @@ import {
     normalizeRoutePriceSettings,
     type RoutePriceSettings,
 } from '../src/application/routes/route-price.js';
+import {
+    bodyKindFromPalletCapacity,
+    fleetCargoSpec,
+    isPalletCapacity,
+    resolveVehicleCargo,
+    type PalletCapacity,
+} from '../src/domain/fleet-cargo-specs.js';
 import { isVanBodyKind, type VanBodyKind } from '../src/domain/loading-schema.js';
 import { regionCodeFromSource, uniqueRegionCodes } from '../src/domain/route-code.js';
 
@@ -112,6 +119,7 @@ export type FleetVehicle = {
    */
   fuelNormLPer100Km: number | null;
   cargoBodyKind: VanBodyKind;
+  palletCapacity: PalletCapacity;
   hasSideDoor: boolean;
   assignedDriverId: string | null;
   fuelRemainingLiters: number | null;
@@ -123,7 +131,7 @@ export type FleetVehicle = {
 
 export type FleetVehicleSnapshot = Pick<FleetVehicle,
   'id' | 'registrationNumber' | 'model' | 'maximumPayloadKg'
-> & Partial<Pick<FleetVehicle, 'fuelNormLPer100Km' | 'fuelRemainingLiters' | 'fuelUpdatedAt' | 'assignmentRevision' | 'cargoBodyKind' | 'hasSideDoor'>>;
+> & Partial<Pick<FleetVehicle, 'fuelNormLPer100Km' | 'fuelRemainingLiters' | 'fuelUpdatedAt' | 'assignmentRevision' | 'cargoBodyKind' | 'hasSideDoor' | 'palletCapacity'>>;
 
 export type CompensationBreakdown = {
   rates: DriverCompensationRates;
@@ -479,7 +487,20 @@ export class EmployeeAuthStore {
 
   async listVehicles(): Promise<FleetVehicle[]> {
     const snapshot = await this.vehicles.get();
-    return snapshot.docs
+    let seeded = false;
+    for (const document of snapshot.docs) {
+      const raw = document.data() as FleetVehicle;
+      const known = fleetCargoSpec(raw.registrationNumber);
+      if (!known || isPalletCapacity(raw.palletCapacity)) continue;
+      await this.updateVehicle(String(raw.id ?? raw.registrationNumber), {
+        palletCapacity: known.palletCapacity,
+        hasSideDoor: known.hasSideDoor,
+        cargoBodyKind: bodyKindFromPalletCapacity(known.palletCapacity),
+      });
+      seeded = true;
+    }
+    const docs = seeded ? (await this.vehicles.get()).docs : snapshot.docs;
+    return docs
       .map((document) => normalizeVehicle(document.data() as FleetVehicle))
       .sort((left, right) => left.registrationNumber.localeCompare(right.registrationNumber, 'lt'));
   }
@@ -638,14 +659,22 @@ export class EmployeeAuthStore {
     maximumPayloadKg: number;
     fuelNormLPer100Km?: number | null;
     cargoBodyKind?: string | null;
+    palletCapacity?: number | null;
     hasSideDoor?: boolean;
   }): Promise<FleetVehicle> {
     const registrationNumber = validateRegistrationNumber(input.registrationNumber);
     const model = validateVehicleModel(input.model);
     const maximumPayloadKg = validateMaximumPayload(input.maximumPayloadKg);
     const fuelNormLPer100Km = validateFuelNorm(input.fuelNormLPer100Km);
-    const cargoBodyKind = validateCargoBodyKind(input.cargoBodyKind);
-    const hasSideDoor = input.hasSideDoor === true;
+    const cargo = resolveVehicleCargo({
+      registrationNumber,
+      palletCapacity: input.palletCapacity,
+      cargoBodyKind: input.cargoBodyKind,
+      hasSideDoor: input.hasSideDoor,
+    });
+    const palletCapacity = cargo.palletCapacity;
+    const cargoBodyKind = bodyKindFromPalletCapacity(palletCapacity);
+    const hasSideDoor = cargo.hasSideDoor;
     const reference = this.vehicles.doc(registrationNumber);
     const now = new Date().toISOString();
     const vehicle: FleetVehicle = {
@@ -655,6 +684,7 @@ export class EmployeeAuthStore {
       maximumPayloadKg,
       fuelNormLPer100Km,
       cargoBodyKind,
+      palletCapacity,
       hasSideDoor,
       assignedDriverId: null,
       fuelRemainingLiters: null,
@@ -717,6 +747,7 @@ export class EmployeeAuthStore {
     maximumPayloadKg?: number;
     fuelNormLPer100Km?: number | null;
     cargoBodyKind?: string | null;
+    palletCapacity?: number | null;
     hasSideDoor?: boolean;
   }): Promise<FleetVehicle> {
     const vehicleId = validateVehicleId(vehicleIdInput);
@@ -739,10 +770,19 @@ export class EmployeeAuthStore {
       const fuelNormLPer100Km = input.fuelNormLPer100Km === undefined
         ? current.fuelNormLPer100Km
         : validateFuelNorm(input.fuelNormLPer100Km);
-      const cargoBodyKind = input.cargoBodyKind === undefined
-        ? current.cargoBodyKind
-        : validateCargoBodyKind(input.cargoBodyKind);
-      const hasSideDoor = input.hasSideDoor === undefined ? current.hasSideDoor : input.hasSideDoor === true;
+      const cargo = resolveVehicleCargo({
+        registrationNumber,
+        palletCapacity: input.palletCapacity !== undefined
+          ? validatePalletCapacity(input.palletCapacity)
+          : current.palletCapacity,
+        cargoBodyKind: input.cargoBodyKind === undefined
+          ? current.cargoBodyKind
+          : validateCargoBodyKind(input.cargoBodyKind),
+        hasSideDoor: input.hasSideDoor === undefined ? current.hasSideDoor : input.hasSideDoor === true,
+      });
+      const palletCapacity = cargo.palletCapacity;
+      const cargoBodyKind = bodyKindFromPalletCapacity(palletCapacity);
+      const hasSideDoor = cargo.hasSideDoor;
       const updatedAt = new Date().toISOString();
       updated = {
         ...current,
@@ -752,6 +792,7 @@ export class EmployeeAuthStore {
         maximumPayloadKg,
         fuelNormLPer100Km,
         cargoBodyKind,
+        palletCapacity,
         hasSideDoor,
         updatedAt,
       };
@@ -1730,6 +1771,7 @@ function vehicleSnapshot(vehicle: FleetVehicle): FleetVehicleSnapshot {
     model: vehicle.model,
     maximumPayloadKg: vehicle.maximumPayloadKg,
     cargoBodyKind: vehicle.cargoBodyKind,
+    palletCapacity: vehicle.palletCapacity,
     hasSideDoor: vehicle.hasSideDoor,
     fuelRemainingLiters: vehicle.fuelRemainingLiters,
     fuelUpdatedAt: vehicle.fuelUpdatedAt,
@@ -1744,23 +1786,33 @@ function withLiveVehicleCargo(
   const live = assignment.vehicle?.id ? liveById.get(assignment.vehicle.id) : undefined;
   const base = assignment.vehicle ?? live ?? null;
   if (!base) return assignment;
+  const merged = {
+    ...base,
+    cargoBodyKind: live?.cargoBodyKind ?? base.cargoBodyKind,
+    palletCapacity: live?.palletCapacity ?? base.palletCapacity,
+    hasSideDoor: live?.hasSideDoor ?? base.hasSideDoor,
+  };
+  const cargo = resolveVehicleCargo(merged);
   return {
     ...assignment,
     vehicle: {
-      ...base,
-      cargoBodyKind: live?.cargoBodyKind ?? base.cargoBodyKind ?? 'van_long',
-      hasSideDoor: live?.hasSideDoor ?? base.hasSideDoor ?? false,
+      ...merged,
+      cargoBodyKind: bodyKindFromPalletCapacity(cargo.palletCapacity),
+      palletCapacity: cargo.palletCapacity,
+      hasSideDoor: cargo.hasSideDoor,
     },
   };
 }
 
 function normalizeVehicle(vehicle: FleetVehicle): FleetVehicle {
+  const cargo = resolveVehicleCargo(vehicle);
   return {
     ...vehicle,
     // Vehicles stored before the norm existed have no such field at all.
     fuelNormLPer100Km: nullableNumber(vehicle.fuelNormLPer100Km),
-    cargoBodyKind: isVanBodyKind(vehicle.cargoBodyKind) ? vehicle.cargoBodyKind : 'van_long',
-    hasSideDoor: vehicle.hasSideDoor === true,
+    cargoBodyKind: bodyKindFromPalletCapacity(cargo.palletCapacity),
+    palletCapacity: cargo.palletCapacity,
+    hasSideDoor: cargo.hasSideDoor,
     fuelRemainingLiters: nullableNumber(vehicle.fuelRemainingLiters),
     fuelUpdatedAt: optionalText(vehicle.fuelUpdatedAt),
     assignmentRevision: finiteNumber(vehicle.assignmentRevision, 0),
@@ -2096,7 +2148,14 @@ function validateMaximumPayload(value: number): number {
 function validateCargoBodyKind(value: string | null | undefined): VanBodyKind {
   if (value === undefined || value === null || value === '') return 'van_long';
   if (!isVanBodyKind(value)) {
-    throw new EmployeeApiError('INVALID_CARGO_BODY', 'Kėbulas turi būti ilgesnis arba trumpesnis van.', 400);
+    throw new EmployeeApiError('INVALID_CARGO_BODY', 'Kėbulas turi būti 5 PLL arba 8 PLL.', 400);
+  }
+  return value;
+}
+
+function validatePalletCapacity(value: number | null | undefined): PalletCapacity {
+  if (!isPalletCapacity(value)) {
+    throw new EmployeeApiError('INVALID_PALLET_CAPACITY', 'Kėbulo talpa turi būti 5 arba 8 PLL.', 400);
   }
   return value;
 }

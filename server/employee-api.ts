@@ -169,6 +169,7 @@ export async function handleEmployeeApi(
           ? null
           : numberField(body, 'fuelNormLPer100Km'),
         cargoBodyKind: optionalString(body, 'cargoBodyKind'),
+        palletCapacity: typeof body.palletCapacity === 'number' ? body.palletCapacity : undefined,
         hasSideDoor: typeof body.hasSideDoor === 'boolean' ? body.hasSideDoor : undefined,
       });
       return send(response, 201, { vehicle }, requestId);
@@ -179,7 +180,8 @@ export async function handleEmployeeApi(
       const body = parseObject(await readBody(request, 64_000));
       const hasVehicleFields = body.registrationNumber !== undefined || body.model !== undefined
         || body.maximumPayloadKg !== undefined || body.fuelNormLPer100Km !== undefined
-        || body.cargoBodyKind !== undefined || body.hasSideDoor !== undefined;
+        || body.cargoBodyKind !== undefined || body.palletCapacity !== undefined
+        || body.hasSideDoor !== undefined;
       let vehicle = hasVehicleFields
         ? await store.updateVehicle(vehicleMatch[1], {
           registrationNumber: optionalString(body, 'registrationNumber'),
@@ -189,6 +191,7 @@ export async function handleEmployeeApi(
             ? undefined
             : body.fuelNormLPer100Km === null ? null : numberField(body, 'fuelNormLPer100Km'),
           cargoBodyKind: optionalString(body, 'cargoBodyKind'),
+          palletCapacity: typeof body.palletCapacity === 'number' ? body.palletCapacity : undefined,
           hasSideDoor: typeof body.hasSideDoor === 'boolean' ? body.hasSideDoor : undefined,
         })
         : null;

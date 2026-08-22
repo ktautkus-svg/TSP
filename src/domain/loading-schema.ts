@@ -1,6 +1,14 @@
+import {
+  bodyKindFromPalletCapacity,
+  fleetCargoSpec,
+  isPalletCapacity,
+  resolveVehicleCargo,
+  type PalletCapacity,
+} from '@/domain/fleet-cargo-specs';
+
 export const PALLET_WEIGHT_KG = 200;
 
-export const VAN_BODY_KINDS = ['van_long', 'van_short'] as const;
+export const VAN_BODY_KINDS = ['van_long', 'van_8pll', 'van_short'] as const;
 export type VanBodyKind = (typeof VAN_BODY_KINDS)[number];
 
 export type LoadingBayId =
@@ -8,7 +16,10 @@ export type LoadingBayId =
   | 'front_right'
   | 'row_1'
   | 'row_2'
-  | 'row_3';
+  | 'row_3'
+  | 'row_4'
+  | 'row_5'
+  | 'row_6';
 
 export type LoadingBayOrientation = 'vertical' | 'horizontal';
 
@@ -86,23 +97,38 @@ const SHORT_BAYS: BayDefinition[] = [
   { id: 'row_2', label: 'Prie galinių durų', orientation: 'horizontal', doorRank: 1 },
 ];
 
+const EIGHT_BAYS: BayDefinition[] = [
+  { id: 'front_left', label: 'Priekis kairė', orientation: 'vertical', doorRank: 8 },
+  { id: 'front_right', label: 'Priekis dešinė', orientation: 'vertical', doorRank: 8 },
+  { id: 'row_1', label: '1 eilė', orientation: 'horizontal', doorRank: 6 },
+  { id: 'row_2', label: '2 eilė', orientation: 'horizontal', doorRank: 5 },
+  { id: 'row_3', label: '3 eilė', orientation: 'horizontal', doorRank: 4 },
+  { id: 'row_4', label: '4 eilė', orientation: 'horizontal', doorRank: 3 },
+  { id: 'row_5', label: '5 eilė', orientation: 'horizontal', doorRank: 2 },
+  { id: 'row_6', label: 'Prie galinių durų', orientation: 'horizontal', doorRank: 1 },
+];
+
 export function isVanBodyKind(value: unknown): value is VanBodyKind {
-  return value === 'van_long' || value === 'van_short';
+  return value === 'van_long' || value === 'van_8pll' || value === 'van_short';
 }
 
 export function vanBodyLabel(kind: VanBodyKind): string {
-  return kind === 'van_short' ? 'Trumpesnis van · 2+2' : 'Ilgesnis van · 2+3';
+  if (kind === 'van_8pll') return '8 PLL';
+  if (kind === 'van_short') return '4 PLL · 2+2';
+  return '5 PLL · 2+3';
 }
 
 export type AssignedVehicleCargo = {
   registrationNumber?: string | null;
   model?: string | null;
   cargoBodyKind?: VanBodyKind | null;
+  palletCapacity?: number | null;
   hasSideDoor?: boolean | null;
 };
 
 export type VehicleCargoLayout = {
   bodyKind: VanBodyKind;
+  palletCapacity: PalletCapacity;
   hasSideDoor: boolean;
   assigned: boolean;
   vehicleLabel: string | null;
@@ -111,14 +137,28 @@ export type VehicleCargoLayout = {
 export function cargoLayoutFromAssignedVehicle(
   vehicle: AssignedVehicleCargo | null | undefined,
 ): VehicleCargoLayout {
+  const cargo = resolveVehicleCargo(vehicle);
   if (!vehicle) {
-    return { bodyKind: 'van_long', hasSideDoor: false, assigned: false, vehicleLabel: null };
+    return {
+      bodyKind: 'van_long',
+      palletCapacity: 5,
+      hasSideDoor: false,
+      assigned: false,
+      vehicleLabel: null,
+    };
   }
+  const keepShort = vehicle.cargoBodyKind === 'van_short'
+    && !fleetCargoSpec(vehicle.registrationNumber)
+    && !isPalletCapacity(vehicle.palletCapacity);
+  const bodyKind: VanBodyKind = keepShort
+    ? 'van_short'
+    : bodyKindFromPalletCapacity(cargo.palletCapacity);
   const registration = vehicle.registrationNumber?.trim() || null;
   const model = vehicle.model?.trim() || null;
   return {
-    bodyKind: isVanBodyKind(vehicle.cargoBodyKind) ? vehicle.cargoBodyKind : 'van_long',
-    hasSideDoor: vehicle.hasSideDoor === true,
+    bodyKind,
+    palletCapacity: cargo.palletCapacity,
+    hasSideDoor: cargo.hasSideDoor,
     assigned: true,
     vehicleLabel: [registration, model].filter(Boolean).join(' · ') || registration,
   };
@@ -126,14 +166,17 @@ export function cargoLayoutFromAssignedVehicle(
 
 export function vehicleCargoSummary(layout: VehicleCargoLayout): string {
   const doors = layout.hasSideDoor ? 'šoninės durys yra' : 'šoninių durų nėra';
+  const size = layout.bodyKind === 'van_short' ? '4 PLL' : `${layout.palletCapacity} PLL`;
   if (!layout.assigned) {
-    return `Automobilis nepriskirtas · ${vanBodyLabel(layout.bodyKind)} · ${doors}`;
+    return `Automobilis nepriskirtas · ${size} · ${doors}`;
   }
-  return `${layout.vehicleLabel} · ${vanBodyLabel(layout.bodyKind)} · ${doors}`;
+  return `${layout.vehicleLabel} · ${size} · ${doors}`;
 }
 
 export function baysForVanBody(kind: VanBodyKind): BayDefinition[] {
-  return kind === 'van_short' ? SHORT_BAYS : LONG_BAYS;
+  if (kind === 'van_8pll') return EIGHT_BAYS;
+  if (kind === 'van_short') return SHORT_BAYS;
+  return LONG_BAYS;
 }
 
 export function shouldUsePallet(weightKg: number | null): boolean {
@@ -141,7 +184,7 @@ export function shouldUsePallet(weightKg: number | null): boolean {
 }
 
 function normalizeOptions(options?: VanBodyKind | LoadingSchemaOptions): Required<LoadingSchemaOptions> {
-  if (options === 'van_long' || options === 'van_short') {
+  if (options === 'van_long' || options === 'van_8pll' || options === 'van_short') {
     return { bodyKind: options, hasSideDoor: false };
   }
   return {

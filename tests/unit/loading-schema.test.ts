@@ -179,10 +179,50 @@ describe('van loading schema', () => {
     expect(schema.sideUnloadCount).toBe(0);
   });
 
-  it('takes side doors and body kind from the assigned vehicle', () => {
+  it('takes side doors and pallet capacity from the assigned vehicle catalog', () => {
     const assigned = cargoLayoutFromAssignedVehicle({
       registrationNumber: 'LRI744',
       model: 'Renault Master',
+      cargoBodyKind: 'van_long',
+      hasSideDoor: false,
+    });
+    expect(assigned).toMatchObject({
+      bodyKind: 'van_8pll',
+      palletCapacity: 8,
+      hasSideDoor: true,
+      assigned: true,
+      vehicleLabel: 'LRI744 · Renault Master',
+    });
+    expect(vehicleCargoSummary(assigned)).toContain('8 PLL');
+    expect(vehicleCargoSummary(assigned)).toContain('šoninės durys yra');
+    expect(cargoLayoutFromAssignedVehicle({
+      registrationNumber: 'LRI741',
+      model: 'Renault Master',
+    })).toMatchObject({
+      bodyKind: 'van_8pll',
+      palletCapacity: 8,
+      hasSideDoor: false,
+    });
+    expect(cargoLayoutFromAssignedVehicle({
+      registrationNumber: 'MET628',
+      model: 'Citroen Jumper',
+    })).toMatchObject({
+      bodyKind: 'van_long',
+      palletCapacity: 5,
+      hasSideDoor: true,
+    });
+    expect(cargoLayoutFromAssignedVehicle(null)).toMatchObject({
+      bodyKind: 'van_long',
+      palletCapacity: 5,
+      hasSideDoor: false,
+      assigned: false,
+    });
+  });
+
+  it('still honours a short van on an unknown plate', () => {
+    const assigned = cargoLayoutFromAssignedVehicle({
+      registrationNumber: 'TST001',
+      model: 'Test',
       cargoBodyKind: 'van_short',
       hasSideDoor: true,
     });
@@ -190,14 +230,26 @@ describe('van loading schema', () => {
       bodyKind: 'van_short',
       hasSideDoor: true,
       assigned: true,
-      vehicleLabel: 'LRI744 · Renault Master',
     });
-    expect(vehicleCargoSummary(assigned)).toContain('šoninės durys yra');
-    expect(cargoLayoutFromAssignedVehicle(null)).toMatchObject({
-      bodyKind: 'van_long',
-      hasSideDoor: false,
-      assigned: false,
-    });
+    expect(vehicleCargoSummary(assigned)).toContain('4 PLL');
+  });
+
+  it('uses the eight-pallet floor with the first drop at the rear and a heavy mid-route stop at the side', () => {
+    const stops = Array.from({ length: 8 }, (_, index) => stop({
+      id: `d${index + 1}`,
+      loadingSequence: index + 1,
+      deliveryOrder: 8 - index,
+      weightKg: 8 - index === 5 ? 240 : 18,
+    }));
+    const schema = recommendLoadingSchema(stops, { bodyKind: 'van_8pll', hasSideDoor: true });
+    expect(schema.bays.map((bay) => bay.id)).toEqual([
+      'front_left', 'front_right', 'row_1', 'row_2', 'row_3', 'row_4', 'row_5', 'row_6',
+    ]);
+    expect(schema.placements.find((item) => item.deliveryOrder === 1)?.bayId).toBe('row_6');
+    expect(schema.placements.find((item) => item.deliveryOrder === 5)?.bayId).toBe('row_5');
+    expect(schema.placements.find((item) => item.deliveryOrder === 5)?.sideAccess).toBe(true);
+    expect(schema.placements.find((item) => item.deliveryOrder === 8)?.bayId).toBe('front_left');
+    expect(schema.sideUnloadCount).toBe(1);
   });
 });
 
