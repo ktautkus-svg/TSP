@@ -198,9 +198,9 @@ export function recommendLoadingSchema(
   });
 
   const palletCount = placements.filter((item) => item.usePallet).length;
-  const summary = palletCount > 0
-    ? `Sunkesni apačioje. ${palletCount} užsakymams rekomenduojama PLL; kitus kraukite be paletės.`
-    : 'Sunkesni apačioje. Paletės nereikia — kraukite kaip stovi, pagal krovimo eilę.';
+  const summary = palletCount === 0
+    ? 'Sunkesni apačioje. Paletės nereikia — kraukite kaip stovi, pagal krovimo eilę.'
+    : `Sunkesni apačioje. ${palletCount === 1 ? '1 užsakymui' : `${palletCount} užsakymams`} rekomenduojama PLL; kitus kraukite be paletės.`;
 
   return {
     bodyKind,
