@@ -19,9 +19,9 @@ import {
     type NavigationProvider,
 } from '@/application/settings/navigation-preference';
 import type { ThemeMode } from '@/application/settings/theme-preference';
-import { EmployeesIcon, SettingsIcon, VehicleIcon } from '@/components/app-icons';
 import { DriverAppTabs } from '@/components/driver-app-tabs';
 import { FoundationScreen } from '@/components/foundation-screen';
+import { MenuArtwork } from '@/components/menu-artwork';
 import { StatusBadge } from '@/components/ui-primitives';
 import {
     clearGatewayDeviceSecret,
@@ -295,7 +295,7 @@ export default function SettingsScreen() {
               onPress={() => router.push({ pathname: '/admin', params: { section: 'employees', returnTo: 'settings' } } as Href)}
               style={styles.managementCard}
               testID="open-employee-management">
-              <View style={styles.managementIcon}><EmployeesIcon /></View>
+              <View style={styles.managementIcon}><MenuArtwork kind="drivers" size={56} /></View>
               <View style={styles.flex}><Text style={styles.title}>Vairuotojai</Text><Text style={styles.meta}>Duomenys, PIN ir leidimai</Text></View>
               <Text style={styles.chevron}>›</Text>
             </Pressable>
@@ -305,13 +305,13 @@ export default function SettingsScreen() {
               onPress={() => router.push({ pathname: '/admin', params: { section: 'fleet', returnTo: 'settings' } } as Href)}
               style={styles.managementCard}
               testID="open-vehicle-management">
-              <View style={styles.managementIcon}><VehicleIcon /></View>
+              <View style={styles.managementIcon}><MenuArtwork kind="vehicles" size={56} /></View>
               <View style={styles.flex}><Text style={styles.title}>Automobiliai</Text><Text style={styles.meta}>Numeriai, modeliai ir keliamoji galia</Text></View>
               <Text style={styles.chevron}>›</Text>
             </Pressable>
           </View>
           <Pressable style={styles.adminPanelLink} onPress={() => router.push({ pathname: '/admin', params: { returnTo: 'settings' } } as Href)} testID="open-admin-panel">
-            <SettingsIcon size={20} />
+            <MenuArtwork kind="settings" size={44} />
             <Text style={styles.adminPanelLinkText}>Visas administratoriaus valdymas</Text>
             <Text style={styles.chevron}>›</Text>
           </Pressable>
@@ -501,11 +501,11 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   statusDot: { width: 8, height: 8, borderRadius: radius.pill },
   statusDotOk: { backgroundColor: colors.success },
   statusDotWarning: { backgroundColor: colors.warning },
-  managementSection: { gap: spacing.md, padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+  managementSection: { gap: spacing.md },
   managementGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  managementCard: { minHeight: 86, flexGrow: 1, flexBasis: 280, minWidth: 0, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surfaceSubtle, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  managementIcon: { width: 44, height: 44, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.infoSoft },
-  adminPanelLink: { minHeight: 48, paddingHorizontal: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  managementCard: { minHeight: 94, flexGrow: 1, flexBasis: 280, minWidth: 0, padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderSubtle, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', gap: spacing.md, shadowColor: '#101828', shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.09, shadowRadius: 10, elevation: 3 },
+  managementIcon: { width: 56, height: 56, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  adminPanelLink: { minHeight: 72, paddingHorizontal: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderSubtle, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', gap: spacing.md, shadowColor: '#101828', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.07, shadowRadius: 9, elevation: 2 },
   adminPanelLinkText: { ...type.secondaryStrong, color: colors.textSecondary, flex: 1 },
   title: { ...type.cardTitle, color: colors.text },
   meta: { ...type.body, color: colors.textMuted, marginTop: spacing.xs },

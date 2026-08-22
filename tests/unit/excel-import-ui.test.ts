@@ -22,7 +22,8 @@ describe('compact daily Excel UI', () => {
     expect(importScreen).toContain('testID="excel-problems-filter"');
     expect(importScreen).toContain('Peržiūrėti visus taškus');
     expect(importScreen).toContain('testID="excel-problem-navigator"');
-    expect(importScreen).toContain('Patikrinti šį adresą');
+    expect(importScreen).toContain('onBlurAddress={() => void revalidate()}');
+    expect(importScreen).not.toContain('revalidate-visible-address');
     expect(importScreen).toContain('Taisyti šį adresą');
     expect(importScreen).toContain('showHeading={!result}');
     expect(importScreen).toContain('testID="planning-date"');
@@ -125,8 +126,15 @@ describe('compact daily Excel UI', () => {
     expect(importScreen).not.toContain('Dabartinė vieta');
     expect(importScreen).not.toContain('Paskutinis taškas');
     expect(manualRouteScreen).toContain('GetDefaultLocations');
-    expect(manualRouteScreen).toContain('savedStartEndpoint');
-    expect(manualRouteScreen).toContain('savedEndEndpoint');
+    expect(manualRouteScreen).toContain('warehouseEndpoint');
+    expect(manualRouteScreen).toContain('manualEntriesToDraftStops');
+    expect(manualRouteScreen).toContain('įstaigos pavadinimą arba pilną adresą');
+    expect(manualRouteScreen).toContain('invalidDisplayEntries.length > 0');
+    expect(manualRouteScreen).not.toContain('Tinka adresas, koordinatės');
+    expect(reviewScreen).toContain('originalAddress: stop.originalAddress');
+    expect(reviewScreen).toContain('geocodingQuery: address.trim()');
+    expect(manualRouteScreen).not.toContain('label="Maršruto pradžia"');
+    expect(manualRouteScreen).not.toContain('label="Maršruto pabaiga"');
     expect(manualRouteScreen).toContain('testID="manual-route-review-top"');
     expect(importScreen).toContain('useFocusEffect(useCallback(() =>');
     expect(reviewScreen).toContain('testID="apply-current-warehouse"');

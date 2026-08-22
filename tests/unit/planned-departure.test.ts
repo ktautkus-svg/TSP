@@ -114,9 +114,9 @@ describe('planned departure stays until Start', () => {
     expect(ms).toBeLessThanOrEqual(after + 1_000);
   });
 
-  it('shows the planned start on loading and starts live ETAs only from StartRoute', () => {
-    expect(loading).toContain('Planuojamas išvykimas');
-    expect(loading).toContain('loading-departure-label');
+  it('keeps the loading screen compact and starts live ETAs only from StartRoute', () => {
+    expect(loading).not.toContain('Planuojamas išvykimas');
+    expect(loading).not.toContain('loading-departure-label');
     expect(loading).toContain('StartRoute');
     expect(loading).toContain('statusRail');
     expect(loading).toContain('orderBadge');

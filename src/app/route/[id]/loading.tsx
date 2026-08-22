@@ -44,7 +44,7 @@ export default function LoadingScreen() {
   const { requestSync, revision: syncRevision } = useRouteCloudSync();
   const db = useSQLiteContext();
   const router = useRouter();
-  const { id: routeId = '' } = useLocalSearchParams<{ id: string }>();
+  const { id: routeId = '', returnTo } = useLocalSearchParams<{ id: string; returnTo?: string }>();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const repository = useMemo(() => new RouteRepository(db), [db]);
@@ -249,7 +249,7 @@ export default function LoadingScreen() {
           try {
             await new ReopenRouteForPlanning(db).execute(routeId);
             void requestSync('mutation');
-            router.replace({ pathname: '/route/[id]/alternatives', params: { id: routeId } });
+            router.replace({ pathname: '/route/[id]/alternatives', params: { id: routeId, ...(returnTo ? { returnTo } : {}) } });
           } catch (reason) {
             Alert.alert('Nepavyko grįžti', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
           }
@@ -281,7 +281,7 @@ export default function LoadingScreen() {
     try {
       await new StartRoute(db).execute(routeId);
       void requestSync('mutation');
-      router.replace({ pathname: '/route/[id]/delivery', params: { id: routeId } });
+      router.replace({ pathname: '/route/[id]/delivery', params: { id: routeId, ...(returnTo ? { returnTo } : {}) } });
     } catch (reason) {
       Alert.alert('Maršrutas nepradėtas', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
     }
@@ -349,7 +349,7 @@ export default function LoadingScreen() {
     try {
       await new ReopenRouteForPlanning(db).execute(routeId);
       void requestSync('mutation');
-      router.replace({ pathname: '/route/[id]/alternatives', params: { id: routeId } });
+      router.replace({ pathname: '/route/[id]/alternatives', params: { id: routeId, ...(returnTo ? { returnTo } : {}) } });
     } catch (reason) {
       Alert.alert('Redagavimas neatidarytas', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
     } finally {
@@ -401,7 +401,7 @@ export default function LoadingScreen() {
       <FoundationScreen
         showFoundationNotice={false}
         title="Suplanuotas maršrutas"
-        description="Maršrutas išsaugotas. Galite uždaryti programą ir pradėti krautis vėliau.">
+        description="Pasirinkite kitą veiksmą.">
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <View style={styles.plannedSummary} testID="planned-route-summary">
           <Text style={styles.summaryTitle}>Maršrutas paruoštas</Text>
@@ -409,13 +409,6 @@ export default function LoadingScreen() {
           <Text style={styles.summaryText}>Bendras svoris: {formatWeightKg(route.totalWeightKg)} kg</Text>
           {vehicleLoad ? <Text style={[styles.summaryText, vehicleLoad.overCapacity && styles.loadWarning]} testID="vehicle-load-percent">{vehicleLoad.summaryLabel}</Text> : null}
           <Text style={styles.summaryText}>Planuotas atstumas: {route.estimatedDistanceKm === null ? '—' : `${route.estimatedDistanceKm.toFixed(1)} km`}</Text>
-          <Text style={styles.summaryText}>Sandėlis / pradžia: {route.startLocation?.normalizedAddress ?? route.startLocation?.originalAddress ?? 'Nenurodyta'}</Text>
-          <Text style={styles.summaryText}>Maršruto pabaiga: {route.endLocation?.normalizedAddress ?? route.endLocation?.originalAddress ?? 'Nenurodyta'}</Text>
-          {clockLabel(route.plannedDepartureAt) ? (
-            <Text style={styles.departureBadge} testID="planned-departure-label">
-              Planuojamas išvykimas {clockLabel(route.plannedDepartureAt)}
-            </Text>
-          ) : null}
         </View>
         {profile.role === 'driver' && online ? <View style={styles.fuelCard} testID="fuel-confirmation-card">
           <Text style={styles.summaryTitle}>Kuro likutis · {fuelStatus?.vehicle?.registrationNumber ?? 'automobilis'}</Text>
@@ -425,6 +418,7 @@ export default function LoadingScreen() {
             <Pressable disabled={fuelBusy || !fuelInput.trim()} onPress={() => void submitFuel()} style={[styles.fuelButton, (fuelBusy || !fuelInput.trim()) && styles.disabled]}><Text style={styles.primaryText}>{fuelBusy ? 'Saugoma…' : 'Patvirtinti'}</Text></Pressable>
           </View> : null}
         </View> : null}
+        <View style={styles.plannedActions}>
         {profile.role === 'driver' ? <Pressable disabled={bulkBusy} style={[styles.plannedPrimaryButton, bulkBusy && styles.disabled]} onPress={beginLoading} testID="begin-loading">
           {bulkBusy ? <ActivityIndicator color="#fff" /> : <>
             <TruckIcon size={22} color="#FFFFFF" />
@@ -449,6 +443,7 @@ export default function LoadingScreen() {
           <CrossIcon size={19} color={colors.danger} />
           <Text style={styles.plannedCancelText}>Ištrinti maršrutą</Text>
         </Pressable> : null}
+        </View>
       </FoundationScreen>
     );
   }
@@ -470,11 +465,6 @@ export default function LoadingScreen() {
           </View>
           <Text style={styles.summaryText}>Žinomas pakrautas svoris: {formatWeightKg(progress.loadedKnownWeightKg)} / {formatWeightKg(progress.totalKnownWeightKg)} kg</Text>
           {vehicleLoad ? <Text style={[styles.summaryText, vehicleLoad.overCapacity && styles.loadWarning]} testID="vehicle-load-percent">{vehicleLoad.summaryLabel}</Text> : null}
-          {clockLabel(route?.plannedDepartureAt) ? (
-            <Text style={styles.departureBadge} testID="loading-departure-label">
-              Planuojamas išvykimas {clockLabel(route?.plannedDepartureAt)} · ETA pagal planą
-            </Text>
-          ) : null}
           {progress.notLoadedStops > 0 ? <Text style={styles.notLoadedSummary}>Nepakrauta: {progress.notLoadedStops}</Text> : null}
           {progress.totalUnknownWeightStops > 0 ? <Text style={styles.summaryText}>{progress.loadedUnknownWeightStops} / {progress.totalUnknownWeightStops} pakrautų taškų svoris nežinomas</Text> : null}
           <View style={styles.loadingOrderNotice} testID="loading-order-notice">
@@ -846,7 +836,10 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   primaryText: { ...type.button, color: colors.textInverse, fontSize: 16 },
   // Three clearly different weights: filled primary, outlined neutral, outlined
   // danger — so none of them reads as a disabled button.
+  plannedActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
   plannedPrimaryButton: {
+    minWidth: 210,
+    paddingHorizontal: spacing.lg,
     flexDirection: 'row',
     gap: spacing.sm,
     minHeight: 50,
@@ -856,9 +849,9 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     justifyContent: 'center',
   },
   plannedPrimaryText: { ...type.button, color: colors.textInverse, fontSize: 16 },
-  plannedSecondaryButton: { flexDirection: 'row', gap: spacing.sm, minHeight: 46, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
+  plannedSecondaryButton: { flexDirection: 'row', gap: spacing.sm, minWidth: 180, minHeight: 46, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
   plannedSecondaryText: { ...type.button, color: colors.textSecondary, fontSize: 15 },
-  plannedCancelButton: { flexDirection: 'row', gap: spacing.sm, minHeight: 46, borderRadius: radius.md, borderWidth: 1, borderColor: colors.danger, backgroundColor: colors.dangerSoft, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
+  plannedCancelButton: { flexDirection: 'row', gap: spacing.sm, minWidth: 160, minHeight: 46, borderRadius: radius.md, borderWidth: 1, borderColor: colors.danger, backgroundColor: colors.dangerSoft, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
   plannedCancelText: { color: colors.danger, fontFamily: fonts.heading, fontSize: 14 },
   cancelRouteButton: { minHeight: 56, borderRadius: radius.md, borderWidth: 1, borderColor: colors.danger, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
   cancelRouteText: { color: colors.danger, fontFamily: fonts.heading, fontSize: 16 },

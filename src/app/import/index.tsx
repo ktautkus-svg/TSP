@@ -1405,9 +1405,6 @@ export default function ImportScreen() {
             {!excelPreview && result.duplicates.length ? (
               <View style={styles.warningCard}><Text style={styles.cardTitle}>Galimi dublikatai: {result.duplicates.length}</Text><Text style={styles.helper}>Patikrinkite pasikartojančius užsakymus ar panašius adresus.</Text></View>
             ) : null}
-            {(!excelPreview || excelProblemCount > 0) ? <Pressable style={styles.primaryButton} onPress={revalidate} disabled={busy} testID="revalidate-visible-address">
-              {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>{excelPreview && showOnlyExcelProblems ? 'Patikrinti šį adresą' : 'Patikrinti pataisytus adresus'}</Text>}
-            </Pressable> : null}
           </>
         ) : null}
       </View>

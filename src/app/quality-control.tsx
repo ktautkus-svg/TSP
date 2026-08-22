@@ -107,7 +107,9 @@ export default function QualityControlScreen() {
         <BackIcon size={22} color={colors.primary} />
       </Pressable>}
       <View style={styles.headerIdentity}>
-        <TspBrand compact inverse={false} />
+        <Pressable accessibilityLabel="Į pradžią" accessibilityRole="button" onPress={() => router.replace(roleHomePath(profile.role) as Href)} style={({ pressed }) => [styles.headerBrandButton, pressed && styles.cardSummaryPressed]}>
+          <TspBrand compact inverse={false} />
+        </Pressable>
         {!mobile ? <View style={styles.headerDivider} /> : null}
         {!mobile ? <Text numberOfLines={1} style={styles.headerContext}>KOKYBĖS KONTROLĖ</Text> : null}
       </View>
@@ -120,21 +122,34 @@ export default function QualityControlScreen() {
     <AccountMenuSheet visible={accountMenuOpen} onClose={() => setAccountMenuOpen(false)} />
 
     <ScrollView contentContainerStyle={[styles.page, mobile && styles.pageMobile]}>
-      <View style={styles.heading}>
-        <Text style={[styles.pageTitle, mobile && styles.pageTitleMobile]}>{formatDayTitle(new Date())}</Text>
-        <Text style={styles.subtitle}>{formatVehicleCount(vehicleCount)} · {visible.length} {visible.length === 1 ? 'maršrutas' : 'maršrutai'}</Text>
-      </View>
-
-      <View accessibilityLabel="Maršrutų suvestinė" style={styles.filters}>
-        {FILTERS.map((item) => <StatusFilter
-          key={item.key}
-          active={filter === item.key}
-          label={item.label}
-          onPress={() => setFilter(item.key)}
-          styles={styles}
-          tone={item.tone}
-          value={filterCounts[item.key]}
-        />)}
+      <View style={styles.operationsPanel}>
+        <View style={[styles.operationsTop, mobile && styles.operationsTopMobile]}>
+          <View style={styles.heading}>
+            <Text style={[styles.pageTitle, mobile && styles.pageTitleMobile]}>{formatDayTitle(new Date())}</Text>
+            <Text style={styles.subtitle}>{formatVehicleCount(vehicleCount)} · {visible.length} {visible.length === 1 ? 'maršrutas' : 'maršrutai'}</Text>
+          </View>
+          <View style={styles.connection}>
+            <View style={[styles.liveDot, !online && styles.liveDotOffline]} />
+            <View style={styles.flex}>
+              <Text style={styles.liveLabel}>{online ? 'RYŠYS GERAS' : 'RYŠIO NĖRA'}</Text>
+              <Text style={styles.refreshTime}>Atnaujinta {formatClock(lastRefreshedAt)}</Text>
+            </View>
+            <Pressable disabled={busy} onPress={() => void load(true)} style={({ pressed }) => [styles.refreshButton, pressed && styles.refreshPressed, busy && styles.disabled]} testID="quality-refresh">
+              {busy ? <ActivityIndicator color={colors.info} /> : <Text style={styles.refreshText}>Atnaujinti</Text>}
+            </Pressable>
+          </View>
+        </View>
+        <View accessibilityLabel="Maršrutų suvestinė" style={styles.filters}>
+          {FILTERS.map((item) => <StatusFilter
+            key={item.key}
+            active={filter === item.key}
+            label={item.label}
+            onPress={() => setFilter(item.key)}
+            styles={styles}
+            tone={item.tone}
+            value={filterCounts[item.key]}
+          />)}
+        </View>
       </View>
 
       {error ? <Text accessibilityRole="alert" style={styles.warning}>{error}</Text> : null}
@@ -152,20 +167,6 @@ export default function QualityControlScreen() {
       </View> : null}
     </ScrollView>
 
-    <View style={styles.bottomDock}>
-      <View style={[styles.bottomDockInner, !mobile && styles.bottomDockInnerWide]}>
-        <View style={[styles.connection, !mobile && styles.connectionWide]}>
-          <View style={[styles.liveDot, !online && styles.liveDotOffline]} />
-          <View style={styles.flex}>
-            <Text style={styles.liveLabel}>{online ? 'RYŠYS GERAS' : 'RYŠIO NĖRA'}</Text>
-            <Text style={styles.refreshTime}>Atnaujinta {formatClock(lastRefreshedAt)}</Text>
-          </View>
-          <Pressable disabled={busy} onPress={() => void load(true)} style={({ pressed }) => [styles.refreshButton, pressed && styles.refreshPressed, busy && styles.disabled]} testID="quality-refresh">
-            {busy ? <ActivityIndicator color={colors.info} /> : <Text style={styles.refreshText}>Atnaujinti</Text>}
-          </Pressable>
-        </View>
-      </View>
-    </View>
   </SafeAreaView>;
 }
 
@@ -183,7 +184,13 @@ function RouteCard({ route, desktop, mobile, styles, defaultExpanded = false }: 
   const deliveredWeightKg = Math.max(0, route.totalWeightKg - route.remainingWeightKg);
   const weightPercent = route.totalWeightKg > 0 ? Math.round((deliveredWeightKg / route.totalWeightKg) * 100) : 0;
 
-  return <View style={[styles.routeCard, mobile && styles.routeCardMobile, desktop && styles.routeCardDesktop, completed && styles.routeCardCompleted]} testID={`quality-route-${route.id}`}>
+  return <View style={[
+    styles.routeCard,
+    mobile && styles.routeCardMobile,
+    desktop && styles.routeCardDesktop,
+    completed ? styles.routeCardCompleted : route.status === 'in_progress' ? styles.routeCardActive : styles.routeCardWaiting,
+    route.failedStops > 0 && styles.routeCardIssue,
+  ]} testID={`quality-route-${route.id}`}>
     <Pressable accessibilityRole="button" accessibilityState={{ expanded }} onPress={() => setExpanded((value) => !value)} style={({ pressed }) => [styles.cardSummary, pressed && styles.cardSummaryPressed]}>
       <View style={styles.cardHeader}>
         <View style={styles.identity}>
@@ -200,8 +207,8 @@ function RouteCard({ route, desktop, mobile, styles, defaultExpanded = false }: 
       {route.failedStops > 0 ? <Text style={styles.failedBadge}>{route.failedStops} {route.failedStops === 1 ? 'taškas' : 'taškai'} nepristatyta</Text> : null}
 
       <View style={styles.progressGrid}>
-        <ProgressReadout label="TAŠKAI" primary={`${route.remainingStops} / ${route.totalStops}`} secondary={`${route.deliveredStops} pristatyta`} percent={route.progressPercent} styles={styles} tone="points" />
-        <ProgressReadout label="SVORIS" primary={`${formatWeightKg(route.remainingWeightKg)} / ${formatWeightKg(route.totalWeightKg)} kg`} secondary={`${formatWeightKg(deliveredWeightKg)} kg pristatyta`} percent={weightPercent} styles={styles} tone="weight" />
+        <ProgressReadout label="TAŠKAI ATLIKTI" primary={`${route.deliveredStops} / ${route.totalStops}`} secondary={`${route.remainingStops} liko`} percent={route.progressPercent} styles={styles} tone="points" />
+        <ProgressReadout label="SVORIS ATIDUOTAS" primary={`${formatWeightKg(deliveredWeightKg)} / ${formatWeightKg(route.totalWeightKg)} kg`} secondary={`${formatWeightKg(route.remainingWeightKg)} kg liko`} percent={weightPercent} styles={styles} tone="weight" />
       </View>
       <View style={styles.startReadout}>
         <Text style={styles.startLabel}>{route.startedAt ? 'REALUS STARTAS' : 'PLANUOTAS STARTAS'}</Text>
@@ -321,25 +328,29 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background },
   header: { minHeight: 68, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border, borderTopWidth: 3, borderTopColor: qualityBrandRed, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
   headerIdentity: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  headerBrandButton: { minWidth: 84, minHeight: 48, justifyContent: 'center' },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   headerNavButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   headerDivider: { width: 1, height: 30, backgroundColor: colors.border },
   headerContext: { flexShrink: 1, ...type.label, fontFamily: fonts.heading, color: colors.primary, letterSpacing: 0.7 },
   accountButton: { width: 44, height: 44, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary }, accountButtonPressed: { backgroundColor: colors.primaryDark, transform: [{ scale: 0.96 }] }, accountInitials: { ...type.secondaryStrong, color: colors.textInverse },
-  page: { flexGrow: 1, width: '100%', maxWidth: 1440, alignSelf: 'center', padding: spacing.xl, paddingBottom: spacing.xl, gap: spacing.xl }, pageMobile: { padding: spacing.md, gap: spacing.md },
-  heading: { gap: 3 }, pageTitle: { ...type.pageTitle, color: colors.primary, fontSize: 32, lineHeight: 38 }, pageTitleMobile: { fontSize: 26, lineHeight: 32 }, subtitle: { ...type.bodyStrong, color: qualityBrandRed },
+  page: { flexGrow: 1, width: '100%', maxWidth: 1440, alignSelf: 'center', padding: spacing.lg, paddingBottom: spacing.xl, gap: spacing.lg }, pageMobile: { padding: spacing.md, gap: spacing.md },
+  operationsPanel: { padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.primary, gap: spacing.md },
+  operationsTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.lg }, operationsTopMobile: { alignItems: 'stretch', flexDirection: 'column' },
+  heading: { flex: 1, minWidth: 0, gap: 3 }, pageTitle: { ...type.pageTitle, color: colors.textInverse, fontSize: 30, lineHeight: 36 }, pageTitleMobile: { fontSize: 24, lineHeight: 30 }, subtitle: { ...type.bodyStrong, color: colors.brandWordmarkGreenLight },
   warning: { ...type.bodyStrong, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.warningSoft, color: colors.warning },
   empty: { padding: spacing.xl, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }, emptyTitle: { ...type.sectionTitle, color: colors.text }, muted: { ...type.secondary, color: colors.textMuted },
   section: { gap: spacing.md }, sectionHeading: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm }, sectionTitle: { ...type.sectionTitle, color: colors.text, fontSize: 20, lineHeight: 26 }, count: { minWidth: 30, textAlign: 'center', paddingVertical: 4, borderRadius: radius.pill, overflow: 'hidden', backgroundColor: colors.infoSoft, ...type.secondaryStrong, color: colors.info },
-  completedSection: { gap: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.md }, completedHeader: { minHeight: 64, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md }, completedHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  completedSection: { gap: spacing.md }, completedHeader: { minHeight: 64, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.success, backgroundColor: colors.accentSoft, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md }, completedHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   routeGrid: { gap: spacing.md }, routeGridDesktop: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start' }, routeCard: { borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, overflow: 'hidden', shadowColor: colors.primary, shadowOpacity: 0.07, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 2 }, routeCardMobile: {}, routeCardDesktop: { width: '48.9%', flexGrow: 1, maxWidth: '50%' }, routeCardCompleted: { borderColor: colors.border },
-  cardSummary: { padding: spacing.lg, gap: spacing.md }, cardSummaryPressed: { backgroundColor: colors.surfaceSubtle },
+  routeCardActive: { borderLeftWidth: 5, borderLeftColor: colors.info }, routeCardWaiting: { borderLeftWidth: 5, borderLeftColor: colors.warning }, routeCardIssue: { borderLeftWidth: 5, borderLeftColor: colors.danger },
+  cardSummary: { padding: spacing.md, gap: spacing.sm }, cardSummaryPressed: { backgroundColor: colors.surfaceSubtle },
   cardHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing.md }, identity: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }, avatar: { width: 44, height: 44, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.infoSoft }, avatarText: { ...type.bodyStrong, color: colors.info }, flex: { flex: 1, minWidth: 0 }, driverName: { ...type.sectionTitle, color: colors.text }, vehicle: { ...type.secondary, color: colors.textMuted, marginTop: 2 },
   cardState: { alignItems: 'flex-end', gap: spacing.xs }, expandIcon: { fontFamily: fonts.heading, fontSize: 21, lineHeight: 22, color: colors.primary },
   status: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.pill }, statusActive: { backgroundColor: colors.infoSoft }, statusWaiting: { backgroundColor: colors.warningSoft }, statusCompleted: { backgroundColor: colors.accentSoft }, statusText: { ...type.label }, statusTextActive: { color: colors.info }, statusTextWaiting: { color: colors.warning }, statusTextCompleted: { color: colors.success },
   regionCode: { ...type.bodyStrong, color: colors.info },
   failedBadge: { ...type.secondaryStrong, color: colors.danger, marginTop: 2 },
-  progressGrid: { flexDirection: 'row', gap: spacing.sm }, progressBlock: { flex: 1, minWidth: 0, padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.surfaceSubtle, borderWidth: 1, borderColor: colors.borderSubtle }, progressReadoutHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.xs }, progressLabel: { ...type.label, color: colors.textMuted }, progressPercent: { ...type.meta, fontFamily: fonts.headingSemiBold, color: colors.primary }, progressPrimary: { ...type.bodyStrong, color: colors.text, marginTop: spacing.xs }, progressSecondary: { ...type.meta, color: colors.textMuted, marginTop: 1 }, progressTrack: { height: 6, marginTop: spacing.sm, borderRadius: radius.pill, overflow: 'hidden', backgroundColor: colors.surfaceMuted }, progressFill: { height: '100%', borderRadius: radius.pill, backgroundColor: colors.info }, progressFillWeight: { backgroundColor: qualityBrandRed }, expandHint: { ...type.meta, textAlign: 'center', color: colors.textMuted },
+  progressGrid: { flexDirection: 'row', gap: spacing.sm }, progressBlock: { flex: 1, minWidth: 0, padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.surfaceMuted }, progressReadoutHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.xs }, progressLabel: { ...type.label, color: colors.textMuted }, progressPercent: { ...type.meta, fontFamily: fonts.headingSemiBold, color: colors.primary }, progressPrimary: { ...type.bodyStrong, color: colors.text, marginTop: spacing.xs }, progressSecondary: { ...type.meta, color: colors.textMuted, marginTop: 1 }, progressTrack: { height: 6, marginTop: spacing.sm, borderRadius: radius.pill, overflow: 'hidden', backgroundColor: colors.border }, progressFill: { height: '100%', borderRadius: radius.pill, backgroundColor: colors.info }, progressFillWeight: { backgroundColor: qualityBrandRed }, expandHint: { ...type.meta, textAlign: 'right', color: colors.info },
   startReadout: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md, paddingHorizontal: spacing.sm }, startLabel: { ...type.label, color: colors.textMuted }, startValue: { ...type.bodyStrong, color: colors.primary },
   details: { gap: spacing.md, paddingHorizontal: spacing.lg, paddingBottom: spacing.lg, borderTopWidth: 1, borderTopColor: colors.borderSubtle, paddingTop: spacing.lg },
   issueSummary: { gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.danger, backgroundColor: colors.dangerSoft }, issueSummaryTitle: { ...type.label, color: colors.danger }, issueRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm }, issueSequence: { minWidth: 28, textAlign: 'center', paddingVertical: 4, borderRadius: radius.sm, overflow: 'hidden', ...type.secondaryStrong, color: colors.textInverse, backgroundColor: colors.danger }, issueAddress: { ...type.bodyStrong, color: colors.text }, issueReason: { ...type.secondaryStrong, color: colors.danger, marginTop: 2 },
@@ -347,7 +358,6 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   processedSection: { gap: spacing.sm }, processedTitle: { ...type.label, color: colors.textMuted }, processedStop: { minHeight: 68, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.sm, borderLeftWidth: 4, borderRadius: radius.sm, backgroundColor: colors.surfaceSubtle }, processedStop_neutral: { borderLeftColor: colors.textMuted }, processedStop_success: { borderLeftColor: colors.success }, processedStop_warning: { borderLeftColor: colors.warning }, processedStop_danger: { borderLeftColor: colors.danger }, processedSequence: { width: 30, height: 30, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceMuted }, processedSequenceText: { ...type.secondaryStrong, color: colors.text }, processedRecipient: { ...type.bodyStrong, color: colors.text }, processedAddress: { ...type.meta, color: colors.textMuted }, processedWindow: { ...type.meta, color: colors.textSecondary, marginTop: 2 }, timingBadge: { maxWidth: 148, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.sm }, timingBadge_neutral: { backgroundColor: colors.surfaceMuted }, timingBadge_success: { backgroundColor: colors.accentSoft }, timingBadge_warning: { backgroundColor: colors.warningSoft }, timingBadge_danger: { backgroundColor: colors.dangerSoft }, timingText: { ...type.meta, fontFamily: fonts.headingSemiBold, textAlign: 'right' }, timingText_neutral: { color: colors.textMuted }, timingText_success: { color: colors.success }, timingText_warning: { color: colors.warning }, timingText_danger: { color: colors.danger }, noProcessed: { ...type.secondary, color: colors.textMuted },
   sequenceNext: { borderLeftColor: colors.info, backgroundColor: colors.infoSoft }, sequenceNextNumber: { backgroundColor: colors.info }, sequenceNextNumberText: { color: colors.textInverse }, sequenceMeta: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   cardFooter: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.borderSubtle }, updated: { ...type.meta, color: colors.textMuted }, updatedStale: { color: colors.warning }, started: { ...type.meta, color: colors.textMuted },
-  bottomDock: { borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surface, shadowColor: colors.primary, shadowOpacity: 0.1, shadowRadius: 12, shadowOffset: { width: 0, height: -3 }, elevation: 8 }, bottomDockInner: { width: '100%', maxWidth: 1440, alignSelf: 'center', paddingHorizontal: spacing.sm, paddingTop: spacing.sm, paddingBottom: spacing.sm, gap: spacing.xs }, bottomDockInnerWide: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.xl, gap: spacing.md },
-  filters: { flexDirection: 'row', gap: spacing.xs }, filter: { flex: 1, minWidth: 0, minHeight: 64, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }, filterActive_info: { backgroundColor: colors.info, borderColor: colors.info }, filterActive_warning: { backgroundColor: colors.warning, borderColor: colors.warning }, filterActive_danger: { backgroundColor: colors.danger, borderColor: colors.danger }, filterPressed: { opacity: 0.82 }, filterValue: { fontFamily: fonts.heading, fontSize: 22, lineHeight: 24, color: colors.text }, filterValueActive: { color: colors.textInverse }, filterLabel: { ...type.label, fontSize: 10, lineHeight: 13, color: colors.textMuted, marginTop: 3 }, filterLabelActive: { color: colors.textInverse },
-  connection: { minHeight: 42, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingLeft: spacing.sm }, connectionWide: { width: 310 }, liveDot: { width: 9, height: 9, borderRadius: radius.pill, backgroundColor: colors.success }, liveDotOffline: { backgroundColor: colors.danger }, liveLabel: { ...type.label, color: colors.text }, refreshTime: { ...type.meta, color: colors.textMuted }, refreshButton: { minHeight: 40, minWidth: 92, paddingHorizontal: spacing.md, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.infoSoft }, refreshPressed: { backgroundColor: colors.primarySoft }, refreshText: { ...type.button, color: colors.info }, disabled: { opacity: 0.55 },
+  filters: { flexDirection: 'row', gap: spacing.sm }, filter: { flex: 1, minWidth: 0, minHeight: 64, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primarySoft, borderWidth: 1, borderColor: colors.borderStrong }, filterActive_info: { backgroundColor: colors.info, borderColor: colors.info }, filterActive_warning: { backgroundColor: colors.warning, borderColor: colors.warning }, filterActive_danger: { backgroundColor: colors.danger, borderColor: colors.danger }, filterPressed: { opacity: 0.82 }, filterValue: { fontFamily: fonts.heading, fontSize: 22, lineHeight: 24, color: colors.textInverse }, filterValueActive: { color: colors.textInverse }, filterLabel: { ...type.label, fontSize: 10, lineHeight: 13, color: colors.borderStrong, marginTop: 3 }, filterLabelActive: { color: colors.textInverse },
+  connection: { minWidth: 250, minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.sm, borderRadius: radius.md, backgroundColor: colors.primaryDark }, liveDot: { width: 9, height: 9, borderRadius: radius.pill, backgroundColor: colors.success }, liveDotOffline: { backgroundColor: colors.danger }, liveLabel: { ...type.label, color: colors.textInverse }, refreshTime: { ...type.meta, color: colors.borderStrong }, refreshButton: { minHeight: 38, minWidth: 92, paddingHorizontal: spacing.md, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface }, refreshPressed: { backgroundColor: colors.infoSoft }, refreshText: { ...type.button, color: colors.info }, disabled: { opacity: 0.55 },
 });

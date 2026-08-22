@@ -6,15 +6,14 @@ import { useLocalAccess } from '@/application/auth/local-access-context';
 import { roleHomePath } from '@/application/navigation/role-home';
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 
-import { parseDeliveryText } from '@/application/parsing/text-parser';
 import {
   CancelDraftRoute,
   CreateDraftRouteWithStops,
   RouteCommandError,
 } from '@/application/routes/route-commands';
-import { manualAddressesToDraftStops } from '@/application/routes/route-draft-mappers';
+import { manualEntriesToDraftStops } from '@/application/routes/route-draft-mappers';
 import { resolveRoute } from '@/application/routes/route-navigation';
-import { GetDefaultLocations, RouteEndPreference } from '@/application/routes/saved-locations';
+import { GetDefaultLocations } from '@/application/routes/saved-locations';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { AppButton, AppCard, AppTextField, InlineNotice } from '@/components/ui-primitives';
 import { RouteRepository } from '@/database/repositories/route-repository';
@@ -24,6 +23,7 @@ import type { ColorPalette } from '@/ui/theme-palette';
 import { Alert } from '@/ui/alert';
 import type { RouteEndpoint } from '@/domain/route';
 import { devWarn } from '@/ui/dev-log';
+import { parseCoordinateInput } from '@/application/import/address-resolver';
 
 export default function NewRouteScreen() {
   const { profile } = useLocalAccess();
@@ -34,14 +34,18 @@ export default function NewRouteScreen() {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const repository = useMemo(() => new RouteRepository(db), [db]);
   const [sourceText, setSourceText] = useState('');
-  const [startAddress, setStartAddress] = useState('');
-  const [endAddress, setEndAddress] = useState('');
-  const [savedStartEndpoint, setSavedStartEndpoint] = useState<RouteEndpoint | null>(null);
-  const [savedEndEndpoint, setSavedEndEndpoint] = useState<RouteEndpoint | null>(null);
+  const [warehouseEndpoint, setWarehouseEndpoint] = useState<RouteEndpoint | null>(null);
   const [creating, setCreating] = useState(false);
   const creatingRef = useRef(false);
   const commandIdRef = useRef(`manual-route-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`);
-  const parsedResult = useMemo(() => parseDeliveryText(sourceText), [sourceText]);
+  const manualEntries = useMemo(
+    () => sourceText.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean),
+    [sourceText],
+  );
+  const invalidDisplayEntries = useMemo(
+    () => manualEntries.filter((entry) => parseCoordinateInput(entry) || isMapLink(entry)),
+    [manualEntries],
+  );
 
   useEffect(() => {
     if (profile.role === 'driver' && !profile.permissions?.canCreateRoutes) {
@@ -52,21 +56,9 @@ export default function NewRouteScreen() {
 
   useEffect(() => {
     let active = true;
-    void Promise.all([
-      new GetDefaultLocations(db).execute(),
-      new RouteEndPreference(db).get(),
-    ]).then(([locations, preferredEnd]) => {
+    void new GetDefaultLocations(db).execute().then((locations) => {
       if (!active) return;
-      const start = locations.warehouse?.endpoint ?? null;
-      const end = preferredEnd === 'home' ? locations.home?.endpoint ?? start : start;
-      if (start) {
-        setStartAddress(start.originalAddress);
-        setSavedStartEndpoint(start);
-      }
-      if (end) {
-        setEndAddress(end.originalAddress);
-        setSavedEndEndpoint(end);
-      }
+      setWarehouseEndpoint(locations.warehouse?.endpoint ?? null);
     }).catch((reason) => {
       devWarn('MANUAL_ROUTE_DEFAULT_LOCATIONS_FAILED', reason);
     });
@@ -74,27 +66,14 @@ export default function NewRouteScreen() {
   }, [db]);
 
   const createRoute = async () => {
-    if (startAddress.trim().length < 3 || parsedResult.points.length === 0) return;
-    const startLocation: RouteEndpoint = savedStartEndpoint?.originalAddress === startAddress.trim()
-      ? savedStartEndpoint
-      : {
-      originalAddress: startAddress.trim(),
-      geocodingQuery: startAddress.trim(),
-      normalizedAddress: null,
-      latitude: null,
-      longitude: null,
-      };
+    if (!warehouseEndpoint || manualEntries.length === 0 || invalidDisplayEntries.length > 0) return;
     const created = await new CreateDraftRouteWithStops(db).execute({
       commandId: commandIdRef.current,
       plannedDepartureAt: new Date().toISOString(),
-      startLocation,
-      endLocation: endAddress.trim()
-        ? savedEndEndpoint?.originalAddress === endAddress.trim()
-          ? savedEndEndpoint
-          : { ...startLocation, originalAddress: endAddress.trim(), geocodingQuery: endAddress.trim(), normalizedAddress: null, latitude: null, longitude: null }
-        : startLocation,
+      startLocation: warehouseEndpoint,
+      endLocation: warehouseEndpoint,
       importSource: { type: 'manual', originalText: sourceText, imageReference: null },
-      stops: manualAddressesToDraftStops(parsedResult.points.map((point) => point.fullAddress)),
+      stops: manualEntriesToDraftStops(manualEntries),
     });
     void requestSync('mutation');
     router.push({ pathname: '/route/[id]/review', params: { id: created.routeId, returnTo: 'manual' } });
@@ -102,8 +81,15 @@ export default function NewRouteScreen() {
 
   const handleReview = async () => {
     if (creatingRef.current) return;
-    if (!startAddress.trim() || parsedResult.points.length === 0) {
-      Alert.alert('Trūksta duomenų', 'Prašome įvesti pradžios adresą bei bent vieną pristatymo adresą.');
+    if (!warehouseEndpoint || manualEntries.length === 0 || invalidDisplayEntries.length > 0) {
+      Alert.alert(
+        'Trūksta duomenų',
+        !warehouseEndpoint
+          ? 'Pirmiausia nustatymuose pasirinkite numatytąjį sandėlį.'
+          : invalidDisplayEntries.length > 0
+            ? 'Čia įrašykite įstaigos pavadinimą arba pilną adresą. Koordinates ir žemėlapio nuorodą galėsite įvesti tik taisydami programos neatpažintą adresą.'
+            : 'Įveskite bent vieną pristatymo vietos pavadinimą arba pilną adresą.',
+      );
       return;
     }
     creatingRef.current = true;
@@ -153,48 +139,47 @@ export default function NewRouteScreen() {
   return (
     <FoundationScreen
       showFoundationNotice={false}
-      title="Naujas realus maršrutas"
-      description="Įklijuoti adresai pirmiausia saugiai geokoduojami gateway serveryje. Maršrutas skaičiuojamas tik patvirtinus koordinates.">
+      title="Naujas maršrutas"
+      description="Įveskite po vieną pristatymo vietą eilutėje.">
       <AppCard style={styles.formCard}>
+        <View style={styles.warehouseSummary}>
+          <Text style={styles.warehouseLabel}>SANDĖLIS</Text>
+          <Text style={styles.warehouseValue}>
+            {warehouseEndpoint?.normalizedAddress ?? warehouseEndpoint?.originalAddress ?? 'Nenustatytas'}
+          </Text>
+        </View>
+        {!warehouseEndpoint ? (
+          <InlineNotice tone="warning">Pasirinkite numatytąjį sandėlį nustatymuose.</InlineNotice>
+        ) : null}
         <AppTextField
-          label="Maršruto pradžia"
-          value={startAddress}
-          onChangeText={(value) => { setStartAddress(value); setSavedStartEndpoint(null); }}
-          placeholder="Sandėlio adresas"
-        />
-        <AppTextField
-          label="Maršruto pabaiga"
-          value={endAddress}
-          onChangeText={(value) => { setEndAddress(value); setSavedEndEndpoint(null); }}
-          placeholder="Sandėlis, namai arba kita vieta; tuščia = pradžios vieta"
-        />
-        <AppTextField
-          label="Pristatymo adresai"
-          hint="Vienas adresas eilutėje. Išsaugotų vietų koordinačių iš naujo tvirtinti nereikės."
+          label="Pristatymo vietos"
+          hint="Po vieną įstaigos pavadinimą arba pilną adresą eilutėje."
           value={sourceText}
           onChangeText={setSourceText}
-          placeholder={'Savanorių pr. 1, Vilnius\nGedimino pr. 9, Vilnius'}
+          placeholder={'TSP sandėlis, Savanorių pr. 180, Vilnius\nKliento įmonė, Smėlynės g. 25, Panevėžys'}
           multiline
           numberOfLines={8}
           textAlignVertical="top"
           style={styles.textArea}
         />
+        {invalidDisplayEntries.length > 0 ? (
+          <InlineNotice tone="warning">
+            Koordinatės ir žemėlapio nuorodos naudojamos tik taisant neatpažintą adresą. Šiame sąraše įrašykite atpažįstamą vietos pavadinimą arba pilną adresą.
+          </InlineNotice>
+        ) : null}
         <AppButton
-          disabled={creating || !startAddress.trim() || parsedResult.points.length === 0}
-          label="Tikrinti adresus ir koordinates"
+          disabled={creating || !warehouseEndpoint || manualEntries.length === 0 || invalidDisplayEntries.length > 0}
+          label="Tęsti"
           loading={creating}
           onPress={handleReview}
           testID="manual-route-review-top"
         />
-        {parsedResult.points.map((point, index) => (
-          <View key={`${point.fullAddress}-${index}`} style={styles.pointCard}>
+        {manualEntries.map((entry, index) => (
+          <View key={`${entry}-${index}`} style={styles.pointCard}>
             <Text style={styles.pointIndex}>{index + 1}</Text>
-            <Text style={styles.pointText}>{point.fullAddress}</Text>
+            <Text style={styles.pointText}>{entry}</Text>
           </View>
         ))}
-        {parsedResult.unparsedLines.length ? (
-          <InlineNotice tone="warning">Kai kurių eilučių nepavyko atpažinti kaip adresų.</InlineNotice>
-        ) : null}
       </AppCard>
     </FoundationScreen>
   );
@@ -202,6 +187,14 @@ export default function NewRouteScreen() {
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   formCard: { gap: spacing.md },
+  warehouseSummary: {
+    gap: spacing.xs,
+    padding: spacing.md,
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: radius.md,
+  },
+  warehouseLabel: { ...type.label, color: colors.textMuted },
+  warehouseValue: { ...type.bodyStrong, color: colors.text },
   textArea: {
     minHeight: 160,
     paddingTop: spacing.md,
@@ -210,3 +203,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   pointIndex: { ...type.secondaryStrong, color: colors.info },
   pointText: { ...type.secondary, color: colors.textSecondary, flex: 1 },
 });
+
+function isMapLink(value: string): boolean {
+  return /^(?:https?:\/\/)?(?:www\.)?(?:google\.[^/]+\/maps|maps\.app\.goo\.gl|maps\.lt)(?:\/|$)/iu.test(value.trim());
+}

@@ -5,8 +5,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { roleLabel, sessionStateLabel } from '@/application/auth/employee-permissions';
-import { CrossIcon, EmployeesIcon, SettingsIcon, TripSheetIcon } from '@/components/app-icons';
 import { GroupedMenuRow, GroupedMenuSection } from '@/components/grouped-menu';
+import { MenuArtwork } from '@/components/menu-artwork';
 import { StatusBadge } from '@/components/ui-primitives';
 import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
@@ -68,12 +68,12 @@ export function AccountMenuSheet({ visible, onClose }: { visible: boolean; onClo
           </View>
 
           {profile.role !== 'quality' ? <GroupedMenuSection label="DARBO ĮRANKIAI">
-            <GroupedMenuRow icon={<TripSheetIcon size={21} color={colors.success} />} onPress={openTripSheets} testID="account-menu-trip-sheets" title="Kelionės lapai" tone="success" />
-            <GroupedMenuRow icon={<SettingsIcon size={21} color={colors.info} />} onPress={openSettings} testID="account-menu-settings" title="Nustatymai" />
+            <GroupedMenuRow icon={<MenuArtwork kind="trip-sheet" />} onPress={openTripSheets} testID="account-menu-trip-sheets" title="Kelionės lapai" tone="success" />
+            <GroupedMenuRow icon={<MenuArtwork kind="settings" />} onPress={openSettings} testID="account-menu-settings" title="Nustatymai" />
           </GroupedMenuSection> : null}
           <GroupedMenuSection label="PASKYRA">
-            <GroupedMenuRow description="Prisijungti kitu darbuotojo vardu." icon={<EmployeesIcon size={21} color={colors.info} />} onPress={confirmSwitchAccount} testID="account-menu-switch" title="Keisti paskyrą" />
-            <GroupedMenuRow icon={<CrossIcon size={21} color={colors.danger} />} onPress={confirmLogout} testID="account-menu-logout" title="Atsijungti" tone="danger" />
+            <GroupedMenuRow description="Prisijungti kitu darbuotojo vardu." icon={<MenuArtwork kind="account" />} onPress={confirmSwitchAccount} testID="account-menu-switch" title="Keisti paskyrą" />
+            <GroupedMenuRow icon={<MenuArtwork kind="logout" />} onPress={confirmLogout} testID="account-menu-logout" title="Atsijungti" tone="danger" />
           </GroupedMenuSection>
 
           <Pressable style={styles.close} onPress={onClose}><Text style={styles.closeText}>Uždaryti</Text></Pressable>

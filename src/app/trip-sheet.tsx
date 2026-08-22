@@ -220,6 +220,7 @@ function MonthlyTripSheet({ group, compact, onAddFuel, savingFuel, styles, compa
   const lastOdometer = [...group.rows].reverse().find((row) => row.endOdometer !== null)?.endOdometer ?? null;
   const firstFuel = group.rows.find((row) => row.fuelStart !== null)?.fuelStart ?? null;
   const lastFuel = [...group.rows].reverse().find((row) => row.fuelEnd !== null)?.fuelEnd ?? null;
+  const latestRow = group.rows.at(-1) ?? null;
 
   const openFuelEditor = (row: DailyTripRow) => {
     setExpandedDay(row.date);
@@ -277,10 +278,22 @@ function MonthlyTripSheet({ group, compact, onAddFuel, savingFuel, styles, compa
       <Metric label="DABARTINIS LIKUTIS" value={lastFuel === null ? '—' : `${formatNumber(lastFuel)} l`} styles={styles} />
       {hasCompensation ? <Metric label="ATLYGIS" value={formatMoney(totalCompensation)} styles={styles} /> : null}
     </View>
-    <Pressable accessibilityRole="button" onPress={() => setExpanded((current) => !current)} style={styles.detailsToggle}>
-      <Text style={styles.detailsToggleText}>{expanded ? 'Slėpti dienų informaciją' : `Peržiūrėti ${group.rows.length} d. informaciją`}</Text>
-      <Text style={styles.chevron}>{expanded ? '⌃' : '⌄'}</Text>
-    </Pressable>
+    <View style={styles.summaryActions}>
+      {latestRow ? <Pressable
+        accessibilityRole="button"
+        disabled={savingFuel}
+        onPress={() => {
+          setExpanded(true);
+          openFuelEditor(latestRow);
+        }}
+        style={styles.addFuelPrimary}>
+        <Text style={styles.addFuelPrimaryText}>+ Įvesti kurą</Text>
+      </Pressable> : null}
+      <Pressable accessibilityRole="button" onPress={() => setExpanded((current) => !current)} style={styles.detailsToggle}>
+        <Text style={styles.detailsToggleText}>{expanded ? 'Suskleisti' : `Atidaryti kelionės lapą · ${group.rows.length} d.`}</Text>
+        <Text style={styles.chevron}>{expanded ? '⌃' : '⌄'}</Text>
+      </Pressable>
+    </View>
 
     {expanded ? <View style={styles.dayList}>
       <View style={styles.detailsSummary}>
@@ -389,7 +402,7 @@ function MonthlyTripSheet({ group, compact, onAddFuel, savingFuel, styles, compa
           <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>Stovėjimo laikas</Text>
           <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>Degalų sąnaudos pagal normą, L</Text>
           <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>Įpilta degalų, L</Text>
-          <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>Degalų nupirkta, L</Text>
+          <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>Degalų nupilta, L</Text>
         </View>
         {group.rows.map((row) => (
           <View key={row.date} style={styles.printRow}>
@@ -427,7 +440,7 @@ function MonthlyTripSheet({ group, compact, onAddFuel, savingFuel, styles, compa
 
       <View style={styles.printSummaryTable}>
         <View style={styles.printSummaryRow}>
-          <Text style={styles.printSummaryLabel}>Hodometro parodymai</Text>
+          <Text style={styles.printSummaryLabel}>Odometro parodymai</Text>
           <Text style={styles.printSummaryCell}>Pradžioje: {formatNumber(firstOdometer)}</Text>
           <Text style={styles.printSummaryCell}>Pabaigoje: {formatNumber(lastOdometer)}</Text>
           <Text style={styles.printSummaryCell}>Atstumas: {formatNumber(totalDistance)}</Text>
@@ -657,7 +670,10 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   mobileDayHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   mobileDayDate: { ...type.cardTitle, color: colors.text },
   mobileDayMetrics: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  detailsToggle: { minHeight: 50, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, paddingHorizontal: spacing.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
+  summaryActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  addFuelPrimary: { minHeight: 50, borderRadius: radius.md, backgroundColor: colors.info, paddingHorizontal: spacing.lg, alignItems: 'center', justifyContent: 'center' },
+  addFuelPrimaryText: { ...type.button, color: colors.textInverse },
+  detailsToggle: { flexGrow: 1, minHeight: 50, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, paddingHorizontal: spacing.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   detailsToggleText: { ...type.button, color: colors.textSecondary },
   chevron: { ...type.sectionTitle, color: colors.info, minWidth: 24, textAlign: 'center' },
   dayList: { gap: spacing.sm },

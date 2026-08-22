@@ -41,7 +41,7 @@ export default function RouteAlternativesScreen() {
   const db = useSQLiteContext();
   const { requestSync, revision: syncRevision } = useRouteCloudSync();
   const { profile } = useLocalAccess();
-  const { id: routeId = '' } = useLocalSearchParams<{ id: string }>();
+  const { id: routeId = '', returnTo } = useLocalSearchParams<{ id: string; returnTo?: string }>();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const repository = useMemo(() => new RouteRepository(db), [db]);
@@ -192,7 +192,7 @@ export default function RouteAlternativesScreen() {
       }
       await pushRouteAssignmentRevision(db, routeId, profile.role !== 'driver');
       await requestSync('mutation');
-      router.replace({ pathname: '/route/[id]/loading', params: { id: routeId } });
+      router.replace({ pathname: '/route/[id]/loading', params: { id: routeId, ...(returnTo ? { returnTo } : {}) } });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Maršruto išsaugoti nepavyko.');
       setSaving(false);
@@ -308,7 +308,7 @@ export default function RouteAlternativesScreen() {
       const hardViolations = candidate.violations.filter((violation) => violation.type === 'hard');
       setManualError(
         hardViolations.length > 0
-          ? `Šioje sekoje yra ${hardViolations.length} pažeidimų (pvz. privalomas laiko langas ar keliamoji galia) — vis tiek galite ją naudoti, bet patikrinkite.`
+          ? `Šioje sekoje yra ${hardViolations.length} pažeidimų (pvz. privalomas pristatymo laikas ar keliamoji galia) — vis tiek galite ją naudoti, bet patikrinkite.`
           : null,
       );
     } catch (reason) {
@@ -430,7 +430,7 @@ export default function RouteAlternativesScreen() {
       await verifyPersistedSequence(repository, routeId, manualOrder);
       await pushRouteAssignmentRevision(db, routeId, profile.role !== 'driver');
       await requestSync('mutation');
-      router.replace({ pathname: '/route/[id]/loading', params: { id: routeId } });
+      router.replace({ pathname: '/route/[id]/loading', params: { id: routeId, ...(returnTo ? { returnTo } : {}) } });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Rankinės sekos išsaugoti nepavyko.');
     } finally {
@@ -689,16 +689,16 @@ export default function RouteAlternativesScreen() {
           </Text>
           {result.conflictingConstraints.map((violation) => (
             <Text key={`${violation.code}-${violation.stopId}`} style={styles.description}>
-              • {violation.code === 'REQUIRED_TIME_WINDOW' ? 'Laiko lango viršijimas' : violation.code}{violation.stopId ? `: ${stopLabel(violation.stopId)}` : ''}
+              • {violation.code === 'REQUIRED_TIME_WINDOW' ? 'Pristatymo laiko viršijimas' : violation.code}{violation.stopId ? `: ${stopLabel(violation.stopId)}` : ''}
             </Text>
           ))}
         </View>
       ) : null}
       {softWarnings.length > 0 ? (
         <View style={styles.warningCard}>
-          <Text style={styles.warningTitle}>ℹ️ Laiko langų rekomendacija</Text>
+          <Text style={styles.warningTitle}>ℹ️ Pristatymo laikų rekomendacija</Text>
           <Text style={styles.description}>
-            Pasirinktame variante kai kurie taškai gali nespėti į savo laiko langą. Tai tik rekomendacija — galite pasirinkti šį variantą, jei laikas nekritinis:
+            Pasirinktame variante kai kurie taškai gali nespėti nurodytu pristatymo laiku. Tai tik rekomendacija — galite pasirinkti šį variantą, jei laikas nekritinis:
           </Text>
           {softWarnings.map((violation) => (
             <Text key={`${violation.code}-${violation.stopId}`} style={styles.description}>
@@ -777,7 +777,7 @@ function CandidateCard(props: {
         ) : null}
         {waitingMinutes > 0 ? (
           <Text style={styles.scheduleHint}>
-            Laukiama {durationLabel(waitingMinutes)}, kol atsidarys pristatymo langai.
+            Laukiama {durationLabel(waitingMinutes)} iki nurodyto pristatymo laiko.
           </Text>
         ) : null}
       </Pressable>

@@ -11,11 +11,11 @@ export function StackBackButton({ fallback }: { readonly fallback?: Href }) {
   const router = useRouter();
   const { width } = useWindowDimensions();
   const navigation = useLogicalStackNavigation(fallback);
-  const showLabel = width >= 620;
+  const showLabel = width >= 390;
   if (navigation.hideBack) return null;
   return (
     <Pressable accessibilityLabel="Atgal" accessibilityRole="button" onPress={() => router.replace(navigation.backTarget)} style={styles.action} testID="stack-back">
-      <BackIcon />
+      <BackIcon size={25} />
       {showLabel ? <Text style={styles.label}>Atgal</Text> : null}
     </Pressable>
   );
@@ -73,6 +73,7 @@ function returnTarget(value: string | string[] | undefined): Href | null {
   const targets: Record<string, Href> = {
     home: '/', dispatcher: '/dispatcher', settings: '/settings', statistics: '/statistics',
     admin: '/admin', routes: '/history', 'route-management': '/route-management' as Href,
+    'execute-route': '/execute-route' as Href,
   };
   return key ? targets[key] ?? null : null;
 }
@@ -83,6 +84,6 @@ function firstParam(value: string | string[] | undefined): string | undefined {
 
 const styles = StyleSheet.create({
   actions: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  action: { minWidth: 44, minHeight: 44, paddingHorizontal: spacing.xs, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5 },
-  label: { ...type.secondary, fontFamily: fonts.headingSemiBold, color: colors.brandNavy },
+  action: { minWidth: 52, minHeight: 52, paddingHorizontal: spacing.sm, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  label: { ...type.bodyStrong, fontFamily: fonts.headingSemiBold, color: colors.brandNavy },
 });

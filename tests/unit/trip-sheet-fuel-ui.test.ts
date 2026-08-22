@@ -17,7 +17,8 @@ describe('trip sheet fuel workflow', () => {
     for (const label of ['KURO LIKUTIS PRADŽIOJE', 'ĮPILTA', 'SUNAUDOTA PAGAL NORMĄ', 'DABARTINIS LIKUTIS']) {
       expect(source).toContain(label);
     }
-    expect(source).toContain('Peržiūrėti ${group.rows.length} d. informaciją');
+    expect(source).toContain('Atidaryti kelionės lapą · ${group.rows.length} d.');
+    expect(source).toContain('+ Įvesti kurą');
     expect(source).toContain('+ Įvesti kuro papildymą');
     expect(source).toContain('fuel-entry-form-');
     expect(source).toContain('/fuel-entries');

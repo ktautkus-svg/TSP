@@ -24,7 +24,7 @@ export default function RouteResultScreen() {
   const { profile, online } = useLocalAccess();
   const { requestSync } = useRouteCloudSync();
   const router = useRouter();
-  const { id: routeId = '' } = useLocalSearchParams<{ id: string }>();
+  const { id: routeId = '', returnTo } = useLocalSearchParams<{ id: string; returnTo?: string }>();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const repository = useMemo(() => new RouteRepository(db), [db]);
@@ -76,7 +76,7 @@ export default function RouteResultScreen() {
     return () => { mounted = false; };
   }, [online, profile.permissions?.canViewCompensation, profile.role, routeId]));
 
-  const goHome = () => router.replace(roleHomePath(profile.role) as Href);
+  const goHome = () => router.replace((returnTo === 'execute-route' ? '/execute-route' : roleHomePath(profile.role)) as Href);
 
   return (
     <>

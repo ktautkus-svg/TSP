@@ -44,6 +44,7 @@ import { BrandHeader } from '@/components/brand-header';
 import { ClockIcon, DeliveredIcon, DistanceIcon, FailedIcon, NavigateIcon } from '@/components/dashboard-icons';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { GroupedMenuRow, GroupedMenuSection } from '@/components/grouped-menu';
+import { MenuArtwork } from '@/components/menu-artwork';
 import { InstrumentGauge } from '@/components/instrument-gauge';
 import { RoadProgressBar } from '@/components/road-progress-bar';
 import { RouteBottomTabs } from '@/components/route-bottom-tabs';
@@ -84,7 +85,7 @@ export default function DeliveryScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { width: viewportWidth } = useWindowDimensions();
-  const { id: routeId = '', redirectReason, view } = useLocalSearchParams<{ id: string; redirectReason?: string; view?: string }>();
+  const { id: routeId = '', redirectReason, returnTo, view } = useLocalSearchParams<{ id: string; redirectReason?: string; returnTo?: string; view?: string }>();
   // The route cockpit is a fixed light instrument design: every surface is a
   // hardcoded light colour, so following the system dark palette would paint
   // near-white text onto white cards and make the stop list unreadable.
@@ -476,7 +477,7 @@ export default function DeliveryScreen() {
         devWarn('TRIP_SHEET_SYNC_FAILED', reason);
       });
       void requestSync('mutation');
-      router.replace({ pathname: '/route/[id]/result', params: { id: routeId } } as unknown as Href);
+      router.replace({ pathname: '/route/[id]/result', params: { id: routeId, ...(returnTo ? { returnTo } : {}) } } as unknown as Href);
       return result;
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : 'Maršruto užbaigti nepavyko.';
@@ -623,8 +624,10 @@ export default function DeliveryScreen() {
     <Stack.Screen options={{ gestureEnabled: false, headerBackVisible: false, headerShown: false }} />
     <View style={[styles.routeApp, wideLayout && styles.routeAppWide]}>
       <BrandHeader
-        onBackPress={() => router.replace({ pathname: '/route/[id]/overview', params: { id: routeId } } as Href)}
-        onHomePress={() => router.replace('/history' as Href)}
+        onBackPress={() => router.replace(returnTo === 'execute-route'
+          ? '/execute-route' as Href
+          : { pathname: '/route/[id]/overview', params: { id: routeId } } as Href)}
+        onHomePress={() => router.replace(returnTo === 'execute-route' ? '/execute-route' as Href : '/history' as Href)}
         onMenuPress={() => setMenuOpen(true)}
       />
       <View style={styles.routeMain}>
@@ -927,6 +930,7 @@ export default function DeliveryScreen() {
               description="Sustojimai, perskaičiavimas ir užbaigimas."
               disabled={route?.status !== 'in_progress'}
               expanded={activeMenuExpanded}
+              icon={<MenuArtwork kind="execute" />}
               onPress={() => setActiveMenuExpanded((expanded) => !expanded)}
               testID="active-route-menu-toggle"
               title="Maršruto veiksmai"
@@ -950,9 +954,9 @@ export default function DeliveryScreen() {
             </View> : null}
           </GroupedMenuSection>
           <GroupedMenuSection label="NAVIGACIJA">
-            <GroupedMenuRow onPress={() => { setMenuOpen(false); router.replace('/history' as Href); }} title="Maršrutai" />
-            <GroupedMenuRow onPress={() => { setMenuOpen(false); router.push('/statistics' as Href); }} title="Statistika" />
-            <GroupedMenuRow onPress={() => { setMenuOpen(false); router.push('/settings' as Href); }} title="Nustatymai" />
+            <GroupedMenuRow icon={<MenuArtwork kind="history" />} onPress={() => { setMenuOpen(false); router.replace('/history' as Href); }} title="Maršrutai" />
+            <GroupedMenuRow icon={<MenuArtwork kind="statistics" />} onPress={() => { setMenuOpen(false); router.push('/statistics' as Href); }} title="Statistika" />
+            <GroupedMenuRow icon={<MenuArtwork kind="settings" />} onPress={() => { setMenuOpen(false); router.push('/settings' as Href); }} title="Nustatymai" />
           </GroupedMenuSection>
           <Pressable style={styles.menuClose} onPress={() => setMenuOpen(false)}><Text style={styles.secondaryText}>Uždaryti</Text></Pressable>
         </View>

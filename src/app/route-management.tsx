@@ -35,8 +35,6 @@ type LocalRoute = {
   total_weight_kg: number;
   estimated_distance_km: number | null;
   estimated_duration_minutes: number | null;
-  start_location_json: string | null;
-  end_location_json: string | null;
   route_codes: string | null;
 };
 
@@ -68,6 +66,8 @@ export default function RouteManagementScreen() {
   } | null>(null);
   const [editingAssignment, setEditingAssignment] = useState<ServerRouteAssignment | null>(null);
   const [editingAssignmentDate, setEditingAssignmentDate] = useState('');
+  const [completingRoute, setCompletingRoute] = useState<LocalRoute | null>(null);
+  const [completionOdometer, setCompletionOdometer] = useState('');
   const [activeSegment, setActiveSegment] = useState<'routes' | 'active'>('routes');
   const [openCardMenuId, setOpenCardMenuId] = useState<string | null>(null);
 
@@ -75,7 +75,7 @@ export default function RouteManagementScreen() {
     const loadLocalRoutes = async () => {
       const localRoutes = await db.getAllAsync<LocalRoute>(
         `SELECT id, date, status, total_stops, total_weight_kg, estimated_distance_km,
-                estimated_duration_minutes, start_location_json, end_location_json,
+                estimated_duration_minutes,
                 (SELECT GROUP_CONCAT(DISTINCT TRIM(sl.route_code))
                  FROM shipment_lines sl
                  WHERE sl.route_id = routes.id AND sl.route_code IS NOT NULL AND TRIM(sl.route_code) <> '') AS route_codes
@@ -286,31 +286,32 @@ export default function RouteManagementScreen() {
   };
 
   const completeLocalRoute = (route: LocalRoute) => {
-    Alert.alert(
-      'Užbaigti šį maršrutą?',
-      `${formatDate(route.date)} · ${route.total_stops} taškų. Maršrutas bus pažymėtas kaip baigtas, kad nebekabėtų tarp aktyvių darbų.`,
-      [
-        { text: 'Palikti', style: 'cancel' },
-        {
-          text: 'Užbaigti',
-          onPress: () => { void (async () => {
-            setBusy(true);
-            setMessage(null);
-            try {
-              await new AdminCompleteRoute(db).execute(route.id);
-              await requestSync('mutation');
-              setSelectedRouteId((current) => current === route.id ? null : current);
-              setMessage('Maršrutas užbaigtas.');
-              await load();
-            } catch (error) {
-              setMessage(error instanceof Error ? error.message : 'Maršruto užbaigti nepavyko.');
-            } finally {
-              setBusy(false);
-            }
-          })(); },
-        },
-      ],
-    );
+    setCompletingRoute(route);
+    setCompletionOdometer('');
+  };
+
+  const saveManualCompletion = async () => {
+    if (!completingRoute || busy) return;
+    const endOdometer = Number(completionOdometer.trim().replace(',', '.'));
+    if (!Number.isFinite(endOdometer) || endOdometer < 0) {
+      setMessage('Įveskite teisingą galutinį odometro rodmenį.');
+      return;
+    }
+    setBusy(true);
+    setMessage(null);
+    try {
+      await new AdminCompleteRoute(db).execute(completingRoute.id, { endOdometer, markAllDelivered: true });
+      await requestSync('mutation');
+      setSelectedRouteId((current) => current === completingRoute.id ? null : current);
+      setCompletingRoute(null);
+      setCompletionOdometer('');
+      setMessage('Maršrutas užbaigtas: visi taškai pažymėti pristatytais, odometras išsaugotas.');
+      await load();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Maršruto užbaigti nepavyko.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   const editSequence = (route: LocalRoute) => {
@@ -502,7 +503,6 @@ export default function RouteManagementScreen() {
                 </View>
                 <Text style={styles.routeNumbers}>{route.total_stops} taškų · {Math.round(route.total_weight_kg)} kg · {formatKm(route.estimated_distance_km)}</Text>
                 {assignment ? <Text style={styles.assignmentMeta}>{assignment.driverName}{assignment.vehicle ? ` · ${assignment.vehicle.registrationNumber}` : ' · automobilis nepriskirtas'}{assignmentLoadLabel(assignment, route.total_weight_kg)}</Text> : null}
-                <Text numberOfLines={2} style={styles.routeEndpoint}>{endpointLabel(route.start_location_json)} → {endpointLabel(route.end_location_json)}</Text>
                 {(() => {
                   const canReorder = ['draft', 'planned', 'in_progress'].includes(route.status);
                   const canComplete = ['loading', 'loaded', 'in_progress'].includes(route.status);
@@ -587,7 +587,14 @@ export default function RouteManagementScreen() {
                   const menuOpen = openCardMenuId === assignment.id;
                   return <View style={styles.cardActionsWrap}>
                     <View style={styles.activeAssignmentActions}>
-                      <Pressable disabled={busy || !online} onPress={() => completeAssignment(assignment)} style={[styles.routeCompleteAction, (busy || !online) && styles.disabled]} testID={`complete-assignment-${assignment.id}`}><CheckIcon size={17} color={colors.textInverse} /><Text style={styles.routeCompleteActionText}>Užbaigti</Text></Pressable>
+                      <Pressable
+                        disabled={busy || !online}
+                        onPress={() => localRoute ? completeLocalRoute(localRoute) : completeAssignment(assignment)}
+                        style={[styles.routeCompleteAction, (busy || !online) && styles.disabled]}
+                        testID={`complete-assignment-${assignment.id}`}>
+                        <CheckIcon size={17} color={colors.textInverse} />
+                        <Text style={styles.routeCompleteActionText}>Užbaigti</Text>
+                      </Pressable>
                       <Pressable
                         accessibilityLabel="Daugiau veiksmų"
                         disabled={!online}
@@ -623,10 +630,6 @@ export default function RouteManagementScreen() {
               <Text style={styles.panelHint}>{routeCodesLabel(selectedRoute.route_codes)} · {formatDate(selectedRoute.date)} · {selectedRoute.total_stops} taškų · {Math.round(selectedRoute.total_weight_kg)} kg · {formatKm(selectedRoute.estimated_distance_km)}</Text>
             </View>
             <Pressable style={styles.changeRouteButton} onPress={() => selectRoute(null)}><Text style={styles.changeRouteText}>Keisti maršrutą</Text></Pressable>
-          </View>
-
-          <View style={styles.selectedRouteSummary}>
-            <Text numberOfLines={2} style={styles.routeEndpoint}>{endpointLabel(selectedRoute.start_location_json)} → {endpointLabel(selectedRoute.end_location_json)}</Text>
           </View>
 
           <View style={[styles.selectorGrid, desktop && styles.selectorGridDesktop]}>
@@ -693,7 +696,6 @@ export default function RouteManagementScreen() {
             <View style={styles.confirmationSummary}>
               <Summary label="Bus priskirta" value={`${formatDate(selectedRoute.date)} · ${selectedRoute.total_stops} taškų → ${selectedDriver.displayName} · ${selectedVehicle.registrationNumber}`} styles={styles} />
               {selectedLoad ? <Summary label="Apkrova" value={`${selectedLoad.percentLabel} · ${selectedLoad.ratioLabel}`} styles={styles} testID="vehicle-load-percent" warning={selectedLoad.overCapacity} /> : null}
-              <Summary label="Sandėlis / pradžia" value={endpointLabel(selectedRoute.start_location_json)} styles={styles} />
               {selectedPrice
                 ? <PreliminaryPriceCard price={selectedPrice} styles={styles} />
                 : <View style={styles.pricePending}><Text style={styles.pricePendingTitle}>Preliminari kaina dar neskaičiuojama</Text><Text style={styles.panelHint}>Maršrutui dar neapskaičiuotas atstumas.</Text></View>}
@@ -728,6 +730,31 @@ export default function RouteManagementScreen() {
             <View style={styles.modalActions}>
               <Pressable disabled={busy} onPress={() => setEditingAssignment(null)} style={styles.secondaryButton}><Text style={styles.secondaryText}>Atšaukti</Text></Pressable>
               <Pressable disabled={busy || !editingAssignmentDate} onPress={() => { void saveAssignmentDate(); }} style={[styles.primaryButton, (busy || !editingAssignmentDate) && styles.disabled]} testID="save-assignment-date">{busy ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.primaryText}>Išsaugoti datą</Text>}</Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      <Modal animationType="fade" transparent visible={Boolean(completingRoute)} onRequestClose={() => setCompletingRoute(null)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard} testID="manual-route-completion">
+            <View style={styles.modalHeader}>
+              <View style={styles.formHeadingText}>
+                <Text style={styles.panelTitle}>Rankiniu būdu užbaigti maršrutą</Text>
+                <Text style={styles.panelHint}>{completingRoute ? `${routeCodesLabel(completingRoute.route_codes)} · ${formatDate(completingRoute.date)} · ${completingRoute.total_stops} taškų` : ''}</Text>
+              </View>
+              <Pressable accessibilityLabel="Uždaryti" onPress={() => setCompletingRoute(null)} style={styles.modalClose}><Text style={styles.modalCloseText}>×</Text></Pressable>
+            </View>
+            <View style={styles.completionNotice}>
+              <Text style={styles.completionNoticeTitle}>Bus pažymėta</Text>
+              <Text style={styles.panelHint}>Visi dar neapdoroti taškai – pristatyti. Maršrutas – baigtas.</Text>
+            </View>
+            <View style={styles.modalField}>
+              <Text style={styles.selectorLabel}>Galutinis odometras</Text>
+              <TextInput value={completionOdometer} onChangeText={(value) => setCompletionOdometer(value.replace(/[^\d.,]/g, '').slice(0, 10))} keyboardType="decimal-pad" placeholder="Pvz. 675628" style={styles.modalInput} testID="manual-completion-odometer" />
+            </View>
+            <View style={styles.modalActions}>
+              <Pressable disabled={busy} onPress={() => setCompletingRoute(null)} style={styles.secondaryButton}><Text style={styles.secondaryText}>Atšaukti</Text></Pressable>
+              <Pressable disabled={busy || !completionOdometer.trim()} onPress={() => { void saveManualCompletion(); }} style={[styles.primaryButton, (busy || !completionOdometer.trim()) && styles.disabled]} testID="confirm-manual-completion">{busy ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.primaryText}>Patvirtinti užbaigimą</Text>}</Pressable>
             </View>
           </View>
         </View>
@@ -795,7 +822,6 @@ function assignmentRouteLabel(assignment: ServerRouteAssignment): string {
   return `${regionCodes.join(' · ') || 'Regiono kodas nenurodytas'} · ${formatDate(date)} · ${stops} taškų`;
 }
 function formatKm(value: number | null): string { return value === null ? 'atstumas dar neskaičiuotas' : `${new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(value)} km`; }
-function endpointLabel(json: string | null): string { try { const value = JSON.parse(json ?? '{}') as { normalizedAddress?: string; originalAddress?: string }; return value.normalizedAddress ?? value.originalAddress ?? 'Nenurodyta'; } catch { return 'Nenurodyta'; } }
 function statusLabel(status: string): string { return ({ draft: 'Ruošiamas', planned: 'Paruoštas', assigned: 'Laukia vairuotojo', downloaded: 'Gautas įrenginyje', in_progress: 'Vykdomas', loading: 'Kraunamas', loaded: 'Pakrautas', completed: 'Baigtas' } as Record<string, string>)[status] ?? status; }
 function statusTone(status: string): 'info' | 'warning' | 'success' | 'neutral' {
   if (status === 'completed') return 'success';
@@ -837,6 +863,8 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   modalClose: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border },
   modalCloseText: { fontSize: 26, lineHeight: 28, color: colors.textMuted },
   modalField: { gap: spacing.xs },
+  completionNotice: { padding: spacing.md, borderRadius: radius.md, borderLeftWidth: 4, borderLeftColor: colors.success, backgroundColor: colors.accentSoft, gap: 2 },
+  completionNoticeTitle: { ...type.bodyStrong, color: colors.success },
   modalInput: { minHeight: 50, paddingHorizontal: spacing.md, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surfaceSubtle, color: colors.text, ...type.bodyStrong },
   modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.sm },
   scroll: { flex: 1, minWidth: 0 },
@@ -908,7 +936,6 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   cardMenuItemDangerText: { ...type.button, color: colors.danger },
   changeRouteButton: { minHeight: 44, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface },
   changeRouteText: { ...type.button, color: colors.textSecondary },
-  selectedRouteSummary: { padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceSubtle, borderWidth: 1, borderColor: colors.borderSubtle },
   formHeading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.md },
   formHeadingText: { flex: 1, minWidth: 0, gap: 2 },
   stepBadge: { ...type.meta, color: colors.info, backgroundColor: colors.infoSoft, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.pill, overflow: 'hidden' },

@@ -657,9 +657,11 @@ function StopEditor(props: {
         onBlur={() => {
           const coordinates = parseCoordinateInput(address.trim());
           void props.onEdit(coordinates ? {
-            originalAddress: address.trim(),
+            // Coordinates only repair the location. Keep the imported/manual
+            // place name as the operational label shown to the driver.
+            originalAddress: stop.originalAddress,
             geocodingQuery: address.trim(),
-            normalizedAddress: `${coordinates.latitude.toFixed(5)}, ${coordinates.longitude.toFixed(5)} (koordinatės)`,
+            normalizedAddress: stop.normalizedAddress ?? stop.originalAddress,
             latitude: coordinates.latitude,
             longitude: coordinates.longitude,
             addressValidationState: 'auto_confirmed',

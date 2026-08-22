@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Stack, useFocusEffect, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
@@ -6,6 +6,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { resolveRoute } from '@/application/routes/route-navigation';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { DriverAppTabs } from '@/components/driver-app-tabs';
+import { ChevronDownIcon, ChevronRightIcon } from '@/components/app-icons';
 import { RouteListCard } from '@/components/route-list-card';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import type { Route } from '@/domain/route';
@@ -34,6 +35,8 @@ export default function RoutesScreen() {
   const [historyRoutes, setHistoryRoutes] = useState<Route[]>([]);
   const [routeCodes, setRouteCodes] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [plannedOpen, setPlannedOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   useFocusEffect(useCallback(() => {
     let mounted = true;
@@ -68,6 +71,10 @@ export default function RoutesScreen() {
   }, [db, online, profile, repository]));
 
   const goHome = () => router.replace(roleHomePath(profile.role) as Href);
+  const activeRoutes = operationalRoutes.filter((route) => ['loading', 'loaded', 'in_progress'].includes(route.status));
+  const plannedRoutes = operationalRoutes.filter((route) => !['loading', 'loaded', 'in_progress'].includes(route.status));
+  const plannedGroups = groupRoutesByDate(plannedRoutes);
+  const historyGroups = groupHistoryByMonth(historyRoutes);
   const openOperationalRoute = (route: Route, editOrder = false) => {
     router.push({ pathname: '/route/[id]/overview', params: { id: route.id, ...(editOrder ? { edit: 'order' } : {}) } } as unknown as Href);
   };
@@ -79,12 +86,12 @@ export default function RoutesScreen() {
     <>
       <Stack.Screen options={{ gestureEnabled: false }} />
       <View style={[styles.screen, { maxWidth: contentWidth }]}>
-        <FoundationScreen contentMaxWidth={contentWidth} showFoundationNotice={false} title="Maršrutai" description="Aktyvūs, būsimi ir ankstesni jūsų maršrutai vienoje vietoje.">
+        <FoundationScreen contentMaxWidth={contentWidth} showFoundationNotice={false} title="Maršrutai" description="Vykdomi, suplanuoti ir užbaigti maršrutai aiškiai atskirti.">
           {error ? <Text style={styles.error}>{error}</Text> : null}
 
-          {operationalRoutes.length > 0 ? <Text style={styles.sectionLabel}>DABAR IR TOLIAU</Text> : null}
+          {activeRoutes.length > 0 ? <Text style={styles.sectionLabel}>VYKDOMA DABAR</Text> : null}
           <View style={[styles.routeGrid, wideLayout && styles.routeGridWide]}>
-          {operationalRoutes.map((route) => <RouteListCard
+          {activeRoutes.map((route) => <RouteListCard
             actionLabel={route.status === 'in_progress' ? 'Tęsti' : 'Pradėti'}
             dateLabel={formatLithuanianDate(route.date)}
             distanceLabel={`${route.estimatedDistanceKm?.toFixed(1) ?? '—'} km`}
@@ -102,10 +109,46 @@ export default function RoutesScreen() {
           />)}
           </View>
 
-          {historyRoutes.length > 0 ? <Text style={styles.sectionLabel}>ANKSTESNI</Text> : null}
-          <View style={[styles.routeGrid, wideLayout && styles.routeGridWide]}>
-          {historyRoutes.map((route) => {
-            return (
+          {plannedRoutes.length > 0 ? <CollapsibleRouteGroup
+            count={plannedRoutes.length}
+            description={`${plannedGroups.length} ${plannedGroups.length === 1 ? 'data' : 'datos'} · atverkite tik kai reikia`}
+            expanded={plannedOpen}
+            onPress={() => setPlannedOpen((current) => !current)}
+            styles={styles}
+            testID="planned-routes-group"
+            title="Suplanuoti maršrutai">
+            {plannedGroups.map((group) => <View key={group.key} style={styles.dateGroup}>
+              <View style={styles.dateGroupHeading}><Text style={styles.dateGroupTitle}>{formatLithuanianDate(group.key)}</Text><Text style={styles.groupCount}>{group.routes.length}</Text></View>
+              <View style={[styles.routeGrid, wideLayout && styles.routeGridWide]}>{group.routes.map((route) => <RouteListCard
+                actionLabel="Pradėti"
+                dateLabel={formatLithuanianDate(route.date)}
+                distanceLabel={`${route.estimatedDistanceKm?.toFixed(1) ?? '—'} km`}
+                key={route.id}
+                numberLabel={routeCodeLabel(route.id, routeCodes)}
+                onPress={() => startOperationalRoute(route)}
+                onSecondaryPress={() => openOperationalRoute(route, ['planned', 'in_progress'].includes(route.status))}
+                secondaryActionLabel={['planned', 'in_progress'].includes(route.status) ? 'Redaguoti' : 'Informacija'}
+                statusLabel={operationalRouteLabel(route)}
+                statusTone="planned"
+                style={wideLayout ? styles.routeCardWide : undefined}
+                stopsLabel={String(route.totalStops)}
+                testID={`operational-route-${route.id}`}
+                weightLabel={`${formatWeightKg(route.totalWeightKg)} kg`}
+              />)}</View>
+            </View>)}
+          </CollapsibleRouteGroup> : null}
+
+          {historyRoutes.length > 0 ? <CollapsibleRouteGroup
+            count={historyRoutes.length}
+            description={`${historyGroups.length} ${historyGroups.length === 1 ? 'mėnuo' : 'mėnesiai'} · užbaigti ir atšaukti maršrutai`}
+            expanded={historyOpen}
+            onPress={() => setHistoryOpen((current) => !current)}
+            styles={styles}
+            testID="completed-routes-history"
+            title="Užbaigtų maršrutų istorija">
+            {historyGroups.map((group) => <View key={group.key} style={styles.dateGroup}>
+              <View style={styles.dateGroupHeading}><Text style={styles.dateGroupTitle}>{group.label}</Text><Text style={styles.groupCount}>{group.routes.length}</Text></View>
+              <View style={[styles.routeGrid, wideLayout && styles.routeGridWide]}>{group.routes.map((route) => (
               <RouteListCard
                 actionLabel="Peržiūrėti rezultatą"
                 dateLabel={formatLithuanianDate(route.date)}
@@ -120,9 +163,9 @@ export default function RoutesScreen() {
                 testID={`history-route-${route.id}`}
                 weightLabel={`${formatWeightKg(route.totalWeightKg)} kg`}
               />
-            );
-          })}
-          </View>
+              ))}</View>
+            </View>)}
+          </CollapsibleRouteGroup> : null}
 
           {operationalRoutes.length === 0 && historyRoutes.length === 0 ? (
             <View style={styles.empty}>
@@ -139,6 +182,55 @@ export default function RoutesScreen() {
   );
 }
 
+function CollapsibleRouteGroup({ children, count, description, expanded, onPress, styles, testID, title }: {
+  children: ReactNode;
+  count: number;
+  description: string;
+  expanded: boolean;
+  onPress: () => void;
+  styles: ReturnType<typeof createStyles>;
+  testID: string;
+  title: string;
+}) {
+  return <View style={styles.collapsibleGroup} testID={testID}>
+    <Pressable accessibilityRole="button" accessibilityState={{ expanded }} onPress={onPress} style={({ pressed }) => [styles.collapsibleHeader, pressed && styles.pressed]}>
+      <View style={styles.flex}>
+        <Text style={styles.collapsibleTitle}>{title}</Text>
+        <Text style={styles.collapsibleDescription}>{description}</Text>
+      </View>
+      <Text style={styles.collapsibleCount}>{count}</Text>
+      {expanded ? <ChevronDownIcon size={20} /> : <ChevronRightIcon size={20} />}
+    </Pressable>
+    {expanded ? <View style={styles.collapsibleContent}>{children}</View> : null}
+  </View>;
+}
+
+function groupRoutesByDate(routes: Route[]): { key: string; routes: Route[] }[] {
+  const groups = new Map<string, Route[]>();
+  for (const route of routes) groups.set(route.date, [...(groups.get(route.date) ?? []), route]);
+  return [...groups.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([key, grouped]) => ({ key, routes: grouped }));
+}
+
+function groupHistoryByMonth(routes: Route[]): { key: string; label: string; routes: Route[] }[] {
+  const groups = new Map<string, Route[]>();
+  for (const route of routes) {
+    const source = route.completedAt ?? route.cancelledAt ?? route.date;
+    const key = source.slice(0, 7);
+    groups.set(key, [...(groups.get(key) ?? []), route]);
+  }
+  return [...groups.entries()].sort(([left], [right]) => right.localeCompare(left)).map(([key, grouped]) => ({
+    key,
+    label: formatHistoryMonth(key),
+    routes: grouped,
+  }));
+}
+
+function formatHistoryMonth(value: string): string {
+  const date = new Date(`${value}-01T12:00:00.000Z`);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat('lt-LT', { timeZone: 'Europe/Vilnius', year: 'numeric', month: 'long' }).format(date);
+}
+
 function operationalRouteLabel(route: Route): string {
   if (route.status === 'in_progress') return 'Vykdomas';
   if (route.status === 'loaded') return 'Paruoštas';
@@ -152,6 +244,18 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   routeGrid: { gap: spacing.md },
   routeGridWide: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'stretch' },
   routeCardWide: { flexGrow: 1, flexBasis: 320, minWidth: 0, maxWidth: 470 },
+  flex: { flex: 1, minWidth: 0 },
+  pressed: { opacity: 0.8 },
+  collapsibleGroup: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, backgroundColor: colors.surface, overflow: 'hidden' },
+  collapsibleHeader: { minHeight: 72, padding: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  collapsibleTitle: { ...type.sectionTitle, color: colors.text },
+  collapsibleDescription: { ...type.secondary, color: colors.textMuted, marginTop: 2 },
+  collapsibleCount: { minWidth: 34, textAlign: 'center', paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.sm, overflow: 'hidden', ...type.secondaryStrong, color: colors.info, backgroundColor: colors.infoSoft },
+  collapsibleContent: { padding: spacing.md, paddingTop: 0, gap: spacing.lg },
+  dateGroup: { gap: spacing.sm, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.borderSubtle },
+  dateGroupHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
+  dateGroupTitle: { ...type.bodyStrong, color: colors.text },
+  groupCount: { ...type.secondaryStrong, color: colors.textMuted },
   empty: { padding: spacing.lg, borderWidth: 1, borderRadius: radius.lg, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.xs },
   sectionLabel: { ...type.label, color: colors.textMuted, marginTop: spacing.sm },
   title: { ...type.sectionTitle, color: colors.text },

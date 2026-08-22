@@ -13,8 +13,7 @@ export function GroupedMenuSection({ children, label, testID }: { children: Reac
   return <View style={styles.section} testID={testID}>
     <Text style={styles.sectionLabel}>{label}</Text>
     <View style={styles.body}>
-      {rows.map((row, index) => <View key={index}>
-        {index > 0 ? <View style={styles.divider} /> : null}
+      {rows.map((row, index) => <View key={index} style={styles.item}>
         {row}
       </View>)}
     </View>
@@ -69,19 +68,35 @@ function iconTone(tone: 'info' | 'success' | 'warning' | 'danger' | 'neutral', s
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   section: { gap: spacing.xs },
   sectionLabel: { ...type.label, color: colors.textMuted, paddingHorizontal: spacing.xs },
-  body: { overflow: 'hidden', borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface },
-  divider: { height: 1, marginHorizontal: spacing.md, backgroundColor: colors.border },
-  row: { minHeight: 72, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  pressed: { backgroundColor: colors.surfaceSubtle },
+  body: { gap: spacing.sm },
+  item: { minWidth: 0 },
+  row: {
+    minHeight: 86,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+    backgroundColor: colors.surface,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    shadowColor: '#101828',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.1,
+    shadowRadius: 11,
+    elevation: 3,
+  },
+  pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
   disabled: { opacity: 0.48 },
-  icon: { width: 42, height: 42, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
+  icon: { width: 58, height: 58, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   iconInfo: { backgroundColor: colors.infoSoft },
   iconSuccess: { backgroundColor: colors.accentSoft },
   iconWarning: { backgroundColor: colors.warningSoft },
   iconDanger: { backgroundColor: colors.dangerSoft },
   iconNeutral: { backgroundColor: colors.surfaceMuted },
   copy: { flex: 1, minWidth: 0, gap: 2 },
-  title: { ...type.bodyStrong, color: colors.text },
+  title: { ...type.sectionTitle, color: colors.text },
   dangerTitle: { color: colors.danger },
   description: { ...type.secondary, color: colors.textSecondary },
 });

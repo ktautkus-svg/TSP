@@ -73,7 +73,10 @@ export default function ExecuteRouteScreen() {
         completionStartedAt: typeof route.completion_started_at === 'string' ? route.completion_started_at : null,
         hasSelectedCandidate: Boolean(route.selected_candidate_id),
       });
-      router.push({ pathname: destination.pathname, params: destination.params } as Href);
+      router.push({
+        pathname: destination.pathname,
+        params: { ...destination.params, returnTo: 'execute-route' },
+      } as Href);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Maršruto atidaryti nepavyko.');
     } finally {

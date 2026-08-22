@@ -923,12 +923,14 @@ export class CompleteRoute extends WorkdayCommand {
   }
 }
 
-/**
- * Dispatcher/admin override: close a hanging route from any non-terminal
- * status without odometer or return-home. Pending stops stay unmarked.
- */
+/** Dispatcher/admin override for closing a non-terminal route. Legacy callers
+ * may keep pending stops untouched; the explicit manual-close flow records the
+ * final odometer and marks remaining stops delivered. */
 export class AdminCompleteRoute extends WorkdayCommand {
-  async execute(routeId: string): Promise<{ idempotent: boolean; summary: RouteCompletionSummary }> {
+  async execute(
+    routeId: string,
+    input?: { endOdometer?: number; markAllDelivered?: boolean },
+  ): Promise<{ idempotent: boolean; summary: RouteCompletionSummary }> {
     const route = await this.route(routeId);
     if (route.status === 'completed' && route.completionSummary) {
       return { idempotent: true, summary: route.completionSummary };
@@ -936,16 +938,53 @@ export class AdminCompleteRoute extends WorkdayCommand {
     if (['completed', 'cancelled'].includes(route.status)) {
       throw new RouteCommandError('INVALID_ROUTE_STATE', 'Šio maršruto užbaigti nebegalima.');
     }
+    if (input?.endOdometer !== undefined) {
+      validateOdometer(input.endOdometer);
+      if (route.startOdometer !== null && input.endOdometer < route.startOdometer) {
+        throw new Error('Galutinis odometras negali būti mažesnis už pradinį.');
+      }
+    }
     const stops = await this.routes.getStops(routeId);
-    const summary = buildAdminCompletionSummary(route, stops);
     const now = this.clock();
+    const completedStops = input?.markAllDelivered
+      ? stops.map((stop) => ({
+        ...stop,
+        deliveryStatus: 'delivered' as const,
+        deliveredAt: stop.deliveredAt ?? now,
+        failedAt: null,
+        failureReason: null,
+        failureComment: null,
+      }))
+      : stops;
+    const actualDistanceKm = input?.endOdometer !== undefined && route.startOdometer !== null
+      ? round(input.endOdometer - route.startOdometer)
+      : route.actualDistanceKm;
+    const summary = buildAdminCompletionSummary({ ...route, actualDistanceKm }, completedStops);
     await this.db.withTransactionAsync(async () => {
+      if (input?.markAllDelivered) {
+        await this.db.runAsync(
+          `UPDATE delivery_stops SET delivery_status = 'delivered',
+           delivered_at = COALESCE(delivered_at, ?), failed_at = NULL,
+           failure_reason = NULL, failure_comment = NULL, updated_at = ?
+           WHERE route_id = ? AND delivery_status <> 'delivered'`,
+          now,
+          now,
+          routeId,
+        );
+      }
       const result = await this.db.runAsync(
         `UPDATE routes SET status = 'completed',
          remaining_stops = 0, remaining_weight_kg = 0, remaining_unknown_weight_stops = 0,
+         end_odometer = COALESCE(?, end_odometer),
+         end_odometer_recorded_at = CASE WHEN ? IS NULL THEN end_odometer_recorded_at ELSE ? END,
+         actual_distance_km = ?,
          completion_summary_json = ?, completion_end_odometer_draft = NULL,
          completed_at = ?, updated_at = ?
          WHERE id = ? AND status NOT IN ('completed', 'cancelled')`,
+        input?.endOdometer ?? null,
+        input?.endOdometer ?? null,
+        now,
+        actualDistanceKm,
         JSON.stringify(summary),
         now,
         now,
@@ -955,7 +994,7 @@ export class AdminCompleteRoute extends WorkdayCommand {
         throw new RouteCommandError('INVALID_ROUTE_STATE', 'Maršruto būsena jau pasikeitė.');
       }
       await this.journal(routeId, null, 'route_completed_by_admin', { status: route.status }, {
-        status: 'completed', summary,
+        status: 'completed', endOdometer: input?.endOdometer ?? route.endOdometer, markAllDelivered: Boolean(input?.markAllDelivered), summary,
       });
     });
     return { idempotent: false, summary };

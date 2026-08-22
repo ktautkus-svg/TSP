@@ -23,7 +23,7 @@ describe('administrator workspace navigation', () => {
     expect(home).toContain('Kokybės kontrolė');
     expect(home).toContain('Vykdyti maršrutą');
     expect(home).toContain('Kelionės lapai');
-    expect(home).toContain('TripSheetIcon');
+    expect(home).toContain('<MenuArtwork kind="trip-sheet" />');
     expect(home).toMatch(/profile\.role === ['"]admin['"]\s*\?\s*\[\]/);
   });
 

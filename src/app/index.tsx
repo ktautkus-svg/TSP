@@ -11,11 +11,11 @@ import { resolveRoute } from '@/application/routes/route-navigation';
 import { GetRouteProgress, type RouteProgress } from '@/application/routes/route-workday';
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 import { AccountMenuSheet } from '@/components/account-menu-sheet';
-import { DispatchIcon, ExecuteRouteIcon, QualityIcon, SettingsIcon, TripSheetIcon } from '@/components/app-icons';
 import { BrandHeader } from '@/components/brand-header';
 import { DriverAppTabs } from '@/components/driver-app-tabs';
 import { DriverNowDashboard } from '@/components/driver-now-dashboard';
 import { GroupedMenuRow, GroupedMenuSection } from '@/components/grouped-menu';
+import { MenuArtwork } from '@/components/menu-artwork';
 import { ScreenContainer } from '@/components/screen-container';
 import { AppButton, AppCard } from '@/components/ui-primitives';
 import { RouteRepository } from '@/database/repositories/route-repository';
@@ -141,21 +141,21 @@ export default function HomeScreen() {
           {profile.role === 'admin' ? (
             <View style={styles.adminMenu} testID="admin-home-menu">
               <View style={styles.adminMenuHeading}>
-                <Text style={styles.eyebrow}>ADMINISTRATORIAUS MENIU</Text>
+                <Text style={styles.adminMenuEyebrow}>ADMINISTRATORIAUS MENIU</Text>
                 <Text style={styles.adminMenuTitle}>TSP valdymo centras</Text>
-                <Text style={styles.activeText}>Pasirinkite užduotį. Maršrutai administratoriaus vardu automatiškai nepradedami.</Text>
+                <Text style={styles.adminMenuText}>{profile.displayName}</Text>
               </View>
               <View style={styles.adminMenuSections}>
                 <View style={styles.adminMenuGroup}><GroupedMenuSection label="OPERACIJOS">
-                  <GroupedMenuRow description="Kurti, redaguoti ir priskirti maršrutus." icon={<DispatchIcon />} onPress={() => router.push('/dispatcher' as Href)} title="Dispečerio skydelis" />
-                  <GroupedMenuRow description="Pasirinkti vairuotoją ir tęsti jo darbą." icon={<ExecuteRouteIcon color={colors.info} />} onPress={() => router.push('/execute-route' as Href)} title="Vykdyti maršrutą" />
+                  <GroupedMenuRow description="Kurti, redaguoti ir priskirti maršrutus." icon={<MenuArtwork kind="dispatch" />} onPress={() => router.push('/dispatcher' as Href)} title="Dispečerio skydelis" />
+                  <GroupedMenuRow description="Pasirinkti vairuotoją ir tęsti jo darbą." icon={<MenuArtwork kind="execute" />} onPress={() => router.push('/execute-route' as Href)} title="Vykdyti maršrutą" />
                 </GroupedMenuSection></View>
                 <View style={styles.adminMenuGroup}><GroupedMenuSection label="STEBĖJIMAS IR APSKAITA">
-                  <GroupedMenuRow description="Taškų seka, laikai ir pristatymo kokybė." icon={<QualityIcon color={colors.accent} />} onPress={() => router.push('/quality-control' as Href)} title="Kokybės kontrolė" tone="success" />
-                  <GroupedMenuRow description="Odometrai, suvestinės ir spausdinimas." icon={<TripSheetIcon color={colors.textMuted} />} onPress={() => router.push({ pathname: '/trip-sheet', params: { returnTo: 'home' } } as Href)} title="Kelionės lapai" tone="neutral" />
+                  <GroupedMenuRow description="Taškų seka, laikai ir pristatymo kokybė." icon={<MenuArtwork kind="quality" />} onPress={() => router.push('/quality-control' as Href)} title="Kokybės kontrolė" tone="success" />
+                  <GroupedMenuRow description="Odometrai, suvestinės ir spausdinimas." icon={<MenuArtwork kind="trip-sheet" />} onPress={() => router.push({ pathname: '/trip-sheet', params: { returnTo: 'home' } } as Href)} title="Kelionės lapai" tone="neutral" />
                 </GroupedMenuSection></View>
                 <View style={styles.adminMenuGroup}><GroupedMenuSection label="SISTEMA">
-                  <GroupedMenuRow description="Vairuotojai, automobiliai, vietos ir programėlė." icon={<SettingsIcon color={colors.textMuted} />} onPress={() => router.push('/settings' as Href)} title="Nustatymai" tone="neutral" />
+                  <GroupedMenuRow description="Vairuotojai, automobiliai, vietos ir programėlė." icon={<MenuArtwork kind="settings" />} onPress={() => router.push('/settings' as Href)} title="Nustatymai" tone="neutral" />
                 </GroupedMenuSection></View>
               </View>
             </View>
@@ -314,8 +314,10 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   warningText: { ...type.bodyStrong, color: colors.warning },
   pilotExportButton: { minHeight: 44 },
   adminMenu: { gap: spacing.md },
-  adminMenuHeading: { gap: spacing.xs },
-  adminMenuTitle: { ...type.pageTitle, color: colors.text, fontSize: 26, lineHeight: 32 },
+  adminMenuHeading: { gap: spacing.xs, paddingHorizontal: spacing.xs, paddingVertical: spacing.md },
+  adminMenuEyebrow: { ...type.label, color: colors.textMuted },
+  adminMenuTitle: { ...type.pageTitle, color: colors.text, fontSize: 32, lineHeight: 38 },
+  adminMenuText: { ...type.bodyStrong, color: colors.info },
   adminMenuSections: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: spacing.md },
   adminMenuGroup: { flexGrow: 1, flexBasis: 320, minWidth: 0 },
   // Tertiary navigation: deliberately quiet so it cannot compete with the

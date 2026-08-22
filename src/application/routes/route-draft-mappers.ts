@@ -53,6 +53,28 @@ export function manualAddressesToDraftStops(addresses: string[]): DraftStopInput
   }));
 }
 
+export function manualEntriesToDraftStops(entries: string[]): DraftStopInput[] {
+  const addresses = entries.map((entry) => entry.trim()).filter(Boolean);
+  const queries = applyDominantCityContext(addresses);
+  return addresses.map((entry, index) => ({
+    originalOrder: index + 1,
+    orderNumber: null,
+    recipient: null,
+    originalAddress: entry,
+    geocodingQuery: queries[index]!,
+    normalizedAddress: null,
+    addressValidationState: 'unconfirmed',
+    latitude: null,
+    longitude: null,
+    deliveryTimeFrom: null,
+    deliveryTimeTo: null,
+    requiredTimeWindow: false,
+    weightKg: null,
+    phone: null,
+    notes: null,
+  }));
+}
+
 export function routeEndpointFromGeocode(
   originalAddress: string,
   result: { normalizedAddress: string; latitude: number; longitude: number },

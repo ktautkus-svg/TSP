@@ -36,8 +36,9 @@ describe('stage 2.2 deterministic navigation', () => {
     const history = source('src/app/history.tsx');
     expect(history).toContain('router.replace(roleHomePath(profile.role) as Href)');
     expect(history).toContain('Į skydelį');
-    expect(history).toContain('DABAR IR TOLIAU');
-    expect(history).toContain('ANKSTESNI');
+    expect(history).toContain('VYKDOMA DABAR');
+    expect(history).toContain('Suplanuoti maršrutai');
+    expect(history).toContain('Užbaigtų maršrutų istorija');
     expect(history).toContain('repository.listOperational(owner)');
     expect(history).toContain('repository.listHistory(50, owner)');
     expect(history).toContain('Maršrutų dar nėra');
