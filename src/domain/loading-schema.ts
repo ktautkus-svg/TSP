@@ -12,6 +12,11 @@ export type LoadingBayId =
 
 export type LoadingBayOrientation = 'vertical' | 'horizontal';
 
+export type LoadingSchemaOptions = {
+  bodyKind?: VanBodyKind;
+  hasSideDoor?: boolean;
+};
+
 export type LoadingSchemaStopInput = {
   id: string;
   loadingSequence: number;
@@ -34,6 +39,7 @@ export type LoadingPlacement = {
   stackLevel: number;
   stackLabel: string;
   usePallet: boolean;
+  sideAccess: boolean;
   reason: string;
 };
 
@@ -42,15 +48,18 @@ export type LoadingBayView = {
   label: string;
   orientation: LoadingBayOrientation;
   nearDoors: boolean;
+  sideDoor: boolean;
   placements: LoadingPlacement[];
 };
 
 export type LoadingSchema = {
   bodyKind: VanBodyKind;
   bodyLabel: string;
+  hasSideDoor: boolean;
   bays: LoadingBayView[];
   placements: LoadingPlacement[];
   palletCount: number;
+  sideUnloadCount: number;
   summary: string;
 };
 
@@ -67,14 +76,14 @@ const LONG_BAYS: BayDefinition[] = [
   { id: 'front_right', label: 'Priekis dešinė', orientation: 'vertical', doorRank: 5 },
   { id: 'row_1', label: '1 eilė', orientation: 'horizontal', doorRank: 3 },
   { id: 'row_2', label: '2 eilė', orientation: 'horizontal', doorRank: 2 },
-  { id: 'row_3', label: 'Prie durų', orientation: 'horizontal', doorRank: 1 },
+  { id: 'row_3', label: 'Prie galinių durų', orientation: 'horizontal', doorRank: 1 },
 ];
 
 const SHORT_BAYS: BayDefinition[] = [
   { id: 'front_left', label: 'Priekis kairė', orientation: 'vertical', doorRank: 4 },
   { id: 'front_right', label: 'Priekis dešinė', orientation: 'vertical', doorRank: 4 },
   { id: 'row_1', label: '1 eilė', orientation: 'horizontal', doorRank: 2 },
-  { id: 'row_2', label: 'Prie durų', orientation: 'horizontal', doorRank: 1 },
+  { id: 'row_2', label: 'Prie galinių durų', orientation: 'horizontal', doorRank: 1 },
 ];
 
 export function isVanBodyKind(value: unknown): value is VanBodyKind {
@@ -93,14 +102,18 @@ export function shouldUsePallet(weightKg: number | null): boolean {
   return weightKg !== null && Number.isFinite(weightKg) && weightKg >= PALLET_WEIGHT_KG;
 }
 
-function sortKey(stop: LoadingSchemaStopInput): number {
-  return stop.loadingSequence;
+function normalizeOptions(options?: VanBodyKind | LoadingSchemaOptions): Required<LoadingSchemaOptions> {
+  if (options === 'van_long' || options === 'van_short') {
+    return { bodyKind: options, hasSideDoor: false };
+  }
+  return {
+    bodyKind: options?.bodyKind ?? 'van_long',
+    hasSideDoor: options?.hasSideDoor ?? false,
+  };
 }
 
-function overflowBays(bays: BayDefinition[]): BayDefinition[] {
-  return [...bays]
-    .filter((bay) => bay.orientation === 'horizontal')
-    .sort((left, right) => left.doorRank - right.doorRank);
+function sideDoorBay(bays: BayDefinition[]): BayDefinition | null {
+  return bays.find((bay) => bay.orientation === 'horizontal' && bay.doorRank === 2) ?? null;
 }
 
 function stackLabel(level: number, count: number): string {
@@ -115,36 +128,76 @@ function placementReason(input: {
   stackLabel: string;
   usePallet: boolean;
   nearDoors: boolean;
+  sideAccess: boolean;
 }): string {
   const pallet = input.usePallet
     ? `PLL, nes svoris nuo ${PALLET_WEIGHT_KG} kg`
     : 'be paletės';
-  const depth = input.nearDoors ? 'arčiau durų, kad pirmiau iškrautumėte' : 'giliau, nes pristatymas vėlesnis';
+  if (input.sideAccess) {
+    return `${input.bayLabel}, ${input.stackLabel}, ${pallet}. Iškrauti per šonines duris, kad nereikėtų kasti iš maršruto vidurio.`;
+  }
+  const depth = input.nearDoors
+    ? 'prie galinių durų, nes tai ankstesnis pristatymas'
+    : 'giliau, nes pristatymas vėlesnis';
   return `${input.bayLabel}, ${input.stackLabel}, ${pallet}. ${depth}.`;
+}
+
+function sideDoorCandidates(stops: readonly LoadingSchemaStopInput[]): LoadingSchemaStopInput[] {
+  if (stops.length < 3) return [];
+  const orders = stops.map((stop) => stop.deliveryOrder);
+  const first = Math.min(...orders);
+  const last = Math.max(...orders);
+  // First drop stays on the rear path even if heavy. Last drop stays toward the cabin.
+  // Only a heavy mid-route stop is pulled to the side so it can leave without unstacking 7→1.
+  return stops
+    .filter((stop) => shouldUsePallet(stop.weightKg) && stop.deliveryOrder > first && stop.deliveryOrder < last)
+    .sort((left, right) => (right.weightKg ?? 0) - (left.weightKg ?? 0) || left.deliveryOrder - right.deliveryOrder);
+}
+
+function assignRearAccess(
+  stops: readonly LoadingSchemaStopInput[],
+  bays: BayDefinition[],
+): Map<string, LoadingBayId> {
+  const assigned = new Map<string, LoadingBayId>();
+  if (bays.length === 0) return assigned;
+  const ordered = [...stops].sort((left, right) => left.loadingSequence - right.loadingSequence);
+  const rear = [...bays].sort((left, right) => left.doorRank - right.doorRank)[0] ?? bays[bays.length - 1];
+  if (ordered.length <= bays.length) {
+    const offset = bays.length - ordered.length;
+    ordered.forEach((stop, index) => {
+      assigned.set(stop.id, bays[offset + index].id);
+    });
+    return assigned;
+  }
+  ordered.forEach((stop, index) => {
+    assigned.set(stop.id, index < bays.length ? bays[index].id : rear.id);
+  });
+  return assigned;
 }
 
 export function recommendLoadingSchema(
   stops: readonly LoadingSchemaStopInput[],
-  bodyKind: VanBodyKind = 'van_long',
+  options?: VanBodyKind | LoadingSchemaOptions,
 ): LoadingSchema {
+  const { bodyKind, hasSideDoor } = normalizeOptions(options);
   const bays = baysForVanBody(bodyKind);
   const active = stops
     .filter((stop) => !stop.skipped)
     .slice()
-    .sort((left, right) => sortKey(left) - sortKey(right));
+    .sort((left, right) => left.loadingSequence - right.loadingSequence);
 
-  const assigned = new Map<string, LoadingBayId>();
-  const floorOrder = bays;
-  const overflow = overflowBays(bays);
+  const sideBay = hasSideDoor ? sideDoorBay(bays) : null;
+  const sideStops = sideBay ? sideDoorCandidates(active) : [];
+  const sideIds = new Set(sideStops.map((stop) => stop.id));
+  const rearStops = active.filter((stop) => !sideIds.has(stop.id));
+  const rearBays = sideBay && sideStops.length > 0
+    ? bays.filter((bay) => bay.id !== sideBay.id)
+    : bays;
 
-  active.forEach((stop, index) => {
-    if (index < floorOrder.length) {
-      assigned.set(stop.id, floorOrder[index].id);
-      return;
-    }
-    const overflowBay = overflow[(index - floorOrder.length) % Math.max(overflow.length, 1)] ?? floorOrder[floorOrder.length - 1];
-    assigned.set(stop.id, overflowBay.id);
-  });
+  const assigned = assignRearAccess(rearStops, rearBays);
+  for (const stop of sideStops) {
+    if (sideBay) assigned.set(stop.id, sideBay.id);
+  }
 
   const grouped = new Map<LoadingBayId, LoadingSchemaStopInput[]>();
   for (const bay of bays) grouped.set(bay.id, []);
@@ -156,17 +209,17 @@ export function recommendLoadingSchema(
 
   const placements: LoadingPlacement[] = [];
   const bayViews: LoadingBayView[] = bays.map((bay) => {
+    const isSide = Boolean(sideBay && bay.id === sideBay.id && sideStops.length > 0);
     const items = [...(grouped.get(bay.id) ?? [])].sort((left, right) => {
-      const leftWeight = left.weightKg ?? 0;
-      const rightWeight = right.weightKg ?? 0;
-      if (rightWeight !== leftWeight) return rightWeight - leftWeight;
-      return left.loadingSequence - right.loadingSequence;
+      if (right.deliveryOrder !== left.deliveryOrder) return right.deliveryOrder - left.deliveryOrder;
+      return (right.weightKg ?? 0) - (left.weightKg ?? 0);
     });
+    const label = isSide ? 'Šoninės durys' : bay.label;
     const bayPlacements = items.map((stop, stackLevel) => {
       const usePallet = shouldUsePallet(stop.weightKg);
       const stack = stackLabel(stackLevel, items.length);
       const nearDoors = bay.doorRank === 1;
-      const placement: LoadingPlacement = {
+      return {
         stopId: stop.id,
         loadingSequence: stop.loadingSequence,
         deliveryOrder: stop.deliveryOrder,
@@ -174,40 +227,53 @@ export function recommendLoadingSchema(
         recipient: stop.recipient,
         address: stop.address,
         bayId: bay.id,
-        bayLabel: bay.label,
+        bayLabel: label,
         stackLevel,
         stackLabel: stack,
         usePallet,
+        sideAccess: isSide,
         reason: placementReason({
-          bayLabel: bay.label,
+          bayLabel: label,
           stackLabel: stack,
           usePallet,
           nearDoors,
+          sideAccess: isSide,
         }),
       };
-      return placement;
     });
     placements.push(...bayPlacements);
     return {
       id: bay.id,
-      label: bay.label,
+      label,
       orientation: bay.orientation,
       nearDoors: bay.doorRank === 1,
+      sideDoor: isSide,
       placements: bayPlacements,
     };
   });
 
   const palletCount = placements.filter((item) => item.usePallet).length;
-  const summary = palletCount === 0
-    ? 'Sunkesni apačioje. Paletės nereikia — kraukite kaip stovi, pagal krovimo eilę.'
-    : `Sunkesni apačioje. ${palletCount === 1 ? '1 užsakymui' : `${palletCount} užsakymams`} rekomenduojama PLL; kitus kraukite be paletės.`;
+  const sideUnloadCount = placements.filter((item) => item.sideAccess).length;
+  const summary = [
+    'Maršruto eilė išlieka: pirmas taškas prie galinių durų, paskutinis — prie kabinos.',
+    hasSideDoor
+      ? sideUnloadCount > 0
+        ? 'Sunkų vidurio tašką kraukite prie šoninių durų, kad išeitų iškrauti neardant viso krovinio.'
+        : 'Šoninės durys yra, bet viduryje maršruto nėra sunkaus krovinio — kraunama tik per galą.'
+      : 'Šoninių durų nėra — kraunama tik pagal galines duris, viduryje mašinos pirmo taško nedėti.',
+    palletCount === 0
+      ? 'Paletės nereikia, nebent svoris didelis.'
+      : `${palletCount === 1 ? '1 užsakymui' : `${palletCount} užsakymams`} rekomenduojama PLL.`,
+  ].join(' ');
 
   return {
     bodyKind,
     bodyLabel: vanBodyLabel(bodyKind),
+    hasSideDoor,
     bays: bayViews,
     placements: placements.sort((left, right) => left.loadingSequence - right.loadingSequence),
     palletCount,
+    sideUnloadCount,
     summary,
   };
 }

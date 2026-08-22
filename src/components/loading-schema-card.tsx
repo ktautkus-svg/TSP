@@ -16,11 +16,15 @@ import type { ColorPalette } from '@/ui/theme-palette';
 export function LoadingSchemaCard({
   schema,
   bodyKind,
+  hasSideDoor,
   onBodyKindChange,
+  onSideDoorChange,
 }: {
   schema: LoadingSchema;
   bodyKind: VanBodyKind;
+  hasSideDoor: boolean;
   onBodyKindChange: (kind: VanBodyKind) => void;
+  onSideDoorChange: (value: boolean) => void;
 }) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -31,8 +35,8 @@ export function LoadingSchemaCard({
     <View style={styles.card} testID="loading-schema-card">
       <Text style={styles.title}>Krovimo schema</Text>
       <Text style={styles.hint}>
-        Abu van: priekyje dvi paletės vertikaliai, tada eilės horizontaliai iki durų. Tai tik išdėstymas —
-        9 iš 10 kartų krauname be PLL, nebent svoris didelis.
+        Maršrutas jau sudėliotas — pirmo taško viduryje nedėti. Jei yra šoninės durys, sunkų vidurio
+        tašką kraukite prie šono. Kitaip 9 iš 10 kartų be PLL.
       </Text>
       <View style={styles.bodyRow}>
         {VAN_BODY_KINDS.map((kind) => (
@@ -48,12 +52,33 @@ export function LoadingSchemaCard({
           </Pressable>
         ))}
       </View>
+      <View style={styles.bodyRow}>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => onSideDoorChange(true)}
+          style={[styles.bodyChip, hasSideDoor && styles.bodyChipActive]}
+          testID="van-side-door-yes">
+          <Text style={[styles.bodyChipText, hasSideDoor && styles.bodyChipTextActive]}>Šoninės durys yra</Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => onSideDoorChange(false)}
+          style={[styles.bodyChip, !hasSideDoor && styles.bodyChipActive]}
+          testID="van-side-door-no">
+          <Text style={[styles.bodyChipText, !hasSideDoor && styles.bodyChipTextActive]}>Šoninių durų nėra</Text>
+        </Pressable>
+      </View>
       <Text style={styles.cab}>Kabina</Text>
       <View style={styles.frontRow}>
         {front.map((bay) => <BayCell key={bay.id} bay={bay} styles={styles} />)}
       </View>
-      {rows.map((bay) => <BayCell key={bay.id} bay={bay} styles={styles} wide />)}
-      <Text style={styles.doors}>Durys</Text>
+      {rows.map((bay) => (
+        <View key={bay.id} style={styles.rowWrap}>
+          {bay.sideDoor ? <Text style={styles.sideTag}>Šonas</Text> : null}
+          <BayCell bay={bay} styles={styles} wide />
+        </View>
+      ))}
+      <Text style={styles.doors}>Galinės durys</Text>
       <Text style={styles.summary}>{schema.summary}</Text>
     </View>
   );
@@ -70,15 +95,21 @@ function BayCell({
 }) {
   return (
     <View
-      style={[styles.bay, wide && styles.bayWide, bay.nearDoors && styles.bayDoor]}
+      style={[
+        styles.bay,
+        wide && styles.bayWide,
+        bay.nearDoors && styles.bayDoor,
+        bay.sideDoor && styles.baySide,
+      ]}
       testID={`loading-bay-${bay.id}`}>
-      <Text style={styles.bayLabel}>{bay.label}</Text>
+      <Text style={[styles.bayLabel, bay.sideDoor && styles.bayLabelSide]}>{bay.label}</Text>
       {bay.placements.length === 0 ? (
         <Text style={styles.empty}>Tuščia</Text>
       ) : bay.placements.map((item) => (
         <Text key={item.stopId} style={styles.item}>
           {item.loadingSequence}. {formatWeightKg(item.weightKg)} kg · {item.stackLabel}
           {item.usePallet ? ' · PLL' : ''}
+          {item.sideAccess ? ' · per šoną' : ''}
           {'\n'}
           {shortAddress(item.address)}
         </Text>
@@ -120,6 +151,8 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   cab: { ...type.label, color: colors.textMuted, textAlign: 'center', textTransform: 'uppercase' },
   doors: { ...type.label, color: colors.textMuted, textAlign: 'center', textTransform: 'uppercase' },
   frontRow: { flexDirection: 'row', gap: spacing.sm },
+  rowWrap: { gap: 4 },
+  sideTag: { ...type.label, color: colors.warning, textTransform: 'uppercase' },
   bay: {
     flex: 1,
     minHeight: 56,
@@ -132,7 +165,9 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   },
   bayWide: { flex: 0, width: '100%' },
   bayDoor: { borderColor: colors.info },
+  baySide: { borderColor: colors.warning, backgroundColor: colors.warningSoft },
   bayLabel: { ...type.label, color: colors.info, textTransform: 'uppercase' },
+  bayLabelSide: { color: colors.warning },
   empty: { ...type.secondary, color: colors.textMuted },
   item: { ...type.secondaryStrong, color: colors.text },
   summary: { ...type.secondary, color: colors.textSecondary },

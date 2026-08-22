@@ -29,9 +29,9 @@ describe('van loading schema', () => {
       stop({ id: 'c', loadingSequence: 3, deliveryOrder: 1, weightKg: 10 }),
     ]);
     expect(schema.placements.map((item) => `${item.stopId}:${item.bayId}`)).toEqual([
-      'a:front_left',
-      'b:front_right',
-      'c:row_1',
+      'a:row_1',
+      'b:row_2',
+      'c:row_3',
     ]);
     expect(schema.palletCount).toBe(0);
   });
@@ -50,7 +50,9 @@ describe('van loading schema', () => {
     expect(schema.placements.find((item) => item.stopId === 's1')?.bayId).toBe('front_left');
     expect(schema.placements.find((item) => item.stopId === 's5')?.bayId).toBe('row_3');
     expect(schema.placements.find((item) => item.stopId === 's6')?.bayId).toBe('row_3');
-    expect(schema.placements.find((item) => item.stopId === 's7')?.bayId).toBe('row_2');
+    expect(schema.placements.find((item) => item.stopId === 's7')?.bayId).toBe('row_3');
+    const rear = schema.bays.find((bay) => bay.id === 'row_3');
+    expect(rear?.placements[rear.placements.length - 1]?.stopId).toBe('s7');
   });
 
   it('uses the shorter van floor of two vertical plus two horizontal bays', () => {
@@ -77,10 +79,9 @@ describe('van loading schema', () => {
     ];
     const schema = recommendLoadingSchema(stops, 'van_long');
     const door = schema.bays.find((bay) => bay.id === 'row_3');
-    expect(door?.placements.map((item) => item.stopId)).toEqual(['heavy', 's5']);
-    expect(door?.placements[0]?.usePallet).toBe(true);
-    expect(door?.placements[0]?.stackLabel).toBe('apačia');
-    expect(door?.placements[1]?.usePallet).toBe(false);
+    expect(door?.placements.map((item) => item.stopId)).toEqual(['s5', 'heavy']);
+    expect(door?.placements[1]?.usePallet).toBe(true);
+    expect(door?.placements[1]?.stackLabel).toBe('viršus');
     expect(schema.palletCount).toBe(1);
   });
 
@@ -91,7 +92,7 @@ describe('van loading schema', () => {
     ]);
     expect(schema.placements.map((item) => item.stopId)).toEqual(['unknown']);
     expect(schema.placements[0]?.usePallet).toBe(false);
-    expect(schema.placements[0]?.bayId).toBe('front_left');
+    expect(schema.placements[0]?.bayId).toBe('row_3');
   });
 
   it('derives loading sequence from reverse delivery order', () => {
@@ -108,6 +109,73 @@ describe('van loading schema', () => {
     expect(stops.map((item) => item.id)).toEqual(['last-delivery', 'first-delivery']);
     expect(stops[0]?.loadingSequence).toBe(1);
   });
+
+  it('keeps the first delivery at the rear doors when there is no side door', () => {
+    const stops = Array.from({ length: 7 }, (_, index) => stop({
+      id: `d${index + 1}`,
+      loadingSequence: index + 1,
+      deliveryOrder: 7 - index,
+      weightKg: index === 2 ? PALLET_WEIGHT_KG : 20,
+    }));
+    const schema = recommendLoadingSchema(stops, { bodyKind: 'van_long', hasSideDoor: false });
+    expect(schema.placements.find((item) => item.deliveryOrder === 1)?.bayId).toBe('row_3');
+    expect(schema.placements.find((item) => item.stopId === 'd3')?.sideAccess).toBe(false);
+    expect(schema.placements.find((item) => item.stopId === 'd3')?.bayId).not.toBe('row_2');
+  });
+
+  it('loads a heavy mid-route stop at the side door without burying the first drop', () => {
+    const stops = Array.from({ length: 7 }, (_, index) => stop({
+      id: `d${index + 1}`,
+      loadingSequence: index + 1,
+      deliveryOrder: 7 - index,
+      weightKg: 7 - index === 5 ? 240 : 18,
+    }));
+    const schema = recommendLoadingSchema(stops, { bodyKind: 'van_long', hasSideDoor: true });
+    const fifth = schema.placements.find((item) => item.deliveryOrder === 5);
+    const first = schema.placements.find((item) => item.deliveryOrder === 1);
+    const last = schema.placements.find((item) => item.deliveryOrder === 7);
+    expect(fifth?.bayId).toBe('row_2');
+    expect(fifth?.sideAccess).toBe(true);
+    expect(fifth?.usePallet).toBe(true);
+    expect(first?.bayId).toBe('row_3');
+    expect(first?.sideAccess).toBe(false);
+    expect(last?.bayId).toBe('front_left');
+    expect(schema.sideUnloadCount).toBe(1);
+    expect(schema.placements.filter((item) => !item.sideAccess).map((item) => `${item.deliveryOrder}:${item.bayId}`)).toEqual([
+      '7:front_left',
+      '6:front_right',
+      '4:row_1',
+      '3:row_3',
+      '2:row_3',
+      '1:row_3',
+    ]);
+    const rear = schema.bays.find((bay) => bay.id === 'row_3');
+    expect(rear?.placements.map((item) => item.deliveryOrder)).toEqual([3, 2, 1]);
+  });
+
+  it('uses the short-van side bay for a heavy mid-route stop', () => {
+    const schema = recommendLoadingSchema([
+      stop({ id: 'd4', loadingSequence: 1, deliveryOrder: 4, weightKg: 18 }),
+      stop({ id: 'd3', loadingSequence: 2, deliveryOrder: 3, weightKg: 240 }),
+      stop({ id: 'd2', loadingSequence: 3, deliveryOrder: 2, weightKg: 18 }),
+      stop({ id: 'd1', loadingSequence: 4, deliveryOrder: 1, weightKg: 18 }),
+    ], { bodyKind: 'van_short', hasSideDoor: true });
+    expect(schema.placements.find((item) => item.stopId === 'd3')?.bayId).toBe('row_1');
+    expect(schema.placements.find((item) => item.stopId === 'd3')?.sideAccess).toBe(true);
+    expect(schema.placements.find((item) => item.stopId === 'd1')?.bayId).toBe('row_2');
+    expect(schema.placements.find((item) => item.stopId === 'd4')?.bayId).toBe('front_left');
+  });
+
+  it('does not move the first stop to the side even when it is heavy', () => {
+    const schema = recommendLoadingSchema([
+      stop({ id: 'last', loadingSequence: 1, deliveryOrder: 3, weightKg: 20 }),
+      stop({ id: 'mid', loadingSequence: 2, deliveryOrder: 2, weightKg: 20 }),
+      stop({ id: 'first', loadingSequence: 3, deliveryOrder: 1, weightKg: 400 }),
+    ], { bodyKind: 'van_long', hasSideDoor: true });
+    expect(schema.placements.find((item) => item.stopId === 'first')?.bayId).toBe('row_3');
+    expect(schema.placements.find((item) => item.stopId === 'first')?.sideAccess).toBe(false);
+    expect(schema.sideUnloadCount).toBe(0);
+  });
 });
 
 describe('loading schema UI wiring', () => {
@@ -117,5 +185,10 @@ describe('loading schema UI wiring', () => {
     expect(loading).toContain('<LoadingSchemaCard');
     expect(card).toContain('testID="loading-schema-card"');
     expect(card).toContain('testID={`van-body-${kind}`}');
+    expect(card).toContain('testID="van-side-door-yes"');
+    expect(card).toContain('testID="van-side-door-no"');
+    expect(card).toContain('per šoną');
+    expect(loading).toContain('onSideDoorChange={changeSideDoor}');
+    expect(loading).toContain('{placement.sideAccess ? \' · per šoną\' : \'\'}');
   });
 });

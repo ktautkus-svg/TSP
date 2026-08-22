@@ -81,6 +81,7 @@ export default function LoadingScreen() {
   const [fuelBusy, setFuelBusy] = useState(false);
   const [readiness, setReadiness] = useState<DepartureReadiness | null>(null);
   const [vanBody, setVanBody] = useState<VanBodyKind>('van_long');
+  const [hasSideDoor, setHasSideDoor] = useState(false);
   const [gateBusy, setGateBusy] = useState(false);
   const [phoneDrafts, setPhoneDrafts] = useState<Record<string, string>>({});
   const bulkInFlight = useRef(false);
@@ -171,12 +172,15 @@ export default function LoadingScreen() {
   }, [load, syncRevision]);
 
   useEffect(() => {
-    void vanBodyPreference.get().then(setVanBody);
+    void vanBodyPreference.get().then((config) => {
+      setVanBody(config.bodyKind);
+      setHasSideDoor(config.hasSideDoor);
+    });
   }, [vanBodyPreference]);
 
   const loadingSchema = useMemo(
-    () => recommendLoadingSchema(toLoadingSchemaStops(stops), vanBody),
-    [stops, vanBody],
+    () => recommendLoadingSchema(toLoadingSchemaStops(stops), { bodyKind: vanBody, hasSideDoor }),
+    [hasSideDoor, stops, vanBody],
   );
   const placementById = useMemo(
     () => new Map(loadingSchema.placements.map((item) => [item.stopId, item])),
@@ -185,7 +189,12 @@ export default function LoadingScreen() {
 
   const changeVanBody = (kind: VanBodyKind) => {
     setVanBody(kind);
-    void vanBodyPreference.save(kind);
+    void vanBodyPreference.save({ bodyKind: kind });
+  };
+
+  const changeSideDoor = (value: boolean) => {
+    setHasSideDoor(value);
+    void vanBodyPreference.save({ hasSideDoor: value });
   };
 
   const markLoaded = async (stopId: string) => {
@@ -513,7 +522,13 @@ export default function LoadingScreen() {
           </View> : null}
         </View> : null}
         {stops.length > 0 ? (
-          <LoadingSchemaCard schema={loadingSchema} bodyKind={vanBody} onBodyKindChange={changeVanBody} />
+          <LoadingSchemaCard
+            schema={loadingSchema}
+            bodyKind={vanBody}
+            hasSideDoor={hasSideDoor}
+            onBodyKindChange={changeVanBody}
+            onSideDoorChange={changeSideDoor}
+          />
         ) : null}
         <View style={styles.plannedActions}>
         {profile.role === 'driver' ? <Pressable disabled={bulkBusy || Boolean(readiness && !readiness.canBeginLoading)} style={[styles.plannedPrimaryButton, (bulkBusy || Boolean(readiness && !readiness.canBeginLoading)) && styles.disabled]} onPress={beginLoading} testID="begin-loading">
@@ -580,7 +595,13 @@ export default function LoadingScreen() {
         </View>
       ) : null}
       {progress && stops.length > 0 ? (
-        <LoadingSchemaCard schema={loadingSchema} bodyKind={vanBody} onBodyKindChange={changeVanBody} />
+        <LoadingSchemaCard
+          schema={loadingSchema}
+          bodyKind={vanBody}
+          hasSideDoor={hasSideDoor}
+          onBodyKindChange={changeVanBody}
+          onSideDoorChange={changeSideDoor}
+        />
       ) : null}
       {progress && progress.totalStops > 0 ? (
         route?.status === 'loaded' ? (
@@ -682,7 +703,9 @@ export default function LoadingScreen() {
                 <Text style={styles.loadingSequenceLabel}>KROVIMO EILĖ {index + 1} · PRISTATYMO TAŠKAS {deliveryOrder}</Text>
                 {placement ? (
                   <Text style={styles.schemaHint}>
-                    Schema: {placement.bayLabel} · {placement.stackLabel}{placement.usePallet ? ' · PLL' : ''}
+                    Schema: {placement.bayLabel} · {placement.stackLabel}
+                    {placement.usePallet ? ' · PLL' : ''}
+                    {placement.sideAccess ? ' · per šoną' : ''}
                   </Text>
                 ) : null}
                 <Text style={styles.statusCaption}>
