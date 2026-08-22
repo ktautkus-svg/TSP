@@ -10,6 +10,7 @@ describe('Cloud Run deploy', () => {
   it('builds a unique image then deploys it instead of reusing a failed source revision', () => {
     expect(workflow).toContain('gcloud builds submit');
     expect(workflow).toContain('--tag "$IMAGE"');
+    expect(workflow).toContain('--suppress-logs');
     expect(workflow).toContain('--image "$IMAGE"');
     expect(workflow).toContain('--revision-suffix="s${GIT_SHA}"');
     expect(workflow).toContain('--no-traffic');

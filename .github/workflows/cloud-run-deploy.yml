@@ -142,6 +142,7 @@ jobs:
             --project="$GCP_PROJECT_ID" \
             --tag "$IMAGE" \
             --timeout=1200s \
+            --suppress-logs \
             --quiet
           gcloud run deploy "$CLOUD_RUN_SERVICE" \
             --image "$IMAGE" \
