@@ -1,4 +1,5 @@
 FROM node:24-alpine AS build
+# Force a new image after revision 00177 failed on an unresolved @/ import.
 WORKDIR /app
 COPY package.json package-lock.json ./
 # npm ci vykdo postinstall, todėl šis scenarijus turi būti konteineryje dar

@@ -133,14 +133,17 @@ jobs:
           WEEKLY_USAGE_UNITS: ${{ vars.GATEWAY_WEEKLY_USAGE_UNITS || '36450' }}
         run: |
           APP_VERSION=$(node -p "require('./package.json').version")
+          GIT_SHA=$(git rev-parse --short HEAD)
           gcloud run deploy "$CLOUD_RUN_SERVICE" \
             --source . \
             --project="$GCP_PROJECT_ID" \
             --region="$GCP_REGION" \
             --allow-unauthenticated \
             --max-instances=1 \
+            --no-traffic \
+            --revision-suffix="sha${GIT_SHA}" \
             --set-secrets="${{ steps.secrets.outputs.secrets_arg }}" \
-            --set-env-vars="GATEWAY_AUTH_MODE=none,GATEWAY_ENV=production,GATEWAY_REAL_PROVIDER_ARMED=${ARMED},GATEWAY_DAILY_BUDGET_CENTS=${DAILY_BUDGET_CENTS},GATEWAY_WEEKLY_BUDGET_CENTS=${WEEKLY_BUDGET_CENTS},GATEWAY_DAILY_USAGE_UNITS=${DAILY_USAGE_UNITS},GATEWAY_WEEKLY_USAGE_UNITS=${WEEKLY_USAGE_UNITS},APP_VERSION=${APP_VERSION}" \
+            --set-env-vars="GATEWAY_AUTH_MODE=none,GATEWAY_ENV=production,GATEWAY_REAL_PROVIDER_ARMED=${ARMED},GATEWAY_DAILY_BUDGET_CENTS=${DAILY_BUDGET_CENTS},GATEWAY_WEEKLY_BUDGET_CENTS=${WEEKLY_BUDGET_CENTS},GATEWAY_DAILY_USAGE_UNITS=${DAILY_USAGE_UNITS},GATEWAY_WEEKLY_USAGE_UNITS=${WEEKLY_USAGE_UNITS},APP_VERSION=${APP_VERSION},GIT_SHA=${GIT_SHA}" \
             --quiet
 
       - name: Route production traffic to latest revision
