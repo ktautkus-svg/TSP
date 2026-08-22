@@ -204,6 +204,28 @@ export class TripSheetRepository {
   async saveVehicle(input: VehicleSaveInput, now = new Date().toISOString()): Promise<Vehicle> {
     const existing = await this.getVehicle();
     const id = existing?.id ?? 'vehicle-primary';
+    const columns = await this.db.getAllAsync<{ name: string }>('PRAGMA table_info(vehicles)');
+    const hasCompliance = columns.some((column) => column.name === 'technical_inspection_due_on');
+    const name = input.name.trim() || 'Darbinis automobilis';
+    const registrationNumber = input.registrationNumber.trim().toUpperCase() || 'NENURODYTA';
+    if (!hasCompliance) {
+      await this.db.runAsync(
+        `INSERT INTO vehicles (id, name, registration_number, fuel_type, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           name = excluded.name,
+           registration_number = excluded.registration_number,
+           fuel_type = excluded.fuel_type,
+           updated_at = excluded.updated_at`,
+        id,
+        name,
+        registrationNumber,
+        input.fuelType,
+        existing?.createdAt ?? now,
+        now,
+      );
+      return (await this.getVehicle())!;
+    }
     await this.db.runAsync(
       `INSERT INTO vehicles (
          id, name, registration_number, fuel_type,
@@ -220,8 +242,8 @@ export class TripSheetRepository {
          next_service_odometer = excluded.next_service_odometer,
          updated_at = excluded.updated_at`,
       id,
-      input.name.trim() || 'Darbinis automobilis',
-      input.registrationNumber.trim().toUpperCase() || 'NENURODYTA',
+      name,
+      registrationNumber,
       input.fuelType,
       optionalDate(input.technicalInspectionDueOn, existing?.technicalInspectionDueOn ?? null),
       optionalDate(input.roadTaxDueOn, existing?.roadTaxDueOn ?? null),
