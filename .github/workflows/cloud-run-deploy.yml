@@ -163,16 +163,20 @@ jobs:
             echo "Cloud Build did not finish in time: ${STATUS:-unknown}"
             exit 1
           fi
-          gcloud run deploy "$CLOUD_RUN_SERVICE" \
-            --image "$IMAGE" \
+          # --revision-suffix is ignored while spec.template.metadata.name is the
+          # failed revision logistikos-pristatymai-00177-2n2. Rewrite that name
+          # onto the new image and replace, keeping live traffic on the last
+          # healthy revision until the next step.
+          export APP_VERSION GIT_SHA IMAGE
+          gcloud run services describe "$CLOUD_RUN_SERVICE" \
             --project="$GCP_PROJECT_ID" \
             --region="$GCP_REGION" \
-            --allow-unauthenticated \
-            --max-instances=1 \
-            --no-traffic \
-            --revision-suffix="s${GIT_SHA}" \
-            --set-secrets="${{ steps.secrets.outputs.secrets_arg }}" \
-            --set-env-vars="GATEWAY_AUTH_MODE=none,GATEWAY_ENV=production,GATEWAY_REAL_PROVIDER_ARMED=${ARMED},GATEWAY_DAILY_BUDGET_CENTS=${DAILY_BUDGET_CENTS},GATEWAY_WEEKLY_BUDGET_CENTS=${WEEKLY_BUDGET_CENTS},GATEWAY_DAILY_USAGE_UNITS=${DAILY_USAGE_UNITS},GATEWAY_WEEKLY_USAGE_UNITS=${WEEKLY_USAGE_UNITS},APP_VERSION=${APP_VERSION},GIT_SHA=${GIT_SHA}" \
+            --format=json \
+            | node ./scripts/prepare-cloud-run-revision.mjs \
+            > /tmp/cloud-run-service.json
+          gcloud run services replace /tmp/cloud-run-service.json \
+            --project="$GCP_PROJECT_ID" \
+            --region="$GCP_REGION" \
             --quiet
 
       - name: Route production traffic to latest revision
