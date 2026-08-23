@@ -1,5 +1,32 @@
 export const PALLET_WEIGHT_KG = 200;
 
+/**
+ * How many pieces one bay can realistically take, stacked.
+ *
+ * There are no cargo dimensions anywhere in the app - only weight, and often not
+ * even that - so a true volumetric fit is impossible. This is a practical
+ * stacking limit: past four items the driver is digging, not unloading. Raise it
+ * if the real van takes more.
+ */
+export const MAX_ITEMS_PER_BAY = 4;
+
+/** Weight one bay should carry before the load is worth spreading out. */
+export const MAX_BAY_WEIGHT_KG = 500;
+
+export type LoadingWarningCode =
+  | 'BAY_STACK_EXCEEDED'
+  | 'BAY_WEIGHT_EXCEEDED'
+  | 'VEHICLE_PAYLOAD_EXCEEDED'
+  | 'UNKNOWN_WEIGHTS';
+
+export type LoadingWarning = {
+  code: LoadingWarningCode;
+  /** 'critical' means over the vehicle's legal payload, not merely awkward. */
+  severity: 'warning' | 'critical';
+  message: string;
+  bayId?: LoadingBayId;
+};
+
 export const VAN_BODY_KINDS = ['van_long', 'van_short'] as const;
 export type VanBodyKind = (typeof VAN_BODY_KINDS)[number];
 
@@ -15,6 +42,8 @@ export type LoadingBayOrientation = 'vertical' | 'horizontal';
 export type LoadingSchemaOptions = {
   bodyKind?: VanBodyKind;
   hasSideDoor?: boolean;
+  /** From the assigned vehicle; null when unknown, and then no payload check runs. */
+  maximumPayloadKg?: number | null;
 };
 
 export type LoadingSchemaStopInput = {
@@ -60,6 +89,10 @@ export type LoadingSchema = {
   placements: LoadingPlacement[];
   palletCount: number;
   sideUnloadCount: number;
+  /** Sum of known weights only; stops without a weight are counted separately. */
+  totalWeightKg: number;
+  unknownWeightCount: number;
+  warnings: LoadingWarning[];
   summary: string;
 };
 
@@ -99,6 +132,7 @@ export type AssignedVehicleCargo = {
   model?: string | null;
   cargoBodyKind?: VanBodyKind | null;
   hasSideDoor?: boolean | null;
+  maximumPayloadKg?: number | null;
 };
 
 export type VehicleCargoLayout = {
@@ -106,13 +140,21 @@ export type VehicleCargoLayout = {
   hasSideDoor: boolean;
   assigned: boolean;
   vehicleLabel: string | null;
+  /** null when no vehicle is assigned or it has no stated capacity. */
+  maximumPayloadKg: number | null;
 };
 
 export function cargoLayoutFromAssignedVehicle(
   vehicle: AssignedVehicleCargo | null | undefined,
 ): VehicleCargoLayout {
   if (!vehicle) {
-    return { bodyKind: 'van_long', hasSideDoor: false, assigned: false, vehicleLabel: null };
+    return {
+      bodyKind: 'van_long',
+      hasSideDoor: false,
+      assigned: false,
+      vehicleLabel: null,
+      maximumPayloadKg: null,
+    };
   }
   const registration = vehicle.registrationNumber?.trim() || null;
   const model = vehicle.model?.trim() || null;
@@ -121,6 +163,9 @@ export function cargoLayoutFromAssignedVehicle(
     hasSideDoor: vehicle.hasSideDoor === true,
     assigned: true,
     vehicleLabel: [registration, model].filter(Boolean).join(' · ') || registration,
+    maximumPayloadKg: typeof vehicle.maximumPayloadKg === 'number' && vehicle.maximumPayloadKg > 0
+      ? vehicle.maximumPayloadKg
+      : null,
   };
 }
 
@@ -142,11 +187,12 @@ export function shouldUsePallet(weightKg: number | null): boolean {
 
 function normalizeOptions(options?: VanBodyKind | LoadingSchemaOptions): Required<LoadingSchemaOptions> {
   if (options === 'van_long' || options === 'van_short') {
-    return { bodyKind: options, hasSideDoor: false };
+    return { bodyKind: options, hasSideDoor: false, maximumPayloadKg: null };
   }
   return {
     bodyKind: options?.bodyKind ?? 'van_long',
     hasSideDoor: options?.hasSideDoor ?? false,
+    maximumPayloadKg: options?.maximumPayloadKg ?? null,
   };
 }
 
@@ -207,8 +253,25 @@ function assignRearAccess(
     });
     return assigned;
   }
-  ordered.forEach((stop, index) => {
-    assigned.set(stop.id, index < bays.length ? bays[index].id : rear.id);
+  // More stops than bays. Everything past the bay count used to be dumped into
+  // the single rear bay: with 13 stops in a long van that meant four bays of one
+  // and one bay of nine, which is not a plan anyone can load. The overflow is
+  // spread evenly instead, keeping loading order intact - bays are walked from
+  // the cabin to the doors, so the earliest loaded (latest delivery) stays
+  // deepest. Remainders go to the bays nearest the doors, whose stacks are
+  // dismantled first anyway.
+  void rear;
+  const perBay = Math.floor(ordered.length / bays.length);
+  const remainder = ordered.length % bays.length;
+  let cursor = 0;
+  bays.forEach((bay, bayIndex) => {
+    const take = perBay + (bayIndex >= bays.length - remainder ? 1 : 0);
+    for (let taken = 0; taken < take; taken += 1) {
+      const stop = ordered[cursor];
+      if (!stop) return;
+      assigned.set(stop.id, bay.id);
+      cursor += 1;
+    }
   });
   return assigned;
 }
@@ -217,7 +280,7 @@ export function recommendLoadingSchema(
   stops: readonly LoadingSchemaStopInput[],
   options?: VanBodyKind | LoadingSchemaOptions,
 ): LoadingSchema {
-  const { bodyKind, hasSideDoor } = normalizeOptions(options);
+  const { bodyKind, hasSideDoor, maximumPayloadKg } = normalizeOptions(options);
   const bays = baysForVanBody(bodyKind);
   const active = stops
     .filter((stop) => !stop.skipped)
@@ -292,6 +355,14 @@ export function recommendLoadingSchema(
 
   const palletCount = placements.filter((item) => item.usePallet).length;
   const sideUnloadCount = placements.filter((item) => item.sideAccess).length;
+  const totalWeightKg = active.reduce((sum, stop) => sum + (stop.weightKg ?? 0), 0);
+  const unknownWeightCount = active.filter((stop) => stop.weightKg === null).length;
+  const warnings = collectWarnings({
+    bayViews,
+    totalWeightKg,
+    unknownWeightCount,
+    maximumPayloadKg,
+  });
   const summary = [
     'Maršruto eilė išlieka: pirmas taškas prie galinių durų, paskutinis — prie kabinos.',
     hasSideDoor
@@ -312,6 +383,9 @@ export function recommendLoadingSchema(
     placements: placements.sort((left, right) => left.loadingSequence - right.loadingSequence),
     palletCount,
     sideUnloadCount,
+    totalWeightKg,
+    unknownWeightCount,
+    warnings,
     summary,
   };
 }
@@ -345,4 +419,59 @@ export function toLoadingSchemaStops(
     address: stop.normalizedAddress ?? stop.originalAddress ?? stop.address,
     skipped: stop.loadingStatus === 'pending' && stop.deliveryStatus === 'failed',
   }));
+}
+
+/**
+ * What the driver needs to be told before he starts loading.
+ *
+ * The schema used to place every stop somewhere and say nothing, however
+ * unrealistic the result. These checks do not refuse a plan - the load still has
+ * to go out - they name the parts that will not work as drawn.
+ */
+function collectWarnings(input: {
+  bayViews: LoadingBayView[];
+  totalWeightKg: number;
+  unknownWeightCount: number;
+  maximumPayloadKg: number | null;
+}): LoadingWarning[] {
+  const warnings: LoadingWarning[] = [];
+
+  for (const bay of input.bayViews) {
+    if (bay.placements.length > MAX_ITEMS_PER_BAY) {
+      warnings.push({
+        code: 'BAY_STACK_EXCEEDED',
+        severity: 'warning',
+        bayId: bay.id,
+        message: `${bay.label}: ${bay.placements.length} vnt., o realiai telpa apie ${MAX_ITEMS_PER_BAY}. Kraukite dalį kitur arba veskite dviem reisais.`,
+      });
+    }
+    const bayWeight = bay.placements.reduce((sum, item) => sum + (item.weightKg ?? 0), 0);
+    if (bayWeight > MAX_BAY_WEIGHT_KG) {
+      warnings.push({
+        code: 'BAY_WEIGHT_EXCEEDED',
+        severity: 'warning',
+        bayId: bay.id,
+        message: `${bay.label}: ${Math.round(bayWeight)} kg vienoje vietoje. Sunkį geriau paskirstyti per kėbulą.`,
+      });
+    }
+  }
+
+  if (input.maximumPayloadKg !== null && input.maximumPayloadKg > 0
+    && input.totalWeightKg > input.maximumPayloadKg) {
+    warnings.push({
+      code: 'VEHICLE_PAYLOAD_EXCEEDED',
+      severity: 'critical',
+      message: `Krovinys ${Math.round(input.totalWeightKg)} kg viršija automobilio keliamąją galią ${Math.round(input.maximumPayloadKg)} kg.`,
+    });
+  }
+
+  if (input.unknownWeightCount > 0) {
+    warnings.push({
+      code: 'UNKNOWN_WEIGHTS',
+      severity: 'warning',
+      message: `${input.unknownWeightCount} taško(-ų) svoris nežinomas — apkrova ir paletės rekomendacija gali būti netikslios.`,
+    });
+  }
+
+  return warnings;
 }

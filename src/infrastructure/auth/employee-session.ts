@@ -51,6 +51,13 @@ export type ServerFleetVehicle = {
   maximumPayloadKg: number;
   /** Litres per 100 km, set when editing the vehicle; null falls back to an estimate. */
   fuelNormLPer100Km?: number | null;
+  /** Real cargo floor in millimetres; both are needed for the pallet drawing. */
+  cargoLengthMm?: number | null;
+  cargoWidthMm?: number | null;
+  cargoBodyType?: 'van' | 'box' | null;
+  wheelArchStartMm?: number | null;
+  wheelArchEndMm?: number | null;
+  wheelArchIntrusionMm?: number | null;
   cargoBodyKind?: 'van_long' | 'van_short';
   hasSideDoor?: boolean;
   assignedDriverId: string | null;
@@ -63,6 +70,12 @@ export type ServerFleetVehicle = {
 
 export type ServerFleetVehicleSnapshot = Pick<ServerFleetVehicle, 'id' | 'registrationNumber' | 'model' | 'maximumPayloadKg'> & {
   fuelNormLPer100Km?: number | null;
+  cargoLengthMm?: number | null;
+  cargoWidthMm?: number | null;
+  cargoBodyType?: 'van' | 'box' | null;
+  wheelArchStartMm?: number | null;
+  wheelArchEndMm?: number | null;
+  wheelArchIntrusionMm?: number | null;
   cargoBodyKind?: 'van_long' | 'van_short';
   hasSideDoor?: boolean;
   fuelRemainingLiters?: number | null;

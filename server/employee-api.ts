@@ -168,6 +168,12 @@ export async function handleEmployeeApi(
         fuelNormLPer100Km: body.fuelNormLPer100Km === undefined || body.fuelNormLPer100Km === null
           ? null
           : numberField(body, 'fuelNormLPer100Km'),
+        cargoLengthMm: body.cargoLengthMm === undefined || body.cargoLengthMm === null ? null : numberField(body, 'cargoLengthMm'),
+        cargoWidthMm: body.cargoWidthMm === undefined || body.cargoWidthMm === null ? null : numberField(body, 'cargoWidthMm'),
+        wheelArchStartMm: body.wheelArchStartMm === undefined || body.wheelArchStartMm === null ? null : numberField(body, 'wheelArchStartMm'),
+        wheelArchEndMm: body.wheelArchEndMm === undefined || body.wheelArchEndMm === null ? null : numberField(body, 'wheelArchEndMm'),
+        wheelArchIntrusionMm: body.wheelArchIntrusionMm === undefined || body.wheelArchIntrusionMm === null ? null : numberField(body, 'wheelArchIntrusionMm'),
+        cargoBodyType: optionalString(body, 'cargoBodyType') ?? null,
         cargoBodyKind: optionalString(body, 'cargoBodyKind'),
         hasSideDoor: typeof body.hasSideDoor === 'boolean' ? body.hasSideDoor : undefined,
       });
@@ -188,6 +194,12 @@ export async function handleEmployeeApi(
           fuelNormLPer100Km: body.fuelNormLPer100Km === undefined
             ? undefined
             : body.fuelNormLPer100Km === null ? null : numberField(body, 'fuelNormLPer100Km'),
+          cargoLengthMm: body.cargoLengthMm === undefined ? undefined : body.cargoLengthMm === null ? null : numberField(body, 'cargoLengthMm'),
+          cargoWidthMm: body.cargoWidthMm === undefined ? undefined : body.cargoWidthMm === null ? null : numberField(body, 'cargoWidthMm'),
+          wheelArchStartMm: body.wheelArchStartMm === undefined ? undefined : body.wheelArchStartMm === null ? null : numberField(body, 'wheelArchStartMm'),
+          wheelArchEndMm: body.wheelArchEndMm === undefined ? undefined : body.wheelArchEndMm === null ? null : numberField(body, 'wheelArchEndMm'),
+          wheelArchIntrusionMm: body.wheelArchIntrusionMm === undefined ? undefined : body.wheelArchIntrusionMm === null ? null : numberField(body, 'wheelArchIntrusionMm'),
+          cargoBodyType: optionalString(body, 'cargoBodyType'),
           cargoBodyKind: optionalString(body, 'cargoBodyKind'),
           hasSideDoor: typeof body.hasSideDoor === 'boolean' ? body.hasSideDoor : undefined,
         })

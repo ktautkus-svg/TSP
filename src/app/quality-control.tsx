@@ -5,8 +5,18 @@ import { ActivityIndicator, Pressable, SafeAreaView, ScrollView, StyleSheet, Tex
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { roleHomePath } from '@/application/navigation/role-home';
 import { AccountMenuSheet } from '@/components/account-menu-sheet';
-import { BackIcon } from '@/components/app-icons';
+import { BackIcon, StatsIcon } from '@/components/app-icons';
 import { TspBrand } from '@/components/tsp-brand';
+import {
+  PERIOD_OPTIONS,
+  anchorFieldLabel,
+  formatDateKey,
+  formatDateRange,
+  formatPeriodTitle,
+  localDateKey,
+  periodRange,
+  type PeriodMode,
+} from '@/application/reporting/period-range';
 import { classifyDeliveryWindow, minutesLate } from '@/domain/delivery-window-timing';
 import { useForegroundInterval } from '@/hooks/use-foreground-interval';
 import { employeeApi, type QualityRouteMonitor, type QualityStopMonitor } from '@/infrastructure/auth/employee-session';
@@ -21,7 +31,6 @@ const MINOR_DELAY_MINUTES = 45;
 
 type QualityFilter = 'in_progress' | 'waiting' | 'completed' | 'issues';
 type FilterTone = 'info' | 'warning' | 'success' | 'danger';
-type PeriodMode = 'day' | 'week' | 'month' | 'custom';
 
 const FILTERS: readonly { key: QualityFilter; label: string; tone: FilterTone }[] = [
   { key: 'in_progress', label: 'Kelyje', tone: 'info' },
@@ -30,12 +39,7 @@ const FILTERS: readonly { key: QualityFilter; label: string; tone: FilterTone }[
   { key: 'issues', label: 'Neatitikimai', tone: 'danger' },
 ];
 
-const PERIODS: readonly { key: PeriodMode; label: string }[] = [
-  { key: 'day', label: 'Diena' },
-  { key: 'week', label: 'Savaitė' },
-  { key: 'month', label: 'Mėnuo' },
-  { key: 'custom', label: 'Laikotarpis' },
-];
+const PERIODS = PERIOD_OPTIONS;
 
 export default function QualityControlScreen() {
   const router = useRouter();
@@ -95,7 +99,7 @@ export default function QualityControlScreen() {
     REFRESH_INTERVAL_MS,
   );
 
-  const period = useMemo(() => qualityPeriodRange(periodMode, anchorDate, customFrom, customTo), [anchorDate, customFrom, customTo, periodMode]);
+  const period = useMemo(() => periodRange(periodMode, anchorDate, customFrom, customTo), [anchorDate, customFrom, customTo, periodMode]);
   const drivers = useMemo(() => [...new Map(routes.map((route) => [route.driverId, route.driverName])).entries()]
     .map(([id, name]) => ({ id, name }))
     .sort((left, right) => left.name.localeCompare(right.name, 'lt-LT')), [routes]);
@@ -139,6 +143,9 @@ export default function QualityControlScreen() {
         {!mobile ? <Text numberOfLines={1} style={styles.headerContext}>KOKYBĖS KONTROLĖ</Text> : null}
       </View>
       <View style={styles.headerActions}>
+        <Pressable accessibilityLabel="Statistika" accessibilityRole="button" onPress={() => router.push({ pathname: '/statistics', params: { returnTo: 'quality-control' } } as unknown as Href)} style={({ pressed }) => [styles.headerNavButton, pressed && styles.cardSummaryPressed]} testID="quality-open-statistics">
+          <StatsIcon size={22} color={colors.primary} />
+        </Pressable>
         <Pressable accessibilityLabel="Atidaryti paskyros meniu" accessibilityRole="button" onPress={() => setAccountMenuOpen(true)} style={({ pressed }) => [styles.accountButton, pressed && styles.accountButtonPressed]}>
           <Text style={styles.accountInitials}>{initials(profile.displayName)}</Text>
         </Pressable>
@@ -203,7 +210,7 @@ export default function QualityControlScreen() {
           {periodMode === 'custom' ? <>
             <DateField label="Nuo" value={customFrom} onChange={setCustomFrom} styles={styles} />
             <DateField label="Iki" value={customTo} onChange={setCustomTo} styles={styles} />
-          </> : <DateField label={periodMode === 'day' ? 'Data' : periodMode === 'week' ? 'Pasirinkite savaitės dieną' : 'Pasirinkite mėnesio dieną'} value={anchorDate} onChange={setAnchorDate} styles={styles} />}
+          </> : <DateField label={anchorFieldLabel(periodMode)} value={anchorDate} onChange={setAnchorDate} styles={styles} />}
         </View>
 
         <View style={styles.driverFilter}>
@@ -344,8 +351,8 @@ function RouteSequenceStop({ stop, nextSequence, styles }: { stop: QualityStopMo
 }
 
 function StatusFilter({ active, label, onPress, tone, value, styles }: { active: boolean; label: string; onPress: () => void; tone: FilterTone; value: number; styles: ReturnType<typeof createStyles> }) {
-  return <Pressable accessibilityRole="tab" accessibilityState={{ selected: active }} onPress={onPress} style={({ pressed }) => [styles.filter, active && styles[`filterActive_${tone}`], pressed && styles.filterPressed]}>
-    <Text style={[styles.filterValue, active && styles.filterValueActive]}>{value}</Text>
+  return <Pressable accessibilityRole="tab" accessibilityState={{ selected: active }} onPress={onPress} style={({ pressed }) => [styles.filter, styles[`filterTone_${tone}`], active && styles[`filterActive_${tone}`], pressed && styles.filterPressed]}>
+    <Text style={[styles.filterValue, styles[`filterValueTone_${tone}`], active && styles.filterValueActive]}>{value}</Text>
     <Text numberOfLines={1} style={[styles.filterLabel, active && styles.filterLabelActive]}>{label}</Text>
   </Pressable>;
 }
@@ -399,50 +406,12 @@ function vehicleLabel(route: QualityRouteMonitor): string { return route.vehicle
 function regionLabel(codes: string[]): string { return codes.length > 0 ? `Regionai ${codes.join(', ')}` : 'Regionas nenurodytas'; }
 function initials(name: string): string { return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join(''); }
 function statusLabel(status: QualityRouteMonitor['status']): string { return ({ assigned: 'Priskirtas', downloaded: 'Paruoštas', in_progress: 'Kelyje', completed: 'Baigtas', cancelled: 'Atšauktas' } as Record<string, string>)[status] ?? status; }
-function formatDayTitle(value: Date): string { const text = new Intl.DateTimeFormat('lt-LT', { weekday: 'long', month: 'long', day: 'numeric' }).format(value); return text.charAt(0).toUpperCase() + text.slice(1); }
 function formatVehicleCount(value: number): string { if (value === 1) return '1 automobilis'; if (value % 10 >= 2 && value % 10 <= 9 && (value % 100 < 10 || value % 100 >= 20)) return `${value} automobiliai`; return `${value} automobilių`; }
 function formatWindow(stop: QualityStopMonitor): string | null { if (!stop.deliveryTimeFrom && !stop.deliveryTimeTo) return null; return `${formatTimeValue(stop.deliveryTimeFrom) ?? '—'}–${formatTimeValue(stop.deliveryTimeTo) ?? '—'}`; }
 function formatTimeValue(value: string | null): string | null { if (!value) return null; const match = /(\d{1,2}:\d{2})/.exec(value); return match?.[1] ?? formatClockShort(value); }
 function formatClock(value: string | null): string { if (!value) return '—'; const date = new Date(value); return Number.isNaN(date.getTime()) ? '—' : new Intl.DateTimeFormat('lt-LT', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(date); }
 function formatClockShort(value: string | null): string { if (!value) return '—'; const date = new Date(value); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('lt-LT', { hour: '2-digit', minute: '2-digit' }).format(date); }
 function formatRelative(value: string): string { const seconds = Math.max(0, Math.floor((Date.now() - Date.parse(value)) / 1000)); if (seconds < 45) return 'ką tik'; if (seconds < 3600) return `prieš ${Math.floor(seconds / 60)} min.`; return formatClock(value); }
-function localDateKey(date: Date): string { const year = date.getFullYear(); const month = String(date.getMonth() + 1).padStart(2, '0'); const day = String(date.getDate()).padStart(2, '0'); return `${year}-${month}-${day}`; }
-
-function qualityPeriodRange(mode: PeriodMode, anchor: string, customFrom: string, customTo: string): { from: string; to: string } {
-  const fallback = localDateKey(new Date());
-  if (mode === 'custom') {
-    const first = validDateKey(customFrom) ? customFrom : fallback;
-    const second = validDateKey(customTo) ? customTo : first;
-    return first <= second ? { from: first, to: second } : { from: second, to: first };
-  }
-  const date = dateFromKey(validDateKey(anchor) ? anchor : fallback);
-  if (mode === 'week') {
-    const mondayOffset = (date.getDay() + 6) % 7;
-    const from = addDays(date, -mondayOffset);
-    return { from: localDateKey(from), to: localDateKey(addDays(from, 6)) };
-  }
-  if (mode === 'month') {
-    const from = new Date(date.getFullYear(), date.getMonth(), 1, 12);
-    const to = new Date(date.getFullYear(), date.getMonth() + 1, 0, 12);
-    return { from: localDateKey(from), to: localDateKey(to) };
-  }
-  const key = localDateKey(date);
-  return { from: key, to: key };
-}
-
-function validDateKey(value: string): boolean { if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false; const parsed = dateFromKey(value); return !Number.isNaN(parsed.getTime()) && localDateKey(parsed) === value; }
-function dateFromKey(value: string): Date { const [year, month, day] = value.split('-').map(Number); return new Date(year, month - 1, day, 12); }
-function addDays(date: Date, amount: number): Date { const result = new Date(date); result.setDate(result.getDate() + amount); return result; }
-function formatDateKey(value: string, includeYear = true): string { return new Intl.DateTimeFormat('lt-LT', { year: includeYear ? 'numeric' : undefined, month: 'short', day: 'numeric' }).format(dateFromKey(value)); }
-function formatDateRange(from: string, to: string): string { return from === to ? formatDateKey(from) : `${formatDateKey(from)} – ${formatDateKey(to)}`; }
-function formatPeriodTitle(mode: PeriodMode, from: string, to: string): string {
-  if (mode === 'day') return formatDayTitle(dateFromKey(from));
-  if (mode === 'month') {
-    const text = new Intl.DateTimeFormat('lt-LT', { year: 'numeric', month: 'long' }).format(dateFromKey(from));
-    return text.charAt(0).toUpperCase() + text.slice(1);
-  }
-  return formatDateRange(from, to);
-}
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background },
@@ -475,7 +444,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   status: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.pill }, statusActive: { backgroundColor: colors.infoSoft }, statusWaiting: { backgroundColor: colors.warningSoft }, statusCompleted: { backgroundColor: colors.accentSoft }, statusText: { ...type.label }, statusTextActive: { color: colors.info }, statusTextWaiting: { color: colors.warning }, statusTextCompleted: { color: colors.success },
   routeDate: { ...type.bodyStrong, color: colors.info },
   failedBadge: { ...type.secondaryStrong, color: colors.danger, marginTop: 2 },
-  progressGrid: { flexDirection: 'row', gap: spacing.sm }, progressBlock: { flex: 1, minWidth: 0, padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.surfaceMuted }, progressReadoutHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.xs }, progressLabel: { ...type.label, color: colors.textMuted }, progressPercent: { ...type.meta, fontFamily: fonts.headingSemiBold, color: colors.primary }, progressPrimary: { ...type.bodyStrong, color: colors.text, marginTop: spacing.xs }, progressSecondary: { ...type.meta, color: colors.textMuted, marginTop: 1 }, progressTrack: { height: 6, marginTop: spacing.sm, borderRadius: radius.pill, overflow: 'hidden', backgroundColor: colors.border }, progressFill: { height: '100%', borderRadius: radius.pill, backgroundColor: colors.info }, progressFillWeight: { backgroundColor: qualityBrandRed }, expandHint: { ...type.meta, textAlign: 'right', color: colors.info },
+  progressGrid: { flexDirection: 'row', gap: spacing.sm }, progressBlock: { flex: 1, minWidth: 0, padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.surfaceMuted }, progressReadoutHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.xs }, progressLabel: { ...type.label, color: colors.textMuted }, progressPercent: { ...type.meta, fontFamily: fonts.headingSemiBold, color: colors.primary }, progressPrimary: { ...type.bodyStrong, color: colors.text, marginTop: spacing.xs }, progressSecondary: { ...type.meta, color: colors.textMuted, marginTop: 1 }, progressTrack: { height: 6, marginTop: spacing.sm, borderRadius: radius.pill, overflow: 'hidden', backgroundColor: colors.border }, progressFill: { height: '100%', borderRadius: radius.pill, backgroundColor: colors.info }, progressFillWeight: { backgroundColor: colors.success }, expandHint: { ...type.meta, textAlign: 'right', color: colors.info },
   startReadout: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md, paddingHorizontal: spacing.sm }, startLabel: { ...type.label, color: colors.textMuted }, startValue: { ...type.bodyStrong, color: colors.primary },
   details: { gap: spacing.md, paddingHorizontal: spacing.lg, paddingBottom: spacing.lg, borderTopWidth: 1, borderTopColor: colors.borderSubtle, paddingTop: spacing.lg },
   issueSummary: { gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.danger, backgroundColor: colors.dangerSoft }, issueSummaryTitle: { ...type.label, color: colors.danger }, issueRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm }, issueSequence: { minWidth: 28, textAlign: 'center', paddingVertical: 4, borderRadius: radius.sm, overflow: 'hidden', ...type.secondaryStrong, color: colors.textInverse, backgroundColor: colors.danger }, issueAddress: { ...type.bodyStrong, color: colors.text }, issueReason: { ...type.secondaryStrong, color: colors.danger, marginTop: 2 },
@@ -483,6 +452,6 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   processedSection: { gap: spacing.sm }, processedTitle: { ...type.label, color: colors.textMuted }, processedStop: { minHeight: 68, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.sm, borderLeftWidth: 4, borderRadius: radius.sm, backgroundColor: colors.surfaceSubtle }, processedStop_neutral: { borderLeftColor: colors.textMuted }, processedStop_success: { borderLeftColor: colors.success }, processedStop_warning: { borderLeftColor: colors.warning }, processedStop_danger: { borderLeftColor: colors.danger }, processedSequence: { width: 30, height: 30, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceMuted }, processedSequenceText: { ...type.secondaryStrong, color: colors.text }, processedRecipient: { ...type.bodyStrong, color: colors.text }, processedAddress: { ...type.meta, color: colors.textMuted }, processedWindow: { ...type.meta, color: colors.textSecondary, marginTop: 2 }, timingBadge: { maxWidth: 148, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.sm }, timingBadge_neutral: { backgroundColor: colors.surfaceMuted }, timingBadge_success: { backgroundColor: colors.accentSoft }, timingBadge_warning: { backgroundColor: colors.warningSoft }, timingBadge_danger: { backgroundColor: colors.dangerSoft }, timingText: { ...type.meta, fontFamily: fonts.headingSemiBold, textAlign: 'right' }, timingText_neutral: { color: colors.textMuted }, timingText_success: { color: colors.success }, timingText_warning: { color: colors.warning }, timingText_danger: { color: colors.danger }, noProcessed: { ...type.secondary, color: colors.textMuted },
   sequenceNext: { borderLeftColor: colors.info, backgroundColor: colors.infoSoft }, sequenceNextNumber: { backgroundColor: colors.info }, sequenceNextNumberText: { color: colors.textInverse }, sequenceMeta: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   cardFooter: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.borderSubtle }, updated: { ...type.meta, color: colors.textMuted }, updatedStale: { color: colors.warning }, started: { ...type.meta, color: colors.textMuted },
-  filters: { flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' }, filter: { flex: 1, minWidth: 150, minHeight: 68, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderStrong }, filterActive_info: { backgroundColor: colors.info, borderColor: colors.info }, filterActive_warning: { backgroundColor: colors.warning, borderColor: colors.warning }, filterActive_success: { backgroundColor: colors.success, borderColor: colors.success }, filterActive_danger: { backgroundColor: colors.danger, borderColor: colors.danger }, filterPressed: { opacity: 0.82 }, filterValue: { fontFamily: fonts.heading, fontSize: 24, lineHeight: 27, color: colors.primary }, filterValueActive: { color: colors.textInverse }, filterLabel: { ...type.label, fontSize: 11, lineHeight: 14, color: colors.textSecondary, marginTop: 3 }, filterLabelActive: { color: colors.textInverse },
+  filters: { flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' }, filter: { flex: 1, minWidth: 150, minHeight: 68, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderStrong }, filterTone_info: { backgroundColor: colors.infoSoft, borderColor: colors.info }, filterTone_warning: { backgroundColor: colors.warningSoft, borderColor: colors.warning }, filterTone_success: { backgroundColor: colors.accentSoft, borderColor: colors.success }, filterTone_danger: { backgroundColor: colors.dangerSoft, borderColor: colors.danger }, filterValueTone_info: { color: colors.info }, filterValueTone_warning: { color: colors.warning }, filterValueTone_success: { color: colors.success }, filterValueTone_danger: { color: colors.danger }, filterActive_info: { backgroundColor: colors.info, borderColor: colors.info }, filterActive_warning: { backgroundColor: colors.warning, borderColor: colors.warning }, filterActive_success: { backgroundColor: colors.success, borderColor: colors.success }, filterActive_danger: { backgroundColor: colors.danger, borderColor: colors.danger }, filterPressed: { opacity: 0.82 }, filterValue: { fontFamily: fonts.heading, fontSize: 24, lineHeight: 27, color: colors.primary }, filterValueActive: { color: colors.textInverse }, filterLabel: { ...type.label, fontSize: 11, lineHeight: 14, color: colors.textSecondary, marginTop: 3 }, filterLabelActive: { color: colors.textInverse },
   connection: { minWidth: 250, minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.sm, borderRadius: radius.md, backgroundColor: colors.primaryDark }, liveDot: { width: 9, height: 9, borderRadius: radius.pill, backgroundColor: colors.success }, liveDotOffline: { backgroundColor: colors.danger }, liveLabel: { ...type.label, color: colors.textInverse }, refreshTime: { ...type.meta, color: colors.borderStrong }, refreshButton: { minHeight: 38, minWidth: 92, paddingHorizontal: spacing.md, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface }, refreshPressed: { backgroundColor: colors.infoSoft }, refreshText: { ...type.button, color: colors.info }, disabled: { opacity: 0.55 },
 });

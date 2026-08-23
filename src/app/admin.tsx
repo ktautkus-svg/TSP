@@ -102,6 +102,14 @@ export default function AdminScreen() {
   const [editVehicleModel, setEditVehicleModel] = useState('');
   const [editVehiclePayload, setEditVehiclePayload] = useState('');
   const [editVehicleNorm, setEditVehicleNorm] = useState('');
+  // Cargo floor. Both length and width are needed before the pallet drawing
+  // can be shown at all; the wheel arch fields matter only for a van.
+  const [editCargoLength, setEditCargoLength] = useState('');
+  const [editCargoWidth, setEditCargoWidth] = useState('');
+  const [editCargoBodyType, setEditCargoBodyType] = useState<'van' | 'box'>('van');
+  const [editArchStart, setEditArchStart] = useState('');
+  const [editArchEnd, setEditArchEnd] = useState('');
+  const [editArchIntrusion, setEditArchIntrusion] = useState('');
   const [editVehicleBody, setEditVehicleBody] = useState<VanBodyKind>('van_long');
   const [editVehicleSideDoor, setEditVehicleSideDoor] = useState(false);
   const [currentPin, setCurrentPin] = useState('');
@@ -387,6 +395,12 @@ export default function AdminScreen() {
     setEditVehicleNorm(vehicle.fuelNormLPer100Km === null || vehicle.fuelNormLPer100Km === undefined
       ? ''
       : String(vehicle.fuelNormLPer100Km).replace('.', ','));
+    setEditCargoLength(mmInput(vehicle.cargoLengthMm));
+    setEditCargoWidth(mmInput(vehicle.cargoWidthMm));
+    setEditCargoBodyType(vehicle.cargoBodyType === 'box' ? 'box' : 'van');
+    setEditArchStart(mmInput(vehicle.wheelArchStartMm));
+    setEditArchEnd(mmInput(vehicle.wheelArchEndMm));
+    setEditArchIntrusion(mmInput(vehicle.wheelArchIntrusionMm));
     setEditVehicleBody(vehicle.cargoBodyKind === 'van_short' ? 'van_short' : 'van_long');
     setEditVehicleSideDoor(vehicle.hasSideDoor === true);
   };
@@ -404,6 +418,12 @@ export default function AdminScreen() {
         model: editVehicleModel,
         maximumPayloadKg,
         fuelNormLPer100Km: parseFuelNorm(editVehicleNorm),
+        cargoLengthMm: parseMm(editCargoLength),
+        cargoWidthMm: parseMm(editCargoWidth),
+        cargoBodyType: editCargoBodyType,
+        wheelArchStartMm: parseMm(editArchStart),
+        wheelArchEndMm: parseMm(editArchEnd),
+        wheelArchIntrusionMm: parseMm(editArchIntrusion),
         cargoBodyKind: editVehicleBody,
         hasSideDoor: editVehicleSideDoor,
       }),
@@ -661,6 +681,33 @@ export default function AdminScreen() {
                 testPrefix="edit-vehicle"
               />
               <Text style={styles.meta}>Pagal šią normą kelionės lape skaičiuojamas sunaudotas kuras ir likutis. Palikus tuščią, imamas apytikslis įvertis pagal keliamąją galią.</Text>
+              <Text style={styles.sectionLabel}>Krovinių skyrius</Text>
+              <View style={styles.choiceRow}>
+                {([['van', 'Furgonas'], ['box', 'Būda']] as const).map(([value, label]) => (
+                  <Pressable accessibilityRole="radio" accessibilityState={{ checked: editCargoBodyType === value }} key={value}
+                    onPress={() => setEditCargoBodyType(value)} style={[styles.choice, editCargoBodyType === value && styles.choiceActive]}>
+                    <Text style={styles.choiceText}>{label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              <TextInput accessibilityLabel="Krovinių skyriaus ilgis" testID="vehicle-cargo-length" value={editCargoLength}
+                onChangeText={(value) => setEditCargoLength(value.replace(/[^d]/g, '').slice(0, 5))}
+                keyboardType="decimal-pad" placeholder="Naudingas ilgis, mm (pvz. 4100)" placeholderTextColor={colors.textMuted} style={styles.input} />
+              <TextInput accessibilityLabel="Krovinių skyriaus plotis" testID="vehicle-cargo-width" value={editCargoWidth}
+                onChangeText={(value) => setEditCargoWidth(value.replace(/[^d]/g, '').slice(0, 5))}
+                keyboardType="decimal-pad" placeholder="Naudingas plotis, mm (pvz. 2100)" placeholderTextColor={colors.textMuted} style={styles.input} />
+              {editCargoBodyType === 'van' ? <>
+                <TextInput accessibilityLabel="Ratų arkos pradžia" value={editArchStart}
+                  onChangeText={(value) => setEditArchStart(value.replace(/[^d]/g, '').slice(0, 5))}
+                  keyboardType="decimal-pad" placeholder="Ratų arkos pradžia nuo kabinos, mm" placeholderTextColor={colors.textMuted} style={styles.input} />
+                <TextInput accessibilityLabel="Ratų arkos pabaiga" value={editArchEnd}
+                  onChangeText={(value) => setEditArchEnd(value.replace(/[^d]/g, '').slice(0, 5))}
+                  keyboardType="decimal-pad" placeholder="Ratų arkos pabaiga nuo kabinos, mm" placeholderTextColor={colors.textMuted} style={styles.input} />
+                <TextInput accessibilityLabel="Ratų arkos plotis" value={editArchIntrusion}
+                  onChangeText={(value) => setEditArchIntrusion(value.replace(/[^d]/g, '').slice(0, 4))}
+                  keyboardType="decimal-pad" placeholder="Kiek arka atima pločio iš vienos pusės, mm" placeholderTextColor={colors.textMuted} style={styles.input} />
+              </> : <Text style={styles.meta}>Būdos grindys plokščios per visą ilgį — ratų arkų nurodyti nereikia.</Text>}
+              <Text style={styles.meta}>Suvedus ilgį ir plotį, krovimo ekrane rodoma tiksli padėklų schema. Palikus tuščius, lieka senoji zonų schema.</Text>
               {canManageFinancials ? <Pressable accessibilityRole="link" onPress={() => router.push({ pathname: '/financial-settings', params: { returnTo: 'admin' } } as unknown as Href)} style={styles.smallButton}><Text style={styles.smallButtonText}>Keisti draudimą ir kelių mokestį →</Text></Pressable> : null}
               <Pressable accessibilityLabel="Išsaugoti automobilio pakeitimus" accessibilityRole="button" disabled={busy || !online} style={[styles.primaryButton, (busy || !online) && styles.disabled]} onPress={() => void saveVehicle()}><Text style={styles.primaryText}>Išsaugoti automobilį</Text></Pressable>
               <Text style={styles.sectionLabel}>Priskirti vairuotojui</Text>
@@ -911,6 +958,16 @@ function parseDecimalInput(value: string): number {
 function assignmentLoadSuffix(weightKg: number, payloadKg: number): string {
   const load = describeVehicleLoad(weightKg, payloadKg);
   return load ? ` · ${load.summaryLabel}` : '';
+}
+
+/** Empty means "not measured", which switches the screen back to the bay diagram. */
+function parseMm(value: string): number | null {
+  const parsed = Number(value.trim().replace(',', '.'));
+  return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : null;
+}
+
+function mmInput(value: number | null | undefined): string {
+  return typeof value === 'number' && value > 0 ? String(value) : '';
 }
 
 /** Empty clears the norm, so the vehicle goes back to the payload-based estimate. */

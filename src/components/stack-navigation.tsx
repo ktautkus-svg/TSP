@@ -73,7 +73,7 @@ function returnTarget(value: string | string[] | undefined): Href | null {
   const targets: Record<string, Href> = {
     home: '/', dispatcher: '/dispatcher', settings: '/settings', statistics: '/statistics',
     admin: '/admin', routes: '/history', 'route-management': '/route-management' as Href,
-    'execute-route': '/execute-route' as Href,
+    'execute-route': '/execute-route' as Href, 'quality-control': '/quality-control' as Href,
   };
   return key ? targets[key] ?? null : null;
 }

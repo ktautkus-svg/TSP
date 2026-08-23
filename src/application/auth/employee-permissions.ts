@@ -36,6 +36,7 @@ export const MANAGEMENT_PERMISSION_KEYS = [
   'canManageEmployees',
   'canManageVehicles',
   'canManageFinancials',
+  'canViewAllStatistics',
 ] as const;
 export type ManagementPermissionKey = (typeof MANAGEMENT_PERMISSION_KEYS)[number];
 export type ManagementPermissions = Record<ManagementPermissionKey, boolean>;
@@ -82,6 +83,7 @@ export const DEFAULT_MANAGEMENT_PERMISSIONS: ManagementPermissions = {
   canManageEmployees: false,
   canManageVehicles: false,
   canManageFinancials: false,
+  canViewAllStatistics: false,
 };
 
 export function normalizeDriverPermissions(value?: Partial<DriverPermissions> | null): DriverPermissions {
@@ -104,7 +106,29 @@ export const MANAGEMENT_PERMISSION_LABELS: Record<ManagementPermissionKey, { tit
     title: 'Redaguoti finansinius duomenis',
     description: 'Dispečeris gali keisti kuro, draudimo, kelių mokesčių ir atlygio parametrus.',
   },
+  canViewAllStatistics: {
+    title: 'Matyti visų vairuotojų statistiką',
+    description: 'Dispečeris statistikos ekrane mato visus vairuotojus ir automobilius, o ne tik savo.',
+  },
 };
+
+/**
+ * Whether this profile may see organisation-wide statistics — every driver and
+ * vehicle, not just their own. Admin always can; a dispatcher only with the
+ * permission explicitly granted; a driver never, however the permission bits
+ * are set, so this is the one place that decides it rather than trusting the
+ * stored flags directly.
+ */
+export function canViewOrgStatistics(profile: {
+  role: EmployeeRole;
+  permissions?: Partial<EmployeePermissions> | null;
+}): boolean {
+  if (profile.role === 'admin') return true;
+  if (profile.role === 'dispatcher') {
+    return normalizeEmployeePermissions(profile.permissions).canViewAllStatistics;
+  }
+  return false;
+}
 
 export function normalizeEmployeePermissions(value?: Partial<EmployeePermissions> | null): EmployeePermissions {
   return {

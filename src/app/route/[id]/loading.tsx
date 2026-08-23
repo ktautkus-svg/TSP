@@ -33,6 +33,9 @@ import { CheckIcon, CrossIcon, PencilIcon, TruckIcon } from '@/components/app-ic
 import { DepartureGateCard } from '@/components/departure-gate-card';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { LoadingSchemaCard } from '@/components/loading-schema-card';
+import { CargoLayoutSvg } from '@/components/cargo-layout-svg';
+import { planCargoLayout } from '@/domain/cargo-layout';
+import { resolveCargoProfile, toCargoItems } from '@/application/loading/cargo-profile';
 import { SwipeActionCard } from '@/components/swipe-action-card';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import { LOADING_FAILURE_REASONS, type LoadingFailureReason } from '@/domain/loading-failure';
@@ -195,12 +198,24 @@ export default function LoadingScreen() {
     () => recommendLoadingSchema(toLoadingSchemaStops(stops), {
       bodyKind: cargoLayout.bodyKind,
       hasSideDoor: cargoLayout.hasSideDoor,
+      maximumPayloadKg: cargoLayout.maximumPayloadKg,
     }),
-    [cargoLayout.bodyKind, cargoLayout.hasSideDoor, stops],
+    [cargoLayout.bodyKind, cargoLayout.hasSideDoor, cargoLayout.maximumPayloadKg, stops],
   );
   const placementById = useMemo(
     () => new Map(loadingSchema.placements.map((item) => [item.stopId, item])),
     [loadingSchema],
+  );
+  // The pallet drawing needs a real measured floor. Without one the older bay
+  // diagram is still the honest answer, so both live side by side rather than
+  // one guessing at the other's job.
+  const cargoProfile = useMemo(
+    () => resolveCargoProfile(assignment?.vehicle ?? fuelStatus?.vehicle),
+    [assignment?.vehicle, fuelStatus?.vehicle],
+  );
+  const palletLayout = useMemo(
+    () => planCargoLayout(cargoProfile.profile, toCargoItems(stops), { assumedVehicle: cargoProfile.assumed }),
+    [cargoProfile, stops],
   );
 
   const markLoaded = async (stopId: string) => {
@@ -528,10 +543,14 @@ export default function LoadingScreen() {
           </View> : null}
         </View> : null}
         {stops.length > 0 ? (
-          <LoadingSchemaCard
-            schema={loadingSchema}
-            cargoLayout={cargoLayout}
-          />
+          cargoProfile.assumed ? (
+            <LoadingSchemaCard
+              schema={loadingSchema}
+              cargoLayout={cargoLayout}
+            />
+          ) : (
+            <CargoLayoutSvg layout={palletLayout} />
+          )
         ) : null}
         <View style={styles.plannedActions}>
         {profile.role === 'driver' ? <Pressable disabled={bulkBusy || Boolean(readiness && !readiness.canBeginLoading)} style={[styles.plannedPrimaryButton, (bulkBusy || Boolean(readiness && !readiness.canBeginLoading)) && styles.disabled]} onPress={beginLoading} testID="begin-loading">
@@ -598,10 +617,14 @@ export default function LoadingScreen() {
         </View>
       ) : null}
       {progress && stops.length > 0 ? (
-        <LoadingSchemaCard
-          schema={loadingSchema}
-          cargoLayout={cargoLayout}
-        />
+        cargoProfile.assumed ? (
+          <LoadingSchemaCard
+            schema={loadingSchema}
+            cargoLayout={cargoLayout}
+          />
+        ) : (
+          <CargoLayoutSvg layout={palletLayout} />
+        )
       ) : null}
       {progress && progress.totalStops > 0 ? (
         route?.status === 'loaded' ? (

@@ -45,6 +45,18 @@ export function LoadingSchemaCard({
         </View>
       ))}
       <Text style={styles.doors}>Galinės durys</Text>
+      {schema.warnings.length > 0 ? (
+        <View style={styles.warnings} testID="loading-schema-warnings">
+          {schema.warnings.map((warning) => (
+            <Text
+              key={`${warning.code}:${warning.bayId ?? 'all'}`}
+              accessibilityRole={warning.severity === 'critical' ? 'alert' : undefined}
+              style={warning.severity === 'critical' ? styles.warningCritical : styles.warning}>
+              {warning.severity === 'critical' ? '⚠ ' : '• '}{warning.message}
+            </Text>
+          ))}
+        </View>
+      ) : null}
       <Text style={styles.summary}>{schema.summary}</Text>
     </View>
   );
@@ -124,5 +136,16 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   bayLabelSide: { color: colors.warning },
   empty: { ...type.secondary, color: colors.textMuted },
   item: { ...type.secondaryStrong, color: colors.text },
+  warnings: {
+    gap: spacing.xs,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.warningSoft,
+    borderWidth: 1,
+    borderColor: colors.warning,
+  },
+  warning: { ...type.secondary, color: colors.text },
+  warningCritical: { ...type.secondaryStrong, color: colors.danger },
   summary: { ...type.secondary, color: colors.textSecondary },
 });
