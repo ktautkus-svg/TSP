@@ -804,7 +804,12 @@ function localSheet(sheet: TripSheetWithRoutes, fuelEntries: TripFuelEntry[] = [
 
 function formatDate(value: string): string { const date = new Date(`${value}T12:00:00`); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('lt-LT', { dateStyle: 'long' }).format(date); }
 function formatShortDate(value: string): string { const date = new Date(`${value}T12:00:00`); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('lt-LT', { month: '2-digit', day: '2-digit' }).format(date); }
-function formatDateTime(value: string): string { const date = new Date(value); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('lt-LT', { dateStyle: 'short', timeStyle: 'short' }).format(date); }
+function formatDateTime(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? value
+    : new Intl.DateTimeFormat('lt-LT', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Vilnius' }).format(date);
+}
 function tripRouteLabel(row: DailyTripRow): string {
   if (row.routeNumbers.length > 0) return row.routeNumbers.join(' · ');
   return row.startAddress === row.endAddress ? row.startAddress : `${row.startAddress} - ${row.endAddress}`;

@@ -14,6 +14,20 @@ import {
     vehicleDayAssignmentId,
 } from '../src/domain/nll182-odometer-log.js';
 import {
+    EXCEL_FUEL_LOG,
+    NLL182_OPENING_FUEL_EFFECTIVE_AT,
+    NLL182_OPENING_FUEL_LITERS,
+    NLL182_OPENING_FUEL_NOTE,
+    NLL182_OPENING_FUEL_REPORT_ID,
+    alreadyHasExcelFuelEntry,
+    alreadyHasOpeningFuel,
+    excelFuelDocumentId,
+    excelFuelOdometer,
+    lithuaniaLocalToIso,
+    parseVehicleDateKey,
+    uncoveredFuelDayKeys,
+} from '../src/domain/excel-fuel-log.js';
+import {
     bodyKindFromPalletCapacity,
     fleetCargoSpec,
     fleetTankCapacity,
@@ -1514,6 +1528,8 @@ export class EmployeeAuthStore {
     const assignments = (await this.listAssignments(profile)).filter((assignment) => assignment.status === 'completed');
     const vehicles = await this.listVehicles();
     await this.seedNll182OdometerLog(vehicles);
+    await this.seedNll182OpeningFuel(vehicles);
+    await this.seedExcelFuelLog(vehicles);
     const currentVehicles = new Map(
       vehicles.filter((vehicle) => vehicle.assignedDriverId).map((vehicle) => [vehicle.assignedDriverId!, vehicleSnapshot(vehicle)]),
     );
@@ -1531,7 +1547,8 @@ export class EmployeeAuthStore {
     const entriesByAssignment = new Map<string, ServerFuelEntry[]>();
     const entriesByVehicleDate = new Map<string, ServerFuelEntry[]>();
     for (const entry of allEntries) {
-      const date = entry.filledAt.slice(0, 10);
+      const vehicleDay = parseVehicleDayAssignmentId(entry.assignmentId);
+      const date = vehicleDay?.date ?? entry.filledAt.slice(0, 10);
       const vehicleDateKey = `${entry.vehicleId}:${date}`;
       entriesByVehicleDate.set(vehicleDateKey, [...(entriesByVehicleDate.get(vehicleDateKey) ?? []), entry]);
       if (visibleAssignmentIds.has(entry.assignmentId) || parseVehicleDayAssignmentId(entry.assignmentId)) {
@@ -1561,7 +1578,32 @@ export class EmployeeAuthStore {
           fuelEntries: fuelEntriesForSheet(sheet, entriesByAssignment, entriesByVehicleDate),
         };
       });
-    const combined = [...sheets, ...synthetic]
+    const coveredAfterReadings = new Set([
+      ...covered,
+      ...synthetic.map((sheet) => `${sheet.vehicle?.id ?? ''}:${sheet.date}`),
+    ]);
+    const fuelOnly = uncoveredFuelDayKeys(entriesByVehicleDate, coveredAfterReadings).flatMap((key) => {
+      const parsed = parseVehicleDateKey(key);
+      if (!parsed) return [];
+      const vehicle = vehiclesById.get(parsed.vehicleId) ?? null;
+      const dayEntries = entriesByVehicleDate.get(key) ?? [];
+      const driverId = vehicle?.assignedDriverId ?? dayEntries[0]?.driverId ?? null;
+      if (!isOwnedByDriver(profile, driverId, vehicle)) return [];
+      const sheet = buildFuelDayTripSheet({
+        vehicleId: parsed.vehicleId,
+        date: parsed.date,
+        vehicle: vehicle ? vehicleSnapshot(vehicle) : null,
+        driverId,
+        driverName: dayEntries[0]?.driverName ?? null,
+      });
+      return [{
+        ...sheet,
+        fuelNormLitersPer100Km: tripSheetFuelNorm(sheet.vehicle, priceSettings),
+        fuelAnchor: sheet.vehicle ? fuelAnchorFor(fuelReports, sheet.vehicle.id, sheet.date) : null,
+        fuelEntries: fuelEntriesForSheet(sheet, entriesByAssignment, entriesByVehicleDate),
+      }];
+    });
+    const combined = [...sheets, ...synthetic, ...fuelOnly]
       .sort((left, right) => (right.completedAt ?? right.date).localeCompare(left.completedAt ?? left.date));
     const canViewCompensation = profile.role !== 'driver' || profile.permissions.canViewCompensation;
     if (!canViewCompensation) return combined;
@@ -1729,6 +1771,77 @@ export class EmployeeAuthStore {
         createdBy: 'gps-import',
       };
       await this.vehicleDayReadings.doc(id).set(reading);
+    }
+  }
+
+  private async seedNll182OpeningFuel(vehicles: FleetVehicle[]): Promise<void> {
+    const vehicle = vehicles.find((item) => item.registrationNumber.toUpperCase() === 'NLL182');
+    if (!vehicle) return;
+    if ((await this.fuelReports.doc(NLL182_OPENING_FUEL_REPORT_ID).get()).exists) return;
+    const existing = await this.fuelReports.where('vehicleId', '==', vehicle.id).get();
+    const reports = existing.docs.map((document) => normalizeFuelReport(document.data() as FuelReport));
+    if (alreadyHasOpeningFuel(reports, vehicle.id)) return;
+    const driver = await this.resolveReadingDriver(vehicle, vehicle.assignedDriverId);
+    const now = new Date().toISOString();
+    const report: FuelReport = {
+      id: NLL182_OPENING_FUEL_REPORT_ID,
+      driverId: driver.id ?? 'opening-seed',
+      driverName: driver.name === 'Nepriskirtas' ? NLL182_ODOMETER_DRIVER_NAME : driver.name,
+      vehicleId: vehicle.id,
+      registrationNumber: vehicle.registrationNumber,
+      assignmentRevision: vehicle.assignmentRevision,
+      previousLiters: vehicle.fuelRemainingLiters,
+      reportedLiters: NLL182_OPENING_FUEL_LITERS,
+      status: 'approved',
+      reportedAt: now,
+      reviewedAt: now,
+      reviewedBy: 'opening-seed',
+      effectiveAt: NLL182_OPENING_FUEL_EFFECTIVE_AT,
+      kind: 'admin_correction',
+      note: NLL182_OPENING_FUEL_NOTE,
+    };
+    await this.fuelReports.doc(report.id).set(report);
+  }
+
+  private async seedExcelFuelLog(vehicles: FleetVehicle[]): Promise<void> {
+    const byPlate = new Map(vehicles.map((vehicle) => [vehicle.registrationNumber.toUpperCase(), vehicle]));
+    const existing = await this.fuelEntries.get();
+    const entries = existing.docs.map((document) => document.data() as ServerFuelEntry);
+    const drivers = new Map<string, { id: string | null; name: string }>();
+    const now = new Date().toISOString();
+    for (const fill of EXCEL_FUEL_LOG) {
+      const vehicle = byPlate.get(fill.registrationNumber);
+      if (!vehicle) continue;
+      if (alreadyHasExcelFuelEntry(entries, fill, vehicle.id)) continue;
+      let driver = drivers.get(vehicle.id);
+      if (!driver) {
+        driver = await this.resolveReadingDriver(vehicle, vehicle.assignedDriverId);
+        drivers.set(vehicle.id, driver);
+      }
+      const assignmentId = vehicleDayAssignmentId(vehicle.id, fill.localDate);
+      const id = excelFuelDocumentId(fill);
+      const entry: ServerFuelEntry = {
+        id,
+        tripSheetId: `trip-sheet-${assignmentId}`,
+        assignmentId,
+        routeId: assignmentId,
+        driverId: driver.id ?? '',
+        driverName: driver.name,
+        vehicleId: vehicle.id,
+        registrationNumber: vehicle.registrationNumber,
+        filledAt: lithuaniaLocalToIso(fill.localDate, fill.localTime),
+        odometer: excelFuelOdometer(fill.registrationNumber, fill.localDate),
+        liters: fill.liters,
+        pricePerLiter: null,
+        totalCost: null,
+        station: null,
+        receiptNumber: fill.receiptNumber,
+        notes: null,
+        createdAt: now,
+        createdBy: 'xlsx-import',
+      };
+      await this.fuelEntries.doc(id).set(entry);
+      entries.push(entry);
     }
   }
 
@@ -2186,6 +2299,44 @@ export function buildVehicleDayTripSheet(reading: VehicleDayReading, vehicle: Fl
   };
 }
 
+/** A day that has fuel fills but no odometer log — do not invent 0 km as GPS. */
+export function buildFuelDayTripSheet(input: {
+  vehicleId: string;
+  date: string;
+  vehicle: FleetVehicleSnapshot | null;
+  driverId: string | null;
+  driverName: string | null;
+}): ServerTripSheet {
+  const assignmentId = vehicleDayAssignmentId(input.vehicleId, input.date);
+  return {
+    id: `trip-sheet-${assignmentId}`,
+    assignmentId,
+    routeId: assignmentId,
+    routeNumbers: [],
+    status: 'completed',
+    date: input.date,
+    driverId: input.driverId || 'unassigned',
+    driverName: input.driverName || 'Nepriskirtas',
+    vehicle: input.vehicle,
+    fuelNormLitersPer100Km: null,
+    startOdometer: null,
+    endOdometer: null,
+    actualDistanceKm: null,
+    plannedDistanceKm: null,
+    startedAt: `${input.date}T00:00:00.000Z`,
+    completedAt: `${input.date}T23:59:59.000Z`,
+    durationMinutes: null,
+    totalStops: 0,
+    deliveredStops: 0,
+    totalWeightKg: 0,
+    deliveredWeightKg: 0,
+    startAddress: 'Kuro pylimas',
+    endAddress: 'Kuro pylimas',
+    compensation: null,
+    fuelEntries: [],
+  };
+}
+
 function fuelEntriesForSheet(
   sheet: ServerTripSheet,
   byAssignment: Map<string, ServerFuelEntry[]>,
@@ -2205,13 +2356,21 @@ function fuelEntriesForSheet(
     .sort((left, right) => left.filledAt.localeCompare(right.filledAt));
 }
 
+function isOwnedByDriver(
+  profile: EmployeeProfile,
+  driverId: string | null,
+  vehicle: FleetVehicle | null,
+): boolean {
+  if (profile.role !== 'driver') return true;
+  return driverId === profile.id || vehicle?.assignedDriverId === profile.id;
+}
+
 function isReadingVisibleTo(
   profile: EmployeeProfile,
   reading: VehicleDayReading,
   vehicle: FleetVehicle | null,
 ): boolean {
-  if (profile.role !== 'driver') return true;
-  return reading.driverId === profile.id || vehicle?.assignedDriverId === profile.id;
+  return isOwnedByDriver(profile, reading.driverId, vehicle);
 }
 
 function assertCanEditTripReadings(

@@ -33,5 +33,6 @@ describe('trip sheet fuel workflow', () => {
     expect(source).not.toContain('Stovėjimo laikas');
     expect(source).not.toContain('Kaina už litrą');
     expect(source).not.toContain('Degalinė');
+    expect(source).toContain("timeZone: 'Europe/Vilnius'");
   });
 });

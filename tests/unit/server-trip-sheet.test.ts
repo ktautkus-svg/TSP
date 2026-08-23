@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { attachDailyCompensation, applyDayReading, buildServerTripSheet, buildVehicleDayTripSheet, tripSheetFuelNorm, type RouteAssignment, type VehicleDayReading } from '../../server/employee-auth-store';
+import { attachDailyCompensation, applyDayReading, buildFuelDayTripSheet, buildServerTripSheet, buildVehicleDayTripSheet, tripSheetFuelNorm, type RouteAssignment, type VehicleDayReading } from '../../server/employee-auth-store';
 import { DEFAULT_ROUTE_PRICE_SETTINGS } from '../../src/application/routes/route-price';
 
 describe('server trip sheet', () => {
@@ -103,6 +103,25 @@ describe('server trip sheet', () => {
       startOdometer: 274885,
       endOdometer: 274885,
       actualDistanceKm: 0,
+      fuelEntries: [],
+    });
+  });
+
+  it('synthesizes a fuel-only day without inventing GPS kilometres', () => {
+    expect(buildFuelDayTripSheet({
+      vehicleId: 'MET630',
+      date: '2026-08-04',
+      vehicle: { id: 'MET630', registrationNumber: 'MET630', model: 'Renault Master', maximumPayloadKg: 1500 },
+      driverId: null,
+      driverName: null,
+    })).toMatchObject({
+      assignmentId: 'vehicle-day-MET630-2026-08-04',
+      date: '2026-08-04',
+      startOdometer: null,
+      endOdometer: null,
+      actualDistanceKm: null,
+      startAddress: 'Kuro pylimas',
+      driverName: 'Nepriskirtas',
       fuelEntries: [],
     });
   });

@@ -59,4 +59,18 @@ describe('kuro likučio atrama', () => {
     expect(legacy.effectiveAt).toBe('2026-01-01');
     expect(legacy.kind).toBe('driver_report');
   });
+
+  it('NLL182 rugpjūčio 1 d. atidaro baką 30 litrų', () => {
+    const reports = [report({
+      id: 'open-NLL182-20260801',
+      vehicleId: 'NLL182',
+      registrationNumber: 'NLL182',
+      reportedLiters: 30,
+      effectiveAt: '2026-08-01',
+      kind: 'admin_correction',
+    })];
+    expect(fuelAnchorFor(reports, 'NLL182', '2026-08-01')).toEqual({ liters: 30, effectiveAt: '2026-08-01' });
+    expect(fuelAnchorFor(reports, 'NLL182', '2026-08-22')).toEqual({ liters: 30, effectiveAt: '2026-08-01' });
+    expect(fuelAnchorFor(reports, 'MET630', '2026-08-01')).toBeNull();
+  });
 });

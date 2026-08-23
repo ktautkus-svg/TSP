@@ -94,4 +94,9 @@ describe('Cloud Run deploy', () => {
     expect(employeeStore).toContain("from '../src/domain/nll182-odometer-log.js'");
     expect(employeeStore).not.toContain("@/domain/nll182-odometer-log");
   });
+
+  it('keeps Excel fuel catalog on a relative import in the server graph', () => {
+    expect(employeeStore).toContain("from '../src/domain/excel-fuel-log.js'");
+    expect(employeeStore).not.toContain("@/domain/excel-fuel-log");
+  });
 });
