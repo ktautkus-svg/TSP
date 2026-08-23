@@ -953,3 +953,147 @@ jei norėsite 100% tikrumo, patikrinkite patys realiame telefone/PWA su tikru pi
 nes tai grynai UI laidų pakeitimas, jokios naujos verslo logikos).
 
 **Deploy STATUSAS: NEPALEISTAS.** Laukiama vartotojo komandos ir 6 dizaino variantų.
+
+---
+
+# Sesija 2026-08-23: navigacijos/meniu pertvarka (Automobiliai, Vairuotojai, Finansai)
+
+Šaka `claude/tsp-agent-continuation-7pwree`, jau susijungusi su `main` sesijos pradžioje
+(žr. `git log`). **Deploy NEPALEISTAS** — visi pakeitimai tik commit'inti ir push'inti į
+branch'ą, `cloud-run-deploy.ps1` nekviestas.
+
+## Užduotis
+
+Vartotojas paprašė perstruktūrizuoti visą meniu: pašalinti dubliuotus Automobiliai/
+Vairuotojai/Klientai/Finansiniai duomenys punktus iš Dispečerio skydelio, sukurti
+atskirą "Automobiliai" modulį (su polapiais: Terminai, Techniniai duomenys,
+Kilometražas, Kuras), palikti Vairuotojus ir Kelionės lapus, sutvarkyti Nustatymus
+(nebedubliuoti automobilių dalykų), ir sukurti naują "Finansai" modulį (reiso
+savikaina — kuras + atlygis, pagal laikotarpį).
+
+Prieš pradedant užduota 3 tikslinantys klausimai (žr. pokalbį) — atsakymai:
+1. "Vykdyti maršrutą" → pridėti į Dispečerio skydelį (ne tik admin pradžios meniu).
+2. Polapių pavadinimai: "Terminai" (datos) vs "Techniniai duomenys" (matmenys/talpos).
+3. Finansų MVP: TIK ataskaita iš jau esamų duomenų (be naujo € /l lauko).
+
+Vėliau, atskiru pranešimu tarp žingsnių, vartotojas dar paprašė:
+- Paaiškinti "Reikia dėmesio" dialogą (paaiškinta pokalbyje — tai informacinis
+  pranešimas apie kitos paskyros maršrutus įrenginyje, ne klaida).
+- Pataisyti bug'ą: įėjus į "Automobilio priežiūra" ir paspaudus "Atgal", atsidurdavo
+  Nustatymuose (net kai įėjai iš pradžios ekrano).
+- Kokybės kontrolėje: pridėti "Visi" kaip pirmą kvadratelį, pridėti vėlavimų
+  kvadratelį (buvusi Statistikos "Kokybė" savybė), pridėti automobilio filtrą
+  (analogiškai vairuotojo filtrui, "Visi automobiliai" pirmas).
+
+## Kas padaryta (4 commit'ai)
+
+1. **`b34b29f`** — `src/app/vehicle.tsx` atgal mygtuko bug'as: `/vehicle` buvo pasiekiamas
+   ir iš `/` (admin home), ir iš `/settings`, bet `stack-navigation.tsx` `logicalParent()`
+   VISADA grąžindavo `/settings`. Taisymas: abu iškvietimo taškai dabar perduoda aiškų
+   `returnTo` param'ą (`home`/`settings`), o `/vehicle` pašalintas iš hardcoded fallback'o.
+   Taip pat `quality-control.tsx` "Kelyje" kvadratelis nebeatrodo visada "pažymėtas" —
+   pakeistas iš pilno spalvoto užpildymo į rėmelį/paryškintą tekstą (tas pats principas
+   visoms 4 (dabar 6) plytelėms, ne tik numatytai pasirinktai).
+
+2. **`6ce98fe`** — Didžioji meniu pertvarka:
+   - `src/app/dispatcher.tsx`: pašalinta IŠTEKLIAI (Vairuotojai/Automobiliai/Klientai) ir
+     "Finansiniai duomenys" eilutė. Pridėtas trečias pagrindinis mygtukas "Vykdyti
+     maršrutą" šalia "Kurti"/"Redaguoti ir priskirti".
+   - **NAUJAS** `src/app/fleet.tsx` ("Automobiliai", route `/fleet`) — tai **hub/skirstyklė
+     su 4 kortelėmis**, NE pilnai integruotas 4 skirtukų ekranas su vidiniu redagavimu.
+     Kortelės veda į JAU EGZISTUOJANČIUS, veikiančius ekranus:
+     - "Terminai" → `/vehicle` (TA, kelių mokestis, servisas — jau turi pilną automobilio
+       pasirinkiklį admin/dispečeriui, gedimų sąrašą).
+     - "Techniniai duomenys" → `/admin?section=fleet` (numeris, modelis, bakas, PLL,
+       matmenys, kuro norma — jau esantis 1200+ eilučių CRUD admin.tsx faile).
+     - "Kilometražas" → `/statistics` (numatytas skirtukas jau yra "Kilometrai").
+     - "Kuras" → `/admin?section=fleet` (ten jau yra kuro likučio patvirtinimai/korekcijos).
+     **Sąmoningas sprendimas:** NEBUVO perrašyta/sujungta admin.tsx (1200+ eilučių,
+     testuota, veikianti) logika į vieną naują tabbed ekraną — per didelė rizika vienoje
+     sesijoje. Jei norite TIKRAI vieno ekrano su skirtukais IR įterptu redagavimu (ne
+     nuorodomis), tai atskiras, didelis refaktoringas.
+   - **NAUJAS** `src/app/finance.tsx` ("Finansai", route `/finance`) — laikotarpio
+     (diena/savaitė/mėnuo/laikotarpis, numatyta "šiandien") ataskaita PER VAIRUOTOJĄ:
+     reisų sk., km, kuro litrai, kuro € (suma iš `fuelEntries[].totalCost`, KUR nurodyta
+     kaina — jei kainos nėra, litrai matomi, bet į € neįskaičiuojami), atlygis €
+     (iš `sheet.compensation.totalNetEur`, dedup'inta per vairuotoją+dieną, nes tas pats
+     dienos atlygis pridedamas prie kiekvieno tos dienos kelionės lapo), Iš viso €.
+     Duomenų šaltinis: `/api/trip-sheets` (tas pats endpoint'as, kurį jau naudoja
+     `statistics.tsx` "Atlygis" skirtukui). Apačioje nuoroda į esamą
+     `financial-settings.tsx` (kuro/automobilio/vairuotojo tarifų redagavimas —
+     PALIKTAS nepakeistas, tik pridėtas `returnTo=finance` variantas).
+     Prieiga: tik `admin` arba `dispatcher` su `canManageFinancials`.
+   - `src/app/index.tsx` (admin pradžios meniu): pridėta nauja grupė "IŠTEKLIAI"
+     (Vairuotojai → `/admin?section=employees`, Automobiliai → `/fleet`), "Finansai"
+     perkeltas į "STEBĖJIMAS IR APSKAITA", pašalinta sena "Automobilio priežiūra" eilutė
+     (dabar tai "Terminai" polapis Automobiliuose).
+   - `src/app/settings/index.tsx`: pašalintos dubliuotos "Automobilio priežiūra" ir
+     "Degalų pylimai" (pastarasis — tuščias stub ekranas be jokios funkcijos, žr.
+     `src/app/fuel.tsx`) eilutės iš "MARŠRUTAS IR NAVIGACIJA" grupės.
+     **NEPALIESTA:** "ADMINISTRAVIMAS" blokas (`admin-management-shortcuts` — Vairuotojai/
+     Automobiliai greitosios nuorodos) settings ekrane VIS DAR yra — tai dabar antras
+     kelias į tuos pačius ekranus (be `/fleet` hub'o, tiesiai į `/admin?section=...`).
+     Sąmoningai palikta, nes testai (`admin-workspace-navigation.test.ts`) tai tikrina ir
+     pašalinimas būtų didesnė, atskira rizika. Jei norite VISIŠKO konsolidavimo, šitą
+     bloką irgi reikėtų naikinti arba nukreipti į `/fleet`.
+     "Numatytoji navigacija" NEPALIESTA — tai jau teisingai veikiantis PER ĮRENGINĮ
+     (ne globalus) nustatymas, vartotojas tik pastebėjo, kad tai gali klaidinti; jokio
+     kodo pakeitimo nereikėjo.
+   - `src/components/stack-navigation.tsx`: pridėti `finance`/`fleet` į `returnTarget()`.
+   - `src/app/_layout.tsx`: registruoti nauji `Stack.Screen` `finance`/`fleet`.
+   - Atnaujinti 3 test failai (`dispatcher-dashboard.test.ts`,
+     `admin-workspace-navigation.test.ts`, `client-directory.test.ts`), kad atitiktų
+     naują struktūrą (buvę testai tikrino senus tekstus/testID's, kurie pašalinti).
+
+3. **`e3d7ff3`** — `src/app/quality-control.tsx`:
+   - `QualityFilter` tipas papildytas `'all' | 'late'` (buvo tik in_progress/waiting/
+     completed/issues). `FILTERS` masyvas: **"Visi" dabar PIRMAS** (numatytasis `filter`
+     state = `'all'`, ne `'in_progress'`), po jo Kelyje/Laukia/Įvykdyti/**Vėluoja**/
+     Neatitikimai.
+   - "Vėluoja" kvadratelis: `routeHasLateStop()` — naudoja TĄ PATĮ `classifyDeliveryWindow`
+     mechanizmą, kuris jau skaičiuoja kiekvieno taško "laiku"/"vėluoja" ženkliuką kortelėse
+     (jokios naujos skaičiavimo logikos, tik naujas filtras virš jau esamo duomens).
+     **Statistikos "Kokybė" skirtukas (`statistics.tsx`) SĄMONINGAI NEPAŠALINTAS** —
+     paliktas kaip papildomas istorinis/trendų grafikas, ne pašalintas dublis. Jei norite
+     jį pašalinti iš Statistikos visai (vartotojas sakė "nereikia identiškai", tad tai
+     nebuvo privaloma), tai lieka atskiras, mažas follow-up.
+   - Pridėtas AUTOMOBILIS filtras (šalia jau esančio VAIRUOTOJAS), tas pats
+     "Visi automobiliai" pirmas → registracijos numeriai, komponentas pakartotinai
+     naudoja jau esantį `DriverChoice` (jis universalus, ne vien vairuotojams).
+   - Naujas `filterTone_neutral`/`filterActive_neutral` stilius "Visi" kvadratelio spalvai
+     (neutralus, ne joks statuso tonas).
+
+## Patikrinta
+
+- `npx tsc --noEmit` — 0 klaidų (po kiekvieno žingsnio).
+- `npx vitest run` — 947/947 testų (po kiekvieno žingsnio).
+- `npx eslint` ant visų liestų failų — švarus.
+- `npm run validate:schema` — schema OK, v25, 36 lentelės.
+- **NEPATIKRINTA gyvai naršyklėje** — šioje aplinkoje NĖRA naršyklės/computer įrankio,
+  tik CLI. Visi 6 nauji/pakeisti ekranai (`/fleet`, `/finance`, `/dispatcher`, `/`,
+  `/settings`, `/quality-control`) yra TIK statiškai/testais patikrinti, NE realiai
+  paspaudinėti. Prieš pasitikint realiam darbui, būtina bent kartą pereiti kiekvieną
+  naują ekraną naršyklėje/telefone.
+
+## Kas NEBAIGTA / rekomenduojami kiti žingsniai
+
+1. **`/fleet` tebra hub, ne pilnai integruotas 4-skirtukų ekranas.** Jei norite, kad
+   "Kilometražas" ir "Kuras" polapiai rodytų TIKRĄ suvestinę (ne tik nuorodą į
+   `/statistics`/`/admin`), reikės naujos agregacijos — pvz. kuro likutis+norma
+   kiekvienam automobiliui vienoje vietoje (duomenys jau yra `ServerFleetVehicle`
+   tipe: `fuelRemainingLiters`, `fuelNormLPer100Km`, `fuelTankCapacityLiters`).
+2. **Settings "ADMINISTRAVIMAS" blokas** (Vairuotojai/Automobiliai greitosios nuorodos)
+   vis dar dubliuoja `/fleet`/`/admin?section=employees` kelius — jei norite pilno
+   konsolidavimo, reikia arba pašalinti šį bloką iš `settings/index.tsx`, arba pakeisti
+   jo "Automobiliai" nuorodą į `/fleet` (ir atnaujinti
+   `admin-workspace-navigation.test.ts`).
+3. **Statistikos "Kokybė" skirtukas** vis dar egzistuoja lygiagrečiai su naujuoju
+   Kokybės kontrolės "Vėluoja" kvadrateliu — dubliuota funkcija, bet žemos rizikos
+   (abu veikia nepriklausomai, nieko nesulaužys, jei paliksite).
+4. **Realus naršyklės/telefono patikrinimas** visiems naujiems/pakeistiems ekranams
+   (žr. aukščiau) — svarbiausia prieš tikint šiais pakeitimais realiame darbe.
+5. Vartotojo pradinis 7 punktų sąrašas buvo platesnis nei viena sesija gali saugiai
+   apimti be tarpinio patikrinimo — jei grįžtate tęsti, PIRMA paklauskite vartotojo,
+   ar dabartinis meniu išdėstymas (Automobiliai/Vairuotojai/Finansai kaip atskiri
+   pradžios meniu punktai) atitinka lūkesčius, PRIEŠ darant tolimesnius struktūrinius
+   pakeitimus.
