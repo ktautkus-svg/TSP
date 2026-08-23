@@ -29,13 +29,12 @@ const REFRESH_INTERVAL_MS = 15_000;
 const STALE_AFTER_MS = 120_000;
 const MINOR_DELAY_MINUTES = 45;
 
-type QualityFilter = 'all' | 'in_progress' | 'waiting' | 'completed' | 'late' | 'issues';
+type QualityFilter = 'all' | 'in_progress' | 'completed' | 'late' | 'issues';
 type FilterTone = 'neutral' | 'info' | 'warning' | 'success' | 'danger';
 
 const FILTERS: readonly { key: QualityFilter; label: string; tone: FilterTone }[] = [
   { key: 'all', label: 'Visi', tone: 'neutral' },
   { key: 'in_progress', label: 'Kelyje', tone: 'info' },
-  { key: 'waiting', label: 'Laukia', tone: 'warning' },
   { key: 'completed', label: 'Įvykdyti', tone: 'success' },
   { key: 'late', label: 'Vėluoja', tone: 'warning' },
   { key: 'issues', label: 'Neatitikimai', tone: 'danger' },
@@ -112,8 +111,10 @@ export default function QualityControlScreen() {
   const visible = routes.filter((route) => route.date >= period.from && route.date <= period.to
     && (driverId === 'all' || route.driverId === driverId)
     && (vehicleId === 'all' || route.vehicle?.id === vehicleId));
-  const active = visible.filter((route) => route.status === 'in_progress');
-  const waiting = visible.filter((route) => ['assigned', 'downloaded'].includes(route.status));
+  // "Kelyje" covers both actually driving and still waiting to start — the
+  // driver-facing distinction between assigned/downloaded/in_progress is not
+  // useful to a dispatcher scanning today's board.
+  const active = visible.filter((route) => route.status === 'in_progress' || ['assigned', 'downloaded'].includes(route.status));
   // Sort routes with delivery discrepancies (failed stops) first, so problems
   // are visible without opening every card.
   const completed = visible
@@ -130,20 +131,28 @@ export default function QualityControlScreen() {
     ? visible
     : filter === 'in_progress'
       ? active
-      : filter === 'waiting'
-        ? waiting
-        : filter === 'completed'
-          ? completed
-          : filter === 'late'
-            ? late
-            : issues;
+      : filter === 'completed'
+        ? completed
+        : filter === 'late'
+          ? late
+          : issues;
   const filterCounts: Record<QualityFilter, number> = {
     all: visible.length,
     in_progress: active.length,
-    waiting: waiting.length,
     completed: completed.length,
     late: late.length,
     issues: issues.length,
+  };
+  // Percentages are pooled across every stop in the visible routes, not
+  // averaged per route — a route with 10 stops and 1 failure should read as
+  // 10% of that route's stops, not as "1 problem route out of 1" (100%).
+  const totalStopsVisible = visible.reduce((sum, route) => sum + route.totalStops, 0);
+  const stopSharePercent = (stopCount: number) => totalStopsVisible === 0 ? 0 : Math.round((stopCount / totalStopsVisible) * 100);
+  const filterStopPercents: Record<Exclude<QualityFilter, 'all'>, number> = {
+    in_progress: stopSharePercent(active.reduce((sum, route) => sum + route.totalStops, 0)),
+    completed: stopSharePercent(completed.reduce((sum, route) => sum + route.totalStops, 0)),
+    late: stopSharePercent(late.reduce((sum, route) => sum + countLateStops(route), 0)),
+    issues: stopSharePercent(issues.reduce((sum, route) => sum + route.failedStops, 0)),
   };
 
   return <SafeAreaView style={styles.safeArea}>
@@ -205,6 +214,7 @@ export default function QualityControlScreen() {
             active={filter === item.key}
             label={item.label}
             onPress={() => setFilter(item.key)}
+            percent={item.key === 'all' ? null : filterStopPercents[item.key]}
             styles={styles}
             tone={item.tone}
             value={filterCounts[item.key]}
@@ -386,9 +396,9 @@ function RouteSequenceStop({ stop, nextSequence, styles }: { stop: QualityStopMo
   </View>;
 }
 
-function StatusFilter({ active, label, onPress, tone, value, styles }: { active: boolean; label: string; onPress: () => void; tone: FilterTone; value: number; styles: ReturnType<typeof createStyles> }) {
+function StatusFilter({ active, label, onPress, percent, tone, value, styles }: { active: boolean; label: string; onPress: () => void; percent: number | null; tone: FilterTone; value: number; styles: ReturnType<typeof createStyles> }) {
   return <Pressable accessibilityRole="tab" accessibilityState={{ selected: active }} onPress={onPress} style={({ pressed }) => [styles.filter, styles[`filterTone_${tone}`], active && styles[`filterActive_${tone}`], pressed && styles.filterPressed]}>
-    <Text style={[styles.filterValue, styles[`filterValueTone_${tone}`], active && styles.filterValueActive]}>{value}</Text>
+    <Text style={[styles.filterValue, styles[`filterValueTone_${tone}`], active && styles.filterValueActive]}>{percent === null ? value : `${value} / ${percent}%`}</Text>
     <Text numberOfLines={1} style={[styles.filterLabel, active && styles.filterLabelActive]}>{label}</Text>
   </Pressable>;
 }
@@ -436,12 +446,14 @@ function DriverChoice({ active, label, onPress, styles }: { active: boolean; lab
     <Text numberOfLines={1} style={[styles.driverChoiceText, active && styles.driverChoiceTextActive]}>{label}</Text>
   </Pressable>;
 }
-function filterTitle(filter: QualityFilter): string { return ({ all: 'Visi maršrutai', in_progress: 'Kelyje', waiting: 'Laukia starto', completed: 'Įvykdyti maršrutai', late: 'Vėluojantys maršrutai', issues: 'Neatitikimai' })[filter]; }
-function emptyTitle(filter: QualityFilter): string { return ({ all: 'Pasirinktu laikotarpiu maršrutų nėra', in_progress: 'Pasirinktu laikotarpiu vykdomų maršrutų nėra', waiting: 'Pasirinktu laikotarpiu laukiančių maršrutų nėra', completed: 'Pasirinktu laikotarpiu įvykdytų maršrutų nėra', late: 'Pasirinktu laikotarpiu vėluojančių maršrutų nėra', issues: 'Pasirinktu laikotarpiu neatitikimų nėra' })[filter]; }
-function routeHasLateStop(route: QualityRouteMonitor): boolean {
-  return route.stops.some((stop) => stop.status !== 'failed' && Boolean(stop.deliveredAt)
+function filterTitle(filter: QualityFilter): string { return ({ all: 'Visi maršrutai', in_progress: 'Kelyje', completed: 'Įvykdyti maršrutai', late: 'Vėluojantys maršrutai', issues: 'Neatitikimai' })[filter]; }
+function emptyTitle(filter: QualityFilter): string { return ({ all: 'Pasirinktu laikotarpiu maršrutų nėra', in_progress: 'Pasirinktu laikotarpiu vykdomų maršrutų nėra', completed: 'Pasirinktu laikotarpiu įvykdytų maršrutų nėra', late: 'Pasirinktu laikotarpiu vėluojančių maršrutų nėra', issues: 'Pasirinktu laikotarpiu neatitikimų nėra' })[filter]; }
+function lateStops(route: QualityRouteMonitor): QualityStopMonitor[] {
+  return route.stops.filter((stop) => stop.status !== 'failed' && Boolean(stop.deliveredAt)
     && classifyDeliveryWindow(stop.deliveredAt, stop.deliveryTimeFrom, stop.deliveryTimeTo) === 'late');
 }
+function routeHasLateStop(route: QualityRouteMonitor): boolean { return lateStops(route).length > 0; }
+function countLateStops(route: QualityRouteMonitor): number { return lateStops(route).length; }
 function vehicleLabel(route: QualityRouteMonitor): string { return route.vehicle ? `${route.vehicle.registrationNumber} · ${route.vehicle.model}` : 'Automobilis nepriskirtas'; }
 function regionLabel(codes: string[]): string { return codes.length > 0 ? `Regionai ${codes.join(', ')}` : 'Regionas nenurodytas'; }
 function initials(name: string): string { return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join(''); }

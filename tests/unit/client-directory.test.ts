@@ -30,11 +30,13 @@ describe('shared client and operational directories', () => {
 
   it('exposes a client screen that prioritizes missing contact details', () => {
     const screen = read('src/app/clients.tsx');
+    const directory = read('src/app/directory.tsx');
     const home = read('src/app/index.tsx');
     expect(screen).toContain("useState<Filter>('missing')");
     expect(screen).toContain("'/api/admin/clients'");
     expect(screen).toContain('TRŪKSTA KONTAKTŲ');
-    expect(home).toContain('title="Klientai"');
+    expect(directory).toContain('title="Klientai"');
+    expect(home).toContain('title="Kontaktai"');
   });
 
   it('selects contacts and maintenance vehicles from existing shared lists', () => {

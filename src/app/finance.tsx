@@ -1,6 +1,6 @@
 import { Stack, useRouter, type Href } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { normalizeEmployeePermissions } from '@/application/auth/employee-permissions';
 import { useLocalAccess } from '@/application/auth/local-access-context';
@@ -17,9 +17,12 @@ import {
 import { FoundationScreen } from '@/components/foundation-screen';
 import { MenuArtwork } from '@/components/menu-artwork';
 import { employeeApi, type ServerTripSheet } from '@/infrastructure/auth/employee-session';
+import { Alert } from '@/ui/alert';
 import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
+
+const UNASSIGNED_DRIVER_ID = 'unassigned';
 
 type DriverFinanceRow = {
   driverId: string;
@@ -30,6 +33,7 @@ type DriverFinanceRow = {
   fuelCostEur: number;
   wageEur: number;
   totalEur: number;
+  sheets: ServerTripSheet[];
 };
 
 const eurFormatter = new Intl.NumberFormat('lt-LT', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
@@ -47,6 +51,8 @@ export default function FinanceScreen() {
   const [tripSheets, setTripSheets] = useState<ServerTripSheet[]>([]);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [expandedDriverId, setExpandedDriverId] = useState<string | null>(null);
+  const [cleaningUp, setCleaningUp] = useState(false);
   const initialDate = useMemo(() => localDateKey(new Date()), []);
   const [periodMode, setPeriodMode] = useState<PeriodMode>('month');
   const [anchorDate, setAnchorDate] = useState(initialDate);
@@ -83,6 +89,30 @@ export default function FinanceScreen() {
     wageEur: sum.wageEur + row.wageEur,
     totalEur: sum.totalEur + row.totalEur,
   }), { routes: 0, km: 0, fuelLiters: 0, fuelCostEur: 0, wageEur: 0, totalEur: 0 }), [rows]);
+
+  const deleteUnassigned = (row: DriverFinanceRow) => {
+    Alert.alert(
+      'Ištrinti neaiškias dienas?',
+      `Bus visam laikui pašalinta ${row.sheets.length} ${row.sheets.length === 1 ? 'diena' : 'dienos'} be priskirto vairuotojo (kelionių lapų importas). Veiksmo atšaukti negalima.`,
+      [
+        { text: 'Atšaukti', style: 'cancel' },
+        { text: 'Ištrinti', style: 'destructive', onPress: () => { void (async () => {
+          setCleaningUp(true);
+          try {
+            for (const sheet of row.sheets) {
+              if (!sheet.vehicle) continue;
+              await employeeApi(`/api/admin/trip-sheets/unassigned-day/${encodeURIComponent(sheet.vehicle.id)}/${encodeURIComponent(sheet.date)}`, { method: 'DELETE' });
+            }
+            await load();
+          } catch (reason) {
+            setError(reason instanceof Error ? reason.message : 'Ištrinti nepavyko.');
+          } finally {
+            setCleaningUp(false);
+          }
+        })(); } },
+      ],
+    );
+  };
 
   if (!allowed) return null;
 
@@ -132,30 +162,53 @@ export default function FinanceScreen() {
           <Metric label="Iš viso" value={eurFormatter.format(totals.totalEur)} emphasis styles={styles} />
         </View> : null}
 
-        {!busy && rows.length > 0 ? <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tableScroll}>
-          <View style={styles.table} testID="finance-driver-table">
-            <View style={styles.tableHeaderRow}>
-              <Text style={[styles.tableCell, styles.tableHeaderText, styles.driverColumn]}>Vairuotojas</Text>
-              <Text style={[styles.tableCell, styles.tableHeaderText]}>Reisai</Text>
-              <Text style={[styles.tableCell, styles.tableHeaderText]}>Km</Text>
-              <Text style={[styles.tableCell, styles.tableHeaderText]}>Kuras (l)</Text>
-              <Text style={[styles.tableCell, styles.tableHeaderText]}>Kuras €</Text>
-              <Text style={[styles.tableCell, styles.tableHeaderText]}>Atlygis €</Text>
-              <Text style={[styles.tableCell, styles.tableHeaderText]}>Iš viso €</Text>
-            </View>
-            {rows.map((row) => <View key={row.driverId} style={styles.tableRow} testID={`finance-driver-row-${row.driverId}`}>
-              <Text style={[styles.tableCell, styles.driverColumn, styles.driverName]}>{row.driverName}</Text>
-              <Text style={styles.tableCell}>{row.routes}</Text>
-              <Text style={styles.tableCell}>{kmFormatter.format(row.km)}</Text>
-              <Text style={styles.tableCell}>{litersFormatter.format(row.fuelLiters)}</Text>
-              <Text style={styles.tableCell}>{eurFormatter.format(row.fuelCostEur)}</Text>
-              <Text style={styles.tableCell}>{eurFormatter.format(row.wageEur)}</Text>
-              <Text style={[styles.tableCell, styles.tableCellStrong]}>{eurFormatter.format(row.totalEur)}</Text>
-            </View>)}
-          </View>
-        </ScrollView> : null}
+        {!busy && rows.length > 0 ? <View style={styles.table} testID="finance-driver-table">
+          {rows.map((row) => {
+            const expanded = expandedDriverId === row.driverId;
+            return <View key={row.driverId} style={styles.driverCard} testID={`finance-driver-row-${row.driverId}`}>
+              <Pressable accessibilityRole="button" accessibilityState={{ expanded }} onPress={() => setExpandedDriverId((current) => current === row.driverId ? null : row.driverId)} style={({ pressed }) => [styles.driverSummary, pressed && styles.driverSummaryPressed]}>
+                <View style={styles.driverIdentity}>
+                  <Text style={styles.driverName}>{row.driverName}</Text>
+                  <Text style={styles.meta}>{row.routes} {row.routes === 1 ? 'reisas' : 'reisai'} · {kmFormatter.format(row.km)} km</Text>
+                </View>
+                <View style={styles.driverAmounts}>
+                  <Text style={styles.driverAmountSecondary}>Kuras {eurFormatter.format(row.fuelCostEur)} · Atlygis {eurFormatter.format(row.wageEur)}</Text>
+                  <Text style={styles.driverAmountTotal}>{eurFormatter.format(row.totalEur)}</Text>
+                </View>
+                <Text style={styles.expandIcon}>{expanded ? '⌃' : '⌄'}</Text>
+              </Pressable>
+              {expanded ? <View style={styles.driverDetail}>
+                {row.driverId === UNASSIGNED_DRIVER_ID ? <>
+                  <Text style={styles.meta}>Šios dienos neturi priskirto vairuotojo (importuoti kelionės lapų duomenys). Jei tai nebereikalingi bandomieji įrašai, juos galite pašalinti.</Text>
+                  <Pressable disabled={cleaningUp} onPress={() => deleteUnassigned(row)} style={[styles.dangerButton, cleaningUp && styles.disabled]} testID="finance-delete-unassigned">
+                    <Text style={styles.dangerButtonText}>{cleaningUp ? 'Šalinama…' : 'Ištrinti šias dienas'}</Text>
+                  </Pressable>
+                </> : null}
+                <View style={styles.detailHeaderRow}>
+                  <Text style={[styles.detailCell, styles.detailHeaderText, styles.detailDateColumn]}>Data</Text>
+                  <Text style={[styles.detailCell, styles.detailHeaderText, styles.detailVehicleColumn]}>Automobilis</Text>
+                  <Text style={[styles.detailCell, styles.detailHeaderText]}>Km</Text>
+                  <Text style={[styles.detailCell, styles.detailHeaderText]}>Kuras (l)</Text>
+                  <Text style={[styles.detailCell, styles.detailHeaderText]}>Kuras €</Text>
+                </View>
+                {row.sheets.map((sheet) => {
+                  const liters = sheet.fuelEntries.reduce((sum, entry) => sum + entry.liters, 0);
+                  const cost = sheet.fuelEntries.reduce((sum, entry) => sum + (entry.totalCost ?? 0), 0);
+                  return <View key={sheet.id} style={styles.detailRow}>
+                    <Text style={[styles.detailCell, styles.detailDateColumn]}>{sheet.date}</Text>
+                    <Text style={[styles.detailCell, styles.detailVehicleColumn]}>{sheet.vehicle?.registrationNumber ?? '—'}</Text>
+                    <Text style={styles.detailCell}>{kmFormatter.format(sheet.actualDistanceKm ?? sheet.plannedDistanceKm ?? 0)}</Text>
+                    <Text style={styles.detailCell}>{litersFormatter.format(liters)}</Text>
+                    <Text style={styles.detailCell}>{eurFormatter.format(cost)}</Text>
+                  </View>;
+                })}
+                <Text style={styles.disclaimer}>Atlygis {eurFormatter.format(row.wageEur)} skaičiuojamas per dieną (ne per reisą) — jei tą dieną buvo keli reisai, jie prisideda prie tos pačios dienos sumos, ne kelios atskiros.</Text>
+              </View> : null}
+            </View>;
+          })}
+        </View> : null}
 
-        <Text style={styles.disclaimer}>Kuro suma skaičiuojama iš pylimų, kuriuose nurodyta kaina — jei kaina nenurodyta, litrai matomi, bet į € sumą neįskaičiuojami. Atlygis skaičiuojamas serveryje pagal vairuotojo sutartį.</Text>
+        <Text style={styles.disclaimer}>Kuro suma skaičiuojama iš pylimų, kuriuose nurodyta kaina — jei kaina nenurodyta, litrai matomi, bet į € sumą neįskaičiuojami. Atlygis skaičiuojamas serveryje pagal vairuotojo sutartį. „Iš viso“ šiuo metu apima tik kurą ir atlygį — draudimas, kelių mokestis ir kitos sąnaudos į reiso kainos skaičiuoklę bus įtraukti atskirai vėliau.</Text>
 
         <Pressable
           accessibilityRole="button"
@@ -175,13 +228,14 @@ export default function FinanceScreen() {
 }
 
 function aggregateByDriver(sheets: readonly ServerTripSheet[]): DriverFinanceRow[] {
-  const buckets = new Map<string, { driverId: string; driverName: string; routeIds: Set<string>; km: number; fuelLiters: number; fuelCostEur: number }>();
+  const buckets = new Map<string, { driverId: string; driverName: string; routeIds: Set<string>; km: number; fuelLiters: number; fuelCostEur: number; sheets: ServerTripSheet[] }>();
   const wageByDriverDate = new Map<string, number>();
   for (const sheet of sheets) {
-    if (!buckets.has(sheet.driverId)) buckets.set(sheet.driverId, { driverId: sheet.driverId, driverName: sheet.driverName, routeIds: new Set(), km: 0, fuelLiters: 0, fuelCostEur: 0 });
+    if (!buckets.has(sheet.driverId)) buckets.set(sheet.driverId, { driverId: sheet.driverId, driverName: sheet.driverName, routeIds: new Set(), km: 0, fuelLiters: 0, fuelCostEur: 0, sheets: [] });
     const bucket = buckets.get(sheet.driverId)!;
     bucket.routeIds.add(sheet.routeId);
     bucket.km += sheet.actualDistanceKm ?? sheet.plannedDistanceKm ?? 0;
+    bucket.sheets.push(sheet);
     for (const entry of sheet.fuelEntries) {
       bucket.fuelLiters += entry.liters;
       bucket.fuelCostEur += entry.totalCost ?? 0;
@@ -211,6 +265,7 @@ function aggregateByDriver(sheets: readonly ServerTripSheet[]): DriverFinanceRow
         fuelCostEur: bucket.fuelCostEur,
         wageEur,
         totalEur: bucket.fuelCostEur + wageEur,
+        sheets: bucket.sheets.sort((left, right) => right.date.localeCompare(left.date)),
       };
     })
     .sort((left, right) => right.totalEur - left.totalEur);
@@ -226,7 +281,14 @@ function Metric({ label, value, emphasis, styles }: { label: string; value: stri
 function DateField({ label, value, onChange, styles }: { label: string; value: string; onChange: (value: string) => void; styles: ReturnType<typeof createStyles> }) {
   return <View style={styles.dateField}>
     <Text style={styles.fieldLabel}>{label.toUpperCase()}</Text>
-    <Pressable onPress={() => undefined} style={styles.dateValue}><Text style={styles.dateValueText}>{value}</Text></Pressable>
+    <TextInput
+      accessibilityLabel={label}
+      onChangeText={onChange}
+      placeholder="YYYY-MM-DD"
+      style={styles.dateInput}
+      value={value}
+      {...({ type: 'date' } as object)}
+    />
   </View>;
 }
 
@@ -244,8 +306,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   dateFields: { flexDirection: 'row', gap: spacing.md, flexWrap: 'wrap' },
   dateField: { flex: 1, minWidth: 140, gap: 4 },
   fieldLabel: { ...type.label, color: colors.textMuted },
-  dateValue: { minHeight: 44, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderStrong, justifyContent: 'center', paddingHorizontal: spacing.sm, backgroundColor: colors.surfaceSubtle },
-  dateValueText: { ...type.body, color: colors.text },
+  dateInput: { minHeight: 44, paddingHorizontal: spacing.md, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surfaceSubtle, ...type.bodyStrong, color: colors.text },
   warning: { ...type.bodyStrong, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.warningSoft, color: colors.warning },
   empty: { padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, gap: 4 },
   emptyTitle: { ...type.sectionTitle, color: colors.text },
@@ -255,15 +316,26 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   metricValue: { ...type.sectionTitle, color: colors.text },
   metricValueEmphasis: { color: colors.info },
   metricLabel: { ...type.label, color: colors.textMuted },
-  tableScroll: { borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderStrong },
-  table: { minWidth: 720 },
-  tableHeaderRow: { flexDirection: 'row', backgroundColor: colors.surfaceSubtle, borderBottomWidth: 1, borderBottomColor: colors.borderStrong },
-  tableRow: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: colors.borderSubtle },
-  tableCell: { width: 96, paddingVertical: spacing.sm, paddingHorizontal: spacing.xs, ...type.secondary, color: colors.text, textAlign: 'right' },
-  tableCellStrong: { ...type.secondaryStrong, color: colors.text },
-  tableHeaderText: { ...type.label, color: colors.textMuted, textAlign: 'right' },
-  driverColumn: { width: 168, textAlign: 'left' },
+  table: { gap: spacing.sm },
+  driverCard: { borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, overflow: 'hidden' },
+  driverSummary: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.md, minHeight: 64 },
+  driverSummaryPressed: { opacity: 0.85 },
+  driverIdentity: { flex: 1, minWidth: 0, gap: 2 },
   driverName: { ...type.bodyStrong, color: colors.text },
+  driverAmounts: { alignItems: 'flex-end', gap: 2 },
+  driverAmountSecondary: { ...type.meta, color: colors.textMuted },
+  driverAmountTotal: { ...type.sectionTitle, color: colors.text, fontSize: 17 },
+  expandIcon: { ...type.secondary, color: colors.textMuted, width: 18, textAlign: 'center' },
+  driverDetail: { padding: spacing.md, paddingTop: 0, gap: spacing.sm, borderTopWidth: 1, borderTopColor: colors.borderSubtle },
+  detailHeaderRow: { flexDirection: 'row', paddingTop: spacing.sm },
+  detailRow: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: colors.borderSubtle, paddingVertical: spacing.xs },
+  detailCell: { flex: 1, ...type.secondary, color: colors.text, textAlign: 'right' },
+  detailHeaderText: { ...type.label, color: colors.textMuted, textAlign: 'right' },
+  detailDateColumn: { flex: 1.4, textAlign: 'left' },
+  detailVehicleColumn: { flex: 1.2, textAlign: 'left' },
+  dangerButton: { alignSelf: 'flex-start', minHeight: 40, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.dangerSoft, alignItems: 'center', justifyContent: 'center' },
+  dangerButtonText: { ...type.button, color: colors.danger },
+  disabled: { opacity: 0.6 },
   disclaimer: { ...type.meta, color: colors.textMuted },
   settingsLink: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface },
   settingsLinkPressed: { opacity: 0.85 },

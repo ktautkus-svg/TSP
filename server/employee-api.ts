@@ -343,6 +343,12 @@ export async function handleEmployeeApi(
       });
       return send(response, 200, { reading }, requestId);
     }
+    const unassignedTripDayMatch = pathname.match(/^\/api\/admin\/trip-sheets\/unassigned-day\/([^/]+)\/([^/]+)$/);
+    if (unassignedTripDayMatch && request.method === 'DELETE') {
+      requireManagementPermission(profile, 'canManageFinancials');
+      await store.deleteUnassignedTripDay(decodeURIComponent(unassignedTripDayMatch[1]), decodeURIComponent(unassignedTripDayMatch[2]));
+      return send(response, 204, null, requestId);
+    }
     const tripSheetFuelMatch = pathname.match(/^\/api\/trip-sheets\/([^/]+)\/fuel-entries$/);
     if (tripSheetFuelMatch && request.method === 'POST') {
       requireRole(profile, ['admin', 'dispatcher', 'driver', 'quality']);

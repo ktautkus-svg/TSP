@@ -1577,9 +1577,10 @@ export class EmployeeAuthStore {
   async listTripSheets(profile: EmployeeProfile): Promise<ServerTripSheet[]> {
     const assignments = (await this.listAssignments(profile)).filter((assignment) => assignment.status === 'completed');
     const vehicles = await this.listVehicles();
-    await this.seedNll182OdometerLog(vehicles);
-    await this.seedNll182OpeningFuel(vehicles);
-    await this.seedExcelFuelLog(vehicles);
+    // One-time historical import seeds (Excel fuel log, NLL182 odometer/opening
+    // fuel) used to run on every read here. That kept recreating "Nepriskirtas"
+    // days for vehicles without a resolvable driver even after an admin deleted
+    // them via deleteUnassignedTripDay. The import already ran; do not re-run it.
     const currentVehicles = new Map(
       vehicles.filter((vehicle) => vehicle.assignedDriverId).map((vehicle) => [vehicle.assignedDriverId!, vehicleSnapshot(vehicle)]),
     );
@@ -1704,6 +1705,25 @@ export class EmployeeAuthStore {
     };
     await this.vehicleDayReadings.doc(id).set(reading);
     return reading;
+  }
+
+  /**
+   * Removes a synthetic trip-sheet day that was never a real assigned route —
+   * an odometer/fuel log entry with no resolvable driver (shown as
+   * "Nepriskirtas" in reports). Deletes both the day reading and any fuel
+   * entries recorded for that vehicle on that date, so the day stops
+   * reappearing in /api/trip-sheets once the seed calls that created it are
+   * no longer re-run.
+   */
+  async deleteUnassignedTripDay(vehicleId: string, dateInput: string): Promise<void> {
+    const date = validateRouteDate(dateInput);
+    const id = `${validateVehicleId(vehicleId)}:${date}`;
+    await this.vehicleDayReadings.doc(id).delete();
+    const fuelSnapshot = await this.fuelEntries.where('vehicleId', '==', vehicleId).get();
+    const staleEntries = fuelSnapshot.docs
+      .map((document) => document.data() as ServerFuelEntry)
+      .filter((entry) => entry.filledAt.slice(0, 10) === date);
+    await Promise.all(staleEntries.map((entry) => this.fuelEntries.doc(entry.id).delete()));
   }
 
   async addFuelEntry(profile: EmployeeProfile, assignmentIdInput: string, input: {
