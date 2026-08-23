@@ -29,13 +29,15 @@ const REFRESH_INTERVAL_MS = 15_000;
 const STALE_AFTER_MS = 120_000;
 const MINOR_DELAY_MINUTES = 45;
 
-type QualityFilter = 'in_progress' | 'waiting' | 'completed' | 'issues';
-type FilterTone = 'info' | 'warning' | 'success' | 'danger';
+type QualityFilter = 'all' | 'in_progress' | 'waiting' | 'completed' | 'late' | 'issues';
+type FilterTone = 'neutral' | 'info' | 'warning' | 'success' | 'danger';
 
 const FILTERS: readonly { key: QualityFilter; label: string; tone: FilterTone }[] = [
+  { key: 'all', label: 'Visi', tone: 'neutral' },
   { key: 'in_progress', label: 'Kelyje', tone: 'info' },
   { key: 'waiting', label: 'Laukia', tone: 'warning' },
   { key: 'completed', label: 'Įvykdyti', tone: 'success' },
+  { key: 'late', label: 'Vėluoja', tone: 'warning' },
   { key: 'issues', label: 'Neatitikimai', tone: 'danger' },
 ];
 
@@ -53,7 +55,7 @@ export default function QualityControlScreen() {
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
-  const [filter, setFilter] = useState<QualityFilter>('in_progress');
+  const [filter, setFilter] = useState<QualityFilter>('all');
   const [completedOpen, setCompletedOpen] = useState(false);
   const initialDate = useMemo(() => localDateKey(new Date()), []);
   const [periodMode, setPeriodMode] = useState<PeriodMode>('day');
@@ -61,6 +63,7 @@ export default function QualityControlScreen() {
   const [customFrom, setCustomFrom] = useState(initialDate);
   const [customTo, setCustomTo] = useState(initialDate);
   const [driverId, setDriverId] = useState<string>('all');
+  const [vehicleId, setVehicleId] = useState<string>('all');
   const desktop = width >= 980;
   const mobile = width < 720;
 
@@ -103,7 +106,12 @@ export default function QualityControlScreen() {
   const drivers = useMemo(() => [...new Map(routes.map((route) => [route.driverId, route.driverName])).entries()]
     .map(([id, name]) => ({ id, name }))
     .sort((left, right) => left.name.localeCompare(right.name, 'lt-LT')), [routes]);
-  const visible = routes.filter((route) => route.date >= period.from && route.date <= period.to && (driverId === 'all' || route.driverId === driverId));
+  const vehicles = useMemo(() => [...new Map(routes.map((route) => route.vehicle).filter((vehicle): vehicle is NonNullable<typeof vehicle> => Boolean(vehicle)).map((vehicle) => [vehicle.id, vehicle.registrationNumber])).entries()]
+    .map(([id, registrationNumber]) => ({ id, registrationNumber }))
+    .sort((left, right) => left.registrationNumber.localeCompare(right.registrationNumber, 'lt-LT')), [routes]);
+  const visible = routes.filter((route) => route.date >= period.from && route.date <= period.to
+    && (driverId === 'all' || route.driverId === driverId)
+    && (vehicleId === 'all' || route.vehicle?.id === vehicleId));
   const active = visible.filter((route) => route.status === 'in_progress');
   const waiting = visible.filter((route) => ['assigned', 'downloaded'].includes(route.status));
   // Sort routes with delivery discrepancies (failed stops) first, so problems
@@ -114,18 +122,27 @@ export default function QualityControlScreen() {
   const issues = visible
     .filter((route) => route.failedStops > 0)
     .sort((left, right) => Number(left.status === 'completed') - Number(right.status === 'completed') || right.failedStops - left.failedStops);
+  const late = visible
+    .filter((route) => routeHasLateStop(route))
+    .sort((left, right) => Number(left.status === 'completed') - Number(right.status === 'completed'));
   const vehicleCount = new Set(visible.map((route) => route.vehicle?.id).filter(Boolean)).size;
-  const filteredRoutes = filter === 'in_progress'
-    ? active
-    : filter === 'waiting'
-      ? waiting
-      : filter === 'completed'
-        ? completed
-        : issues;
+  const filteredRoutes = filter === 'all'
+    ? visible
+    : filter === 'in_progress'
+      ? active
+      : filter === 'waiting'
+        ? waiting
+        : filter === 'completed'
+          ? completed
+          : filter === 'late'
+            ? late
+            : issues;
   const filterCounts: Record<QualityFilter, number> = {
+    all: visible.length,
     in_progress: active.length,
     waiting: waiting.length,
     completed: completed.length,
+    late: late.length,
     issues: issues.length,
   };
 
@@ -231,6 +248,14 @@ export default function QualityControlScreen() {
             {drivers.map((driver) => <DriverChoice key={driver.id} active={driverId === driver.id} label={driver.name} onPress={() => setDriverId(driver.id)} styles={styles} />)}
           </ScrollView>
         </View>
+
+        <View style={styles.driverFilter} testID="quality-vehicle-filter">
+          <Text style={styles.fieldLabel}>AUTOMOBILIS</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.driverChoices}>
+            <DriverChoice active={vehicleId === 'all'} label="Visi automobiliai" onPress={() => setVehicleId('all')} styles={styles} />
+            {vehicles.map((vehicle) => <DriverChoice key={vehicle.id} active={vehicleId === vehicle.id} label={vehicle.registrationNumber} onPress={() => setVehicleId(vehicle.id)} styles={styles} />)}
+          </ScrollView>
+        </View>
       </View>
 
       {error ? <Text accessibilityRole="alert" style={styles.warning}>{error}</Text> : null}
@@ -239,7 +264,7 @@ export default function QualityControlScreen() {
 
       {filteredRoutes.length > 0 ? <RouteSection title={filterTitle(filter)} count={filteredRoutes.length} routes={filteredRoutes} desktop={desktop} mobile={mobile} styles={styles} defaultExpanded={filter === 'issues'} /> : null}
 
-      {!['issues', 'completed'].includes(filter) && completed.length > 0 ? <View style={styles.completedSection}>
+      {!['all', 'issues', 'completed'].includes(filter) && completed.length > 0 ? <View style={styles.completedSection}>
         <Pressable accessibilityRole="button" accessibilityState={{ expanded: completedOpen }} onPress={() => setCompletedOpen((value) => !value)} style={({ pressed }) => [styles.completedHeader, pressed && styles.cardSummaryPressed]}>
           <View><Text style={styles.sectionTitle}>Baigta pasirinktu laikotarpiu</Text><Text style={styles.muted}>Užbaigti maršrutai suskleisti, kad netrukdytų stebėti darbo.</Text></View>
           <View style={styles.completedHeaderRight}><Text style={styles.count}>{completed.length}</Text><Text style={styles.expandIcon}>{completedOpen ? '⌃' : '⌄'}</Text></View>
@@ -411,8 +436,12 @@ function DriverChoice({ active, label, onPress, styles }: { active: boolean; lab
     <Text numberOfLines={1} style={[styles.driverChoiceText, active && styles.driverChoiceTextActive]}>{label}</Text>
   </Pressable>;
 }
-function filterTitle(filter: QualityFilter): string { return ({ in_progress: 'Kelyje', waiting: 'Laukia starto', completed: 'Įvykdyti maršrutai', issues: 'Neatitikimai' })[filter]; }
-function emptyTitle(filter: QualityFilter): string { return ({ in_progress: 'Pasirinktu laikotarpiu vykdomų maršrutų nėra', waiting: 'Pasirinktu laikotarpiu laukiančių maršrutų nėra', completed: 'Pasirinktu laikotarpiu įvykdytų maršrutų nėra', issues: 'Pasirinktu laikotarpiu neatitikimų nėra' })[filter]; }
+function filterTitle(filter: QualityFilter): string { return ({ all: 'Visi maršrutai', in_progress: 'Kelyje', waiting: 'Laukia starto', completed: 'Įvykdyti maršrutai', late: 'Vėluojantys maršrutai', issues: 'Neatitikimai' })[filter]; }
+function emptyTitle(filter: QualityFilter): string { return ({ all: 'Pasirinktu laikotarpiu maršrutų nėra', in_progress: 'Pasirinktu laikotarpiu vykdomų maršrutų nėra', waiting: 'Pasirinktu laikotarpiu laukiančių maršrutų nėra', completed: 'Pasirinktu laikotarpiu įvykdytų maršrutų nėra', late: 'Pasirinktu laikotarpiu vėluojančių maršrutų nėra', issues: 'Pasirinktu laikotarpiu neatitikimų nėra' })[filter]; }
+function routeHasLateStop(route: QualityRouteMonitor): boolean {
+  return route.stops.some((stop) => stop.status !== 'failed' && Boolean(stop.deliveredAt)
+    && classifyDeliveryWindow(stop.deliveredAt, stop.deliveryTimeFrom, stop.deliveryTimeTo) === 'late');
+}
 function vehicleLabel(route: QualityRouteMonitor): string { return route.vehicle ? `${route.vehicle.registrationNumber} · ${route.vehicle.model}` : 'Automobilis nepriskirtas'; }
 function regionLabel(codes: string[]): string { return codes.length > 0 ? `Regionai ${codes.join(', ')}` : 'Regionas nenurodytas'; }
 function initials(name: string): string { return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join(''); }
@@ -465,6 +494,6 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   processedSection: { gap: spacing.sm }, processedTitle: { ...type.label, color: colors.textMuted }, processedStop: { minHeight: 68, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.sm, borderLeftWidth: 4, borderRadius: radius.sm, backgroundColor: colors.surfaceSubtle }, processedStop_neutral: { borderLeftColor: colors.textMuted }, processedStop_success: { borderLeftColor: colors.success }, processedStop_warning: { borderLeftColor: colors.warning }, processedStop_danger: { borderLeftColor: colors.danger }, processedSequence: { width: 30, height: 30, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceMuted }, processedSequenceText: { ...type.secondaryStrong, color: colors.text }, processedRecipient: { ...type.bodyStrong, color: colors.text }, processedAddress: { ...type.meta, color: colors.textMuted }, processedWindow: { ...type.meta, color: colors.textSecondary, marginTop: 2 }, timingBadge: { maxWidth: 148, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.sm }, timingBadge_neutral: { backgroundColor: colors.surfaceMuted }, timingBadge_success: { backgroundColor: colors.accentSoft }, timingBadge_warning: { backgroundColor: colors.warningSoft }, timingBadge_danger: { backgroundColor: colors.dangerSoft }, timingText: { ...type.meta, fontFamily: fonts.headingSemiBold, textAlign: 'right' }, timingText_neutral: { color: colors.textMuted }, timingText_success: { color: colors.success }, timingText_warning: { color: colors.warning }, timingText_danger: { color: colors.danger }, noProcessed: { ...type.secondary, color: colors.textMuted },
   sequenceNext: { borderLeftColor: colors.info, backgroundColor: colors.infoSoft }, sequenceNextNumber: { backgroundColor: colors.info }, sequenceNextNumberText: { color: colors.textInverse }, sequenceMeta: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   cardFooter: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.borderSubtle }, updated: { ...type.meta, color: colors.textMuted }, updatedStale: { color: colors.warning }, started: { ...type.meta, color: colors.textMuted },
-  filters: { flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' }, filter: { flex: 1, minWidth: 150, minHeight: 68, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderStrong }, filterTone_info: { backgroundColor: colors.infoSoft, borderColor: colors.info }, filterTone_warning: { backgroundColor: colors.warningSoft, borderColor: colors.warning }, filterTone_success: { backgroundColor: colors.accentSoft, borderColor: colors.success }, filterTone_danger: { backgroundColor: colors.dangerSoft, borderColor: colors.danger }, filterValueTone_info: { color: colors.info }, filterValueTone_warning: { color: colors.warning }, filterValueTone_success: { color: colors.success }, filterValueTone_danger: { color: colors.danger }, filterActive_info: { borderColor: colors.info, borderWidth: 2 }, filterActive_warning: { borderColor: colors.warning, borderWidth: 2 }, filterActive_success: { borderColor: colors.success, borderWidth: 2 }, filterActive_danger: { borderColor: colors.danger, borderWidth: 2 }, filterPressed: { opacity: 0.82 }, filterValue: { fontFamily: fonts.heading, fontSize: 24, lineHeight: 27, color: colors.primary }, filterValueActive: {}, filterLabel: { ...type.label, fontSize: 11, lineHeight: 14, color: colors.textSecondary, marginTop: 3 }, filterLabelActive: { fontFamily: fonts.headingSemiBold },
+  filters: { flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' }, filter: { flex: 1, minWidth: 150, minHeight: 68, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderStrong }, filterTone_neutral: { backgroundColor: colors.surfaceMuted, borderColor: colors.borderStrong }, filterValueTone_neutral: { color: colors.primary }, filterActive_neutral: { borderColor: colors.primary, borderWidth: 2 }, filterTone_info: { backgroundColor: colors.infoSoft, borderColor: colors.info }, filterTone_warning: { backgroundColor: colors.warningSoft, borderColor: colors.warning }, filterTone_success: { backgroundColor: colors.accentSoft, borderColor: colors.success }, filterTone_danger: { backgroundColor: colors.dangerSoft, borderColor: colors.danger }, filterValueTone_info: { color: colors.info }, filterValueTone_warning: { color: colors.warning }, filterValueTone_success: { color: colors.success }, filterValueTone_danger: { color: colors.danger }, filterActive_info: { borderColor: colors.info, borderWidth: 2 }, filterActive_warning: { borderColor: colors.warning, borderWidth: 2 }, filterActive_success: { borderColor: colors.success, borderWidth: 2 }, filterActive_danger: { borderColor: colors.danger, borderWidth: 2 }, filterPressed: { opacity: 0.82 }, filterValue: { fontFamily: fonts.heading, fontSize: 24, lineHeight: 27, color: colors.primary }, filterValueActive: {}, filterLabel: { ...type.label, fontSize: 11, lineHeight: 14, color: colors.textSecondary, marginTop: 3 }, filterLabelActive: { fontFamily: fonts.headingSemiBold },
   connection: { minWidth: 250, minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.sm, borderRadius: radius.md, backgroundColor: colors.primaryDark }, liveDot: { width: 9, height: 9, borderRadius: radius.pill, backgroundColor: colors.success }, liveDotOffline: { backgroundColor: colors.danger }, liveLabel: { ...type.label, color: colors.textInverse }, refreshTime: { ...type.meta, color: colors.borderStrong }, refreshButton: { minHeight: 38, minWidth: 92, paddingHorizontal: spacing.md, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface }, refreshPressed: { backgroundColor: colors.infoSoft }, refreshText: { ...type.button, color: colors.info }, disabled: { opacity: 0.55 },
 });
