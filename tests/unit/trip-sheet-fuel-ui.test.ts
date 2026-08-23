@@ -21,13 +21,13 @@ describe('trip sheet fuel workflow', () => {
     expect(source).toContain('+ Įvesti kurą');
     expect(source).toContain('+ Kuro papildymas');
     expect(source).toContain('fuel-entry-form-');
-    expect(source).toContain('odometer-entry-form-');
-    expect(source).toContain('trip-sheet-odometer-entry');
     expect(source).toContain('/fuel-entries');
-    expect(source).toContain('/api/trip-sheets/day-readings');
+    expect(source).not.toContain('trip-sheet-odometer-entry');
+    expect(source).not.toContain('/api/trip-sheets/day-readings');
+    expect(source).not.toContain('ATLYGIS');
     expect(source).toContain('Kasos čekio Nr.');
     expect(source).toContain('Privalomi laukai: litrai ir data');
-    expect(source).toContain('Nuvažiuota');
+    expect(source).toContain('NUVAŽIUOTA');
     expect(source).toContain('Eksportuoti Excel');
     expect(source).not.toContain('Sustojimo trukmė');
     expect(source).not.toContain('Stovėjimo laikas');

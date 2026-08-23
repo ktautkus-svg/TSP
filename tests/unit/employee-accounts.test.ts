@@ -144,7 +144,9 @@ describe('employee server session', () => {
     expect(employeeStoreSource).toContain("createdBy: 'gps-import'");
     expect(employeeApiSource).toContain("pathname === '/api/trip-sheets/day-readings'");
     expect(employeeApiSource).toContain("odometer: typeof body.odometer === 'number' ? body.odometer : undefined");
-    expect(tripSheetSource).toContain("employeeApi('/api/trip-sheets/day-readings'");
+    // The trip-sheet screen no longer offers manual odometer entry — distance
+    // comes from the route's actual/planned distance instead (see below).
+    expect(tripSheetSource).not.toContain("employeeApi('/api/trip-sheets/day-readings'");
     expect(tripSheetSource).not.toContain('Kaina už litrą');
   });
 
