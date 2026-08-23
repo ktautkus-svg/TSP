@@ -1167,3 +1167,133 @@ testavimo ciklu.
 4. Nauji ekranai (`finance.tsx`, `fleet.tsx`, `directory.tsx`) niekada nebuvo atidaryti
    realiame naršyklės lange ŠIOS sesijos metu prieš deploy'inant — visas grįžtamasis
    ryšys šioje sesijoje atėjo iš PAČIO vartotojo, testuojančio gyvą programėlę.
+
+---
+
+## Sesijos tęsinys: kelionės lapų perdarymas, automobilių duomenų atnaujinimas, meniu dublikatai
+
+(Commit'ai `6d421e4`, `6f88652`, `2fefb5b`, `436e6a9`.)
+
+### 1. Kelionės lapai (`src/app/trip-sheet.tsx`) — pilnas perdarymas
+
+Vartotojas atsiuntė realų kelionės lapo pavyzdį (`GES058_SausisTransportas.xls`) ir
+paprašė perdaryti ekraną pagal jį:
+
+- **Pašalintas rankinis odometro įvedimas visiškai** — nebeliko `NewOdometerEntry`
+  formos, `saveOdometer`/`saveDayOdometer` handler'ių, `employeeApi('/api/trip-sheets/
+  day-readings', ...)` kvietimo iš kliento. Km dabar imami iš realaus maršruto
+  duomenų (`RouteAssignment`) arba iš esamo seed'o (žr. žemiau) — serverio endpoint'as
+  pats liko (`server/employee-api.ts`), tiesiog klientas jo daugiau nekviečia.
+- **Naujas darbo srautas:** pasirinkti automobilį (naujas filtro eilutė, `selectedVehicleId`)
+  → pasirinkti mėnesį/vairuotoją → paspausti „Generuoti kelionės lapą" (`generated`
+  state) → tada rodomos `monthlyGroups`. Vairuotojui (`profile.role === 'driver'`)
+  generavimo žingsnis praleidžiamas — jam iškart rodoma.
+- **Atlygis/„Atlygis" nebeberodomas šiame ekrane** — perkeltas į Finansus (duomenys
+  liko `DailyTripRow` tipe, tiesiog nebe renderinami čia).
+- PDF spausdinimas ir Excel eksportas (`buildTripSheetWorkbook`) NEKEISTI — jau
+  atitiko vartotojo pavyzdį.
+- Testai atnaujinti: `tests/unit/trip-sheet-fuel-ui.test.ts`,
+  `tests/unit/employee-accounts.test.ts`.
+
+### 2. Automobilių sąrašo tvarkymas
+
+Vartotojas paprašė ištrinti nebenaudojamus automobilius ir pervadinti vieną:
+- Ištrinti iš `DEFAULT_ROUTE_PRICE_SETTINGS.vehicleCosts`
+  (`src/application/routes/route-price.ts`): `KJL116`, `MCI855`, `MCP563`, `MFJ465`,
+  `NYP356` (ir `LRI642`, kurio realiai ten nebuvo — matyt rašybos klaida sąraše).
+- Pervadinta `MSZ867` → `NLL182` (tas pats fizinis automobilis, tas pats profilis:
+  `vehicle(13.2, 1756.81, 34)`).
+- `src/domain/fleet-cargo-specs.ts`: pašalinta `MSZ867` eilutė iš
+  `FLEET_CARGO_SPECS` (NLL182 jau buvo atskirai su identišku profiliu).
+- **SVARBU:** faktinis automobilio dokumento pervadinimas Firestore'e vyksta per
+  admin UI `updateVehicle()` (`server/employee-auth-store.ts`) — tai PERKELIA
+  dokumentą į naują raktą (`registrationNumber`) ir IŠTRINA seną, bet NEATNAUJINA
+  `vehicleId` laukų senuose `vehicleDayReadings`/`fuelEntries` įrašuose. Tai sukėlė
+  bug'ą (žr. punktą 4 žemiau).
+
+Vartotojas taip pat atsiuntė `Maršruto_kaina.xlsm` (reiso kainos skaičiuoklė) ir
+paprašė įtraukti `LRI740`/`LRI741`/`NLL182` duomenis, bet NEĮTRAUKTI ką tik ištrintų
+automobilių. Peržiūrėjus failą — `driverCosts` reikšmės daugumai trūkstamų vairuotojų
+sutapo su `defaultDriverCost`, tai NEBUVO pridėtos eksplicitiškai (nereikalinga
+abstrakcija be aiškios priežasties pagal AGENTS.md #9).
+
+### 3. „Nepriskirtas" seed'ų over-correction ir jos taisymas
+
+Ankstesnėje sesijoje (žr. aukščiau) VISI trys seed kvietimai `listTripSheets()`
+buvo išjungti, kad „Nepriskirtas" įrašai negrįžtų po ištrynimo. Tai buvo per platus
+taisymas: `seedNll182OdometerLog`/`seedNll182OpeningFuel` yra idempotentiški IR VISADA
+priskiria tikrą vairuotojo vardą (Jevgenij Finevičius, per hardcoded specialų atvejį
+`resolveReadingDriver()` funkcijoje) — jie niekada negeneruoja „Nepriskirtas". Tik
+`seedExcelFuelLog` neturi automobilio-vairuotojo priskyrimo ir buvo tikrasis
+„Nepriskirtas" taršos šaltinis.
+
+**Pataisyta (`2fefb5b`):** `seedNll182OdometerLog` ir `seedNll182OpeningFuel` vėl
+įjungti `listTripSheets()`, `seedExcelFuelLog` liko išjungtas. Patikrinta — vartotojo
+atsiųstas PDF (`NLL182_Ataskaita_20260801...20260822`) su realiais rugpjūčio
+odometro/maršrutų duomenimis JAU visiškai atitinka `src/domain/nll182-odometer-log.ts`
+`NLL182_ODOMETER_LOG` konstantą iš ankstesnės sesijos — naujų duomenų vestis nereikėjo,
+tik vėl įjungti seed'ą, kuris juos naudoja.
+
+Taip pat patikrinta (kodo skaitymu, be pakeitimų), kad reikalavimas „susieti odometrą
+su tos dienos maršrutu, jei toks yra, kitaip įvesti savarankiškai" JAU implementuotas:
+`listTripSheets()` filtruoja `visibleReadings` pagal `covered` rinkinį (praleidžia
+dienas, kurias jau dengia realus `RouteAssignment`), o `applyDayReading()` sujungia
+likusius readings su sheet'ais. Naujo kodo nereikėjo.
+
+### 4. „Vienas nesitrina" bug'as (Finansai → Ištrinti nepriskirtus)
+
+Šaknis: automobilio pervadinimas (MSZ867→NLL182) paliko senus `vehicleDayReadings`/
+`fuelEntries` įrašus su SENU `vehicleId`, kurio nebėra dabartiniame `vehicles` sąraše
+→ `sheet.vehicle` tampa `null` → `finance.tsx` trynimo ciklas turėjo
+`if (!sheet.vehicle) continue;`, tyliai praleisdavo tokius įrašus.
+
+**Pataisyta (`2fefb5b`, `src/app/finance.tsx`):** importuotas `parseVehicleDayAssignmentId`
+iš `@/domain/nll182-odometer-log`; trynimo ciklas dabar naudoja
+`sheet.vehicle?.id ?? parseVehicleDayAssignmentId(sheet.assignmentId)?.vehicleId`
+kaip fallback'ą (assignmentId visada koduoja ŽALIAVINĮ vehicleId formatu
+`vehicle-day-<vehicleId>-<date>`), ir yra per-sheet fault-tolerant (try/catch kiekvienam
+įrašui, klaidos surenkamos į `failures[]` masyvą, ne visas batch'as žlunga dėl vieno
+blogo įrašo).
+
+### 5. Meniu dublikatai (`436e6a9`)
+
+Vartotojas peržiūrėjo meniu ir rado, kad tie patys ekranai pasiekiami keliais keliais:
+- **„Vykdyti maršrutą"** pašalintas iš `index.tsx` (admin pradžios meniu) — lieka TIK
+  `dispatcher.tsx` (Dispečerio skydelio) pirminių veiksmų eilutėje.
+- **„Kelionės lapai" ir „Statistika"** pašalinti iš `dispatcher.tsx` (buvusi APSKAITA
+  grupė ten visai panaikinta) — lieka TIK `index.tsx` admin pradžios meniu.
+- Kadangi „Dispečerio skydelis" liko vienintelis punktas buvusioje OPERACIJOS
+  grupėje, jis iškeltas į atskirą pilno pločio „SKUBŪS DARBAI" bloką virš grupių
+  (nebe 2×N tinklelio dalis) — tai išsprendžia ir dublikatą, ir simetrijos problemą
+  vienu ėjimu. Likusios 4 grupės dabar subalansuotos po 2 punktus:
+  STEBĖJIMAS (Kokybės kontrolė, Statistika), APSKAITA (Finansai, Kelionės lapai),
+  IŠTEKLIAI (Vairuotojai, Automobiliai), SISTEMA (Kontaktai, Nustatymai).
+- **Sąmoningai NEPALIESTA:** `account-menu-sheet.tsx` "DARBO ĮRANKIAI" greitosios
+  nuorodos (hamburger meniu) — tai kitas UX sluoksnis (nuolatinis šalutinis meniu,
+  ne to paties ekrano dvi vietos), tikriausiai NE tai, ką vartotojas turėjo galvoje
+  sakydamas „dubliuojasi". Jei paaiškėtų, kad ir tai reikia tvarkyti — laukiama
+  patvirtinimo.
+
+**Patikrinta:** `tsc --noEmit` (root + `tsconfig.server.json`), `eslint`, `vitest run`
+947/947 — visi švarūs po abiejų commit'ų (`2fefb5b`, `436e6a9`). Testai atnaujinti:
+`tests/unit/dispatcher-dashboard.test.ts`, `tests/unit/admin-workspace-navigation.test.ts`.
+
+### Kas liko atviras kitai sesijai
+
+1. Patvirtinti su vartotoju (per jo gyvą testavimą), kad:
+   - NLL182 kelionės lapas dabar generuojasi su teisingu rugpjūčio odometro duomenimis
+     ir vairuotojo vardu;
+   - anksčiau strigęs „Nepriskirtas" įrašo trynimas dabar pavyksta;
+   - ar reikalingas atskiras rankinio odometro įvedimo UI NLL182 (kol kas be kuro),
+     ar pakanka jau veikiančio seed'o — vartotojo paskutinė žinutė leidžia suprasti,
+     kad seed'as (jau susietas su maršrutu, jei toks yra tą dieną) patenkina poreikį,
+     bet tai NEBUVO eksplicitiškai patvirtinta.
+2. Meniu dublikatų auditas — patikrinta „Vykdyti maršrutą", „Kelionės lapai",
+   „Statistika". `account-menu-sheet.tsx` sąmoningai palikta neliesta (žr. aukščiau) —
+   jei vartotojas vis tiek mano, kad tai dublikatas, reikės ją irgi sutvarkyti.
+3. Reiso kainos pilna skaičiuoklė (draudimas, kelių mokestis) tebelaukia vartotojo
+   duomenų — nekeista šioje sesijoje.
+4. Nauji/perdirbti ekranai (`trip-sheet.tsx`, `finance.tsx`, `index.tsx`,
+   `dispatcher.tsx`) niekada nebuvo atidaryti realiame naršyklės lange šios sesijos
+   metu prieš deploy'inant — visas grįžtamasis ryšys atėjo iš PAČIO vartotojo,
+   testuojančio gyvą programėlę po deploy'aus.
