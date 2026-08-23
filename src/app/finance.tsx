@@ -16,6 +16,7 @@ import {
 } from '@/application/reporting/period-range';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { MenuArtwork } from '@/components/menu-artwork';
+import { parseVehicleDayAssignmentId } from '@/domain/nll182-odometer-log';
 import { employeeApi, type ServerTripSheet } from '@/infrastructure/auth/employee-session';
 import { Alert } from '@/ui/alert';
 import { radius, spacing, type } from '@/ui/tokens';
@@ -98,17 +99,23 @@ export default function FinanceScreen() {
         { text: 'Atšaukti', style: 'cancel' },
         { text: 'Ištrinti', style: 'destructive', onPress: () => { void (async () => {
           setCleaningUp(true);
-          try {
-            for (const sheet of row.sheets) {
-              if (!sheet.vehicle) continue;
-              await employeeApi(`/api/admin/trip-sheets/unassigned-day/${encodeURIComponent(sheet.vehicle.id)}/${encodeURIComponent(sheet.date)}`, { method: 'DELETE' });
+          const failures: string[] = [];
+          for (const sheet of row.sheets) {
+            // sheet.vehicle is null when the vehicle was renamed after this
+            // reading was recorded (the old plate no longer resolves to a
+            // live vehicle) — the raw id survives inside the assignment id,
+            // which is built as vehicle-day-<vehicleId>-<date>.
+            const vehicleId = sheet.vehicle?.id ?? parseVehicleDayAssignmentId(sheet.assignmentId)?.vehicleId ?? null;
+            if (!vehicleId) { failures.push(sheet.date); continue; }
+            try {
+              await employeeApi(`/api/admin/trip-sheets/unassigned-day/${encodeURIComponent(vehicleId)}/${encodeURIComponent(sheet.date)}`, { method: 'DELETE' });
+            } catch {
+              failures.push(sheet.date);
             }
-            await load();
-          } catch (reason) {
-            setError(reason instanceof Error ? reason.message : 'Ištrinti nepavyko.');
-          } finally {
-            setCleaningUp(false);
           }
+          await load();
+          setCleaningUp(false);
+          if (failures.length > 0) setError(`Nepavyko ištrinti: ${failures.join(', ')}.`);
         })(); } },
       ],
     );

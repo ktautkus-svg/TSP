@@ -1577,10 +1577,14 @@ export class EmployeeAuthStore {
   async listTripSheets(profile: EmployeeProfile): Promise<ServerTripSheet[]> {
     const assignments = (await this.listAssignments(profile)).filter((assignment) => assignment.status === 'completed');
     const vehicles = await this.listVehicles();
-    // One-time historical import seeds (Excel fuel log, NLL182 odometer/opening
-    // fuel) used to run on every read here. That kept recreating "Nepriskirtas"
-    // days for vehicles without a resolvable driver even after an admin deleted
-    // them via deleteUnassignedTripDay. The import already ran; do not re-run it.
+    // The NLL182 odometer/opening-fuel seeds are idempotent and always carry a
+    // real, named driver (never "Nepriskirtas"), so keeping them here is safe —
+    // they only fill in days that are still missing. The generic Excel fuel
+    // log seed is deliberately NOT re-run: it has no per-vehicle driver to
+    // attribute fuel to, so it kept recreating "Nepriskirtas" entries on every
+    // read even after an admin deleted them via deleteUnassignedTripDay.
+    await this.seedNll182OdometerLog(vehicles);
+    await this.seedNll182OpeningFuel(vehicles);
     const currentVehicles = new Map(
       vehicles.filter((vehicle) => vehicle.assignedDriverId).map((vehicle) => [vehicle.assignedDriverId!, vehicleSnapshot(vehicle)]),
     );
