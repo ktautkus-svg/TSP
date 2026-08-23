@@ -119,7 +119,7 @@ export async function handleEmployeeApi(
     }
 
     if (pathname === '/api/admin/users' && request.method === 'GET') {
-      requireRole(profile, ['admin', 'dispatcher']);
+      requireRole(profile, ['admin', 'dispatcher', 'quality']);
       const users = await store.listUsers();
       return send(response, 200, { users: profile.role === 'admin' ? users : users.filter((user) => user.role === 'driver') }, requestId);
     }
@@ -173,6 +173,12 @@ export async function handleEmployeeApi(
           : body.fuelTankCapacityLiters === null
             ? null
             : numberField(body, 'fuelTankCapacityLiters'),
+        cargoLengthMm: body.cargoLengthMm === undefined || body.cargoLengthMm === null ? null : numberField(body, 'cargoLengthMm'),
+        cargoWidthMm: body.cargoWidthMm === undefined || body.cargoWidthMm === null ? null : numberField(body, 'cargoWidthMm'),
+        wheelArchStartMm: body.wheelArchStartMm === undefined || body.wheelArchStartMm === null ? null : numberField(body, 'wheelArchStartMm'),
+        wheelArchEndMm: body.wheelArchEndMm === undefined || body.wheelArchEndMm === null ? null : numberField(body, 'wheelArchEndMm'),
+        wheelArchIntrusionMm: body.wheelArchIntrusionMm === undefined || body.wheelArchIntrusionMm === null ? null : numberField(body, 'wheelArchIntrusionMm'),
+        cargoBodyType: optionalString(body, 'cargoBodyType') ?? null,
         cargoBodyKind: optionalString(body, 'cargoBodyKind'),
         palletCapacity: typeof body.palletCapacity === 'number' ? body.palletCapacity : undefined,
         hasSideDoor: typeof body.hasSideDoor === 'boolean' ? body.hasSideDoor : undefined,
@@ -186,6 +192,9 @@ export async function handleEmployeeApi(
       const hasVehicleFields = body.registrationNumber !== undefined || body.model !== undefined
         || body.maximumPayloadKg !== undefined || body.fuelNormLPer100Km !== undefined
         || body.fuelTankCapacityLiters !== undefined
+        || body.cargoLengthMm !== undefined || body.cargoWidthMm !== undefined
+        || body.wheelArchStartMm !== undefined || body.wheelArchEndMm !== undefined
+        || body.wheelArchIntrusionMm !== undefined || body.cargoBodyType !== undefined
         || body.cargoBodyKind !== undefined || body.palletCapacity !== undefined
         || body.hasSideDoor !== undefined;
       let vehicle = hasVehicleFields
@@ -199,6 +208,12 @@ export async function handleEmployeeApi(
           fuelTankCapacityLiters: body.fuelTankCapacityLiters === undefined
             ? undefined
             : body.fuelTankCapacityLiters === null ? null : numberField(body, 'fuelTankCapacityLiters'),
+          cargoLengthMm: body.cargoLengthMm === undefined ? undefined : body.cargoLengthMm === null ? null : numberField(body, 'cargoLengthMm'),
+          cargoWidthMm: body.cargoWidthMm === undefined ? undefined : body.cargoWidthMm === null ? null : numberField(body, 'cargoWidthMm'),
+          wheelArchStartMm: body.wheelArchStartMm === undefined ? undefined : body.wheelArchStartMm === null ? null : numberField(body, 'wheelArchStartMm'),
+          wheelArchEndMm: body.wheelArchEndMm === undefined ? undefined : body.wheelArchEndMm === null ? null : numberField(body, 'wheelArchEndMm'),
+          wheelArchIntrusionMm: body.wheelArchIntrusionMm === undefined ? undefined : body.wheelArchIntrusionMm === null ? null : numberField(body, 'wheelArchIntrusionMm'),
+          cargoBodyType: optionalString(body, 'cargoBodyType'),
           cargoBodyKind: optionalString(body, 'cargoBodyKind'),
           palletCapacity: typeof body.palletCapacity === 'number' ? body.palletCapacity : undefined,
           hasSideDoor: typeof body.hasSideDoor === 'boolean' ? body.hasSideDoor : undefined,
@@ -273,7 +288,7 @@ export async function handleEmployeeApi(
       return send(response, 201, { assignment }, requestId);
     }
     if (pathname === '/api/admin/assignments' && request.method === 'GET') {
-      requireRole(profile, ['admin', 'dispatcher']);
+      requireRole(profile, ['admin', 'dispatcher', 'quality']);
       return send(response, 200, { assignments: await store.listAssignments(profile) }, requestId);
     }
     if (pathname === '/api/assignments' && request.method === 'GET') {

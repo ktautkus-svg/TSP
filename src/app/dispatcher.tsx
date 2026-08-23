@@ -74,6 +74,7 @@ export default function DispatcherHomeScreen() {
         <View style={styles.menuGroup}><GroupedMenuSection label="APSKAITA">
           <GroupedMenuRow description={canManageFinancials ? 'Kuras, draudimas, mokesčiai ir atlygis.' : 'Parametrai tik peržiūrai.'} icon={<MenuArtwork kind="finance" />} onPress={() => open({ pathname: '/financial-settings', params: { returnTo: 'dispatcher' } } as unknown as Href)} title="Finansiniai duomenys" tone="neutral" />
           <GroupedMenuRow description="Odometrai, kilometrai, kuro norma ir spausdinimas." icon={<MenuArtwork kind="trip-sheet" />} onPress={() => open({ pathname: '/trip-sheet', params: { returnTo: 'dispatcher' } } as Href)} title="Kelionės lapai" tone="neutral" />
+          <GroupedMenuRow description="Kilometrai, taškai, svoris, atlygis ir kokybė pagal laikotarpį." icon={<MenuArtwork kind="statistics" />} onPress={() => open({ pathname: '/statistics', params: { returnTo: 'dispatcher' } } as Href)} title="Statistika" tone="info" />
         </GroupedMenuSection></View>
       </View>
     </FoundationScreen>

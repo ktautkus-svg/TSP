@@ -38,7 +38,11 @@ describe('van loading schema', () => {
     expect(schema.palletCount).toBe(0);
   });
 
-  it('fills five long-van floor slots cabin to doors, then stacks extras at the door', () => {
+  // Was: "then stacks extras at the door". Everything past the bay count used to
+  // land in the single rear bay, so seven stops became 1,1,1,1,3 and thirteen
+  // became 1,1,1,1,9 - not a load anyone can build. The overflow is now spread
+  // evenly, with the remainder nearest the doors where it is unloaded first.
+  it('fills five long-van floor slots cabin to doors, then spreads the overflow evenly', () => {
     const stops = Array.from({ length: 7 }, (_, index) => stop({
       id: `s${index + 1}`,
       loadingSequence: index + 1,
@@ -50,7 +54,9 @@ describe('van loading schema', () => {
       'front_left', 'front_right', 'row_1', 'row_2', 'row_3',
     ]);
     expect(schema.placements.find((item) => item.stopId === 's1')?.bayId).toBe('front_left');
-    expect(schema.placements.find((item) => item.stopId === 's5')?.bayId).toBe('row_3');
+    // 7 taškai / 5 zonos -> 1,1,1,2,2
+    expect(schema.bays.map((bay) => bay.placements.length)).toEqual([1, 1, 1, 2, 2]);
+    expect(schema.placements.find((item) => item.stopId === 's5')?.bayId).toBe('row_2');
     expect(schema.placements.find((item) => item.stopId === 's6')?.bayId).toBe('row_3');
     expect(schema.placements.find((item) => item.stopId === 's7')?.bayId).toBe('row_3');
     const rear = schema.bays.find((bay) => bay.id === 'row_3');
@@ -141,18 +147,19 @@ describe('van loading schema', () => {
     expect(fifth?.usePallet).toBe(true);
     expect(first?.bayId).toBe('row_3');
     expect(first?.sideAccess).toBe(false);
+    // 6 galinių taškų / 4 likusios zonos -> 1,1,2,2
     expect(last?.bayId).toBe('front_left');
     expect(schema.sideUnloadCount).toBe(1);
     expect(schema.placements.filter((item) => !item.sideAccess).map((item) => `${item.deliveryOrder}:${item.bayId}`)).toEqual([
       '7:front_left',
       '6:front_right',
       '4:row_1',
-      '3:row_3',
+      '3:row_1',
       '2:row_3',
       '1:row_3',
     ]);
     const rear = schema.bays.find((bay) => bay.id === 'row_3');
-    expect(rear?.placements.map((item) => item.deliveryOrder)).toEqual([3, 2, 1]);
+    expect(rear?.placements.map((item) => item.deliveryOrder)).toEqual([2, 1]);
   });
 
   it('uses the short-van side bay for a heavy mid-route stop', () => {

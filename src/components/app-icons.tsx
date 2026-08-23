@@ -283,6 +283,17 @@ export function TripSheetIcon({ size = 22, color = designColors.info, strokeWidt
   );
 }
 
+/** Three ascending bars, outline weight, for the statistics screen entry point. */
+export function StatsIcon({ size = 22, color = designColors.info, strokeWidth = BASE_STROKE }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path d="M4 20V14" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" fill="none" />
+      <Path d="M11 20V8" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" fill="none" />
+      <Path d="M18 20V4" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" fill="none" />
+    </Svg>
+  );
+}
+
 export function ChevronDownIcon({ size = 18, color = '#5D6B63', strokeWidth = 2.2 }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">

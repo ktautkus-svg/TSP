@@ -55,6 +55,13 @@ export type ServerFleetVehicle = {
   fuelTankCapacityLiters?: number | null;
   cargoBodyKind?: 'van_long' | 'van_8pll' | 'van_short';
   palletCapacity?: 5 | 8;
+  /** Real cargo floor in millimetres; both are needed for the pallet drawing. */
+  cargoLengthMm?: number | null;
+  cargoWidthMm?: number | null;
+  cargoBodyType?: 'van' | 'box' | null;
+  wheelArchStartMm?: number | null;
+  wheelArchEndMm?: number | null;
+  wheelArchIntrusionMm?: number | null;
   hasSideDoor?: boolean;
   assignedDriverId: string | null;
   fuelRemainingLiters?: number | null;
@@ -69,6 +76,12 @@ export type ServerFleetVehicleSnapshot = Pick<ServerFleetVehicle, 'id' | 'regist
   fuelTankCapacityLiters?: number | null;
   cargoBodyKind?: 'van_long' | 'van_8pll' | 'van_short';
   palletCapacity?: 5 | 8;
+  cargoLengthMm?: number | null;
+  cargoWidthMm?: number | null;
+  cargoBodyType?: 'van' | 'box' | null;
+  wheelArchStartMm?: number | null;
+  wheelArchEndMm?: number | null;
+  wheelArchIntrusionMm?: number | null;
   hasSideDoor?: boolean;
   fuelRemainingLiters?: number | null;
   fuelUpdatedAt?: string | null;

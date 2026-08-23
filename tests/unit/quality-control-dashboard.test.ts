@@ -73,7 +73,9 @@ describe('quality control dashboard', () => {
     expect(dashboardSource).not.toContain("method: 'PATCH'");
     expect(layoutSource).toContain("profile.role === 'quality' && !qualityAllowed");
     expect(layoutSource).toContain("pathname === '/trip-sheet'");
+    expect(layoutSource).toContain("pathname === '/statistics'");
     expect(dashboardSource).toContain('testID="quality-open-trip-sheets"');
+    expect(dashboardSource).toContain('testID="quality-open-statistics"');
   });
 
   it('publishes driver progress immediately after a delivery and refreshes both sides periodically', () => {
@@ -97,10 +99,9 @@ describe('quality control dashboard', () => {
   });
 
   it('can review a day, week, month or custom period for all or one driver', () => {
-    expect(dashboardSource).toContain("type PeriodMode = 'day' | 'week' | 'month' | 'custom'");
-    expect(dashboardSource).toContain("{ key: 'week', label: 'Savaitė' }");
-    expect(dashboardSource).toContain("{ key: 'month', label: 'Mėnuo' }");
-    expect(dashboardSource).toContain('qualityPeriodRange(periodMode, anchorDate, customFrom, customTo)');
+    expect(dashboardSource).toContain("type PeriodMode");
+    expect(dashboardSource).toContain("from '@/application/reporting/period-range'");
+    expect(dashboardSource).toContain('periodRange(periodMode, anchorDate, customFrom, customTo)');
     expect(dashboardSource).toContain("route.date >= period.from && route.date <= period.to");
     expect(dashboardSource).toContain("driverId === 'all' || route.driverId === driverId");
     expect(dashboardSource).toContain('Visi vairuotojai');

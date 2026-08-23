@@ -72,6 +72,8 @@ export const MANAGEMENT_PERMISSION_KEYS = [
   'canManageVehicles',
   'canManageFinancials',
   'canEnterTripReadings',
+  'canViewAllStatistics',
+  'canEditTripSheets',
 ] as const;
 export type ManagementPermissionKey = (typeof MANAGEMENT_PERMISSION_KEYS)[number];
 export type ManagementPermissions = Record<ManagementPermissionKey, boolean>;
@@ -91,6 +93,8 @@ const DEFAULT_MANAGEMENT_PERMISSIONS: ManagementPermissions = {
   canManageVehicles: false,
   canManageFinancials: false,
   canEnterTripReadings: false,
+  canViewAllStatistics: false,
+  canEditTripSheets: false,
 };
 
 export const DEFAULT_COMPENSATION_RATES = {
@@ -151,6 +155,18 @@ export type FleetVehicle = {
   cargoBodyKind: VanBodyKind;
   palletCapacity: PalletCapacity;
   hasSideDoor: boolean;
+  /**
+   * Real cargo floor, in millimetres. Without both of these the pallet drawing
+   * cannot be produced and the screen falls back to the older bay diagram.
+   */
+  cargoLengthMm: number | null;
+  cargoWidthMm: number | null;
+  /** 'box' has a flat floor end to end; 'van' has wheel arches. */
+  cargoBodyType: 'van' | 'box';
+  wheelArchStartMm: number | null;
+  wheelArchEndMm: number | null;
+  /** Width one arch takes off each side. */
+  wheelArchIntrusionMm: number | null;
   assignedDriverId: string | null;
   fuelRemainingLiters: number | null;
   fuelUpdatedAt: string | null;
@@ -161,7 +177,8 @@ export type FleetVehicle = {
 
 export type FleetVehicleSnapshot = Pick<FleetVehicle,
   'id' | 'registrationNumber' | 'model' | 'maximumPayloadKg'
-> & Partial<Pick<FleetVehicle, 'fuelNormLPer100Km' | 'fuelTankCapacityLiters' | 'fuelRemainingLiters' | 'fuelUpdatedAt' | 'assignmentRevision' | 'cargoBodyKind' | 'hasSideDoor' | 'palletCapacity'>>;
+> & Partial<Pick<FleetVehicle, 'fuelNormLPer100Km' | 'fuelTankCapacityLiters' | 'fuelRemainingLiters' | 'fuelUpdatedAt' | 'assignmentRevision' | 'cargoBodyKind' | 'hasSideDoor' | 'palletCapacity'
+  | 'cargoLengthMm' | 'cargoWidthMm' | 'cargoBodyType' | 'wheelArchStartMm' | 'wheelArchEndMm' | 'wheelArchIntrusionMm'>>;
 
 export type CompensationBreakdown = {
   rates: DriverCompensationRates;
@@ -714,6 +731,12 @@ export class EmployeeAuthStore {
     cargoBodyKind?: string | null;
     palletCapacity?: number | null;
     hasSideDoor?: boolean;
+    cargoLengthMm?: number | null;
+    cargoWidthMm?: number | null;
+    cargoBodyType?: string | null;
+    wheelArchStartMm?: number | null;
+    wheelArchEndMm?: number | null;
+    wheelArchIntrusionMm?: number | null;
   }): Promise<FleetVehicle> {
     const registrationNumber = validateRegistrationNumber(input.registrationNumber);
     const model = validateVehicleModel(input.model);
@@ -743,6 +766,12 @@ export class EmployeeAuthStore {
       cargoBodyKind,
       palletCapacity,
       hasSideDoor,
+      cargoLengthMm: validateMillimetres(input.cargoLengthMm, 'ilgis'),
+      cargoWidthMm: validateMillimetres(input.cargoWidthMm, 'plotis'),
+      cargoBodyType: input.cargoBodyType === 'box' ? 'box' : 'van',
+      wheelArchStartMm: validateMillimetres(input.wheelArchStartMm, 'arkos pradžia'),
+      wheelArchEndMm: validateMillimetres(input.wheelArchEndMm, 'arkos pabaiga'),
+      wheelArchIntrusionMm: validateMillimetres(input.wheelArchIntrusionMm, 'arkos plotis'),
       assignedDriverId: null,
       fuelRemainingLiters: null,
       fuelUpdatedAt: null,
@@ -807,6 +836,12 @@ export class EmployeeAuthStore {
     cargoBodyKind?: string | null;
     palletCapacity?: number | null;
     hasSideDoor?: boolean;
+    cargoLengthMm?: number | null;
+    cargoWidthMm?: number | null;
+    cargoBodyType?: string | null;
+    wheelArchStartMm?: number | null;
+    wheelArchEndMm?: number | null;
+    wheelArchIntrusionMm?: number | null;
   }): Promise<FleetVehicle> {
     const vehicleId = validateVehicleId(vehicleIdInput);
     const currentRef = this.vehicles.doc(vehicleId);
@@ -847,6 +882,20 @@ export class EmployeeAuthStore {
       const palletCapacity = cargo.palletCapacity;
       const cargoBodyKind = bodyKindFromPalletCapacity(palletCapacity);
       const hasSideDoor = cargo.hasSideDoor;
+      const cargoFloor = {
+        cargoLengthMm: input.cargoLengthMm === undefined
+          ? current.cargoLengthMm : validateMillimetres(input.cargoLengthMm, 'ilgis'),
+        cargoWidthMm: input.cargoWidthMm === undefined
+          ? current.cargoWidthMm : validateMillimetres(input.cargoWidthMm, 'plotis'),
+        cargoBodyType: input.cargoBodyType === undefined
+          ? current.cargoBodyType : (input.cargoBodyType === 'box' ? 'box' as const : 'van' as const),
+        wheelArchStartMm: input.wheelArchStartMm === undefined
+          ? current.wheelArchStartMm : validateMillimetres(input.wheelArchStartMm, 'arkos pradžia'),
+        wheelArchEndMm: input.wheelArchEndMm === undefined
+          ? current.wheelArchEndMm : validateMillimetres(input.wheelArchEndMm, 'arkos pabaiga'),
+        wheelArchIntrusionMm: input.wheelArchIntrusionMm === undefined
+          ? current.wheelArchIntrusionMm : validateMillimetres(input.wheelArchIntrusionMm, 'arkos plotis'),
+      };
       const updatedAt = new Date().toISOString();
       updated = {
         ...current,
@@ -856,6 +905,7 @@ export class EmployeeAuthStore {
         maximumPayloadKg,
         fuelNormLPer100Km,
         fuelTankCapacityLiters,
+        ...cargoFloor,
         cargoBodyKind,
         palletCapacity,
         hasSideDoor,
@@ -1864,6 +1914,133 @@ export class EmployeeAuthStore {
     return { id: null, name: 'Nepriskirtas' };
   }
 
+  /**
+   * Corrects a finished trip sheet: the odometer readings the day is measured
+   * on, and which driver actually drove it. Both are entered by hand in the
+   * field and both are regularly wrong — a misread odometer silently corrupts
+   * the distance, the fuel ledger and the day's pay, and the GPS report's own
+   * "driver" column was confirmed unreliable, so the office must be able to set
+   * it straight afterwards.
+   *
+   * The odometer lives in the assignment's route snapshot, which is the
+   * server-side source of truth for a completed route, so the correction is
+   * written there rather than kept in a parallel table that the trip sheet
+   * would then have to reconcile on every read.
+   */
+  async updateTripSheet(assignmentIdInput: string, input: {
+    startOdometer?: number | null;
+    endOdometer?: number | null;
+    driverId?: string;
+  }): Promise<ServerTripSheet> {
+    const reference = this.assignments.doc(safeId(assignmentIdInput));
+    const document = await reference.get();
+    const assignment = document.data() as RouteAssignment | undefined;
+    if (!assignment || assignment.status !== 'completed') {
+      throw new EmployeeApiError('TRIP_SHEET_NOT_FOUND', 'Užbaigtas kelionės lapas nerastas.', 404);
+    }
+    const startOdometer = input.startOdometer === undefined
+      ? nullableNumber(assignment.routeSnapshot.route.start_odometer)
+      : validateOdometer(input.startOdometer, 'pradžios');
+    const endOdometer = input.endOdometer === undefined
+      ? nullableNumber(assignment.routeSnapshot.route.end_odometer)
+      : validateOdometer(input.endOdometer, 'pabaigos');
+    if (startOdometer !== null && endOdometer !== null && endOdometer < startOdometer) {
+      throw new EmployeeApiError('INVALID_ODOMETER_RANGE', 'Odometras pabaigoje negali būti mažesnis nei pradžioje.', 400);
+    }
+    let driverId = assignment.driverId;
+    let driverName = assignment.driverName;
+    if (input.driverId !== undefined && input.driverId !== assignment.driverId) {
+      const driverDocument = await this.users.doc(safeId(input.driverId)).get();
+      const driver = driverDocument.data() as StoredUser | undefined;
+      if (!driver || driver.role !== 'driver') {
+        throw new EmployeeApiError('DRIVER_NOT_FOUND', 'Toks vairuotojas nerastas.', 404);
+      }
+      driverId = driver.id;
+      driverName = driver.displayName;
+    }
+    const updatedAt = new Date().toISOString();
+    // The distance is always end minus start. Writing the absolute odometer
+    // reading into actual_distance_km is the bug that once produced 399 886 km
+    // and a negative fuel balance, so it is derived here and never copied.
+    const actualDistanceKm = startOdometer !== null && endOdometer !== null
+      ? Math.round((endOdometer - startOdometer) * 10) / 10
+      : nullableNumber(assignment.routeSnapshot.route.actual_distance_km);
+    const updated: RouteAssignment = {
+      ...assignment,
+      driverId,
+      driverName,
+      updatedAt,
+      routeSnapshot: {
+        ...assignment.routeSnapshot,
+        route: {
+          ...assignment.routeSnapshot.route,
+          start_odometer: startOdometer,
+          end_odometer: endOdometer,
+          actual_distance_km: actualDistanceKm,
+          updated_at: updatedAt,
+        },
+      },
+    };
+    await reference.set(updated);
+    // Fuel entries carry the driver for reporting, so they follow the correction.
+    if (driverId !== assignment.driverId) {
+      const entries = (await this.fuelEntries.get()).docs
+        .map((entryDocument) => entryDocument.data() as ServerFuelEntry)
+        .filter((entry) => entry.assignmentId === assignment.id);
+      for (const entry of entries) {
+        await this.fuelEntries.doc(entry.id).set({ ...entry, driverId, driverName });
+      }
+    }
+    const vehicle = updated.vehicle ?? await this.findAssignedVehicleSnapshot(driverId);
+    const priceSettings = await this.getRoutePriceSettings();
+    const sheet = buildServerTripSheet(updated, vehicle);
+    return { ...sheet, fuelNormLitersPer100Km: tripSheetFuelNorm(sheet.vehicle, priceSettings) };
+  }
+
+  async updateFuelEntry(profile: EmployeeProfile, entryIdInput: string, input: {
+    filledAt?: string;
+    odometer?: number;
+    liters?: number;
+    pricePerLiter?: number | null;
+    station?: string | null;
+    receiptNumber?: string | null;
+    notes?: string | null;
+  }): Promise<ServerFuelEntry> {
+    const reference = this.fuelEntries.doc(safeId(entryIdInput));
+    const document = await reference.get();
+    const current = document.data() as ServerFuelEntry | undefined;
+    if (!current) throw new EmployeeApiError('FUEL_ENTRY_NOT_FOUND', 'Kuro įrašas nerastas.', 404);
+    const filledAt = input.filledAt === undefined ? current.filledAt : isoDateOrThrow(input.filledAt);
+    const odometer = input.odometer === undefined ? current.odometer : validateOdometer(input.odometer, 'pylimo');
+    if (odometer === null) throw new EmployeeApiError('INVALID_ODOMETER', 'Neteisingas odometro rodmuo.', 400);
+    const liters = input.liters === undefined ? current.liters : validateLiters(input.liters);
+    const pricePerLiter = input.pricePerLiter === undefined
+      ? current.pricePerLiter
+      : input.pricePerLiter === null ? null : validatePricePerLiter(input.pricePerLiter);
+    const updated: ServerFuelEntry = {
+      ...current,
+      filledAt,
+      odometer,
+      liters,
+      pricePerLiter,
+      totalCost: pricePerLiter === null ? null : Math.round(liters * pricePerLiter * 100) / 100,
+      station: input.station === undefined ? current.station : optionalText(input.station),
+      receiptNumber: input.receiptNumber === undefined ? current.receiptNumber : optionalText(input.receiptNumber),
+      notes: input.notes === undefined ? current.notes : optionalText(input.notes),
+    };
+    await reference.set(updated);
+    return updated;
+  }
+
+  async deleteFuelEntry(profile: EmployeeProfile, entryIdInput: string): Promise<ServerFuelEntry> {
+    const reference = this.fuelEntries.doc(safeId(entryIdInput));
+    const document = await reference.get();
+    const entry = document.data() as ServerFuelEntry | undefined;
+    if (!entry) throw new EmployeeApiError('FUEL_ENTRY_NOT_FOUND', 'Kuro įrašas nerastas.', 404);
+    await reference.delete();
+    return entry;
+  }
+
   async listQualityRoutes(): Promise<QualityRouteMonitor[]> {
     const snapshot = await this.assignments.get();
     const assignments = snapshot.docs.map((document) => document.data() as RouteAssignment);
@@ -2083,6 +2260,36 @@ function validateFuelLiters(value: number): number {
   return Math.round(value * 10) / 10;
 }
 
+function validateOdometer(value: number | null, label: string): number | null {
+  if (value === null) return null;
+  if (!Number.isFinite(value) || value < 0 || value > 10_000_000) {
+    throw new EmployeeApiError('INVALID_ODOMETER', `Neteisingas ${label} odometro rodmuo.`, 400);
+  }
+  return Math.round(value * 10) / 10;
+}
+
+function isoDateOrThrow(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new EmployeeApiError('INVALID_FUEL_DATE', 'Neteisinga kuro pylimo data.', 400);
+  }
+  return parsed.toISOString();
+}
+
+function validateLiters(value: number): number {
+  if (!Number.isFinite(value) || value <= 0 || value > 1_000) {
+    throw new EmployeeApiError('INVALID_FUEL_AMOUNT', 'Įpilto kuro kiekis turi būti nuo 0,1 iki 1000 litrų.', 400);
+  }
+  return Math.round(value * 100) / 100;
+}
+
+function validatePricePerLiter(value: number): number {
+  if (!Number.isFinite(value) || value < 0 || value > 100) {
+    throw new EmployeeApiError('INVALID_FUEL_PRICE', 'Neteisinga litro kaina.', 400);
+  }
+  return Math.round(value * 1000) / 1000;
+}
+
 function vehicleSnapshot(vehicle: FleetVehicle): FleetVehicleSnapshot {
   return {
     id: vehicle.id,
@@ -2094,6 +2301,13 @@ function vehicleSnapshot(vehicle: FleetVehicle): FleetVehicleSnapshot {
     hasSideDoor: vehicle.hasSideDoor,
     fuelNormLPer100Km: vehicle.fuelNormLPer100Km,
     fuelTankCapacityLiters: vehicle.fuelTankCapacityLiters,
+    // The pallet drawing needs the real floor, so it travels with the snapshot.
+    cargoLengthMm: vehicle.cargoLengthMm,
+    cargoWidthMm: vehicle.cargoWidthMm,
+    cargoBodyType: vehicle.cargoBodyType,
+    wheelArchStartMm: vehicle.wheelArchStartMm,
+    wheelArchEndMm: vehicle.wheelArchEndMm,
+    wheelArchIntrusionMm: vehicle.wheelArchIntrusionMm,
     fuelRemainingLiters: vehicle.fuelRemainingLiters,
     fuelUpdatedAt: vehicle.fuelUpdatedAt,
     assignmentRevision: vehicle.assignmentRevision,
@@ -2113,6 +2327,12 @@ function withLiveVehicleCargo(
     palletCapacity: live?.palletCapacity ?? base.palletCapacity,
     hasSideDoor: live?.hasSideDoor ?? base.hasSideDoor,
     fuelTankCapacityLiters: live?.fuelTankCapacityLiters ?? base.fuelTankCapacityLiters,
+    cargoLengthMm: live?.cargoLengthMm ?? base.cargoLengthMm,
+    cargoWidthMm: live?.cargoWidthMm ?? base.cargoWidthMm,
+    cargoBodyType: live?.cargoBodyType ?? base.cargoBodyType,
+    wheelArchStartMm: live?.wheelArchStartMm ?? base.wheelArchStartMm,
+    wheelArchEndMm: live?.wheelArchEndMm ?? base.wheelArchEndMm,
+    wheelArchIntrusionMm: live?.wheelArchIntrusionMm ?? base.wheelArchIntrusionMm,
   };
   const cargo = resolveVehicleCargo(merged);
   return {
@@ -2140,6 +2360,13 @@ function normalizeVehicle(vehicle: FleetVehicle): FleetVehicle {
     cargoBodyKind: bodyKindFromPalletCapacity(cargo.palletCapacity),
     palletCapacity: cargo.palletCapacity,
     hasSideDoor: cargo.hasSideDoor,
+    // Vehicles saved before the cargo floor was recorded have none of these.
+    cargoLengthMm: nullableNumber(vehicle.cargoLengthMm),
+    cargoWidthMm: nullableNumber(vehicle.cargoWidthMm),
+    cargoBodyType: vehicle.cargoBodyType === 'box' ? 'box' : 'van',
+    wheelArchStartMm: nullableNumber(vehicle.wheelArchStartMm),
+    wheelArchEndMm: nullableNumber(vehicle.wheelArchEndMm),
+    wheelArchIntrusionMm: nullableNumber(vehicle.wheelArchIntrusionMm,
     fuelRemainingLiters: nullableNumber(vehicle.fuelRemainingLiters),
     fuelUpdatedAt: optionalText(vehicle.fuelUpdatedAt),
     assignmentRevision: finiteNumber(vehicle.assignmentRevision, 0),
@@ -2653,6 +2880,15 @@ function validateEffectiveDate(value: string): string {
     throw new EmployeeApiError('INVALID_EFFECTIVE_DATE', 'Nurodykite korekcijos datą formatu YYYY-MM-DD.', 400);
   }
   return normalized;
+}
+
+/** Cargo floor dimension in millimetres; null means "not measured". */
+function validateMillimetres(value: number | null | undefined, label: string): number | null {
+  if (value === null || value === undefined) return null;
+  if (!Number.isFinite(value) || value <= 0 || value > 20_000) {
+    throw new EmployeeApiError('INVALID_DIMENSION', `Neteisingas matmuo (${label}): turi būti 1–20000 mm.`, 400);
+  }
+  return Math.round(value);
 }
 
 /** null clears the norm and sends the vehicle back to the table/estimate fallback. */

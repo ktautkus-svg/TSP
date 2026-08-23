@@ -1,23 +1,71 @@
 import { Stack, useFocusEffect, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+
+import { ChevronDownIcon } from '@/components/app-icons';
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
+import { canViewOrgStatistics, canViewStatisticsEarnings, localStatisticsOwnerId } from '@/application/auth/employee-permissions';
 import { roleHomePath } from '@/application/navigation/role-home';
+import { assignmentsToStatsRows } from '@/application/statistics/assignment-rows';
+import { toEarningsRows, type EarningsSheetInput } from '@/application/statistics/earnings';
 import { DriverAppTabs } from '@/components/driver-app-tabs';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { StatBarChart } from '@/components/stat-bar-chart';
 import { StatisticsRepository } from '@/database/repositories/statistics-repository';
-import { uniqueRegionCodes } from '@/domain/route-code';
-import { buildStatisticsSnapshot, type FailureReasonCount, type StatisticsPeriodTotals, type StatisticsSnapshot, type StatsRouteRow } from '@/domain/statistics';
-import { employeeApi, type EmployeeProfile, type ServerRouteAssignment } from '@/infrastructure/auth/employee-session';
+import {
+  PERIOD_PRESETS,
+  bestPoint,
+  buildStatsSeries,
+  computeEarningsMetrics,
+  computePeriodMetrics,
+  percentChange,
+  periodForPreset,
+  previousPeriod,
+  type EarningsMetrics,
+  type FailureReasonCount,
+  type PeriodMetrics,
+  type PeriodPreset,
+  type StatsPoint,
+  type StatsRouteRow,
+} from '@/domain/statistics';
+import { employeeApi, type EmployeeProfile, type ServerRouteAssignment, type ServerTripSheet } from '@/infrastructure/auth/employee-session';
 import { devWarn } from '@/ui/dev-log';
 import { formatLithuanianDate } from '@/ui/history-labels';
 import { durationLabel } from '@/ui/route-eta-labels';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { radius, spacing, type } from '@/ui/tokens';
+
+const TABS = [
+  { id: 'km', label: 'Kilometrai' },
+  { id: 'stops', label: 'Taškai' },
+  { id: 'weight', label: 'Svoris' },
+  { id: 'earnings', label: 'Atlygis' },
+  { id: 'quality', label: 'Kokybė' },
+] as const;
+type TabId = (typeof TABS)[number]['id'];
+
+const PERIOD_LABELS: Record<PeriodPreset, string> = {
+  today: 'Šiandien',
+  week: 'Savaitė',
+  month: 'Mėnuo',
+  year: '12 mėn.',
+  custom: 'Pasirinkti',
+};
+
+const numberFormatter = new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 0 });
+
+function formatInt(value: number): string {
+  return numberFormatter.format(Math.round(value));
+}
+function formatDecimal(value: number, fractionDigits = 1): string {
+  return new Intl.NumberFormat('lt-LT', { maximumFractionDigits: fractionDigits }).format(value);
+}
+function formatOrDash(value: number | null, formatValue: (value: number) => string): string {
+  return value === null ? '—' : formatValue(value);
+}
 
 export default function StatisticsScreen() {
   const db = useSQLiteContext();
@@ -26,24 +74,47 @@ export default function StatisticsScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const repository = useMemo(() => new StatisticsRepository(db), [db]);
-  const [snapshot, setSnapshot] = useState<StatisticsSnapshot | null>(null);
+
+  const now = useMemo(() => new Date(), []);
+  const orgCapable = canViewOrgStatistics(profile);
+  const earningsPermitted = canViewStatisticsEarnings(profile);
+  const localOwnerId = localStatisticsOwnerId(profile);
+  const visibleTabs = TABS.filter((tab) => tab.id !== 'earnings' || earningsPermitted);
+
+  const [localRows, setLocalRows] = useState<StatsRouteRow[]>([]);
+  const [localFailures, setLocalFailures] = useState<FailureReasonCount[]>([]);
   const [drivers, setDrivers] = useState<EmployeeProfile[]>([]);
   const [assignments, setAssignments] = useState<ServerRouteAssignment[]>([]);
+  const [tripSheets, setTripSheets] = useState<ServerTripSheet[]>([]);
+  const [orgLoaded, setOrgLoaded] = useState(false);
   const [selectedDriverId, setSelectedDriverId] = useState('all');
   const [selectedVehicleId, setSelectedVehicleId] = useState('all');
+  const [openFilter, setOpenFilter] = useState<'driver' | 'vehicle' | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const [activeTab, setActiveTab] = useState<TabId>('km');
+  const [preset, setPreset] = useState<PeriodPreset>('month');
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
+  const [customError, setCustomError] = useState<string | null>(null);
 
   useFocusEffect(useCallback(() => {
     let mounted = true;
-    void repository.getSnapshot(new Date(), 365, profile.role === 'driver' ? profile.id : null).then((data) => {
+    void repository.getRows(now, 365, localOwnerId).then(({ rows, failureCounts }) => {
       if (!mounted) return;
-      setSnapshot(data);
+      setLocalRows(rows);
+      setLocalFailures(failureCounts);
       setError(null);
     }).catch((reason) => {
       devWarn('STATISTICS_LOAD_FAILED', reason);
       if (mounted) setError(reason instanceof Error ? reason.message : 'Statistikos atkurti nepavyko.');
     });
-    if (profile.role === 'admin' && online) {
+    if (online && earningsPermitted) {
+      void employeeApi<{ tripSheets: ServerTripSheet[] }>('/api/trip-sheets')
+        .then((result) => { if (mounted) setTripSheets(result.tripSheets); })
+        .catch((reason) => devWarn('STATISTICS_TRIP_SHEETS_FAILED', reason));
+    }
+    if (orgCapable && online) {
       void Promise.all([
         employeeApi<{ users: EmployeeProfile[] }>('/api/admin/users'),
         employeeApi<{ assignments: ServerRouteAssignment[] }>('/api/admin/assignments'),
@@ -51,23 +122,69 @@ export default function StatisticsScreen() {
         if (!mounted) return;
         setDrivers(users.users.filter((user) => user.role === 'driver' && !user.disabled));
         setAssignments(routes.assignments);
+        setOrgLoaded(true);
       }).catch((reason) => {
         devWarn('ADMIN_STATISTICS_LOAD_FAILED', reason);
       });
     }
     return () => { mounted = false; };
-  }, [online, profile.id, profile.role, repository]));
+  }, [earningsPermitted, localOwnerId, now, online, orgCapable, repository]));
 
-  const goHome = () => router.replace(roleHomePath(profile.role) as Href);
-
-  const remoteSnapshot = useMemo(() => profile.role === 'admin' && assignments.length > 0
-    ? assignmentStatistics(assignments, selectedDriverId, selectedVehicleId)
-    : null, [assignments, profile.role, selectedDriverId, selectedVehicleId]);
   const vehicles = useMemo(() => [...new Map(
     assignments.map((assignment) => assignment.vehicle).filter((vehicle): vehicle is NonNullable<typeof vehicle> => Boolean(vehicle)).map((vehicle) => [vehicle.id, vehicle]),
   ).values()], [assignments]);
-  const displaySnapshot = remoteSnapshot ?? snapshot;
-  const empty = displaySnapshot !== null && displaySnapshot.allTime.routeCount === 0;
+
+  const usingOrgData = orgCapable && orgLoaded;
+
+  const { rows, failureCounts } = useMemo(() => {
+    if (usingOrgData) return assignmentsToStatsRows(assignments, selectedDriverId, selectedVehicleId);
+    return { rows: localRows, failureCounts: localFailures };
+  }, [usingOrgData, assignments, selectedDriverId, selectedVehicleId, localRows, localFailures]);
+
+  const earningsRows = useMemo(() => {
+    const filteredSheets: EarningsSheetInput[] = usingOrgData
+      ? tripSheets.filter((sheet) => (selectedDriverId === 'all' || sheet.driverId === selectedDriverId)
+        && (selectedVehicleId === 'all' || sheet.vehicle?.id === selectedVehicleId))
+      : tripSheets;
+    return toEarningsRows(filteredSheets);
+  }, [tripSheets, usingOrgData, selectedDriverId, selectedVehicleId]);
+  const earningsUnavailableOffline = earningsPermitted && !online;
+
+  const empty = rows.length === 0;
+
+  const period = useMemo(() => {
+    if (preset !== 'custom') return periodForPreset(preset, now);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(customFrom) || !/^\d{4}-\d{2}-\d{2}$/.test(customTo)) return periodForPreset('month', now);
+    return periodForPreset('custom', now, { fromKey: customFrom, toKey: customTo });
+  }, [preset, customFrom, customTo, now]);
+  const previous = useMemo(() => previousPeriod(period), [period]);
+
+  const current = useMemo(() => computePeriodMetrics(rows, failureCounts, period), [rows, failureCounts, period]);
+  const previousMetrics = useMemo(() => computePeriodMetrics(rows, failureCounts, previous), [rows, failureCounts, previous]);
+  const series = useMemo(() => buildStatsSeries(rows, period), [rows, period]);
+
+  const quickToday = useMemo(() => computePeriodMetrics(rows, failureCounts, periodForPreset('today', now)), [rows, failureCounts, now]);
+  const quickWeek = useMemo(() => computePeriodMetrics(rows, failureCounts, periodForPreset('week', now)), [rows, failureCounts, now]);
+  const quickMonth = useMemo(() => computePeriodMetrics(rows, failureCounts, periodForPreset('month', now)), [rows, failureCounts, now]);
+  const quickYear = useMemo(() => computePeriodMetrics(rows, failureCounts, periodForPreset('year', now)), [rows, failureCounts, now]);
+
+  const earningsCurrent = useMemo(() => computeEarningsMetrics(earningsRows, period), [earningsRows, period]);
+  const earningsPrevious = useMemo(() => computeEarningsMetrics(earningsRows, previous), [earningsRows, previous]);
+  const earningsToday = useMemo(() => computeEarningsMetrics(earningsRows, periodForPreset('today', now)), [earningsRows, now]);
+  const earningsWeek = useMemo(() => computeEarningsMetrics(earningsRows, periodForPreset('week', now)), [earningsRows, now]);
+  const earningsMonth = useMemo(() => computeEarningsMetrics(earningsRows, periodForPreset('month', now)), [earningsRows, now]);
+  const earningsYear = useMemo(() => computeEarningsMetrics(earningsRows, periodForPreset('year', now)), [earningsRows, now]);
+
+  const goHome = () => router.replace(roleHomePath(profile.role) as Href);
+
+  const applyCustomRange = () => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(customFrom) || !/^\d{4}-\d{2}-\d{2}$/.test(customTo)) {
+      setCustomError('Įveskite abi datas formatu YYYY-MM-DD.');
+      return;
+    }
+    setCustomError(null);
+    setPreset('custom');
+  };
 
   return (
     <>
@@ -76,111 +193,102 @@ export default function StatisticsScreen() {
       <FoundationScreen
         showFoundationNotice={false}
         title="Statistika"
-        description="Paskutinių 12 mėnesių užbaigti ir atšaukti maršrutai.">
-      {profile.role === 'admin' && drivers.length > 0 ? (
-        <View style={styles.driverFilters} testID="statistics-driver-filter">
-          <Pressable onPress={() => setSelectedDriverId('all')} style={[styles.driverFilter, selectedDriverId === 'all' && styles.driverFilterActive]}><Text style={[styles.driverFilterText, selectedDriverId === 'all' && styles.driverFilterTextActive]}>Visi vairuotojai</Text></Pressable>
-          {drivers.map((driver) => <Pressable key={driver.id} onPress={() => setSelectedDriverId(driver.id)} style={[styles.driverFilter, selectedDriverId === driver.id && styles.driverFilterActive]}><Text style={[styles.driverFilterText, selectedDriverId === driver.id && styles.driverFilterTextActive]}>{driver.displayName}</Text></Pressable>)}
+        description="Maršrutų, taškų, svorio, atlygio ir kokybės rodikliai pasirinktu laikotarpiu.">
+
+        {orgCapable && (drivers.length > 0 || vehicles.length > 0) ? (
+          <View style={styles.filterBar}>
+            {drivers.length > 0 ? (
+              <FilterSelect
+                testID="statistics-driver-filter"
+                label="Vairuotojas"
+                value={selectedDriverId === 'all' ? 'Visi vairuotojai' : (drivers.find((driver) => driver.id === selectedDriverId)?.displayName ?? 'Visi vairuotojai')}
+                open={openFilter === 'driver'}
+                onToggle={() => setOpenFilter((current) => current === 'driver' ? null : 'driver')}
+                onSelect={(id) => { setSelectedDriverId(id); setOpenFilter(null); }}
+                options={[{ id: 'all', label: 'Visi vairuotojai' }, ...drivers.map((driver) => ({ id: driver.id, label: driver.displayName }))]}
+                styles={styles}
+              />
+            ) : null}
+            {vehicles.length > 0 ? (
+              <FilterSelect
+                testID="statistics-vehicle-filter"
+                label="Automobilis"
+                value={selectedVehicleId === 'all' ? 'Visi automobiliai' : (vehicles.find((vehicle) => vehicle.id === selectedVehicleId)?.registrationNumber ?? 'Visi automobiliai')}
+                open={openFilter === 'vehicle'}
+                onToggle={() => setOpenFilter((current) => current === 'vehicle' ? null : 'vehicle')}
+                onSelect={(id) => { setSelectedVehicleId(id); setOpenFilter(null); }}
+                options={[{ id: 'all', label: 'Visi automobiliai' }, ...vehicles.map((vehicle) => ({ id: vehicle.id, label: vehicle.registrationNumber }))]}
+                styles={styles}
+              />
+            ) : null}
+          </View>
+        ) : null}
+
+        <View style={styles.filterRow} testID="statistics-period-filter">
+          {PERIOD_PRESETS.map((item) => (
+            <Chip key={item} active={preset === item} label={PERIOD_LABELS[item]} onPress={() => setPreset(item)} styles={styles} />
+          ))}
         </View>
-      ) : null}
-      {profile.role === 'admin' && vehicles.length > 0 ? (
-        <View style={styles.driverFilters} testID="statistics-vehicle-filter">
-          <Pressable onPress={() => setSelectedVehicleId('all')} style={[styles.driverFilter, selectedVehicleId === 'all' && styles.driverFilterActive]}><Text style={[styles.driverFilterText, selectedVehicleId === 'all' && styles.driverFilterTextActive]}>Visi automobiliai</Text></Pressable>
-          {vehicles.map((vehicle) => <Pressable key={vehicle.id} onPress={() => setSelectedVehicleId(vehicle.id)} style={[styles.driverFilter, selectedVehicleId === vehicle.id && styles.driverFilterActive]}><Text style={[styles.driverFilterText, selectedVehicleId === vehicle.id && styles.driverFilterTextActive]}>{vehicle.registrationNumber}</Text></Pressable>)}
+        {preset === 'custom' ? (
+          <View style={styles.customRange} testID="statistics-custom-range">
+            <TextInput accessibilityLabel="Nuo" value={customFrom} onChangeText={setCustomFrom}
+              placeholder="Nuo, YYYY-MM-DD" placeholderTextColor={colors.textMuted} style={styles.customInput} />
+            <TextInput accessibilityLabel="Iki" value={customTo} onChangeText={setCustomTo}
+              placeholder="Iki, YYYY-MM-DD" placeholderTextColor={colors.textMuted} style={styles.customInput} />
+            <Pressable onPress={applyCustomRange} style={styles.customApply}><Text style={styles.customApplyText}>Taikyti</Text></Pressable>
+          </View>
+        ) : null}
+        {customError ? <Text style={styles.error}>{customError}</Text> : null}
+
+        <Pressable style={styles.tripSheetButton} onPress={() => router.push({ pathname: '/trip-sheet', params: { returnTo: 'statistics' } } as Href)} testID="open-trip-sheets">
+          <Text style={styles.tripSheetText}>Kelionės lapai</Text>
+        </Pressable>
+
+        {error ? <Text style={styles.error}>{error}</Text> : null}
+
+        <View style={styles.tabRow} testID="statistics-tabs">
+          {visibleTabs.map((tab) => (
+            <Chip key={tab.id} active={activeTab === tab.id} label={tab.label} onPress={() => setActiveTab(tab.id)} styles={styles} />
+          ))}
         </View>
-      ) : null}
-      <Pressable style={styles.tripSheetButton} onPress={() => router.push({ pathname: '/trip-sheet', params: { returnTo: 'statistics' } } as Href)} testID="open-trip-sheets">
-        <Text style={styles.tripSheetText}>Kelionės lapai</Text>
-      </Pressable>
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-      {empty ? (
-        <View style={styles.empty}>
-          <Text style={styles.cardTitle}>Statistikos dar nėra</Text>
-          <Text style={styles.meta}>Užbaikite bent vieną maršrutą — skaičiai atsiras čia.</Text>
-        </View>
-      ) : null}
-      {displaySnapshot && !empty ? (
-        <>
-          <View style={styles.tileRow}>
-            <SummaryTile styles={styles} label="Šiandien" totals={displaySnapshot.today} />
-            <SummaryTile styles={styles} label="Ši savaitė" totals={displaySnapshot.thisWeek} />
-            <SummaryTile styles={styles} label="Šis mėnuo" totals={displaySnapshot.thisMonth} />
-            <SummaryTile styles={styles} label="12 mėn." totals={displaySnapshot.allTime} />
+
+        {empty && activeTab !== 'earnings' ? (
+          <View style={styles.empty}>
+            <Text style={styles.cardTitle}>Statistikos dar nėra</Text>
+            <Text style={styles.meta}>Užbaikite bent vieną maršrutą — skaičiai atsiras čia.</Text>
           </View>
+        ) : (
+          <>
+            {activeTab === 'km' ? (
+              <KmTab styles={styles} colors={colors} current={current} previous={previousMetrics}
+                series={series.points} granularity={series.granularity}
+                today={quickToday} week={quickWeek} month={quickMonth} year={quickYear} />
+            ) : null}
+            {activeTab === 'stops' ? (
+              <StopsTab styles={styles} colors={colors} current={current} previous={previousMetrics}
+                series={series.points} granularity={series.granularity}
+                today={quickToday} week={quickWeek} month={quickMonth} year={quickYear} />
+            ) : null}
+            {activeTab === 'weight' ? (
+              <WeightTab styles={styles} colors={colors} current={current} previous={previousMetrics}
+                series={series.points} granularity={series.granularity}
+                today={quickToday} week={quickWeek} month={quickMonth} year={quickYear} />
+            ) : null}
+            {activeTab === 'earnings' ? (
+              <EarningsTab styles={styles} colors={colors} current={earningsCurrent} previous={earningsPrevious}
+                routeCount={current.routeCount} totalKm={current.totalKm} dayCount={current.dayCount}
+                today={earningsToday} week={earningsWeek} month={earningsMonth} year={earningsYear}
+                canSee={earningsPermitted} unavailableOffline={earningsUnavailableOffline} />
+            ) : null}
+            {activeTab === 'quality' ? (
+              <QualityTab styles={styles} colors={colors} current={current} previous={previousMetrics}
+                series={series.points} granularity={series.granularity}
+                today={quickToday} week={quickWeek} month={quickMonth} year={quickYear} />
+            ) : null}
+          </>
+        )}
 
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Kilometrai per dieną (30 d.)</Text>
-            <StatBarChart
-              colors={colors}
-              color={colors.primary}
-              data={displaySnapshot.dailySeries.map((day) => ({ label: shortDayLabel(day.date), value: day.km }))}
-              valueFormatter={(value) => `${value.toFixed(0)} km`}
-            />
-          </View>
-
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Kilometrai per mėnesį (12 mėn.)</Text>
-            <StatBarChart
-              colors={colors}
-              color={colors.info}
-              data={displaySnapshot.monthlySeries.map((month) => ({ label: shortMonthLabel(month.month), value: month.km }))}
-              valueFormatter={(value) => `${value.toFixed(0)} km`}
-            />
-          </View>
-
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Pristatymo baigtys (12 mėn.)</Text>
-            <OutcomeBar styles={styles} colors={colors} totals={displaySnapshot.allTime} />
-          </View>
-
-          {displaySnapshot.failureReasons.length > 0 ? (
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>Nesėkmės priežastys</Text>
-              {displaySnapshot.failureReasons.map((item) => (
-                <View key={item.reason} style={styles.failureRow}>
-                  <Text style={styles.meta}>{item.reason}</Text>
-                  <Text style={styles.failureCount}>{item.count}</Text>
-                </View>
-              ))}
-            </View>
-          ) : null}
-
-          {displaySnapshot.bestDay ? (
-            <View style={styles.highlightCard}>
-              <Text style={styles.cardTitle}>Geriausia diena</Text>
-              <Text style={styles.meta}>
-                {formatLithuanianDate(displaySnapshot.bestDay.date)} — {displaySnapshot.bestDay.km.toFixed(1)} km
-                {displaySnapshot.bestDay.kmIsActual ? '' : ' (planuota)'}
-              </Text>
-            </View>
-          ) : null}
-
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Vidurkiai (12 mėn.)</Text>
-            <Text style={styles.meta}>Km taškui: {displaySnapshot.averageKmPerStop === null ? '—' : `${displaySnapshot.averageKmPerStop.toFixed(2)} km`}</Text>
-            <Text style={styles.meta}>Taškų maršrutui: {displaySnapshot.averageStopsPerRoute === null ? '—' : displaySnapshot.averageStopsPerRoute.toFixed(1)}</Text>
-            <Text style={styles.meta}>Maršruto trukmė: {displaySnapshot.averageRouteDurationMinutes === null ? '—' : durationLabel(displaySnapshot.averageRouteDurationMinutes)}</Text>
-          </View>
-        </>
-      ) : null}
-      {profile.role === 'admin' ? (
-        <View style={styles.card} testID="statistics-route-results">
-          <Text style={styles.cardTitle}>Atskiri maršrutų rezultatai</Text>
-          {assignments
-            .filter((assignment) => (selectedDriverId === 'all' || assignment.driverId === selectedDriverId) && ['completed', 'cancelled'].includes(String(assignment.routeSnapshot.route.status ?? assignment.status)))
-            .map((assignment) => {
-              const route = assignment.routeSnapshot.route;
-              const summary = parseAssignmentSummary(route.completion_summary_json);
-              return <View key={assignment.id} style={styles.routeResult}>
-                <Text style={styles.routeResultTitle}>{assignmentRouteNumbers(assignment)} · {String(route.date ?? assignment.assignedAt.slice(0, 10))}</Text>
-                <Text style={styles.meta}>{assignment.driverName} · pristatyta {summary?.deliveredStops ?? 0} · nepristatyta {summary?.failedStops ?? 0}</Text>
-                <Text style={styles.meta}>Svoris {nullableMetric(route.total_weight_kg)?.toFixed(0) ?? '—'} kg · planuota {nullableMetric(route.estimated_distance_km)?.toFixed(1) ?? '—'} km · faktinė {nullableMetric(route.actual_distance_km)?.toFixed(1) ?? '—'} km</Text>
-                <Text style={styles.meta}>Odometras {nullableMetric(route.start_odometer)?.toFixed(1) ?? '—'} → {nullableMetric(route.end_odometer)?.toFixed(1) ?? '—'}</Text>
-              </View>;
-            })}
-        </View>
-      ) : null}
-      {profile.role !== 'driver' ? <Pressable style={styles.homeButton} onPress={goHome}><Text style={styles.homeText}>Į pradžią</Text></Pressable> : null}
+        {profile.role !== 'driver' ? <Pressable style={styles.homeButton} onPress={goHome}><Text style={styles.homeText}>Į pradžią</Text></Pressable> : null}
       </FoundationScreen>
       {profile.role === 'driver' ? <DriverAppTabs active="statistics" /> : null}
     </View>
@@ -188,83 +296,402 @@ export default function StatisticsScreen() {
   );
 }
 
-function assignmentStatistics(assignments: ServerRouteAssignment[], driverId: string, vehicleId: string): StatisticsSnapshot {
-  const selected = assignments.filter((assignment) => (driverId === 'all' || assignment.driverId === driverId)
-    && (vehicleId === 'all' || assignment.vehicle?.id === vehicleId));
-  const rows: StatsRouteRow[] = [];
-  const failures = new Map<string, number>();
-  for (const assignment of selected) {
-    const route = assignment.routeSnapshot.route;
-    const status = String(route.status ?? assignment.status);
-    if (!['completed', 'cancelled'].includes(status)) continue;
-    let completionSummary: StatsRouteRow['completionSummary'] = null;
-    try {
-      const raw = route.completion_summary_json;
-      completionSummary = typeof raw === 'string' ? JSON.parse(raw) as StatsRouteRow['completionSummary'] : null;
-    } catch { completionSummary = null; }
-    rows.push({
-      date: String(route.date ?? assignment.assignedAt.slice(0, 10)),
-      status,
-      estimatedDistanceKm: nullableMetric(route.estimated_distance_km),
-      actualDistanceKm: nullableMetric(route.actual_distance_km),
-      totalStops: Number(route.total_stops ?? assignment.routeSnapshot.stops.length),
-      startedAt: typeof route.started_at === 'string' ? route.started_at : null,
-      completedAt: typeof route.completed_at === 'string' ? route.completed_at : null,
-      completionSummary,
-    });
-    for (const stop of assignment.routeSnapshot.stops) {
-      if (stop.delivery_status !== 'failed' || typeof stop.failure_reason !== 'string') continue;
-      failures.set(stop.failure_reason, (failures.get(stop.failure_reason) ?? 0) + 1);
-    }
-  }
-  const failureCounts: FailureReasonCount[] = [...failures].map(([reason, count]) => ({ reason, count }));
-  return buildStatisticsSnapshot(rows, failureCounts, new Date(), 365);
-}
+// ---------------------------------------------------------------------------
+// Shared scaffold pieces
+// ---------------------------------------------------------------------------
 
-function nullableMetric(value: unknown): number | null {
-  if (value === null || value === undefined || value === '') return null;
-  const parsed = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function parseAssignmentSummary(value: unknown): StatsRouteRow['completionSummary'] {
-  if (typeof value !== 'string') return null;
-  try { return JSON.parse(value) as StatsRouteRow['completionSummary']; } catch { return null; }
-}
-
-function assignmentRouteNumbers(assignment: ServerRouteAssignment): string {
-  const values = uniqueRegionCodes(assignment.routeSnapshot.shipmentLines);
-  return values.length > 0 ? values.join(' · ') : 'Maršrutas';
-}
-
-function SummaryTile({ styles, label, totals }: { styles: ReturnType<typeof createStyles>; label: string; totals: StatisticsPeriodTotals }) {
+function Chip({ active, label, onPress, styles }: { active: boolean; label: string; onPress: () => void; styles: ReturnType<typeof createStyles> }) {
   return (
-    <View style={styles.tile}>
-      <Text style={styles.tileLabel}>{label}</Text>
-      <Text style={styles.tileValue}>{totals.totalKm.toFixed(0)} km</Text>
-      <Text style={styles.tileMeta}>{totals.deliveredStops} pristatyta{totals.failedStops > 0 ? ` · ${totals.failedStops} nepavyko` : ''}</Text>
+    <Pressable onPress={onPress} style={[styles.chip, active && styles.chipActive]}>
+      <Text style={[styles.chipText, active && styles.chipTextActive]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function FilterSelect({
+  label,
+  testID,
+  value,
+  options,
+  open,
+  onToggle,
+  onSelect,
+  styles,
+}: {
+  label: string;
+  testID: string;
+  value: string;
+  options: { id: string; label: string }[];
+  open: boolean;
+  onToggle: () => void;
+  onSelect: (id: string) => void;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  return (
+    <View style={styles.filterSelect} testID={testID}>
+      <Text style={styles.filterSelectLabel}>{label}</Text>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        accessibilityState={{ expanded: open }}
+        onPress={onToggle}
+        style={[styles.filterSelectButton, open && styles.filterSelectButtonOpen]}>
+        <Text numberOfLines={1} style={styles.filterSelectValue}>{value}</Text>
+        <ChevronDownIcon size={18} />
+      </Pressable>
+      {open ? (
+        <ScrollView nestedScrollEnabled style={styles.filterMenu} keyboardShouldPersistTaps="handled">
+          {options.map((option) => (
+            <Pressable
+              key={option.id}
+              accessibilityRole="button"
+              onPress={() => onSelect(option.id)}
+              style={styles.filterMenuItem}
+              testID={`${testID}-option-${option.id}`}>
+              <Text style={[styles.filterMenuItemText, option.label === value && styles.filterMenuItemTextActive]}>{option.label}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      ) : null}
     </View>
   );
 }
 
-function OutcomeBar({ styles, colors, totals }: { styles: ReturnType<typeof createStyles>; colors: ColorPalette; totals: StatisticsPeriodTotals }) {
-  const total = totals.deliveredStops + totals.failedStops + totals.unmarkedStops;
+function BigNumber({ value, label, comparisonPercent, comparisonIsPoints, styles }: {
+  value: string;
+  label: string;
+  comparisonPercent: number | null;
+  /** True for a percentage-of-percentage metric (on-time %), where the delta is shown in points, not relative %. */
+  comparisonIsPoints?: boolean;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  const up = comparisonPercent !== null && comparisonPercent > 0.05;
+  const down = comparisonPercent !== null && comparisonPercent < -0.05;
+  return (
+    <View style={styles.bigNumberBlock}>
+      <Text style={styles.bigNumber}>{value}</Text>
+      <Text style={styles.bigNumberLabel}>{label}</Text>
+      {comparisonPercent === null ? (
+        <Text style={styles.comparisonMeta}>Nėra su kuo palyginti</Text>
+      ) : (
+        <Text style={[styles.comparisonValue, up && styles.comparisonUp, down && styles.comparisonDown]}>
+          {up ? '▲' : down ? '▼' : '–'} {formatDecimal(Math.abs(comparisonPercent), 1)}{comparisonIsPoints ? ' p.p.' : '%'} nei ankstesnį tokį patį laikotarpį
+        </Text>
+      )}
+    </View>
+  );
+}
+
+function QuickCards({ items, styles }: { items: { label: string; value: string }[]; styles: ReturnType<typeof createStyles> }) {
+  return (
+    <View style={styles.quickRow}>
+      {items.map((item) => (
+        <View key={item.label} style={styles.quickCard}>
+          <Text style={styles.quickLabel}>{item.label}</Text>
+          <Text style={styles.quickValue}>{item.value}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function Averages({ items, styles }: { items: { label: string; value: string }[]; styles: ReturnType<typeof createStyles> }) {
+  return (
+    <View style={styles.card}>
+      <Text style={styles.cardTitle}>Vidurkiai</Text>
+      {items.map((item) => <Text key={item.label} style={styles.meta}>{item.label}: {item.value}</Text>)}
+    </View>
+  );
+}
+
+function RecordCard({ dateKey, valueLabel, granularity, styles }: {
+  dateKey: string;
+  valueLabel: string;
+  granularity: 'day' | 'month';
+  styles: ReturnType<typeof createStyles>;
+}) {
+  return (
+    <View style={styles.highlightCard}>
+      <Text style={styles.cardTitle}>Rekordas</Text>
+      <Text style={styles.meta}>{granularity === 'day' ? formatLithuanianDate(dateKey) : dateKey} — {valueLabel}</Text>
+    </View>
+  );
+}
+
+function chartData(points: StatsPoint[], metric: (point: StatsPoint) => number, granularity: 'day' | 'month'): { label: string; value: number }[] {
+  return points.map((point) => ({ label: granularity === 'day' ? shortDayLabel(point.key) : shortMonthLabel(point.key), value: metric(point) }));
+}
+
+// ---------------------------------------------------------------------------
+// Kilometrai
+// ---------------------------------------------------------------------------
+
+function KmTab({ styles, colors, current, previous, series, granularity, today, week, month, year }: {
+  styles: ReturnType<typeof createStyles>;
+  colors: ColorPalette;
+  current: PeriodMetrics;
+  previous: PeriodMetrics;
+  series: StatsPoint[];
+  granularity: 'day' | 'month';
+  today: PeriodMetrics; week: PeriodMetrics; month: PeriodMetrics; year: PeriodMetrics;
+}) {
+  const record = bestPoint(series, (point) => point.km);
+  return (
+    <>
+      <BigNumber value={`${formatInt(current.totalKm)} km`} label="Pasirinktu laikotarpiu" comparisonPercent={percentChange(current.totalKm, previous.totalKm)} styles={styles} />
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Kilometrai {granularity === 'day' ? 'per dieną' : 'per mėnesį'}</Text>
+        <StatBarChart colors={colors} color={colors.primary} data={chartData(series, (point) => point.km, granularity)} valueFormatter={(value) => `${value.toFixed(0)} km`} />
+      </View>
+      <QuickCards styles={styles} items={[
+        { label: 'Šiandien', value: `${formatInt(today.totalKm)} km` },
+        { label: 'Ši savaitė', value: `${formatInt(week.totalKm)} km` },
+        { label: 'Šis mėnuo', value: `${formatInt(month.totalKm)} km` },
+        { label: '12 mėn.', value: `${formatInt(year.totalKm)} km` },
+      ]} />
+      <Averages styles={styles} items={[
+        { label: 'Vidutiniškai per dieną', value: formatOrDash(current.averageKmPerDay, (value) => `${formatDecimal(value)} km`) },
+        { label: 'Km vienam taškui', value: formatOrDash(current.averageKmPerStop, (value) => `${formatDecimal(value, 2)} km`) },
+        { label: 'Km vienam maršrutui', value: formatOrDash(current.averageKmPerRoute, (value) => `${formatDecimal(value)} km`) },
+      ]} />
+      {record ? <RecordCard dateKey={record.key} valueLabel={`${formatDecimal(record.km)} km${record.kmIsActual ? '' : ' (planuota)'}`} granularity={granularity} styles={styles} /> : null}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Taškai
+// ---------------------------------------------------------------------------
+
+function StopsTab({ styles, colors, current, previous, series, granularity, today, week, month, year }: {
+  styles: ReturnType<typeof createStyles>;
+  colors: ColorPalette;
+  current: PeriodMetrics;
+  previous: PeriodMetrics;
+  series: StatsPoint[];
+  granularity: 'day' | 'month';
+  today: PeriodMetrics; week: PeriodMetrics; month: PeriodMetrics; year: PeriodMetrics;
+}) {
+  const record = bestPoint(series, (point) => point.deliveredStops);
+  return (
+    <>
+      <BigNumber value={formatInt(current.deliveredStops)} label="Pristatyta taškų pasirinktu laikotarpiu" comparisonPercent={percentChange(current.deliveredStops, previous.deliveredStops)} styles={styles} />
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Pristatyta taškų {granularity === 'day' ? 'per dieną' : 'per mėnesį'}</Text>
+        <StatBarChart colors={colors} color={colors.success} data={chartData(series, (point) => point.deliveredStops, granularity)} valueFormatter={(value) => formatInt(value)} />
+      </View>
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Pristatymų vykdymas</Text>
+        <OutcomeBar styles={styles} colors={colors} delivered={current.deliveredStops} failed={current.failedStops} unmarked={current.unmarkedStops} />
+      </View>
+      {current.failureReasons.length > 0 ? (
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Nesėkmės priežastys</Text>
+          {current.failureReasons.map((item) => (
+            <View key={item.reason} style={styles.failureRow}>
+              <Text style={styles.meta}>{item.reason}</Text>
+              <Text style={styles.failureCount}>{item.count}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
+      <QuickCards styles={styles} items={[
+        { label: 'Šiandien', value: formatInt(today.deliveredStops) },
+        { label: 'Ši savaitė', value: formatInt(week.deliveredStops) },
+        { label: 'Šis mėnuo', value: formatInt(month.deliveredStops) },
+        { label: '12 mėn.', value: formatInt(year.deliveredStops) },
+      ]} />
+      <Averages styles={styles} items={[
+        { label: 'Taškų vienam maršrutui', value: formatOrDash(current.averageStopsPerRoute, (value) => formatDecimal(value, 1)) },
+        { label: 'Taškų per dieną', value: formatOrDash(current.averageStopsPerDay, (value) => formatDecimal(value, 1)) },
+      ]} />
+      {record ? <RecordCard dateKey={record.key} valueLabel={`${formatInt(record.deliveredStops)} pristatyta`} granularity={granularity} styles={styles} /> : null}
+    </>
+  );
+}
+
+function OutcomeBar({ styles, colors, delivered, failed, unmarked }: { styles: ReturnType<typeof createStyles>; colors: ColorPalette; delivered: number; failed: number; unmarked: number }) {
+  const total = delivered + failed + unmarked;
   if (total === 0) return <Text style={styles.meta}>Dar nėra pažymėtų taškų.</Text>;
   return (
     <>
       <View style={styles.outcomeBar}>
-        <View style={{ flex: totals.deliveredStops, backgroundColor: colors.success }} />
-        <View style={{ flex: totals.failedStops, backgroundColor: colors.danger }} />
-        <View style={{ flex: totals.unmarkedStops, backgroundColor: colors.warning }} />
+        <View style={{ flex: delivered, backgroundColor: colors.success }} />
+        <View style={{ flex: failed, backgroundColor: colors.danger }} />
+        <View style={{ flex: unmarked, backgroundColor: colors.warning }} />
       </View>
       <View style={styles.outcomeLegendRow}>
-        <Text style={[styles.outcomeLegend, { color: colors.success }]}>Pristatyta {totals.deliveredStops}</Text>
-        <Text style={[styles.outcomeLegend, { color: colors.danger }]}>Nepavyko {totals.failedStops}</Text>
-        <Text style={[styles.outcomeLegend, { color: colors.warning }]}>Nepažymėta {totals.unmarkedStops}</Text>
+        <Text style={[styles.outcomeLegend, { color: colors.success }]}>Pristatyta {delivered}</Text>
+        <Text style={[styles.outcomeLegend, { color: colors.danger }]}>Nepavyko {failed}</Text>
+        <Text style={[styles.outcomeLegend, { color: colors.warning }]}>Nepažymėta {unmarked}</Text>
       </View>
     </>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Svoris
+// ---------------------------------------------------------------------------
+
+function WeightTab({ styles, colors, current, previous, series, granularity, today, week, month, year }: {
+  styles: ReturnType<typeof createStyles>;
+  colors: ColorPalette;
+  current: PeriodMetrics;
+  previous: PeriodMetrics;
+  series: StatsPoint[];
+  granularity: 'day' | 'month';
+  today: PeriodMetrics; week: PeriodMetrics; month: PeriodMetrics; year: PeriodMetrics;
+}) {
+  const record = bestPoint(series, (point) => point.weightKg);
+  return (
+    <>
+      <BigNumber value={`${formatInt(current.totalWeightKg)} kg`} label="Pasirinktu laikotarpiu" comparisonPercent={percentChange(current.totalWeightKg, previous.totalWeightKg)} styles={styles} />
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Svoris {granularity === 'day' ? 'per dieną' : 'per mėnesį'}</Text>
+        <StatBarChart colors={colors} color={colors.info} data={chartData(series, (point) => point.weightKg, granularity)} valueFormatter={(value) => `${value.toFixed(0)} kg`} />
+      </View>
+      <QuickCards styles={styles} items={[
+        { label: 'Šiandien', value: `${formatInt(today.totalWeightKg)} kg` },
+        { label: 'Ši savaitė', value: `${formatInt(week.totalWeightKg)} kg` },
+        { label: 'Šis mėnuo', value: `${formatInt(month.totalWeightKg)} kg` },
+        { label: '12 mėn.', value: `${formatInt(year.totalWeightKg)} kg` },
+      ]} />
+      <Averages styles={styles} items={[
+        { label: 'Kg vienam maršrutui', value: formatOrDash(current.averageWeightKgPerRoute, (value) => `${formatDecimal(value)} kg`) },
+        { label: 'Kg vienam taškui', value: formatOrDash(current.averageWeightKgPerStop, (value) => `${formatDecimal(value)} kg`) },
+        {
+          label: 'Vidutinė apkrova nuo keliamosios galios',
+          value: current.averageLoadPercent === null ? '— (reikia automobilio duomenų)' : `${formatDecimal(current.averageLoadPercent)} %`,
+        },
+      ]} />
+      {record ? <RecordCard dateKey={record.key} valueLabel={`${formatDecimal(record.weightKg)} kg`} granularity={granularity} styles={styles} /> : null}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Atlygis
+// ---------------------------------------------------------------------------
+
+function EarningsTab({ styles, colors, current, previous, routeCount, totalKm, dayCount, today, week, month, year, canSee, unavailableOffline }: {
+  styles: ReturnType<typeof createStyles>;
+  colors: ColorPalette;
+  current: EarningsMetrics;
+  previous: EarningsMetrics;
+  routeCount: number;
+  totalKm: number;
+  dayCount: number;
+  today: EarningsMetrics; week: EarningsMetrics; month: EarningsMetrics; year: EarningsMetrics;
+  canSee: boolean;
+  unavailableOffline: boolean;
+}) {
+  if (!canSee) {
+    return (
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Atlygis</Text>
+        <Text style={styles.meta}>Šio profilio teisės neapima atlygio skaičiavimo peržiūros. Administracija gali įjungti leidimą „Matyti atlygio skaičiavimą“ skyriuje Administravimas → Darbuotojai.</Text>
+      </View>
+    );
+  }
+  if (unavailableOffline) {
+    return (
+      <View style={styles.card} testID="statistics-earnings-offline">
+        <Text style={styles.cardTitle}>Atlygis</Text>
+        <Text style={styles.meta}>Atlygio duomenys neprieinami neprisijungus — jie skaičiuojami iš kelionės lapų serveryje, ne iš vietinės atminties.</Text>
+      </View>
+    );
+  }
+  const perDay = dayCount === 0 ? null : current.totalEur / dayCount;
+  const perRoute = routeCount === 0 ? null : current.totalEur / routeCount;
+  const perKm = totalKm === 0 ? null : current.totalEur / totalKm;
+  return (
+    <>
+      <BigNumber value={`${formatDecimal(current.totalEur)} €`} label="Pasirinktu laikotarpiu, netto" comparisonPercent={percentChange(current.totalEur, previous.totalEur)} styles={styles} />
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Atlygis {current.series.granularity === 'day' ? 'per dieną' : 'per mėnesį'}</Text>
+        <StatBarChart colors={colors} color={colors.success} data={current.series.points.map((point) => ({ label: current.series.granularity === 'day' ? shortDayLabel(point.key) : shortMonthLabel(point.key), value: point.eur }))} valueFormatter={(value) => `${value.toFixed(0)} €`} />
+      </View>
+      <QuickCards styles={styles} items={[
+        { label: 'Šiandien', value: `${formatDecimal(today.totalEur)} €` },
+        { label: 'Ši savaitė', value: `${formatDecimal(week.totalEur)} €` },
+        { label: 'Šis mėnuo', value: `${formatDecimal(month.totalEur)} €` },
+        { label: '12 mėn.', value: `${formatDecimal(year.totalEur)} €` },
+      ]} />
+      <Averages styles={styles} items={[
+        { label: 'Per dieną', value: formatOrDash(perDay, (value) => `${formatDecimal(value)} €`) },
+        { label: 'Vienam maršrutui', value: formatOrDash(perRoute, (value) => `${formatDecimal(value)} €`) },
+        { label: 'Vienam kilometrui', value: formatOrDash(perKm, (value) => `${formatDecimal(value, 2)} €`) },
+      ]} />
+      {current.bestDay ? <RecordCard dateKey={current.bestDay.key} valueLabel={`${formatDecimal(current.bestDay.eur)} €`} granularity={current.series.granularity} styles={styles} /> : null}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Kokybė
+// ---------------------------------------------------------------------------
+
+function QualityTab({ styles, colors, current, previous, series, granularity, today, week, month, year }: {
+  styles: ReturnType<typeof createStyles>;
+  colors: ColorPalette;
+  current: PeriodMetrics;
+  previous: PeriodMetrics;
+  series: StatsPoint[];
+  granularity: 'day' | 'month';
+  today: PeriodMetrics; week: PeriodMetrics; month: PeriodMetrics; year: PeriodMetrics;
+}) {
+  const onTimePercentOf = (point: StatsPoint): number | null =>
+    point.onTimeStops + point.lateStops === 0 ? null : (point.onTimeStops / (point.onTimeStops + point.lateStops)) * 100;
+  const record = series.reduce<{ key: string; percent: number } | null>((best, point) => {
+    const percent = onTimePercentOf(point);
+    if (percent === null) return best;
+    if (!best || percent > best.percent) return { key: point.key, percent };
+    return best;
+  }, null);
+
+  const pointDelta = current.onTimeWindowPercent === null || previous.onTimeWindowPercent === null
+    ? null
+    : current.onTimeWindowPercent - previous.onTimeWindowPercent;
+
+  return (
+    <>
+      <BigNumber
+        value={current.onTimeWindowPercent === null ? '—' : `${formatDecimal(current.onTimeWindowPercent)} %`}
+        label="Pataikymas į laiko langą"
+        comparisonPercent={pointDelta}
+        comparisonIsPoints
+        styles={styles}
+      />
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Pataikymas į laiko langą {granularity === 'day' ? 'per dieną' : 'per mėnesį'}</Text>
+        <StatBarChart colors={colors} color={colors.info} data={series.map((point) => ({ label: granularity === 'day' ? shortDayLabel(point.key) : shortMonthLabel(point.key), value: onTimePercentOf(point) ?? 0 }))} valueFormatter={(value) => `${value.toFixed(0)} %`} />
+      </View>
+      <QuickCards styles={styles} items={[
+        { label: 'Šiandien', value: today.onTimeWindowPercent === null ? '—' : `${formatDecimal(today.onTimeWindowPercent)} %` },
+        { label: 'Ši savaitė', value: week.onTimeWindowPercent === null ? '—' : `${formatDecimal(week.onTimeWindowPercent)} %` },
+        { label: 'Šis mėnuo', value: month.onTimeWindowPercent === null ? '—' : `${formatDecimal(month.onTimeWindowPercent)} %` },
+        { label: '12 mėn.', value: year.onTimeWindowPercent === null ? '—' : `${formatDecimal(year.onTimeWindowPercent)} %` },
+      ]} />
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Maršrutai</Text>
+        <Text style={styles.meta}>Vėluota bent viename taške: {current.routesWithLateStop}</Text>
+        <Text style={styles.meta}>Visi taškai laiku: {current.routesFullyOnTime}</Text>
+        <Text style={styles.meta}>Vidutinis vėlavimas minutėmis: — (šis rodiklis dar nerenkamas — sistema kol kas žymi tik „laiku“/„vėluoja“, be minučių)</Text>
+      </View>
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Planas prieš faktą</Text>
+        <Text style={styles.meta}>Km: planuota {formatDecimal(current.plannedKm)} · faktinė {formatDecimal(current.actualKmForQuality)}</Text>
+        <Text style={styles.meta}>Laikas: planuota {durationLabel(current.plannedDurationMinutes)} · faktinė {durationLabel(current.actualDurationMinutes)}</Text>
+        <Text style={styles.meta}>Vidutinė maršruto trukmė: {current.averageRouteDurationMinutes === null ? '—' : durationLabel(current.averageRouteDurationMinutes)}</Text>
+      </View>
+      {record ? <RecordCard dateKey={record.key} valueLabel={`${formatDecimal(record.percent)} % laiku`} granularity={granularity} styles={styles} /> : null}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Formatting helpers
+// ---------------------------------------------------------------------------
 
 function shortDayLabel(dateKey: string): string {
   const date = new Date(`${dateKey}T12:00:00.000Z`);
@@ -280,33 +707,72 @@ function shortMonthLabel(monthKey: string): string {
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   screen: { flex: 1, alignSelf: 'center', width: '100%', maxWidth: 900, backgroundColor: colors.background },
-  driverFilters: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  driverFilter: { minHeight: 44, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
-  driverFilterActive: { borderColor: colors.info, backgroundColor: colors.infoSoft },
-  driverFilterText: { ...type.secondaryStrong, color: colors.textSecondary },
-  driverFilterTextActive: { color: colors.info },
-  routeResult: { paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, gap: 2 },
-  routeResultTitle: { ...type.bodyStrong, color: colors.text },
+  filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  filterBar: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  filterSelect: { flexGrow: 1, flexBasis: 240, minWidth: 200 },
+  filterSelectLabel: { ...type.label, color: colors.textMuted, marginBottom: 6 },
+  filterSelectButton: {
+    minHeight: 44,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  filterSelectButtonOpen: { borderColor: colors.info },
+  filterSelectValue: { ...type.secondaryStrong, color: colors.text, flex: 1 },
+  filterMenu: {
+    maxHeight: 240,
+    marginTop: spacing.xs,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  filterMenuItem: { minHeight: 44, paddingHorizontal: spacing.md, justifyContent: 'center' },
+  filterMenuItemText: { ...type.secondary, color: colors.text },
+  filterMenuItemTextActive: { ...type.secondaryStrong, color: colors.info },
+  tabRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: spacing.sm },
+  chip: { minHeight: 44, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
+  chipActive: { borderColor: colors.info, backgroundColor: colors.infoSoft },
+  chipText: { ...type.secondaryStrong, color: colors.textSecondary },
+  chipTextActive: { color: colors.info },
+  customRange: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, alignItems: 'center' },
+  customInput: { flexGrow: 1, minWidth: 140, minHeight: 44, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, paddingHorizontal: spacing.md, color: colors.text },
+  customApply: { minHeight: 44, borderRadius: radius.md, backgroundColor: colors.actionPrimary, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
+  customApplyText: { ...type.button, color: colors.textInverse },
   empty: { padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surface, gap: spacing.xs },
   card: { padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.xs },
   highlightCard: { padding: spacing.md, borderRadius: radius.lg, backgroundColor: colors.infoSoft, gap: spacing.xs },
   cardTitle: { ...type.sectionTitle, color: colors.text },
   meta: { ...type.secondary, color: colors.textMuted },
   error: { ...type.secondaryStrong, color: colors.danger },
-  tileRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  tile: { flexGrow: 1, minWidth: '45%', padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: 2 },
-  tileLabel: { ...type.label, color: colors.textMuted },
-  tileValue: { ...type.readout, color: colors.text },
-  tileMeta: { color: colors.textMuted, fontSize: 13 },
+
+  bigNumberBlock: { paddingVertical: spacing.sm, gap: 2 },
+  bigNumber: { fontSize: 44, fontWeight: '800', color: colors.text, letterSpacing: -0.5 },
+  bigNumberLabel: { ...type.secondary, color: colors.textMuted },
+  comparisonValue: { ...type.secondaryStrong, color: colors.textMuted },
+  comparisonUp: { color: colors.success },
+  comparisonDown: { color: colors.danger },
+  comparisonMeta: { ...type.secondary, color: colors.textMuted },
+
+  quickRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  quickCard: { flexGrow: 1, minWidth: '45%', padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: 2 },
+  quickLabel: { ...type.label, color: colors.textMuted },
+  quickValue: { ...type.readout, color: colors.text },
+
   failureRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 },
   failureCount: { ...type.bodyStrong, color: colors.text },
   outcomeBar: { flexDirection: 'row', height: 16, borderRadius: 8, overflow: 'hidden', backgroundColor: colors.border },
   outcomeLegendRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.xs },
   outcomeLegend: { ...type.meta },
+
   homeButton: { minHeight: 52, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
   tripSheetButton: { minHeight: 52, borderRadius: radius.md, backgroundColor: colors.actionPrimary, alignItems: 'center', justifyContent: 'center' },
   tripSheetText: { ...type.button, color: colors.textInverse, fontSize: 16 },
   homeText: { ...type.button, color: colors.textSecondary },
-  headerAction: { minWidth: 84, minHeight: 44, justifyContent: 'center' },
-  headerText: { ...type.button, color: colors.brandNavy },
 });
