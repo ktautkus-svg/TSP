@@ -14,7 +14,6 @@ describe('fleet cargo specs', () => {
   it('stores Karolis fleet plates as 5 or 8 PLL with side-door flags', () => {
     expect(FLEET_CARGO_SPECS).toEqual({
       MSZ859: { palletCapacity: 8, hasSideDoor: true },
-      MSZ867: { palletCapacity: 8, hasSideDoor: true },
       NLL182: { palletCapacity: 8, hasSideDoor: true },
       LRI740: { palletCapacity: 8, hasSideDoor: true },
       LRI744: { palletCapacity: 8, hasSideDoor: true },

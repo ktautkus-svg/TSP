@@ -9,7 +9,6 @@ export type FleetCargoSpec = {
 /** Karolio parko kėbulai. Krovimo schema ima šiuos duomenis pagal valstybinį numerį. */
 export const FLEET_CARGO_SPECS: Record<string, FleetCargoSpec> = {
   MSZ859: { palletCapacity: 8, hasSideDoor: true },
-  MSZ867: { palletCapacity: 8, hasSideDoor: true },
   NLL182: { palletCapacity: 8, hasSideDoor: true },
   LRI740: { palletCapacity: 8, hasSideDoor: true },
   LRI744: { palletCapacity: 8, hasSideDoor: true },

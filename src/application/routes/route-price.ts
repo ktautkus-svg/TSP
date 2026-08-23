@@ -66,16 +66,16 @@ export const DEFAULT_ROUTE_PRICE_SETTINGS: RoutePriceSettings = {
   workingDaysByMonth: [22, 20, 20, 20, 21, 20, 23, 20, 22, 23, 20, 20],
   overheadPercent: 5,
   payrollTaxPercent: 51,
+  // KJL116, MCI855, MCP563, MFJ465 and NYP356 were removed from the fleet;
+  // MSZ867 was reissued as NLL182 (same vehicle, same rate profile).
   vehicleCosts: {
-    EFA568: vehicle(20, 450, 137), LRI744: vehicle(15, 929.46, 34), MSZ867: vehicle(13.2, 1756.81, 34),
+    EFA568: vehicle(20, 450, 137), LRI744: vehicle(15, 929.46, 34), NLL182: vehicle(13.2, 1756.81, 34),
     LRI748: vehicle(15, 929.46, 34), LMC891: vehicle(14, 196, 37), NAH354: vehicle(12, 1006.01, 34),
     LRI740: vehicle(15, 929.46, 34), LFG709: vehicle(25, 470, 91), MYZ861: vehicle(25, 470, 91),
     MSV407: vehicle(15, 196, 75), LRI742: vehicle(15, 929.46, 34), MSZ859: vehicle(14.5, 1756.81, 34),
     GFU337: vehicle(25, 450, 118), KZP979: vehicle(20, 450, 137), FDB519: vehicle(20, 450, 137),
-    LRI741: vehicle(15, 929.46, 34), MFJ465: vehicle(12, 196, 30.42), KJL116: vehicle(13, 196, 34),
-    MET628: vehicle(12, 1006.01, 34), MSZ873: vehicle(14.5, 1756.81, 34), EFA559: vehicle(20, 450, 137),
-    MCI855: vehicle(12, 196, 43), MET630: vehicle(12, 1006.01, 34), MCP563: vehicle(12, 196, 34),
-    NYP356: vehicle(13.5, 196, 37),
+    LRI741: vehicle(15, 929.46, 34), MET628: vehicle(12, 1006.01, 34), MSZ873: vehicle(14.5, 1756.81, 34),
+    EFA559: vehicle(20, 450, 137), MET630: vehicle(12, 1006.01, 34),
   },
   driverCosts: {
     'arūnas jusys': fixedDriver(60),
