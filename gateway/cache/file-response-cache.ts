@@ -75,7 +75,6 @@ export class FileGatewayResponseCache implements GatewayResponseCache {
     } catch (error) {
       if (!this.writeFailureReported) {
         this.writeFailureReported = true;
-        // eslint-disable-next-line no-console
         console.warn(JSON.stringify({
           event: 'gateway_cache_write_unavailable',
           directory: this.rootDirectory,

@@ -4,7 +4,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
-import { canViewOrgStatistics } from '@/application/auth/employee-permissions';
+import { canViewOrgStatistics, canViewStatisticsEarnings, localStatisticsOwnerId } from '@/application/auth/employee-permissions';
 import { roleHomePath } from '@/application/navigation/role-home';
 import { assignmentsToStatsRows } from '@/application/statistics/assignment-rows';
 import { toEarningsRows, type EarningsSheetInput } from '@/application/statistics/earnings';
@@ -75,6 +75,9 @@ export default function StatisticsScreen() {
 
   const now = useMemo(() => new Date(), []);
   const orgCapable = canViewOrgStatistics(profile);
+  const earningsPermitted = canViewStatisticsEarnings(profile);
+  const localOwnerId = localStatisticsOwnerId(profile);
+  const visibleTabs = TABS.filter((tab) => tab.id !== 'earnings' || earningsPermitted);
 
   const [localRows, setLocalRows] = useState<StatsRouteRow[]>([]);
   const [localFailures, setLocalFailures] = useState<FailureReasonCount[]>([]);
@@ -94,7 +97,7 @@ export default function StatisticsScreen() {
 
   useFocusEffect(useCallback(() => {
     let mounted = true;
-    void repository.getRows(now, 365, profile.role === 'driver' ? profile.id : null).then(({ rows, failureCounts }) => {
+    void repository.getRows(now, 365, localOwnerId).then(({ rows, failureCounts }) => {
       if (!mounted) return;
       setLocalRows(rows);
       setLocalFailures(failureCounts);
@@ -103,7 +106,7 @@ export default function StatisticsScreen() {
       devWarn('STATISTICS_LOAD_FAILED', reason);
       if (mounted) setError(reason instanceof Error ? reason.message : 'Statistikos atkurti nepavyko.');
     });
-    if (online) {
+    if (online && earningsPermitted) {
       void employeeApi<{ tripSheets: ServerTripSheet[] }>('/api/trip-sheets')
         .then((result) => { if (mounted) setTripSheets(result.tripSheets); })
         .catch((reason) => devWarn('STATISTICS_TRIP_SHEETS_FAILED', reason));
@@ -122,7 +125,7 @@ export default function StatisticsScreen() {
       });
     }
     return () => { mounted = false; };
-  }, [now, online, orgCapable, profile.id, profile.role, repository]));
+  }, [earningsPermitted, localOwnerId, now, online, orgCapable, repository]));
 
   const vehicles = useMemo(() => [...new Map(
     assignments.map((assignment) => assignment.vehicle).filter((vehicle): vehicle is NonNullable<typeof vehicle> => Boolean(vehicle)).map((vehicle) => [vehicle.id, vehicle]),
@@ -142,7 +145,7 @@ export default function StatisticsScreen() {
       : tripSheets;
     return toEarningsRows(filteredSheets);
   }, [tripSheets, usingOrgData, selectedDriverId, selectedVehicleId]);
-  const canSeeEarnings = tripSheets.length === 0 ? true : tripSheets.some((sheet) => sheet.compensation !== null);
+  const earningsUnavailableOffline = earningsPermitted && !online;
 
   const empty = rows.length === 0;
 
@@ -229,7 +232,7 @@ export default function StatisticsScreen() {
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
         <View style={styles.tabRow} testID="statistics-tabs">
-          {TABS.map((tab) => (
+          {visibleTabs.map((tab) => (
             <Chip key={tab.id} active={activeTab === tab.id} label={tab.label} onPress={() => setActiveTab(tab.id)} styles={styles} />
           ))}
         </View>
@@ -260,7 +263,7 @@ export default function StatisticsScreen() {
               <EarningsTab styles={styles} colors={colors} current={earningsCurrent} previous={earningsPrevious}
                 routeCount={current.routeCount} totalKm={current.totalKm} dayCount={current.dayCount}
                 today={earningsToday} week={earningsWeek} month={earningsMonth} year={earningsYear}
-                canSee={canSeeEarnings} />
+                canSee={earningsPermitted} unavailableOffline={earningsUnavailableOffline} />
             ) : null}
             {activeTab === 'quality' ? (
               <QualityTab styles={styles} colors={colors} current={current} previous={previousMetrics}
@@ -506,7 +509,7 @@ function WeightTab({ styles, colors, current, previous, series, granularity, tod
 // Atlygis
 // ---------------------------------------------------------------------------
 
-function EarningsTab({ styles, colors, current, previous, routeCount, totalKm, dayCount, today, week, month, year, canSee }: {
+function EarningsTab({ styles, colors, current, previous, routeCount, totalKm, dayCount, today, week, month, year, canSee, unavailableOffline }: {
   styles: ReturnType<typeof createStyles>;
   colors: ColorPalette;
   current: EarningsMetrics;
@@ -516,12 +519,21 @@ function EarningsTab({ styles, colors, current, previous, routeCount, totalKm, d
   dayCount: number;
   today: EarningsMetrics; week: EarningsMetrics; month: EarningsMetrics; year: EarningsMetrics;
   canSee: boolean;
+  unavailableOffline: boolean;
 }) {
   if (!canSee) {
     return (
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Atlygis</Text>
-        <Text style={styles.meta}>Šio profilio teisės neapima atlygio skaičiavimo peržiūros.</Text>
+        <Text style={styles.meta}>Šio profilio teisės neapima atlygio skaičiavimo peržiūros. Administracija gali įjungti leidimą „Matyti atlygio skaičiavimą“ skyriuje Administravimas → Darbuotojai.</Text>
+      </View>
+    );
+  }
+  if (unavailableOffline) {
+    return (
+      <View style={styles.card} testID="statistics-earnings-offline">
+        <Text style={styles.cardTitle}>Atlygis</Text>
+        <Text style={styles.meta}>Atlygio duomenys neprieinami neprisijungus — jie skaičiuojami iš kelionės lapų serveryje, ne iš vietinės atminties.</Text>
       </View>
     );
   }

@@ -119,7 +119,7 @@ export async function handleEmployeeApi(
     }
 
     if (pathname === '/api/admin/users' && request.method === 'GET') {
-      requireRole(profile, ['admin', 'dispatcher']);
+      requireRole(profile, ['admin', 'dispatcher', 'quality']);
       const users = await store.listUsers();
       return send(response, 200, { users: profile.role === 'admin' ? users : users.filter((user) => user.role === 'driver') }, requestId);
     }
@@ -273,7 +273,7 @@ export async function handleEmployeeApi(
       return send(response, 201, { assignment }, requestId);
     }
     if (pathname === '/api/admin/assignments' && request.method === 'GET') {
-      requireRole(profile, ['admin', 'dispatcher']);
+      requireRole(profile, ['admin', 'dispatcher', 'quality']);
       return send(response, 200, { assignments: await store.listAssignments(profile) }, requestId);
     }
     if (pathname === '/api/assignments' && request.method === 'GET') {

@@ -114,7 +114,8 @@ export const MANAGEMENT_PERMISSION_LABELS: Record<ManagementPermissionKey, { tit
 
 /**
  * Whether this profile may see organisation-wide statistics — every driver and
- * vehicle, not just their own. Admin always can; a dispatcher only with the
+ * vehicle, not just their own. Admin always can; quality control always can
+ * (they already monitor every live route); a dispatcher only with the
  * permission explicitly granted; a driver never, however the permission bits
  * are set, so this is the one place that decides it rather than trusting the
  * stored flags directly.
@@ -123,9 +124,32 @@ export function canViewOrgStatistics(profile: {
   role: EmployeeRole;
   permissions?: Partial<EmployeePermissions> | null;
 }): boolean {
-  if (profile.role === 'admin') return true;
+  if (profile.role === 'admin' || profile.role === 'quality') return true;
   if (profile.role === 'dispatcher') {
     return normalizeEmployeePermissions(profile.permissions).canViewAllStatistics;
+  }
+  return false;
+}
+
+/**
+ * Owner filter for the on-device SQLite statistics query.
+ * Drivers and quality only see rows they own; quality owns none, so a shared
+ * tablet cannot leak another driver's completed routes while offline.
+ * Admin/dispatcher still read the whole local cache as a fallback.
+ */
+export function localStatisticsOwnerId(profile: { role: EmployeeRole; id: string }): string | null {
+  if (profile.role === 'driver' || profile.role === 'quality') return profile.id;
+  return null;
+}
+
+/** Pay figures come from trip sheets. Quality does not receive that API. */
+export function canViewStatisticsEarnings(profile: {
+  role: EmployeeRole;
+  permissions?: Partial<EmployeePermissions> | null;
+}): boolean {
+  if (profile.role === 'admin' || profile.role === 'dispatcher') return true;
+  if (profile.role === 'driver') {
+    return normalizeEmployeePermissions(profile.permissions).canViewCompensation;
   }
   return false;
 }

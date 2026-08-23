@@ -49,7 +49,7 @@ import type { DepartureReadiness } from '@/domain/departure-readiness';
 import { employeeApi, type FuelStatus, type ServerRouteAssignment } from '@/infrastructure/auth/employee-session';
 import { Alert } from '@/ui/alert';
 import { formatWeightKg } from '@/ui/format-weight';
-import { clockLabel, etaLabel, legLabel, windowLabel } from '@/ui/route-eta-labels';
+import { etaLabel, legLabel, windowLabel } from '@/ui/route-eta-labels';
 import { userVisibleStopNote } from '@/ui/route-labels';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';

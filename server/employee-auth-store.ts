@@ -1900,6 +1900,36 @@ function validateFuelLiters(value: number): number {
   return Math.round(value * 10) / 10;
 }
 
+function validateOdometer(value: number | null, label: string): number | null {
+  if (value === null) return null;
+  if (!Number.isFinite(value) || value < 0 || value > 10_000_000) {
+    throw new EmployeeApiError('INVALID_ODOMETER', `Neteisingas ${label} odometro rodmuo.`, 400);
+  }
+  return Math.round(value * 10) / 10;
+}
+
+function isoDateOrThrow(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new EmployeeApiError('INVALID_FUEL_DATE', 'Neteisinga kuro pylimo data.', 400);
+  }
+  return parsed.toISOString();
+}
+
+function validateLiters(value: number): number {
+  if (!Number.isFinite(value) || value <= 0 || value > 1_000) {
+    throw new EmployeeApiError('INVALID_FUEL_AMOUNT', 'Įpilto kuro kiekis turi būti nuo 0,1 iki 1000 litrų.', 400);
+  }
+  return Math.round(value * 100) / 100;
+}
+
+function validatePricePerLiter(value: number): number {
+  if (!Number.isFinite(value) || value < 0 || value > 100) {
+    throw new EmployeeApiError('INVALID_FUEL_PRICE', 'Neteisinga litro kaina.', 400);
+  }
+  return Math.round(value * 1000) / 1000;
+}
+
 function vehicleSnapshot(vehicle: FleetVehicle): FleetVehicleSnapshot {
   return {
     id: vehicle.id,
