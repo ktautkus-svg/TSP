@@ -329,26 +329,10 @@ export default function SettingsScreen() {
               <Text style={styles.chevron}>›</Text>
             </Pressable>
             <View style={styles.groupDivider} />
-            <Pressable style={styles.settingsRow} onPress={() => router.push({ pathname: '/vehicle', params: { returnTo: 'settings' } } as Href)} testID="open-vehicle-settings">
-              <View style={styles.flex}>
-                <Text style={styles.rowTitle}>Automobilio priežiūra</Text>
-                <Text style={styles.rowValue}>Terminai, kelių mokestis ir neskubūs gedimai</Text>
-              </View>
-              <Text style={styles.chevron}>›</Text>
-            </Pressable>
-            <View style={styles.groupDivider} />
             <Pressable style={styles.settingsRow} onPress={() => router.push('/contacts' as Href)} testID="open-contacts-settings">
               <View style={styles.flex}>
                 <Text style={styles.rowTitle}>Kontaktai ir ryšys</Text>
                 <Text style={styles.rowValue}>Administracija, kritiniai numeriai ir skambinimas</Text>
-              </View>
-              <Text style={styles.chevron}>›</Text>
-            </Pressable>
-            <View style={styles.groupDivider} />
-            <Pressable style={styles.settingsRow} onPress={() => router.push('/fuel' as Href)} testID="open-fuel-settings">
-              <View style={styles.flex}>
-                <Text style={styles.rowTitle}>Degalų pylimai</Text>
-                <Text style={styles.rowValue}>Pilno bako pylimų taisyklės ir sąnaudų skaičiavimas</Text>
               </View>
               <Text style={styles.chevron}>›</Text>
             </Pressable>

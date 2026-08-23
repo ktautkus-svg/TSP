@@ -8,7 +8,6 @@ const execute = readFileSync(resolve(root, 'src/app/execute-route.tsx'), 'utf8')
 const admin = readFileSync(resolve(root, 'src/app/admin.tsx'), 'utf8');
 const quality = readFileSync(resolve(root, 'src/app/quality-control.tsx'), 'utf8');
 const settings = readFileSync(resolve(root, 'src/app/settings/index.tsx'), 'utf8');
-const dispatcher = readFileSync(resolve(root, 'src/app/dispatcher.tsx'), 'utf8');
 const routeManagement = readFileSync(resolve(root, 'src/app/route-management.tsx'), 'utf8');
 const routes = readFileSync(resolve(root, 'src/app/history.tsx'), 'utf8');
 const appLayout = readFileSync(resolve(root, 'src/app/_layout.tsx'), 'utf8');
@@ -24,7 +23,9 @@ describe('administrator workspace navigation', () => {
     expect(home).toContain('Vykdyti maršrutą');
     expect(home).toContain('Kelionės lapai');
     expect(home).toContain('<MenuArtwork kind="trip-sheet" />');
-    expect(home).toContain('<MenuArtwork kind="service" />');
+    expect(home).toContain('title="Automobiliai"');
+    expect(home).toContain('title="Vairuotojai"');
+    expect(home).toContain('title="Finansai"');
     expect(home).toMatch(/profile\.role === ['"]admin['"]\s*\?\s*\[\]/);
   });
 
@@ -40,8 +41,6 @@ describe('administrator workspace navigation', () => {
   });
 
   it('keeps a visible deterministic exit inside both route workspaces', () => {
-    expect(dispatcher).toContain('title="Vairuotojai"');
-    expect(dispatcher).toContain('title="Automobiliai"');
     expect(routeManagement).toContain('Redaguoti vairuotojus →');
     expect(routeManagement).toContain('Redaguoti automobilius →');
     expect(stackNavigation).not.toContain('router.canGoBack()');

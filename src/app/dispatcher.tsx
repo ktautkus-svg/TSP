@@ -2,7 +2,6 @@ import { Stack, useRouter, type Href } from 'expo-router';
 import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
-import { normalizeEmployeePermissions } from '@/application/auth/employee-permissions';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { ChevronRightIcon } from '@/components/app-icons';
 import { FoundationScreen } from '@/components/foundation-screen';
@@ -19,10 +18,6 @@ export default function DispatcherHomeScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const compact = width < 720;
-  const permissions = normalizeEmployeePermissions(profile.permissions);
-  const canManageEmployees = profile.role === 'admin' || permissions.canManageEmployees;
-  const canManageVehicles = profile.role === 'admin' || permissions.canManageVehicles;
-  const canManageFinancials = profile.role === 'admin' || permissions.canManageFinancials;
   const open = (href: Href) => router.push(href);
 
   return <>
@@ -65,14 +60,20 @@ export default function DispatcherHomeScreen() {
             </View>
             <ChevronRightIcon color={colors.info} size={20} />
           </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => open('/execute-route' as Href)}
+            style={({ pressed }) => [styles.featuredSecondary, pressed && styles.featuredPressed]}
+            testID="dispatcher-execute-route">
+            <View style={styles.featuredIconSecondary}><MenuArtwork kind="execute" size={52} /></View>
+            <View style={styles.featuredCopy}>
+              <Text style={styles.featuredTitleSecondary}>Vykdyti maršrutą</Text>
+              <Text style={styles.featuredDescriptionSecondary}>Pasirinkti vairuotoją ir tęsti jo darbą.</Text>
+            </View>
+            <ChevronRightIcon color={colors.info} size={20} />
+          </Pressable>
         </View>
-        <View style={styles.menuGroup}><GroupedMenuSection label="IŠTEKLIAI">
-          <GroupedMenuRow description={canManageEmployees ? 'Duomenys, prisijungimai ir leidimai.' : 'Redagavimo teisė nesuteikta.'} disabled={!canManageEmployees} icon={<MenuArtwork kind="drivers" />} onPress={() => open({ pathname: '/admin', params: { section: 'employees', returnTo: 'dispatcher' } } as Href)} title="Vairuotojai" />
-          <GroupedMenuRow description={canManageVehicles ? 'Numeriai, modeliai ir keliamoji galia.' : 'Redagavimo teisė nesuteikta.'} disabled={!canManageVehicles} icon={<MenuArtwork kind="vehicles" />} onPress={() => open({ pathname: '/admin', params: { section: 'fleet', returnTo: 'dispatcher' } } as Href)} title="Automobiliai" tone="neutral" />
-          <GroupedMenuRow description="Iš maršrutų sukaupti pavadinimai, adresai ir trūkstami kontaktai." icon={<MenuArtwork kind="clients" />} onPress={() => open('/clients' as Href)} title="Klientai" tone="info" />
-        </GroupedMenuSection></View>
         <View style={styles.menuGroup}><GroupedMenuSection label="APSKAITA">
-          <GroupedMenuRow description={canManageFinancials ? 'Kuras, draudimas, mokesčiai ir atlygis.' : 'Parametrai tik peržiūrai.'} icon={<MenuArtwork kind="finance" />} onPress={() => open({ pathname: '/financial-settings', params: { returnTo: 'dispatcher' } } as unknown as Href)} title="Finansiniai duomenys" tone="neutral" />
           <GroupedMenuRow description="Odometrai, kilometrai, kuro norma ir spausdinimas." icon={<MenuArtwork kind="trip-sheet" />} onPress={() => open({ pathname: '/trip-sheet', params: { returnTo: 'dispatcher' } } as Href)} title="Kelionės lapai" tone="neutral" />
           <GroupedMenuRow description="Kilometrai, taškai, svoris, atlygis ir kokybė pagal laikotarpį." icon={<MenuArtwork kind="statistics" />} onPress={() => open({ pathname: '/statistics', params: { returnTo: 'dispatcher' } } as Href)} title="Statistika" tone="info" />
         </GroupedMenuSection></View>

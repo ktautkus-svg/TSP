@@ -107,8 +107,14 @@ describe('dispatcher desktop workspace', () => {
     expect(dispatcherSource).toContain('PRELIMINARI MARŠRUTO KAINA');
     expect(dispatcherSource).toContain('Excel automobilio tarifai');
     expect(dispatcherSource).toContain('Įvertinta pagal automobilio dydį');
-    expect(dispatcherHomeSource).toContain('Finansiniai duomenys');
     expect(dispatcherSource).toContain("'/api/admin/route-price-settings'");
+  });
+
+  it('keeps the finance report reachable from the home menu instead of the dispatcher dashboard', () => {
+    expect(homeSource).toContain('title="Finansai"');
+    expect(dispatcherHomeSource).not.toContain('Finansiniai duomenys');
+    expect(dispatcherHomeSource).not.toContain('title="Automobiliai"');
+    expect(dispatcherHomeSource).not.toContain('title="Vairuotojai"');
   });
 
   it('routes prepared by dispatchers to assignment while keeping loading as a driver action', () => {
@@ -174,9 +180,7 @@ describe('driver permissions', () => {
     expect(dispatcherHomeSource).toContain('testID="dispatcher-primary-actions"');
     expect(dispatcherHomeSource).toContain('Kurti maršrutą');
     expect(dispatcherHomeSource).toContain('Redaguoti ir priskirti');
-    expect(dispatcherHomeSource).toContain('title="Automobiliai"');
-    expect(dispatcherHomeSource).toContain('title="Vairuotojai"');
-    expect(dispatcherHomeSource).toContain('Finansiniai duomenys');
+    expect(dispatcherHomeSource).toContain('Vykdyti maršrutą');
     expect(dispatcherHomeSource).toContain('Kelionės lapai');
   });
 

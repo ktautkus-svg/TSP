@@ -68,6 +68,7 @@ export default function FinancialSettingsScreen() {
 function financialReturnTarget(returnTo: string | undefined): Href {
   if (returnTo === 'admin') return '/admin';
   if (returnTo === 'settings') return '/settings';
+  if (returnTo === 'finance') return '/finance' as Href;
   return '/dispatcher';
 }
 
