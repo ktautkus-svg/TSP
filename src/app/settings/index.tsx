@@ -329,7 +329,7 @@ export default function SettingsScreen() {
               <Text style={styles.chevron}>›</Text>
             </Pressable>
             <View style={styles.groupDivider} />
-            <Pressable style={styles.settingsRow} onPress={() => router.push('/vehicle' as Href)} testID="open-vehicle-settings">
+            <Pressable style={styles.settingsRow} onPress={() => router.push({ pathname: '/vehicle', params: { returnTo: 'settings' } } as Href)} testID="open-vehicle-settings">
               <View style={styles.flex}>
                 <Text style={styles.rowTitle}>Automobilio priežiūra</Text>
                 <Text style={styles.rowValue}>Terminai, kelių mokestis ir neskubūs gedimai</Text>

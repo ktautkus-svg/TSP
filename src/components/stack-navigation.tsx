@@ -64,7 +64,7 @@ function logicalParent(pathname: string, routeId: string | undefined, mode: stri
   if (pathname === '/route-management' || pathname === '/financial-settings' || pathname === '/execute-route') return '/dispatcher';
   if (pathname === '/admin') return '/';
   if (pathname === '/import' || pathname === '/route/new') return homeTarget === '/' ? '/dispatcher' : homeTarget;
-  if (pathname === '/fuel' || pathname === '/vehicle') return '/settings';
+  if (pathname === '/fuel') return '/settings';
   return homeTarget;
 }
 

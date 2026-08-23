@@ -155,7 +155,7 @@ export default function HomeScreen() {
                   <GroupedMenuRow description="Odometrai, suvestinės ir spausdinimas." icon={<MenuArtwork kind="trip-sheet" />} onPress={() => router.push({ pathname: '/trip-sheet', params: { returnTo: 'home' } } as Href)} title="Kelionės lapai" tone="neutral" />
                 </GroupedMenuSection></View>
                 <View style={styles.adminMenuGroup}><GroupedMenuSection label="SISTEMA">
-                  <GroupedMenuRow description="Terminai, kelių mokestis ir neskubūs gedimai." icon={<MenuArtwork kind="service" />} onPress={() => router.push('/vehicle' as Href)} title="Automobilio priežiūra" tone="warning" />
+                  <GroupedMenuRow description="Terminai, kelių mokestis ir neskubūs gedimai." icon={<MenuArtwork kind="service" />} onPress={() => router.push({ pathname: '/vehicle', params: { returnTo: 'home' } } as Href)} title="Automobilio priežiūra" tone="warning" />
                   <GroupedMenuRow description="Kritiniai numeriai ir skambinimas iš maršruto." icon={<MenuArtwork kind="navigation" />} onPress={() => router.push('/contacts' as Href)} title="Kontaktai ir ryšys" tone="info" />
                   <GroupedMenuRow description="Sukaupti gavėjai, adresai ir trūkstami kontaktai." icon={<MenuArtwork kind="clients" />} onPress={() => router.push('/clients' as Href)} title="Klientai" tone="info" />
                   <GroupedMenuRow description="Vairuotojai, automobiliai, vietos ir programėlė." icon={<MenuArtwork kind="settings" />} onPress={() => router.push('/settings' as Href)} title="Nustatymai" tone="neutral" />
