@@ -1,7 +1,9 @@
 import { Stack, useFocusEffect, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+
+import { ChevronDownIcon } from '@/components/app-icons';
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { canViewOrgStatistics, canViewStatisticsEarnings, localStatisticsOwnerId } from '@/application/auth/employee-permissions';
@@ -87,6 +89,7 @@ export default function StatisticsScreen() {
   const [orgLoaded, setOrgLoaded] = useState(false);
   const [selectedDriverId, setSelectedDriverId] = useState('all');
   const [selectedVehicleId, setSelectedVehicleId] = useState('all');
+  const [openFilter, setOpenFilter] = useState<'driver' | 'vehicle' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const [activeTab, setActiveTab] = useState<TabId>('km');
@@ -192,20 +195,32 @@ export default function StatisticsScreen() {
         title="Statistika"
         description="Maršrutų, taškų, svorio, atlygio ir kokybės rodikliai pasirinktu laikotarpiu.">
 
-        {orgCapable && drivers.length > 0 ? (
-          <View style={styles.filterRow} testID="statistics-driver-filter">
-            <Chip active={selectedDriverId === 'all'} label="Visi vairuotojai" onPress={() => setSelectedDriverId('all')} styles={styles} />
-            {drivers.map((driver) => (
-              <Chip key={driver.id} active={selectedDriverId === driver.id} label={driver.displayName} onPress={() => setSelectedDriverId(driver.id)} styles={styles} />
-            ))}
-          </View>
-        ) : null}
-        {orgCapable && vehicles.length > 0 ? (
-          <View style={styles.filterRow} testID="statistics-vehicle-filter">
-            <Chip active={selectedVehicleId === 'all'} label="Visi automobiliai" onPress={() => setSelectedVehicleId('all')} styles={styles} />
-            {vehicles.map((vehicle) => (
-              <Chip key={vehicle.id} active={selectedVehicleId === vehicle.id} label={vehicle.registrationNumber} onPress={() => setSelectedVehicleId(vehicle.id)} styles={styles} />
-            ))}
+        {orgCapable && (drivers.length > 0 || vehicles.length > 0) ? (
+          <View style={styles.filterBar}>
+            {drivers.length > 0 ? (
+              <FilterSelect
+                testID="statistics-driver-filter"
+                label="Vairuotojas"
+                value={selectedDriverId === 'all' ? 'Visi vairuotojai' : (drivers.find((driver) => driver.id === selectedDriverId)?.displayName ?? 'Visi vairuotojai')}
+                open={openFilter === 'driver'}
+                onToggle={() => setOpenFilter((current) => current === 'driver' ? null : 'driver')}
+                onSelect={(id) => { setSelectedDriverId(id); setOpenFilter(null); }}
+                options={[{ id: 'all', label: 'Visi vairuotojai' }, ...drivers.map((driver) => ({ id: driver.id, label: driver.displayName }))]}
+                styles={styles}
+              />
+            ) : null}
+            {vehicles.length > 0 ? (
+              <FilterSelect
+                testID="statistics-vehicle-filter"
+                label="Automobilis"
+                value={selectedVehicleId === 'all' ? 'Visi automobiliai' : (vehicles.find((vehicle) => vehicle.id === selectedVehicleId)?.registrationNumber ?? 'Visi automobiliai')}
+                open={openFilter === 'vehicle'}
+                onToggle={() => setOpenFilter((current) => current === 'vehicle' ? null : 'vehicle')}
+                onSelect={(id) => { setSelectedVehicleId(id); setOpenFilter(null); }}
+                options={[{ id: 'all', label: 'Visi automobiliai' }, ...vehicles.map((vehicle) => ({ id: vehicle.id, label: vehicle.registrationNumber }))]}
+                styles={styles}
+              />
+            ) : null}
           </View>
         ) : null}
 
@@ -290,6 +305,55 @@ function Chip({ active, label, onPress, styles }: { active: boolean; label: stri
     <Pressable onPress={onPress} style={[styles.chip, active && styles.chipActive]}>
       <Text style={[styles.chipText, active && styles.chipTextActive]}>{label}</Text>
     </Pressable>
+  );
+}
+
+function FilterSelect({
+  label,
+  testID,
+  value,
+  options,
+  open,
+  onToggle,
+  onSelect,
+  styles,
+}: {
+  label: string;
+  testID: string;
+  value: string;
+  options: { id: string; label: string }[];
+  open: boolean;
+  onToggle: () => void;
+  onSelect: (id: string) => void;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  return (
+    <View style={styles.filterSelect} testID={testID}>
+      <Text style={styles.filterSelectLabel}>{label}</Text>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        accessibilityState={{ expanded: open }}
+        onPress={onToggle}
+        style={[styles.filterSelectButton, open && styles.filterSelectButtonOpen]}>
+        <Text numberOfLines={1} style={styles.filterSelectValue}>{value}</Text>
+        <ChevronDownIcon size={18} />
+      </Pressable>
+      {open ? (
+        <ScrollView nestedScrollEnabled style={styles.filterMenu} keyboardShouldPersistTaps="handled">
+          {options.map((option) => (
+            <Pressable
+              key={option.id}
+              accessibilityRole="button"
+              onPress={() => onSelect(option.id)}
+              style={styles.filterMenuItem}
+              testID={`${testID}-option-${option.id}`}>
+              <Text style={[styles.filterMenuItemText, option.label === value && styles.filterMenuItemTextActive]}>{option.label}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      ) : null}
+    </View>
   );
 }
 
@@ -644,6 +708,34 @@ function shortMonthLabel(monthKey: string): string {
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   screen: { flex: 1, alignSelf: 'center', width: '100%', maxWidth: 900, backgroundColor: colors.background },
   filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  filterBar: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  filterSelect: { flexGrow: 1, flexBasis: 240, minWidth: 200 },
+  filterSelectLabel: { ...type.label, color: colors.textMuted, marginBottom: 6 },
+  filterSelectButton: {
+    minHeight: 44,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  filterSelectButtonOpen: { borderColor: colors.info },
+  filterSelectValue: { ...type.secondaryStrong, color: colors.text, flex: 1 },
+  filterMenu: {
+    maxHeight: 240,
+    marginTop: spacing.xs,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  filterMenuItem: { minHeight: 44, paddingHorizontal: spacing.md, justifyContent: 'center' },
+  filterMenuItemText: { ...type.secondary, color: colors.text },
+  filterMenuItemTextActive: { ...type.secondaryStrong, color: colors.info },
   tabRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: spacing.sm },
   chip: { minHeight: 44, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
   chipActive: { borderColor: colors.info, backgroundColor: colors.infoSoft },
