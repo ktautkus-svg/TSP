@@ -1097,3 +1097,73 @@ Vėliau, atskiru pranešimu tarp žingsnių, vartotojas dar paprašė:
    ar dabartinis meniu išdėstymas (Automobiliai/Vairuotojai/Finansai kaip atskiri
    pradžios meniu punktai) atitinka lūkesčius, PRIEŠ darant tolimesnius struktūrinius
    pakeitimus.
+
+## Papildymas tą pačią dieną: deploy + gyvo testavimo pataisymai
+
+Vartotojas paprašė "daryk viską public" — tai reiškė ne repo viešumą (paklausus
+patikslinti, atsisakė daryti repo public dėl realių vairuotojų vardų/tarifų/numerių,
+užkoduotų `route-price.ts`), o kad pakeitimai būtų matomi programėlėje. Sujungiau
+`claude/tsp-agent-continuation-7pwree` į `main` (fast-forward) ir push'inau — repo turi
+`.github/workflows/cloud-run-deploy.yml`, kuris automatiškai deploy'ina į Cloud Run po
+kiekvieno push'o į `main`. **Prieš pirmą tokį push'ą aiškiai paklausiau vartotojo
+patvirtinimo** (AskUserQuestion), nes tai paveikia gyvą, realiai naudojamą programėlę.
+Abu šios dienos deploy'ai (`d696174`, `1e26ee5`) baigėsi sėkmingai (žr.
+`mcp__github__actions_get` / GitHub Actions run'us #51 ir #52).
+
+Po pirmo deploy'aus vartotojas realiai patikrino programėlę ir grąžino konkretų
+gyvo testavimo atsiliepimą (naujas commit `1e26ee5`):
+
+1. **`src/app/finance.tsx` „Laikotarpis" datos laukai buvo tušti placeholder'iai**
+   (`DateField` naudojo `Pressable onPress={() => undefined}` — realaus teksto lauko
+   niekada nebuvo). Pataisyta į tikrą `TextInput`, kaip `quality-control.tsx` jau darė.
+   **Pamoka ateičiai:** patikrinti naujus UI elementus bent vizualiai/logiškai prieš
+   commit'inant, ne tik `tsc`/testais — šis bug'as praėjo abu nepastebėtas.
+2. **"Nepriskirtas" eilutė Finansuose (2 reisai, 23 €) — tai importuota/seed'inta
+   NLL182/Excel istorinio kuro-kilometražo demo duomenys** iš ankstesnės sesijos
+   (`feat: seed Excel fuel fills...`, `feat: seed NLL182 daily km...`), NE realūs
+   maršrutai. `server/employee-auth-store.ts` `listTripSheets()` anksčiau KIEKVIENĄ
+   kartą per naujo kviesdavo `seedNll182OdometerLog`/`seedNll182OpeningFuel`/
+   `seedExcelFuelLog` — pašalinau šiuos automatinius seed kvietimus (metodai patys
+   liko, tiesiog nebekviečiami), kad ištrynus duomenis jie negrįžtų. Pridėjau
+   `deleteUnassignedTripDay(vehicleId, date)` + `DELETE
+   /api/admin/trip-sheets/unassigned-day/:vehicleId/:date` + UI mygtuką „Ištrinti šias
+   dienas" (finance.tsx, matomas išskleidus "Nepriskirtas" eilutę).
+   **SVARBU:** aš NEGALĖJAU pats ištrinti šių įrašų iš šios CLI aplinkos — serverio
+   duomenų bazė (Firestore-tipo `this.db.collection(...)`) nepasiekiama be GCP
+   kredencialų, kurių čia nėra. Vartotojas turi pats paspausti mygtuką programėlėje.
+   **Nepatikrinta, ar vartotojas jau tai padarė** — jei grįžtate, patikrinkite.
+3. **Finansų lentelė dabar išskleidžiama** — kiekviena vairuotojo eilutė turi
+   detalizaciją (data/automobilis/km/kuro l/kuro €) vietoj vien sumos.
+4. **Reiso kainos formulė sąmoningai NEKEISTA** (be draudimo/kelių mokesčio) —
+   vartotojas aiškiai pasakė, kad tai atskira užduotis, kai jis pateiks duomenis.
+5. **Meniu simetrija:** Klientai + Kontaktai ir ryšys sujungti į naują
+   `src/app/directory.tsx` ("Kontaktai" hub, tas pats fleet.tsx/finance.tsx
+   pavyzdys). `index.tsx` admin pradžios meniu perbalansuotas į 3v3 (OPERACIJOS/
+   STEBĖJIMAS IR APSKAITA) ir 2v2 (IŠTEKLIAI/SISTEMA) eilutes — pridėta "Statistika"
+   kaip savarankiškas punktas (anksčiau visai nebuvo admin pradžios meniu),
+   "Kelionės lapai" perkeltas į OPERACIJOS.
+6. **Kokybės kontrolė:** "Laukia" sujungta su "Kelyje" (dabar 5 plytelės vietoj 6:
+   Visi, Kelyje, Įvykdyti, Vėluoja, Neatitikimai). Prie kiekvienos plytelės (išskyrus
+   "Visi") pridėtas procentas `${skaičius} / ${procentas}%`, skaičiuojamas SUMUOJANT
+   TAŠKUS per visus matomus maršrutus (ne skaičiuojant kiek maršrutų pateko į
+   kategoriją) — t. y. jei viename 10 taškų maršrute nepristatytas 1 taškas, tai rodo
+   10%, o ne 100%. Formulė: `filterStopPercents` `quality-control.tsx`, žr.
+   `stopSharePercent()`.
+
+**Patikrinta:** `tsc --noEmit` (root + `tsconfig.server.json`), `vitest run` 947/947,
+`eslint`, `validate:schema` — visi švarūs po kiekvieno žingsnio. **Realiu naršyklės
+testu NEPATIKRINTA** (nėra tokio įrankio šioje aplinkoje) — pasitikima vartotojo gyvo
+testavimo ciklu.
+
+### Kas liko atviras kitai sesijai
+
+1. Patikrinti, ar vartotojas paspaudė "Ištrinti šias dienas" Finansuose ir ar
+   "Nepriskirtas" eilutė dingo.
+2. Reiso kainos pilna skaičiuoklė (draudimas, kelių mokestis) — laukiama vartotojo
+   duomenų, tada reikės arba praplėsti `estimatePreliminaryRoutePrice`/
+   `route-price.ts`, arba naują "Iš viso" formulę `finance.tsx`.
+3. `/fleet` tebra hub (žr. aukščiau, punktas 1 ankstesniame sąraše) — Kilometražas/
+   Kuras polapiai vis dar tik nuorodos, ne tikra suvestinė.
+4. Nauji ekranai (`finance.tsx`, `fleet.tsx`, `directory.tsx`) niekada nebuvo atidaryti
+   realiame naršyklės lange ŠIOS sesijos metu prieš deploy'inant — visas grįžtamasis
+   ryšys šioje sesijoje atėjo iš PAČIO vartotojo, testuojančio gyvą programėlę.
