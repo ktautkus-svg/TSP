@@ -2366,7 +2366,7 @@ function normalizeVehicle(vehicle: FleetVehicle): FleetVehicle {
     cargoBodyType: vehicle.cargoBodyType === 'box' ? 'box' : 'van',
     wheelArchStartMm: nullableNumber(vehicle.wheelArchStartMm),
     wheelArchEndMm: nullableNumber(vehicle.wheelArchEndMm),
-    wheelArchIntrusionMm: nullableNumber(vehicle.wheelArchIntrusionMm,
+    wheelArchIntrusionMm: nullableNumber(vehicle.wheelArchIntrusionMm),
     fuelRemainingLiters: nullableNumber(vehicle.fuelRemainingLiters),
     fuelUpdatedAt: optionalText(vehicle.fuelUpdatedAt),
     assignmentRevision: finiteNumber(vehicle.assignmentRevision, 0),
