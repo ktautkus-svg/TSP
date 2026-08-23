@@ -145,16 +145,17 @@ export default function HomeScreen() {
                 <Text style={styles.adminMenuTitle}>TSP valdymo centras</Text>
                 <Text style={styles.adminMenuText}>{profile.displayName}</Text>
               </View>
+              <View style={styles.adminMenuFeatured}><GroupedMenuSection label="SKUBŪS DARBAI">
+                <GroupedMenuRow description="Kurti, redaguoti, vykdyti ir stebėti maršrutus." icon={<MenuArtwork kind="dispatch" />} onPress={() => router.push('/dispatcher' as Href)} title="Dispečerio skydelis" tone="success" />
+              </GroupedMenuSection></View>
               <View style={styles.adminMenuSections}>
-                <View style={styles.adminMenuGroup}><GroupedMenuSection label="OPERACIJOS">
-                  <GroupedMenuRow description="Kurti, redaguoti ir priskirti maršrutus." icon={<MenuArtwork kind="dispatch" />} onPress={() => router.push('/dispatcher' as Href)} title="Dispečerio skydelis" />
-                  <GroupedMenuRow description="Pasirinkti vairuotoją ir tęsti jo darbą." icon={<MenuArtwork kind="execute" />} onPress={() => router.push('/execute-route' as Href)} title="Vykdyti maršrutą" />
-                  <GroupedMenuRow description="Odometrai, suvestinės ir spausdinimas." icon={<MenuArtwork kind="trip-sheet" />} onPress={() => router.push({ pathname: '/trip-sheet', params: { returnTo: 'home' } } as Href)} title="Kelionės lapai" tone="neutral" />
-                </GroupedMenuSection></View>
-                <View style={styles.adminMenuGroup}><GroupedMenuSection label="STEBĖJIMAS IR APSKAITA">
+                <View style={styles.adminMenuGroup}><GroupedMenuSection label="STEBĖJIMAS">
                   <GroupedMenuRow description="Taškų seka, laikai ir pristatymo kokybė." icon={<MenuArtwork kind="quality" />} onPress={() => router.push('/quality-control' as Href)} title="Kokybės kontrolė" tone="success" />
                   <GroupedMenuRow description="Kilometrai, taškai, svoris ir kokybė pagal laikotarpį." icon={<MenuArtwork kind="statistics" />} onPress={() => router.push({ pathname: '/statistics', params: { returnTo: 'home' } } as Href)} title="Statistika" tone="info" />
+                </GroupedMenuSection></View>
+                <View style={styles.adminMenuGroup}><GroupedMenuSection label="APSKAITA">
                   <GroupedMenuRow description="Reiso savikaina, kuras ir atlygis pagal laikotarpį." icon={<MenuArtwork kind="finance" />} onPress={() => router.push({ pathname: '/finance', params: { returnTo: 'home' } } as unknown as Href)} title="Finansai" tone="neutral" />
+                  <GroupedMenuRow description="Odometrai, suvestinės ir spausdinimas." icon={<MenuArtwork kind="trip-sheet" />} onPress={() => router.push({ pathname: '/trip-sheet', params: { returnTo: 'home' } } as Href)} title="Kelionės lapai" tone="neutral" />
                 </GroupedMenuSection></View>
                 <View style={styles.adminMenuGroup}><GroupedMenuSection label="IŠTEKLIAI">
                   <GroupedMenuRow description="Duomenys, prisijungimai ir leidimai." icon={<MenuArtwork kind="drivers" />} onPress={() => router.push({ pathname: '/admin', params: { section: 'employees', returnTo: 'home' } } as Href)} title="Vairuotojai" />
@@ -325,6 +326,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   adminMenuEyebrow: { ...type.label, color: colors.textMuted },
   adminMenuTitle: { ...type.pageTitle, color: colors.text, fontSize: 32, lineHeight: 38 },
   adminMenuText: { ...type.bodyStrong, color: colors.info },
+  adminMenuFeatured: { marginBottom: spacing.md },
   adminMenuSections: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: spacing.md },
   adminMenuGroup: { flexGrow: 1, flexBasis: 320, minWidth: 0 },
   // Tertiary navigation: deliberately quiet so it cannot compete with the

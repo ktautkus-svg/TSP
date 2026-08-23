@@ -20,7 +20,7 @@ describe('administrator workspace navigation', () => {
     expect(home).toContain('title="Dispečerio skydelis"');
     expect(home).not.toContain('title="Maršrutai"');
     expect(home).toContain('Kokybės kontrolė');
-    expect(home).toContain('Vykdyti maršrutą');
+    expect(home).not.toContain('Vykdyti maršrutą');
     expect(home).toContain('Kelionės lapai');
     expect(home).toContain('<MenuArtwork kind="trip-sheet" />');
     expect(home).toContain('title="Automobiliai"');

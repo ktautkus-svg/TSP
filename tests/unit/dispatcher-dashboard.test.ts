@@ -181,7 +181,6 @@ describe('driver permissions', () => {
     expect(dispatcherHomeSource).toContain('Kurti maršrutą');
     expect(dispatcherHomeSource).toContain('Redaguoti ir priskirti');
     expect(dispatcherHomeSource).toContain('Vykdyti maršrutą');
-    expect(dispatcherHomeSource).toContain('Kelionės lapai');
   });
 
   it('explains how to recover when another web tab holds the SQLite database', () => {

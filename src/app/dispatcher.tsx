@@ -5,7 +5,6 @@ import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-na
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { ChevronRightIcon } from '@/components/app-icons';
 import { FoundationScreen } from '@/components/foundation-screen';
-import { GroupedMenuRow, GroupedMenuSection } from '@/components/grouped-menu';
 import { MenuArtwork } from '@/components/menu-artwork';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
@@ -73,10 +72,6 @@ export default function DispatcherHomeScreen() {
             <ChevronRightIcon color={colors.info} size={20} />
           </Pressable>
         </View>
-        <View style={styles.menuGroup}><GroupedMenuSection label="APSKAITA">
-          <GroupedMenuRow description="Odometrai, kilometrai, kuro norma ir spausdinimas." icon={<MenuArtwork kind="trip-sheet" />} onPress={() => open({ pathname: '/trip-sheet', params: { returnTo: 'dispatcher' } } as Href)} title="Kelionės lapai" tone="neutral" />
-          <GroupedMenuRow description="Kilometrai, taškai, svoris, atlygis ir kokybė pagal laikotarpį." icon={<MenuArtwork kind="statistics" />} onPress={() => open({ pathname: '/statistics', params: { returnTo: 'dispatcher' } } as Href)} title="Statistika" tone="info" />
-        </GroupedMenuSection></View>
       </View>
     </FoundationScreen>
   </>;
@@ -102,5 +97,4 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   featuredDescriptionPrimary: { ...type.secondary, color: colors.borderStrong },
   featuredTitleSecondary: { ...type.sectionTitle, color: colors.text, fontSize: 17, lineHeight: 21 },
   featuredDescriptionSecondary: { ...type.secondary, color: colors.textSecondary },
-  menuGroup: { minWidth: 0, width: '100%' },
 });
