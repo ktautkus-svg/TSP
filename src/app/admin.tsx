@@ -757,8 +757,12 @@ export default function AdminScreen() {
                 </View>;
               })}
             </View>
+            </> : null}
+          </View>
 
-            <Text style={styles.sectionLabel}>Pridėti automobilį</Text>
+          <View style={[styles.card, (focus === 'employees' || focus === 'fuel-reports' || !canManageVehicles) && styles.hidden]} testID="vehicle-create-form">
+            <CollapsibleHeader title="Pridėti automobilį" expanded={expandedSection === 'vehicle-create'} onPress={() => toggleSection('vehicle-create')} styles={styles} />
+            {expandedSection === 'vehicle-create' ? <>
             {input(newVehicleNumber, (value) => {
               const plate = value.toUpperCase().replace(/\s/g, '').slice(0, 12);
               setNewVehicleNumber(plate);
@@ -786,7 +790,6 @@ export default function AdminScreen() {
             <Pressable disabled={busy || !online} style={[styles.secondaryButton, (busy || !online) && styles.disabled]} onPress={() => void createVehicle()}>
               <Text style={styles.secondaryText}>Pridėti automobilį</Text>
             </Pressable>
-
             </> : null}
           </View>
 
