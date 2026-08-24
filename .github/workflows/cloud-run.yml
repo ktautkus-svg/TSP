@@ -121,7 +121,31 @@ jobs:
         run: |
           set -euo pipefail
           image="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/cloud-run-source-deploy/${CLOUD_RUN_SERVICE}:sha-${GITHUB_SHA}"
-          gcloud builds submit --project="$GCP_PROJECT_ID" --tag="$image" --timeout=1200s
+          # --async avoids log-streaming which requires Storage bucket read access this SA lacks.
+          BUILD_ID=$(gcloud builds submit \
+            --project="$GCP_PROJECT_ID" \
+            --tag="$image" \
+            --timeout=1200s \
+            --async \
+            --format='value(id)')
+          echo "Cloud Build ${BUILD_ID} -> ${image}"
+          STATUS=""
+          for _ in $(seq 1 120); do
+            STATUS=$(gcloud builds describe "$BUILD_ID" --project="$GCP_PROJECT_ID" --format='value(status)')
+            echo "$(date -u +%H:%M:%S) Cloud Build ${STATUS}"
+            case "$STATUS" in
+              SUCCESS) break ;;
+              FAILURE|TIMEOUT|CANCELLED|EXPIRED|INTERNAL_ERROR)
+                echo "Cloud Build failed: ${STATUS}"
+                exit 1
+                ;;
+            esac
+            sleep 10
+          done
+          if [ "$STATUS" != SUCCESS ]; then
+            echo "Cloud Build did not finish in time: ${STATUS:-unknown}"
+            exit 1
+          fi
           echo "name=$image" >> "$GITHUB_OUTPUT"
 
       - name: Deploy image to Cloud Run
