@@ -120,6 +120,8 @@ export default function AdminScreen() {
   const [editArchStart, setEditArchStart] = useState('');
   const [editArchEnd, setEditArchEnd] = useState('');
   const [editArchIntrusion, setEditArchIntrusion] = useState('');
+  const [showVehicleCargoDetails, setShowVehicleCargoDetails] = useState(false);
+  const [showVehicleDriverAssignment, setShowVehicleDriverAssignment] = useState(false);
   const [editVehicleSideDoor, setEditVehicleSideDoor] = useState(false);
   const [currentPin, setCurrentPin] = useState('');
   const [nextPin, setNextPin] = useState('');
@@ -400,6 +402,8 @@ export default function AdminScreen() {
 
   const selectVehicle = (vehicle: ServerFleetVehicle) => {
     setSelectedVehicleId(vehicle.id);
+    setShowVehicleCargoDetails(false);
+    setShowVehicleDriverAssignment(false);
     setSelectedVehicleDriverId(vehicle.assignedDriverId ?? '');
     setEditVehicleNumber(vehicle.registrationNumber);
     setEditVehicleModel(vehicle.model);
@@ -711,7 +715,11 @@ export default function AdminScreen() {
                 testPrefix="edit-vehicle"
               />
               <Text style={styles.meta}>Bako talpa yra fizinis bako tūris, ne kuro likutis. Pagal kuro normą kelionės lape skaičiuojamas sunaudotas kuras ir likutis. Palikus normą tuščią, imamas apytikslis įvertis pagal keliamąją galią.</Text>
-              <Text style={styles.sectionLabel}>Krovinių skyrius</Text>
+              {canManageFinancials ? <Pressable accessibilityRole="link" onPress={() => router.push({ pathname: '/financial-settings', params: { returnTo: 'admin' } } as unknown as Href)} style={styles.smallButton}><Text style={styles.smallButtonText}>Keisti draudimą ir kelių mokestį →</Text></Pressable> : null}
+              <Pressable accessibilityLabel="Išsaugoti automobilio pakeitimus" accessibilityRole="button" disabled={busy || !online} style={[styles.primaryButton, (busy || !online) && styles.disabled]} onPress={() => void saveVehicle()}><Text style={styles.primaryText}>Išsaugoti automobilį</Text></Pressable>
+
+              <CollapsibleHeader title="Krovinių skyrius" expanded={showVehicleCargoDetails} onPress={() => setShowVehicleCargoDetails((current) => !current)} styles={styles} />
+              {showVehicleCargoDetails ? <>
               <View style={styles.choiceRow}>
                 {([['van', 'Furgonas'], ['box', 'Būda']] as const).map(([value, label]) => (
                   <Pressable accessibilityRole="radio" accessibilityState={{ checked: editCargoBodyType === value }} key={value}
@@ -738,9 +746,11 @@ export default function AdminScreen() {
                   keyboardType="decimal-pad" placeholder="Kiek arka atima pločio iš vienos pusės, mm" placeholderTextColor={colors.textMuted} style={styles.input} />
               </> : <Text style={styles.meta}>Būdos grindys plokščios per visą ilgį — ratų arkų nurodyti nereikia.</Text>}
               <Text style={styles.meta}>Suvedus ilgį ir plotį, krovimo ekrane rodoma tiksli padėklų schema. Palikus tuščius, lieka senoji zonų schema.</Text>
-              {canManageFinancials ? <Pressable accessibilityRole="link" onPress={() => router.push({ pathname: '/financial-settings', params: { returnTo: 'admin' } } as unknown as Href)} style={styles.smallButton}><Text style={styles.smallButtonText}>Keisti draudimą ir kelių mokestį →</Text></Pressable> : null}
-              <Pressable accessibilityLabel="Išsaugoti automobilio pakeitimus" accessibilityRole="button" disabled={busy || !online} style={[styles.primaryButton, (busy || !online) && styles.disabled]} onPress={() => void saveVehicle()}><Text style={styles.primaryText}>Išsaugoti automobilį</Text></Pressable>
-              <Text style={styles.sectionLabel}>Priskirti vairuotojui</Text>
+              <Text style={styles.meta}>Pakeitimus krovinių skyriuje išsaugo tas pats „Išsaugoti automobilį“ mygtukas aukščiau.</Text>
+              </> : null}
+
+              <CollapsibleHeader title="Priskirti vairuotojui" expanded={showVehicleDriverAssignment} onPress={() => setShowVehicleDriverAssignment((current) => !current)} styles={styles} />
+              {showVehicleDriverAssignment ? <>
               <View style={styles.choiceColumn}>
                 <Pressable onPress={() => setSelectedVehicleDriverId('')} style={[styles.selection, selectedVehicleDriverId === '' && styles.selectionActive]}>
                   <Text style={styles.listTitle}>Nepriskirtas</Text>
@@ -753,6 +763,7 @@ export default function AdminScreen() {
               <Pressable disabled={busy || !online} style={[styles.primaryButton, (busy || !online) && styles.disabled]} onPress={() => void assignVehicle()}>
                 <Text style={styles.primaryText}>Patvirtinti priskyrimą</Text>
               </Pressable>
+              </> : null}
                 </View> : null}
                 </View>;
               })}
