@@ -74,7 +74,8 @@ function returnTarget(value: string | string[] | undefined): Href | null {
     home: '/', dispatcher: '/dispatcher', settings: '/settings', statistics: '/statistics',
     admin: '/admin', routes: '/history', 'route-management': '/route-management' as Href,
     'execute-route': '/execute-route' as Href, 'quality-control': '/quality-control' as Href,
-    finance: '/finance' as Href, fleet: '/fleet' as Href, directory: '/directory' as Href,
+    finance: '/finance' as Href, 'finance-wages': '/finance/wages' as Href, 'finance-route-price': '/finance/route-price' as Href,
+    fleet: '/fleet' as Href, directory: '/directory' as Href,
   };
   return key ? targets[key] ?? null : null;
 }

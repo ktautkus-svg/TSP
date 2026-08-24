@@ -175,6 +175,8 @@ export default function RootLayout() {
               <Stack.Screen name="route-management" options={{ title: 'Redaguoti maršrutus' }} />
               <Stack.Screen name="financial-settings" options={{ title: 'Finansiniai duomenys' }} />
               <Stack.Screen name="finance" options={{ title: 'Finansai' }} />
+              <Stack.Screen name="finance/wages" options={{ title: 'Darbuotojų atlygis' }} />
+              <Stack.Screen name="finance/route-price" options={{ title: 'Reiso kaina' }} />
               <Stack.Screen name="fleet" options={{ title: 'Automobiliai' }} />
               <Stack.Screen name="directory" options={{ title: 'Kontaktai' }} />
               <Stack.Screen name="quality-control" options={{ title: 'Kokybės kontrolė' }} />

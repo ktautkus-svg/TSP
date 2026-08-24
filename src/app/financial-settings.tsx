@@ -69,6 +69,7 @@ function financialReturnTarget(returnTo: string | undefined): Href {
   if (returnTo === 'admin') return '/admin';
   if (returnTo === 'settings') return '/settings';
   if (returnTo === 'finance') return '/finance' as Href;
+  if (returnTo === 'finance-wages') return '/finance/wages' as Href;
   return '/dispatcher';
 }
 
