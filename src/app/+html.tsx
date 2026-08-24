@@ -48,7 +48,6 @@ export default function RootHtml({ children }: PropsWithChildren) {
             [data-testid="trip-sheet-vehicle-filter"],
             [data-testid="trip-sheet-driver-filter"],
             [data-testid="trip-sheet-month-filter"],
-            [data-testid="trip-sheet-odometer-entry"],
             [data-testid="generate-trip-sheet"],
             [data-testid="trip-sheet-screen-view"] { display: none !important; }
             [data-testid="trip-sheet-print-view"] { display: flex !important; }

@@ -145,9 +145,11 @@ describe('employee server session', () => {
     expect(employeeApiSource).toContain("pathname === '/api/trip-sheets/day-readings'");
     expect(employeeApiSource).toContain("odometer: typeof body.odometer === 'number' ? body.odometer : undefined");
     // Route distance comes from the route's actual/planned distance by default;
-    // a standalone manual entry (gated by canEnterTripReadings) covers vehicle
-    // days with no route at all.
-    expect(tripSheetSource).toContain("employeeApi('/api/trip-sheets/day-readings'");
+    // a standalone manual entry (admin/dispatcher-facing, in admin.tsx's
+    // "Odometro ir kelionės duomenų korekcijos" section) covers vehicle days
+    // with no route at all.
+    expect(adminSource).toContain("employeeApi('/api/trip-sheets/day-readings'");
+    expect(tripSheetSource).not.toContain('/api/trip-sheets/day-readings');
     expect(tripSheetSource).not.toContain('Kaina už litrą');
   });
 

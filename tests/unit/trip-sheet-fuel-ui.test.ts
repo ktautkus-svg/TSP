@@ -22,12 +22,11 @@ describe('trip sheet fuel workflow', () => {
     expect(source).toContain('+ Kuro papildymas');
     expect(source).toContain('fuel-entry-form-');
     expect(source).toContain('/fuel-entries');
-    // A standalone odometer entry was reintroduced for vehicle+day combinations
-    // with no route at all (canEnterTripReadings-gated) — it must keep the
-    // trip-sheet-odometer-entry testID so the print stylesheet (+html.tsx)
-    // hides it from the printed/PDF output.
-    expect(source).toContain('trip-sheet-odometer-entry');
-    expect(source).toContain('/api/trip-sheets/day-readings');
+    // Standalone odometer entry (and correcting real routes' odometer/driver)
+    // moved to admin.tsx's "Odometro ir kelionės duomenų korekcijos" section —
+    // this report screen only generates/prints/exports the trip sheet itself.
+    expect(source).not.toContain('trip-sheet-odometer-entry');
+    expect(source).not.toContain('/api/trip-sheets/day-readings');
     expect(source).not.toContain('ATLYGIS');
     expect(source).toContain('Kasos čekio Nr.');
     expect(source).toContain('Privalomi laukai: litrai ir data');

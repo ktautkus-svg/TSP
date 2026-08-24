@@ -1,7 +1,7 @@
 import { Stack, useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { canEnterTripReadings } from '@/application/auth/employee-permissions';
@@ -9,15 +9,11 @@ import { pushCompletedRouteAssignmentProgress } from '@/application/auth/route-a
 import { CompanyProfileSettings, type CompanyProfile } from '@/application/settings/company-profile';
 import { buildTripSheetWorkbook, MIME_XLSX } from '@/application/trip-sheet/export-xlsx';
 import { buildFuelLedger, type FuelLedgerDay } from '@/application/trip-sheet/fuel-balance';
-import { DateInput } from '@/components/date-input';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { TripSheetRepository, type TripSheetWithRoutes } from '@/database/repositories/trip-sheet-repository';
-import { parseVehicleDayAssignmentId } from '@/domain/nll182-odometer-log';
 import type { FuelType } from '@/domain/vehicle-and-trip';
 import {
   employeeApi,
-  type EmployeeProfile,
-  type ServerFleetVehicle,
   type ServerFuelEntry,
   type ServerTripSheet,
 } from '@/infrastructure/auth/employee-session';
@@ -91,121 +87,11 @@ export default function TripSheetScreen() {
   const [companyProfile, setCompanyProfile] = useState<CompanyProfile>({ name: '', address: '' });
   const [vehicleFuelType, setVehicleFuelType] = useState<FuelType>('diesel');
   const canEditFleetReadings = canEnterTripReadings(profile);
-  // Correcting a real completed route's odometer/driver (as opposed to a
-  // synthetic manually-entered day) touches the official record used for
-  // quality KPIs and wages, so it stays admin/dispatcher-only server-side.
-  const canCorrectRealRoutes = profile.role === 'admin' || profile.role === 'dispatcher';
-  const [fleetVehicles, setFleetVehicles] = useState<Pick<ServerFleetVehicle, 'id' | 'registrationNumber'>[]>([]);
-  const [fleetDrivers, setFleetDrivers] = useState<EmployeeProfile[]>([]);
-  const [odometerOpen, setOdometerOpen] = useState(false);
-  const [odometerVehicleId, setOdometerVehicleId] = useState('');
-  const [odometerDate, setOdometerDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [odometerStart, setOdometerStart] = useState('');
-  const [odometerEnd, setOdometerEnd] = useState('');
-  const [odometerDriverId, setOdometerDriverId] = useState('');
-  const [editingAssignmentId, setEditingAssignmentId] = useState<string | null>(null);
-  const [odometerBusy, setOdometerBusy] = useState(false);
-  const [odometerDeletingDate, setOdometerDeletingDate] = useState<string | null>(null);
 
   useEffect(() => {
     void new CompanyProfileSettings(db).get().then(setCompanyProfile);
     void repository.getVehicle().then((vehicle) => { if (vehicle) setVehicleFuelType(vehicle.fuelType); });
   }, [db, repository]);
-
-  useEffect(() => {
-    if (!canEditFleetReadings || !online) return;
-    employeeApi<{ vehicles: ServerFleetVehicle[] }>('/api/admin/vehicles')
-      .then((response) => setFleetVehicles(response.vehicles.map((vehicle) => ({ id: vehicle.id, registrationNumber: vehicle.registrationNumber }))))
-      .catch(() => undefined);
-    employeeApi<{ users: EmployeeProfile[] }>('/api/admin/users')
-      .then((response) => setFleetDrivers(response.users.filter((user) => user.role === 'driver' && !user.disabled)))
-      .catch(() => undefined);
-  }, [canEditFleetReadings, online]);
-
-  const saveOdometer = async () => {
-    const start = Number(odometerStart.replace(',', '.'));
-    const end = Number(odometerEnd.replace(',', '.'));
-    if (!Number.isFinite(start) || !Number.isFinite(end)) {
-      setMessage('Įveskite tinkamus odometro skaičius.');
-      return;
-    }
-    setOdometerBusy(true);
-    setMessage(null);
-    try {
-      if (editingAssignmentId) {
-        // Correcting a real completed route — the date is fixed to when it
-        // was driven, only the odometer and driver can be corrected.
-        await employeeApi(`/api/trip-sheets/${encodeURIComponent(editingAssignmentId)}`, {
-          method: 'PATCH',
-          body: JSON.stringify({ startOdometer: start, endOdometer: end, driverId: odometerDriverId && odometerDriverId !== 'none' ? odometerDriverId : undefined }),
-        });
-        setMessage('Maršruto įrašas pataisytas.');
-      } else {
-        if (!odometerVehicleId || !odometerDate) {
-          setMessage('Pasirinkite automobilį ir datą.');
-          return;
-        }
-        // '' (untouched) omits driverId so the server falls back to the
-        // vehicle's assigned driver; 'none' explicitly clears it to
-        // "Nepriskirtas" instead.
-        const driverId = odometerDriverId === '' ? undefined : odometerDriverId === 'none' ? null : odometerDriverId;
-        await employeeApi('/api/trip-sheets/day-readings', {
-          method: 'POST',
-          body: JSON.stringify({ vehicleId: odometerVehicleId, date: odometerDate, startOdometer: start, endOdometer: end, driverId }),
-        });
-        setMessage('Odometro įrašas išsaugotas.');
-      }
-      setOdometerStart('');
-      setOdometerEnd('');
-      setOdometerDriverId('');
-      setEditingAssignmentId(null);
-      await load();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Įrašyti nepavyko.');
-    } finally {
-      setOdometerBusy(false);
-    }
-  };
-
-  const editManualReading = (reading: DisplayTripSheet) => {
-    const isSynthetic = Boolean(parseVehicleDayAssignmentId(reading.assignmentId));
-    setEditingAssignmentId(isSynthetic ? null : reading.assignmentId);
-    setOdometerDate(reading.date);
-    setOdometerStart(reading.startOdometer != null ? String(reading.startOdometer) : '');
-    setOdometerEnd(reading.endOdometer != null ? String(reading.endOdometer) : '');
-    setOdometerDriverId(reading.driverId || 'none');
-  };
-
-  const deleteManualReading = (reading: DisplayTripSheet) => {
-    const isSynthetic = Boolean(parseVehicleDayAssignmentId(reading.assignmentId));
-    Alert.alert(
-      isSynthetic ? 'Ištrinti odometro įrašą?' : 'Ištrinti maršrutą visam laikui?',
-      isSynthetic
-        ? `${reading.date}: ${reading.startOdometer ?? '—'} → ${reading.endOdometer ?? '—'} km. Veiksmo atšaukti negalima.`
-        : `${reading.date}: ${reading.startOdometer ?? '—'} → ${reading.endOdometer ?? '—'} km. Tai tikras užbaigtas maršrutas — jo pašalinimas paveiks statistiką ir kokybės rodiklius. Veiksmo atšaukti negalima.`,
-      [
-        { text: 'Atšaukti', style: 'cancel' },
-        { text: 'Ištrinti', style: 'destructive', onPress: () => { void (async () => {
-          setOdometerDeletingDate(reading.date);
-          try {
-            if (isSynthetic) {
-              const vehicleId = reading.vehicle?.id ?? parseVehicleDayAssignmentId(reading.assignmentId)?.vehicleId ?? null;
-              if (!vehicleId) return;
-              await employeeApi(`/api/admin/trip-sheets/unassigned-day/${encodeURIComponent(vehicleId)}/${encodeURIComponent(reading.date)}`, { method: 'DELETE' });
-            } else {
-              await employeeApi(`/api/admin/assignments/${encodeURIComponent(reading.assignmentId)}`, { method: 'DELETE' });
-            }
-            setMessage(isSynthetic ? 'Odometro įrašas ištrintas.' : 'Maršrutas ištrintas.');
-            await load();
-          } catch (error) {
-            setMessage(error instanceof Error ? error.message : 'Ištrinti nepavyko.');
-          } finally {
-            setOdometerDeletingDate(null);
-          }
-        })(); } },
-      ],
-    );
-  };
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -249,30 +135,6 @@ export default function TripSheetScreen() {
     sheets.filter((sheet) => sheet.vehicle).map((sheet) => [sheet.vehicle!.id, sheet.vehicle!.registrationNumber]),
   ).entries()], [sheets]);
   const months = useMemo(() => [...new Set(sheets.map((sheet) => sheet.date.slice(0, 7)))].sort().reverse(), [sheets]);
-  // Only the manually-entered synthetic days (vehicle-day-<id>-<date>) —
-  // used to auto-fill the next day's start odometer and to detect whether
-  // a date already has a synthetic entry (vs. needing a new one).
-  const manualVehicleReadings = useMemo(() => odometerVehicleId
-    ? sheets
-      .filter((sheet) => (sheet.vehicle?.id ?? parseVehicleDayAssignmentId(sheet.assignmentId)?.vehicleId) === odometerVehicleId && parseVehicleDayAssignmentId(sheet.assignmentId))
-      .sort((a, b) => b.date.localeCompare(a.date))
-    : [], [sheets, odometerVehicleId]);
-  // Every day for the selected vehicle — synthetic AND real completed
-  // routes — so the office can review, correct or remove any of them,
-  // since test data and real driving got mixed together while testing.
-  const vehicleHistory = useMemo(() => odometerVehicleId
-    ? sheets
-      .filter((sheet) => (sheet.vehicle?.id ?? parseVehicleDayAssignmentId(sheet.assignmentId)?.vehicleId) === odometerVehicleId)
-      .sort((a, b) => b.date.localeCompare(a.date))
-    : [], [sheets, odometerVehicleId]);
-
-  useEffect(() => {
-    if (!odometerVehicleId || !odometerDate) return;
-    const existingForDate = manualVehicleReadings.find((reading) => reading.date === odometerDate);
-    if (existingForDate || odometerStart) return;
-    const previous = manualVehicleReadings.find((reading) => reading.date < odometerDate);
-    if (previous?.endOdometer != null) setOdometerStart(String(previous.endOdometer));
-  }, [odometerVehicleId, odometerDate, manualVehicleReadings, odometerStart]);
   const visible = sheets.filter((sheet) =>
     (profile.role === 'driver' || selectedDriverId === 'all' || sheet.driverId === selectedDriverId)
     && (selectedVehicleId === 'all' || sheet.vehicle?.id === selectedVehicleId)
@@ -381,55 +243,6 @@ export default function TripSheetScreen() {
           <Pressable style={styles.secondaryButton} onPress={exportExcel} testID="export-trip-sheets-xlsx"><Text style={styles.secondaryText}>Eksportuoti Excel</Text></Pressable>
         </View>
         {!online ? <Pressable style={styles.secondaryButton} disabled={busy} onPress={() => { void syncLocal(); }} testID="sync-trip-sheets"><Text style={styles.secondaryText}>Atnaujinti iš įrenginio maršrutų</Text></Pressable> : null}
-        {canEditFleetReadings ? <View style={styles.odometerCard} testID="trip-sheet-odometer-entry">
-          <Pressable accessibilityRole="button" accessibilityState={{ expanded: odometerOpen }} onPress={() => setOdometerOpen((value) => !value)} style={styles.odometerHeader} testID="odometer-entry-toggle">
-            <Text style={styles.cardTitle}>Įvesti odometrą rankiniu būdu</Text>
-            <Text style={styles.meta}>{odometerOpen ? '⌃' : '⌄'}</Text>
-          </Pressable>
-          <Text style={styles.meta}>Automobiliui ir dienai, kurios dar nedengia joks maršrutas (pvz. kelionė be užsakymų). Žemiau galima peržiūrėti, pataisyti ar pašalinti visus šio automobilio įrašus, taip pat tikrus maršrutus.</Text>
-          {odometerOpen ? <View style={styles.odometerBody}>
-            <View style={styles.filters} testID="odometer-vehicle-filter">
-              {fleetVehicles.map((vehicle) => <Filter key={vehicle.id} label={vehicle.registrationNumber} active={odometerVehicleId === vehicle.id} onPress={() => setOdometerVehicleId(vehicle.id)} styles={styles} />)}
-            </View>
-            {editingAssignmentId ? <Text style={styles.odometerHistoryDate}>Taisomas tikras maršrutas ({odometerDate}) — data nekeičiama, tik odometras ir vairuotojas.</Text> : null}
-            <View style={styles.odometerFields}>
-              {editingAssignmentId ? null : <DateInput accessibilityLabel="Data" onChangeText={setOdometerDate} style={styles.odometerInput} value={odometerDate} />}
-              <TextInput accessibilityLabel="Odometras pradžioje" keyboardType="decimal-pad" onChangeText={setOdometerStart} placeholder="Odometras pradžioje" style={styles.odometerInput} value={odometerStart} />
-              <TextInput accessibilityLabel="Odometras pabaigoje" keyboardType="decimal-pad" onChangeText={setOdometerEnd} placeholder="Odometras pabaigoje" style={styles.odometerInput} value={odometerEnd} />
-            </View>
-            <Text style={styles.sectionLabel}>Vairuotojas (dėl priskyrimo prie algos)</Text>
-            <View style={styles.filters} testID="odometer-driver-filter">
-              {editingAssignmentId ? null : <Filter label="Numatytas" active={odometerDriverId === ''} onPress={() => setOdometerDriverId('')} styles={styles} />}
-              {fleetDrivers.map((driver) => <Filter key={driver.id} label={driver.displayName} active={odometerDriverId === driver.id} onPress={() => setOdometerDriverId(driver.id)} styles={styles} />)}
-              <Filter label="Nepriskirtas" active={odometerDriverId === 'none'} onPress={() => setOdometerDriverId('none')} styles={styles} />
-            </View>
-            <View style={styles.odometerFields}>
-              <Pressable disabled={odometerBusy} onPress={() => void saveOdometer()} style={[styles.primaryButton, odometerBusy && styles.disabled]} testID="save-odometer-entry">
-                {odometerBusy ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.primaryText}>{editingAssignmentId ? 'Išsaugoti pataisymą' : 'Įrašyti odometrą'}</Text>}
-              </Pressable>
-              {editingAssignmentId ? <Pressable onPress={() => { setEditingAssignmentId(null); setOdometerStart(''); setOdometerEnd(''); setOdometerDriverId(''); }} style={styles.secondaryButton}><Text style={styles.secondaryText}>Atšaukti redagavimą</Text></Pressable> : null}
-            </View>
-            {odometerVehicleId ? <View style={styles.odometerHistory} testID="odometer-entry-history">
-              <Text style={styles.sectionLabel}>Suvesti įrašai</Text>
-              {vehicleHistory.length === 0
-                ? <Text style={styles.meta}>Šiam automobiliui dar nieko neįvesta.</Text>
-                : vehicleHistory.map((reading) => {
-                  const isSynthetic = Boolean(parseVehicleDayAssignmentId(reading.assignmentId));
-                  const canEditThis = isSynthetic || canCorrectRealRoutes;
-                  return <View key={reading.assignmentId} style={styles.odometerHistoryRow}>
-                  <View style={styles.flex}>
-                    <Text style={styles.odometerHistoryDate}>{reading.date} · {reading.driverName || 'Nepriskirtas'}{isSynthetic ? '' : ' · maršrutas'}</Text>
-                    <Text style={styles.meta}>{reading.startOdometer ?? '—'} → {reading.endOdometer ?? '—'} km{reading.actualDistanceKm != null ? ` · ${reading.actualDistanceKm} km` : ''}</Text>
-                  </View>
-                  {canEditThis ? <View style={styles.rowActions}>
-                    <Pressable accessibilityLabel={`Redaguoti ${reading.date} įrašą`} accessibilityRole="button" onPress={() => editManualReading(reading)} style={styles.smallButton}><Text style={styles.smallButtonText}>Redaguoti</Text></Pressable>
-                    <Pressable accessibilityLabel={`Pašalinti ${reading.date} įrašą`} accessibilityRole="button" disabled={odometerDeletingDate === reading.date} onPress={() => deleteManualReading(reading)} style={styles.dangerButton}><Text style={styles.dangerButtonText}>Pašalinti</Text></Pressable>
-                  </View> : null}
-                </View>;
-                })}
-            </View> : null}
-          </View> : null}
-        </View> : null}
         {requiresGenerate && vehicles.length > 1 ? <View style={styles.filters} testID="trip-sheet-vehicle-filter">
           <Filter label="Visi automobiliai" active={selectedVehicleId === 'all'} onPress={() => selectFilter(() => setSelectedVehicleId('all'))} styles={styles} />
           {vehicles.map(([id, registrationNumber]) => <Filter key={id} label={registrationNumber} active={selectedVehicleId === id} onPress={() => selectFilter(() => setSelectedVehicleId(id))} styles={styles} />)}
@@ -867,20 +680,6 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   primaryButton: { flexGrow: 1, minWidth: 150, minHeight: 52, borderRadius: radius.md, backgroundColor: colors.actionPrimary, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md }, primaryText: { ...type.button, color: colors.textInverse },
   secondaryButton: { flexGrow: 1, minWidth: 150, minHeight: 52, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md }, secondaryText: { ...type.button, color: colors.textSecondary },
   filters: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }, filter: { minHeight: 44, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.md, justifyContent: 'center' }, filterActive: { backgroundColor: colors.info, borderColor: colors.info }, filterText: { ...type.secondaryStrong, color: colors.text }, filterTextActive: { color: colors.textInverse },
-  odometerCard: { padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, gap: spacing.xs },
-  odometerHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 44 },
-  odometerBody: { gap: spacing.sm, marginTop: spacing.xs },
-  odometerFields: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  odometerInput: { flexGrow: 1, minWidth: 160, minHeight: 48, paddingHorizontal: spacing.md, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surfaceSubtle, ...type.bodyStrong, color: colors.text },
-  odometerHistory: { gap: spacing.xs, marginTop: spacing.xs, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border },
-  odometerHistoryRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xs },
-  odometerHistoryDate: { ...type.bodyStrong, color: colors.text },
-  sectionLabel: { ...type.label, color: colors.textMuted, textTransform: 'uppercase' },
-  rowActions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: spacing.xs },
-  smallButton: { minHeight: 42, paddingHorizontal: spacing.md, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, justifyContent: 'center' },
-  smallButtonText: { ...type.secondaryStrong, color: colors.text },
-  dangerButton: { minHeight: 42, paddingHorizontal: spacing.md, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.danger, justifyContent: 'center' },
-  dangerButtonText: { ...type.secondaryStrong, color: colors.danger },
   message: { ...type.secondary, color: colors.textMuted }, empty: { padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surface, gap: spacing.xs },
   sheet: { padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, gap: spacing.md },
   screenView: { gap: spacing.md },

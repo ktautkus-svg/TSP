@@ -35,14 +35,14 @@ export default function FleetScreen() {
           testID="fleet-open-terminai"
           title="Terminai" />
         <FleetCard
-          description="Numeris, modelis, bakas, PLL talpa, matmenys ir kuro norma."
+          description="Numeris, modelis, bakas, PLL talpa, matmenys, kuro norma ir odometro korekcijos."
           icon="vehicles"
           onPress={() => open({ pathname: '/admin', params: { section: 'fleet', returnTo: 'fleet' } } as Href)}
           styles={styles}
           testID="fleet-open-technical"
           title="Techniniai duomenys" />
         <FleetCard
-          description="Odometro įvedimas ir nuvažiuoti kilometrai kelionės lape."
+          description="Sugeneruotas, atspausdintas ar eksportuotas kelionės lapas su kuro suvestine."
           icon="trip-sheet"
           onPress={() => open({ pathname: '/trip-sheet', params: { returnTo: 'fleet' } } as Href)}
           styles={styles}
