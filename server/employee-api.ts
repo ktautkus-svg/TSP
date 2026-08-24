@@ -2,16 +2,16 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { GatewayNonceRegistry, verifyGatewaySignature } from '../gateway/security.js';
 import {
-  EMPLOYEE_ROLES,
-  EmployeeApiError,
-  EmployeeAuthStore,
-  DRIVER_PERMISSION_KEYS,
-  MANAGEMENT_PERMISSION_KEYS,
-  type DriverCompensationRates,
-  type EmployeePermissionKey,
-  type EmployeeProfile,
-  type EmployeeRole,
-  type RouteSnapshot,
+    DRIVER_PERMISSION_KEYS,
+    EMPLOYEE_ROLES,
+    EmployeeApiError,
+    EmployeeAuthStore,
+    MANAGEMENT_PERMISSION_KEYS,
+    type DriverCompensationRates,
+    type EmployeePermissionKey,
+    type EmployeeProfile,
+    type EmployeeRole,
+    type RouteSnapshot,
 } from './employee-auth-store.js';
 import { RouteSyncStore, type RouteSyncPushItem } from './route-sync-store.js';
 
@@ -26,7 +26,7 @@ const TRIVIAL_ADMIN_PINS = new Set(['12345', '123456', '000000', '111111']);
 export function requireProductionAdminPin(): void {
   if (process.env.GATEWAY_ENV !== 'production') return;
   const pin = process.env.TSP_INITIAL_ADMIN_PIN?.trim() ?? '';
-  if (!pin) return;
+  if (!pin) throw new Error('TSP_INITIAL_ADMIN_PIN privalo būti nustatytas produkcijoje.');
   if (!/^\d{6,8}$/.test(pin) || TRIVIAL_ADMIN_PINS.has(pin) || /^(\d)\1+$/.test(pin)) {
     throw new Error('TSP_INITIAL_ADMIN_PIN turi būti 6–8 skaitmenys ir ne trivialus kodas.');
   }
@@ -394,6 +394,26 @@ export async function handleEmployeeApi(
         notes: optionalString(body, 'notes'),
       });
       return send(response, 201, { entry }, requestId);
+    }
+    const fuelEntryMatch = pathname.match(/^\/api\/fuel-entries\/([^/]+)$/);
+    if (fuelEntryMatch && request.method === 'PATCH') {
+      requireRole(profile, ['admin', 'dispatcher', 'driver', 'quality']);
+      const body = parseObject(await readBody(request, 32_000));
+      const entry = await store.updateFuelEntry(profile, decodeURIComponent(fuelEntryMatch[1]), {
+        filledAt: body.filledAt === undefined ? undefined : stringField(body, 'filledAt'),
+        odometer: body.odometer === undefined ? undefined : numberField(body, 'odometer'),
+        liters: body.liters === undefined ? undefined : numberField(body, 'liters'),
+        pricePerLiter: body.pricePerLiter === undefined ? undefined : body.pricePerLiter === null ? null : numberField(body, 'pricePerLiter'),
+        station: body.station === undefined ? undefined : optionalString(body, 'station'),
+        receiptNumber: body.receiptNumber === undefined ? undefined : optionalString(body, 'receiptNumber'),
+        notes: body.notes === undefined ? undefined : optionalString(body, 'notes'),
+      });
+      return send(response, 200, { entry }, requestId);
+    }
+    if (fuelEntryMatch && request.method === 'DELETE') {
+      requireRole(profile, ['admin', 'dispatcher', 'driver', 'quality']);
+      const entry = await store.deleteFuelEntry(profile, decodeURIComponent(fuelEntryMatch[1]));
+      return send(response, 200, { entry }, requestId);
     }
     if (pathname === '/api/fuel-status' && request.method === 'GET') {
       requireRole(profile, ['driver']);

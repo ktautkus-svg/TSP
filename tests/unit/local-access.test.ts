@@ -1,5 +1,5 @@
-import { DatabaseSync } from 'node:sqlite';
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { DatabaseSync } from 'node:sqlite';
 import { describe, expect, it } from 'vitest';
 
 import { LocalAccessService, validateNewPin, validatePin, validateUsername } from '../../src/application/auth/local-access';
@@ -21,7 +21,8 @@ describe('local owner access', () => {
     expect(() => validateUsername('x')).toThrow();
     expect(() => validatePin('12a4')).toThrow();
     expect(() => validatePin('123')).toThrow();
-    expect(() => validatePin('1234')).not.toThrow();
+    expect(() => validatePin('1234')).toThrow();
+    expect(() => validatePin('123456')).not.toThrow();
     expect(() => validateNewPin('1234')).toThrow();
     expect(() => validateNewPin('123456')).not.toThrow();
   });

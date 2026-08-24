@@ -1,28 +1,28 @@
+import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { useSQLiteContext } from 'expo-sqlite';
 import Svg, { Circle, Path } from 'react-native-svg';
 
-import { LocalAccessService } from '@/application/auth/local-access';
+import { LocalAccessService, validateNewPin } from '@/application/auth/local-access';
 import { LocalAccessContext, type LocalAccessContextValue } from '@/application/auth/local-access-context';
-import {
-  bootstrapEmployeeAdmin,
-  EmployeeClientError,
-  employeeServerInitialized,
-  getEmployeeSession,
-  loginEmployee,
-  logoutEmployee,
-  refreshEmployeeSession,
-  type EmployeeProfile,
-} from '@/infrastructure/auth/employee-session';
 import { pullAssignedRoutes } from '@/application/auth/route-assignment-sync';
-import { saveGatewayDeviceSecret } from '@/infrastructure/gateway/device-auth';
 import { TspBrand } from '@/components/tsp-brand';
+import {
+    bootstrapEmployeeAdmin,
+    EmployeeClientError,
+    employeeServerInitialized,
+    getEmployeeSession,
+    loginEmployee,
+    logoutEmployee,
+    refreshEmployeeSession,
+    type EmployeeProfile,
+} from '@/infrastructure/auth/employee-session';
+import { saveGatewayDeviceSecret } from '@/infrastructure/gateway/device-auth';
 import { stitchColorsFor } from '@/theme';
+import { devWarn } from '@/ui/dev-log';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { fonts, radius, spacing, type } from '@/ui/tokens';
-import { devWarn } from '@/ui/dev-log';
 
 type LoginPalette = ReturnType<typeof stitchColorsFor>['login'];
 
@@ -93,6 +93,7 @@ export function LocalAccessGate({ children }: LocalAccessGateProps) {
     setError(null);
     try {
       if (pin !== confirmPin && mode === 'bootstrap') throw new Error('Pakartotas PIN nesutampa.');
+      if (mode === 'bootstrap') validateNewPin(pin);
       let session;
       if (mode === 'bootstrap') {
         if (deviceKey.trim()) await saveGatewayDeviceSecret(deviceKey);
@@ -197,7 +198,7 @@ export function LocalAccessGate({ children }: LocalAccessGateProps) {
                 onChangeText={(value) => setPin(value.replace(/\D/g, '').slice(0, 8))}
                 keyboardType="number-pad"
                 secureTextEntry={!pinVisible}
-                placeholder="••••"
+                placeholder="6–8 skaitmenys"
                 placeholderTextColor={bootstrap ? colors.textSubtle : login.muted}
                 style={[styles.input, !bootstrap && styles.loginInput]}
                 testID="login-pin"

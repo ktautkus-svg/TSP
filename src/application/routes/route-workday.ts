@@ -1,11 +1,11 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
+import { firstBlockerMessage, loadDepartureReadiness } from '@/application/operations/departure-readiness';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import { isDeliveryFailureReason } from '@/domain/delivery-failure';
 import { isLoadingFailureReason, type LoadingFailureReason } from '@/domain/loading-failure';
 import type { DeliveryStop, Route, RouteCompletionSummary, RouteEndpoint } from '@/domain/route';
-import { assertRouteTransition } from '@/domain/transitions';
-import { firstBlockerMessage, loadDepartureReadiness } from '@/application/operations/departure-readiness';
+import { assertRouteTransition, validateOdometerInput as validateOdometer } from '@/domain/shared-validation';
 import { RouteCommandError } from './route-commands';
 import { RefreshRouteEtas } from './route-eta';
 
@@ -1319,12 +1319,6 @@ function distanceBetween(
   const a = Math.sin(latitudeDelta / 2) ** 2
     + Math.cos(left) * Math.cos(right) * Math.sin(longitudeDelta / 2) ** 2;
   return round(6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
-}
-
-function validateOdometer(value: number): void {
-  if (!Number.isFinite(value) || value < 0 || Math.round(value * 10) !== value * 10) {
-    throw new Error('Odometras turi būti neneigiamas skaičius su ne daugiau kaip viena dešimtaine dalimi.');
-  }
 }
 
 function buildAdminCompletionSummary(route: Route, stops: DeliveryStop[]): RouteCompletionSummary {

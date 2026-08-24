@@ -6,9 +6,9 @@ import { normalizeEmployeePermissions } from '@/application/auth/employee-permis
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { MenuArtwork } from '@/components/menu-artwork';
-import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
+import { radius, spacing, type } from '@/ui/tokens';
 
 export default function FleetScreen() {
   const router = useRouter();
@@ -35,21 +35,14 @@ export default function FleetScreen() {
           testID="fleet-open-terminai"
           title="Terminai" />
         <FleetCard
-          description="Numeris, modelis, bakas, PLL talpa, matmenys, kuro norma ir odometro korekcijos."
+          description="Numeris, modelis, bakas, matmenys, kuro norma ir kiekvienos dienos odometro korekcijos."
           icon="vehicles"
           onPress={() => open({ pathname: '/admin', params: { section: 'fleet', returnTo: 'fleet' } } as Href)}
           styles={styles}
           testID="fleet-open-technical"
           title="Techniniai duomenys" />
         <FleetCard
-          description="Sugeneruotas, atspausdintas ar eksportuotas kelionės lapas su kuro suvestine."
-          icon="trip-sheet"
-          onPress={() => open({ pathname: '/trip-sheet', params: { returnTo: 'fleet' } } as Href)}
-          styles={styles}
-          testID="fleet-open-km"
-          title="Kelionės lapai" />
-        <FleetCard
-          description="Vairuotojų praneštų kuro likučio pakeitimų tvirtinimas."
+          description="Kuro likutis, papildymai ir vairuotojų praneštų pakeitimų tvirtinimas."
           icon="trip-sheet"
           onPress={() => open({ pathname: '/admin', params: { section: 'fuel-reports', returnTo: 'fleet' } } as unknown as Href)}
           styles={styles}

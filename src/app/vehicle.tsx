@@ -1,13 +1,13 @@
+import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { useSQLiteContext } from 'expo-sqlite';
 
 import { canApproveExpiredDeparture } from '@/application/auth/employee-permissions';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import {
-  approveExpiredDepartureOverride,
-  pullDepartureOverride,
-  requestExpiredDepartureOverride,
+    approveExpiredDepartureOverride,
+    pullDepartureOverride,
+    requestExpiredDepartureOverride,
 } from '@/application/operations/departure-readiness';
 import { reportVehicleFault } from '@/application/operations/vehicle-fault-report';
 import { FoundationScreen } from '@/components/foundation-screen';
@@ -16,10 +16,10 @@ import { VehicleDepartureOverrideRepository } from '@/database/repositories/vehi
 import { VehicleFaultRepository } from '@/database/repositories/vehicle-fault-repository';
 import { evaluateDepartureReadiness, type DepartureOverrideInput } from '@/domain/departure-readiness';
 import type { FuelType, VehicleFault } from '@/domain/vehicle-and-trip';
-import { employeeApi, type FuelStatus, type ServerFleetVehicle, type ServerFleetVehicleSnapshot } from '@/infrastructure/auth/employee-session';
-import { radius, spacing, type } from '@/ui/tokens';
+import { employeeApi, type FuelStatus, type ServerFleetVehicle, type ServerFleetVehicleSnapshot, type ServerTripSheet } from '@/infrastructure/auth/employee-session';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
+import { radius, spacing, type } from '@/ui/tokens';
 
 const fuelOptions: { value: FuelType; label: string }[] = [
   { value: 'diesel', label: 'Dyzelinas' },
@@ -51,6 +51,12 @@ export default function VehicleScreen() {
   const [message, setMessage] = useState<string | null>(null);
   const [fleetVehicles, setFleetVehicles] = useState<(ServerFleetVehicle | ServerFleetVehicleSnapshot)[]>([]);
   const [selectedVehicleId, setSelectedVehicleId] = useState('');
+  const [vehicleReadings, setVehicleReadings] = useState<ServerTripSheet[]>([]);
+  const [readingDate, setReadingDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [readingStart, setReadingStart] = useState('');
+  const [readingEnd, setReadingEnd] = useState('');
+  const [readingDistance, setReadingDistance] = useState('');
+  const [readingMode, setReadingMode] = useState<'range' | 'distance'>('range');
   const canApprove = canApproveExpiredDeparture(profile);
 
   const applyVehicle = useCallback(async (vehicleId: string) => {
@@ -73,7 +79,28 @@ export default function VehicleScreen() {
     setOpenFaults(await faults.listOpen(vehicleId));
     const saved = await new VehicleDepartureOverrideRepository(db).getLatest(vehicleId);
     setOverride(saved ? { status: saved.status, fingerprint: saved.fingerprint } : null);
-  }, [db, faults, fleetVehicles, repository]);
+    if (online) {
+      const response = await employeeApi<{ tripSheets: ServerTripSheet[] }>('/api/trip-sheets').catch(() => ({ tripSheets: [] }));
+      setVehicleReadings(response.tripSheets.filter((sheet) => sheet.vehicle?.id === vehicleId).sort((a, b) => b.date.localeCompare(a.date)));
+    }
+  }, [db, faults, fleetVehicles, online, repository]);
+
+  const saveReading = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      if (!selectedVehicleId || !/^\d{4}-\d{2}-\d{2}$/.test(readingDate)) throw new Error('Pasirinkite automobilį ir įveskite datą YYYY-MM-DD.');
+      const start = Number(readingStart.replace(',', '.'));
+      const distance = readingMode === 'distance' ? Number(readingDistance.replace(',', '.')) : null;
+      const end = readingMode === 'distance' ? start + (distance ?? NaN) : Number(readingEnd.replace(',', '.'));
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) throw new Error('Patikrinkite odometro pradžią ir pabaigą.');
+      await employeeApi('/api/trip-sheets/day-readings', { method: 'POST', body: JSON.stringify({ vehicleId: selectedVehicleId, date: readingDate, startOdometer: start, endOdometer: end }) });
+      setReadingEnd(''); setReadingDistance(''); setMessage('Dienos odometras išsaugotas.');
+      await applyVehicle(selectedVehicleId);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Odometro išsaugoti nepavyko.');
+    } finally { setBusy(false); }
+  };
 
   const load = useCallback(async () => {
     let available: (ServerFleetVehicle | ServerFleetVehicleSnapshot)[] = [];
@@ -242,6 +269,21 @@ export default function VehicleScreen() {
           </Pressable>)}
         </View>
         {selectedVehicleId ? <Text style={styles.selectedVehicle}>Pasirinkta: {registrationNumber} · {name}</Text> : null}
+        {selectedVehicleId ? <View style={styles.odometerPanel} testID="vehicle-odometer-editor">
+          <Text style={styles.sectionTitle}>Dienos odometras</Text>
+          <Text style={styles.hint}>Pasirinkite datą. Įveskite pradžią ir pabaigą arba tik dienos kilometrus.</Text>
+          <TextInput value={readingDate} onChangeText={setReadingDate} style={styles.input} placeholder="Data, YYYY-MM-DD" placeholderTextColor={colors.textMuted} />
+          <View style={styles.options}>
+            <Pressable onPress={() => setReadingMode('range')} style={[styles.option, readingMode === 'range' && styles.optionSelected]}><Text style={[styles.optionText, readingMode === 'range' && styles.optionTextSelected]}>Pradžia ir pabaiga</Text></Pressable>
+            <Pressable onPress={() => setReadingMode('distance')} style={[styles.option, readingMode === 'distance' && styles.optionSelected]}><Text style={[styles.optionText, readingMode === 'distance' && styles.optionTextSelected]}>Tik dienos km</Text></Pressable>
+          </View>
+          <View style={styles.inlineInputs}>
+            <TextInput value={readingStart} onChangeText={setReadingStart} keyboardType="decimal-pad" style={[styles.input, styles.inlineInput]} placeholder="Pradžia" placeholderTextColor={colors.textMuted} />
+            {readingMode === 'range' ? <TextInput value={readingEnd} onChangeText={setReadingEnd} keyboardType="decimal-pad" style={[styles.input, styles.inlineInput]} placeholder="Pabaiga" placeholderTextColor={colors.textMuted} /> : <TextInput value={readingDistance} onChangeText={setReadingDistance} keyboardType="decimal-pad" style={[styles.input, styles.inlineInput]} placeholder="Dienos km" placeholderTextColor={colors.textMuted} />}
+          </View>
+          <Pressable disabled={busy || !online} onPress={() => { void saveReading(); }} style={[styles.button, (busy || !online) && styles.disabled]} testID="save-vehicle-odometer"><Text style={styles.buttonText}>{busy ? 'Saugoma…' : 'Išsaugoti dieną'}</Text></Pressable>
+          {vehicleReadings.slice(0, 5).map((reading) => <View key={reading.assignmentId} style={styles.readingRow}><Text style={styles.readingTitle}>{reading.date}</Text><Text style={styles.hint}>{reading.startOdometer ?? '—'} → {reading.endOdometer ?? '—'} km</Text></View>)}
+        </View> : null}
         <Text style={styles.label}>Kuro rūšis</Text>
         <View style={styles.options}>
           {fuelOptions.map((option) => (
@@ -321,6 +363,11 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   vehicleChoiceMeta: { ...type.secondary, color: colors.textMuted },
   vehicleChoiceMetaSelected: { color: colors.textSecondary },
   selectedVehicle: { ...type.bodyStrong, color: colors.info },
+  odometerPanel: { marginTop: spacing.sm, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, gap: spacing.sm },
+  inlineInputs: { flexDirection: 'row', gap: spacing.sm },
+  inlineInput: { flex: 1, minWidth: 0 },
+  readingRow: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.sm, paddingVertical: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border },
+  readingTitle: { ...type.bodyStrong, color: colors.text },
   sectionTitle: { ...type.cardTitle, color: colors.text },
   label: { ...type.cardTitle, color: colors.text },
   hint: { ...type.secondary, color: colors.textMuted },

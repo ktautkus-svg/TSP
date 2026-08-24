@@ -183,17 +183,27 @@ async function pushDirtyRoutes(db: SQLiteDatabase, employeeId: string): Promise<
       }
       pushed += 1;
     } else if (result.outcome === 'conflict') {
-      const local = await db.getFirstAsync<{ status: string }>(
-        'SELECT status FROM routes WHERE id = ?',
+      const local = await db.getFirstAsync<{ status: string; updated_at: string }>(
+        'SELECT status, updated_at FROM routes WHERE id = ?',
         result.routeId,
       );
-      // A route that is physically being worked must not be replaced by a
-      // later completed/deleted snapshot from another device. Leave it dirty
-      // so the next push after the workday can still compete on LWW.
+      const localUpdatedAt = local ? String(local.updated_at ?? '') : '';
+      const incomingUpdatedAt = String(result.routeSnapshot.route.updated_at ?? '');
+
+      // Latest-write-wins only applies when the local route is not in an active
+      // work state. If this device is still in an active loading/in-progress
+      // phase, the remote snapshot must never overwrite the user's in-flight
+      // work even if the server reports a later timestamp.
       if (local && WORKING_STATUSES.includes(local.status)) {
         conflicts += 1;
         continue;
       }
+
+      if (localUpdatedAt && incomingUpdatedAt && localUpdatedAt > incomingUpdatedAt) {
+        conflicts += 1;
+        continue;
+      }
+
       // The server's write already won (later update or a terminal route);
       // adopt its copy locally instead of retrying a losing push.
       if (result.deleted) {

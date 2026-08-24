@@ -1,10 +1,10 @@
 import { Stack, useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 
-import { useLocalAccess } from '@/application/auth/local-access-context';
 import { canEnterTripReadings } from '@/application/auth/employee-permissions';
+import { useLocalAccess } from '@/application/auth/local-access-context';
 import { pushCompletedRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
 import { CompanyProfileSettings, type CompanyProfile } from '@/application/settings/company-profile';
 import { buildTripSheetWorkbook, MIME_XLSX } from '@/application/trip-sheet/export-xlsx';
@@ -13,9 +13,9 @@ import { FoundationScreen } from '@/components/foundation-screen';
 import { TripSheetRepository, type TripSheetWithRoutes } from '@/database/repositories/trip-sheet-repository';
 import type { FuelType } from '@/domain/vehicle-and-trip';
 import {
-  employeeApi,
-  type ServerFuelEntry,
-  type ServerTripSheet,
+    employeeApi,
+    type ServerFuelEntry,
+    type ServerTripSheet,
 } from '@/infrastructure/auth/employee-session';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
@@ -227,6 +227,23 @@ export default function TripSheetScreen() {
       throw error;
     }
   };
+  const updateFuel = async (entry: TripFuelEntry, input: FuelEntryInput) => {
+    await employeeApi(`/api/fuel-entries/${encodeURIComponent(entry.id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        filledAt: new Date(`${input.date}T12:00:00`).toISOString(),
+        liters: input.liters,
+        receiptNumber: input.receiptNumber,
+      }),
+    });
+    await load();
+    setMessage('Kuro įrašas atnaujintas.');
+  };
+  const deleteFuel = async (entry: TripFuelEntry) => {
+    await employeeApi(`/api/fuel-entries/${encodeURIComponent(entry.id)}`, { method: 'DELETE' });
+    await load();
+    setMessage('Kuro įrašas ištrintas.');
+  };
   const requiresGenerate = profile.role !== 'driver';
   const showGroups = !requiresGenerate || generated;
   return (
@@ -260,17 +277,19 @@ export default function TripSheetScreen() {
         </Pressable> : null}
         {message ? <Text accessibilityRole="alert" style={styles.message}>{message}</Text> : null}
         {!busy && showGroups && monthlyGroups.length === 0 ? <View style={styles.empty}><Text style={styles.cardTitle}>Kelionės lapų nerasta</Text><Text style={styles.meta}>Lapas atsiranda užbaigus maršrutą. Pakeiskite automobilį, vairuotoją arba laikotarpį.</Text></View> : null}
-        {showGroups ? monthlyGroups.map((group) => <MonthlyTripSheet canEdit={canEditFleetReadings || profile.role === 'driver'} companyProfile={companyProfile} compact={width < 820} group={group} key={group.key} onAddFuel={addFuel} saving={busy} styles={styles} vehicleFuelType={vehicleFuelType} />) : null}
+        {showGroups ? monthlyGroups.map((group) => <MonthlyTripSheet canEdit={canEditFleetReadings || profile.role === 'driver'} companyProfile={companyProfile} compact={width < 820} group={group} key={group.key} onAddFuel={addFuel} onDeleteFuel={deleteFuel} onUpdateFuel={updateFuel} saving={busy} styles={styles} vehicleFuelType={vehicleFuelType} />) : null}
       </FoundationScreen>
     </>
   );
 }
 
-function MonthlyTripSheet({ group, compact, canEdit, onAddFuel, saving, styles, companyProfile, vehicleFuelType }: {
+function MonthlyTripSheet({ group, compact, canEdit, onAddFuel, onUpdateFuel, onDeleteFuel, saving, styles, companyProfile, vehicleFuelType }: {
   group: MonthlyTripGroup;
   compact: boolean;
   canEdit: boolean;
   onAddFuel: (row: DailyTripRow, input: FuelEntryInput) => Promise<void>;
+  onUpdateFuel: (entry: TripFuelEntry, input: FuelEntryInput) => Promise<void>;
+  onDeleteFuel: (entry: TripFuelEntry) => Promise<void>;
   saving: boolean;
   styles: ReturnType<typeof createStyles>;
   companyProfile: CompanyProfile;
@@ -279,6 +298,7 @@ function MonthlyTripSheet({ group, compact, canEdit, onAddFuel, saving, styles, 
   const [expanded, setExpanded] = useState(false);
   const [expandedDay, setExpandedDay] = useState<string | null>(null);
   const [fuelEditorDay, setFuelEditorDay] = useState<string | null>(null);
+  const [fuelEditorEntry, setFuelEditorEntry] = useState<TripFuelEntry | null>(null);
   const [fuelDate, setFuelDate] = useState('');
   const [fuelLiters, setFuelLiters] = useState('');
   const [fuelReceiptNumber, setFuelReceiptNumber] = useState('');
@@ -298,6 +318,16 @@ function MonthlyTripSheet({ group, compact, canEdit, onAddFuel, saving, styles, 
     setFuelDate(row.date);
     setFuelLiters('');
     setFuelReceiptNumber('');
+    setFuelEditorEntry(null);
+    setFormError(null);
+  };
+  const openExistingFuelEditor = (entry: TripFuelEntry, row: DailyTripRow) => {
+    setExpandedDay(row.date);
+    setFuelEditorDay(row.date);
+    setFuelEditorEntry(entry);
+    setFuelDate(entry.filledAt.slice(0, 10));
+    setFuelLiters(String(entry.liters));
+    setFuelReceiptNumber(entry.receiptNumber ?? '');
     setFormError(null);
   };
   const saveFuel = async (row: DailyTripRow) => {
@@ -306,12 +336,15 @@ function MonthlyTripSheet({ group, compact, canEdit, onAddFuel, saving, styles, 
     if (liters === null || liters <= 0) return setFormError('Įveskite įpiltų litrų kiekį.');
     setFormError(null);
     try {
-      await onAddFuel(row, {
+      const input = {
         date: fuelDate,
         liters,
         receiptNumber: fuelReceiptNumber.trim() || null,
-      });
+      };
+      if (fuelEditorEntry) await onUpdateFuel(fuelEditorEntry, input);
+      else await onAddFuel(row, input);
       setFuelEditorDay(null);
+      setFuelEditorEntry(null);
     } catch {
       setFormError('Kuro įrašo išsaugoti nepavyko. Patikrinkite ryšį ir bandykite dar kartą.');
     }
@@ -404,13 +437,17 @@ function MonthlyTripSheet({ group, compact, canEdit, onAddFuel, saving, styles, 
               <Text style={styles.fuelEntriesTitle}>KURO PAPILDYMAI</Text>
               {row.fuelEntries.map((entry) => <View key={entry.id} style={styles.fuelEntryRow}>
                 <View style={styles.flex}><Text style={styles.tableStrong}>{formatNumber(entry.liters)} l</Text><Text style={styles.meta}>{formatDateTime(entry.filledAt)}{entry.receiptNumber ? ` · čekis ${entry.receiptNumber}` : ''}</Text></View>
+                {canEdit ? <View style={styles.entryActions}>
+                  <Pressable onPress={() => openExistingFuelEditor(entry, row)} style={styles.smallButton}><Text style={styles.smallButtonText}>Redaguoti</Text></Pressable>
+                  <Pressable disabled={saving} onPress={() => void onDeleteFuel(entry)} style={styles.deleteFuelButton}><Text style={styles.deleteFuelText}>Trinti</Text></Pressable>
+                </View> : null}
               </View>)}
             </View> : <Text style={styles.meta}>Šią dieną kuro papildymų dar neįvesta.</Text>}
             {canEdit && !editingFuel ? <View style={styles.formActions}>
               <Pressable onPress={() => openFuelEditor(row)} style={styles.addFuelButton}><Text style={styles.addFuelButtonText}>+ Kuro papildymas</Text></Pressable>
             </View> : null}
             {editingFuel ? <View style={styles.fuelForm} testID={`fuel-entry-form-${row.date}`}>
-              <Text style={styles.cardTitle}>Kuro papildymas</Text>
+              <Text style={styles.cardTitle}>{fuelEditorEntry ? 'Redaguoti kuro papildymą' : 'Kuro papildymas'}</Text>
               <Text style={styles.meta}>Privalomi laukai: litrai ir data. Čekio numeris nebūtinas.</Text>
               <View style={styles.formGrid}>
                 <Field label="Įpilta, l *" value={fuelLiters} onChangeText={setFuelLiters} placeholder="Pvz. 45,5" keyboardType="decimal-pad" styles={styles} />
@@ -747,6 +784,11 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   fuelEntries: { gap: spacing.xs },
   fuelEntriesTitle: { ...type.label, color: colors.textMuted },
   fuelEntryRow: { minHeight: 52, paddingVertical: spacing.xs, flexDirection: 'row', alignItems: 'center', gap: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.borderSubtle },
+  entryActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
+  smallButton: { minHeight: 40, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderStrong, paddingHorizontal: spacing.sm, alignItems: 'center', justifyContent: 'center' },
+  smallButtonText: { ...type.label, color: colors.info },
+  deleteFuelButton: { minHeight: 40, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.danger, paddingHorizontal: spacing.sm, alignItems: 'center', justifyContent: 'center' },
+  deleteFuelText: { ...type.label, color: colors.danger },
   addFuelButton: { minHeight: 48, borderRadius: radius.md, backgroundColor: colors.infoSoft, borderWidth: 1, borderColor: colors.info, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
   addFuelButtonText: { ...type.button, color: colors.info },
   fuelForm: { padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceMuted, borderWidth: 1, borderColor: colors.borderStrong, gap: spacing.sm },

@@ -108,7 +108,7 @@ export function validateUsername(value: string): string {
 }
 
 export function validatePin(pin: string): void {
-  if (!/^\d{4,8}$/.test(pin)) throw new Error('PIN turi sudaryti 4–8 skaitmenys.');
+  if (!/^\d{6,8}$/.test(pin)) throw new Error('PIN turi sudaryti 6–8 skaitmenys.');
 }
 
 export function validateNewPin(pin: string): void {

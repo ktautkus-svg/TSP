@@ -1,0 +1,477 @@
+{
+  "sourcePptx": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\source.pptx",
+  "workspace": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821",
+  "outDir": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect",
+  "generatedAt": "2026-08-21T19:41:08.837Z",
+  "slideCount": 11,
+  "slideArtifacts": [
+    {
+      "slide": 1,
+      "previewPath": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\source-slides\\source-slide-01.png",
+      "previewRelativePath": "template-inspect/source-slides/source-slide-01.png",
+      "layoutPath": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\layouts\\source-slide-01.layout.json",
+      "layoutRelativePath": "template-inspect/layouts/source-slide-01.layout.json"
+    },
+    {
+      "slide": 2,
+      "previewPath": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\source-slides\\source-slide-02.png",
+      "previewRelativePath": "template-inspect/source-slides/source-slide-02.png",
+      "layoutPath": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\layouts\\source-slide-02.layout.json",
+      "layoutRelativePath": "template-inspect/layouts/source-slide-02.layout.json"
+    },
+    {
+      "slide": 3,
+      "previewPath": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\source-slides\\source-slide-03.png",
+      "previewRelativePath": "template-inspect/source-slides/source-slide-03.png",
+      "layoutPath": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\layouts\\source-slide-03.layout.json",
+      "layoutRelativePath": "template-inspect/layouts/source-slide-03.layout.json"
+    },
+    {
+      "slide": 4,
+      "previewPath": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\source-slides\\source-slide-04.png",
+      "previewRelativePath": "template-inspect/source-slides/source-slide-04.png",
+      "layoutPath": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\layouts\\source-slide-04.layout.json",
+      "layoutRelativePath": "template-inspect/layouts/source-slide-04.layout.json"
+    },
+    {
+      "slide": 5,
+      "previewPath": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\source-slides\\source-slide-05.png",
+      "previewRelativePath": "template-inspect/source-slides/source-slide-05.png",
+      "layoutPath": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\layouts\\source-slide-05.layout.json",
+      "layoutRelativePath": "template-inspect/layouts/source-slide-05.layout.json"
+    },
+    {
+      "slide": 6,
+      "previewPath": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\source-slides\\source-slide-06.png",
+      "previewRelativePath": "template-inspect/source-slides/source-slide-06.png",
+      "layoutPath": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\layouts\\source-slide-06.layout.json",
+      "layoutRelativePath": "template-inspect/layouts/source-slide-06.layout.json"
+    },
+    {
+      "slide": 7,
+      "previewPath": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\source-slides\\source-slide-07.png",
+      "previewRelativePath": "template-inspect/source-slides/source-slide-07.png",
+      "layoutPath": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\layouts\\source-slide-07.layout.json",
+      "layoutRelativePath": "template-inspect/layouts/source-slide-07.layout.json"
+    },
+    {
+      "slide": 8,
+      "previewPath": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\source-slides\\source-slide-08.png",
+      "previewRelativePath": "template-inspect/source-slides/source-slide-08.png",
+      "layoutPath": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\layouts\\source-slide-08.layout.json",
+      "layoutRelativePath": "template-inspect/layouts/source-slide-08.layout.json"
+    },
+    {
+      "slide": 9,
+      "previewPath": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\source-slides\\source-slide-09.png",
+      "previewRelativePath": "template-inspect/source-slides/source-slide-09.png",
+      "layoutPath": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\layouts\\source-slide-09.layout.json",
+      "layoutRelativePath": "template-inspect/layouts/source-slide-09.layout.json"
+    },
+    {
+      "slide": 10,
+      "previewPath": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\source-slides\\source-slide-10.png",
+      "previewRelativePath": "template-inspect/source-slides/source-slide-10.png",
+      "layoutPath": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\layouts\\source-slide-10.layout.json",
+      "layoutRelativePath": "template-inspect/layouts/source-slide-10.layout.json"
+    },
+    {
+      "slide": 11,
+      "previewPath": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\source-slides\\source-slide-11.png",
+      "previewRelativePath": "template-inspect/source-slides/source-slide-11.png",
+      "layoutPath": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\layouts\\source-slide-11.layout.json",
+      "layoutRelativePath": "template-inspect/layouts/source-slide-11.layout.json"
+    }
+  ],
+  "inspectPath": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\template-inspect.ndjson",
+  "inspectRelativePath": "template-inspect/template-inspect.ndjson",
+  "inspectTruncated": true,
+  "inspectMetadata": {
+    "revision": "yxytn1",
+    "target": {
+      "id": "pr/yrqs72"
+    },
+    "kind": {
+      "requested": "slide,textbox,shape,image,table,chart",
+      "tokens": [
+        "slide",
+        "textbox",
+        "shape",
+        "image",
+        "table",
+        "chart"
+      ]
+    },
+    "include": {
+      "tokens": []
+    },
+    "exclude": {
+      "tokens": []
+    },
+    "notices": []
+  },
+  "extractedMedia": [
+    {
+      "entry": "ppt/media/image1.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image1.png",
+      "relativePath": "template-inspect/assets/ppt/media/image1.png",
+      "bytes": 6002
+    },
+    {
+      "entry": "ppt/media/image2.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image2.png",
+      "relativePath": "template-inspect/assets/ppt/media/image2.png",
+      "bytes": 1336
+    },
+    {
+      "entry": "ppt/media/image3.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image3.png",
+      "relativePath": "template-inspect/assets/ppt/media/image3.png",
+      "bytes": 1668
+    },
+    {
+      "entry": "ppt/media/image4.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image4.png",
+      "relativePath": "template-inspect/assets/ppt/media/image4.png",
+      "bytes": 1639
+    },
+    {
+      "entry": "ppt/media/image5.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image5.png",
+      "relativePath": "template-inspect/assets/ppt/media/image5.png",
+      "bytes": 1669
+    },
+    {
+      "entry": "ppt/media/image6.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image6.png",
+      "relativePath": "template-inspect/assets/ppt/media/image6.png",
+      "bytes": 610
+    },
+    {
+      "entry": "ppt/media/image7.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image7.png",
+      "relativePath": "template-inspect/assets/ppt/media/image7.png",
+      "bytes": 570
+    },
+    {
+      "entry": "ppt/media/image8.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image8.png",
+      "relativePath": "template-inspect/assets/ppt/media/image8.png",
+      "bytes": 557
+    },
+    {
+      "entry": "ppt/media/image9.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image9.png",
+      "relativePath": "template-inspect/assets/ppt/media/image9.png",
+      "bytes": 571
+    },
+    {
+      "entry": "ppt/media/image10.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image10.png",
+      "relativePath": "template-inspect/assets/ppt/media/image10.png",
+      "bytes": 479
+    },
+    {
+      "entry": "ppt/media/image11.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image11.png",
+      "relativePath": "template-inspect/assets/ppt/media/image11.png",
+      "bytes": 444
+    },
+    {
+      "entry": "ppt/media/image12.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image12.png",
+      "relativePath": "template-inspect/assets/ppt/media/image12.png",
+      "bytes": 495
+    },
+    {
+      "entry": "ppt/media/image13.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image13.png",
+      "relativePath": "template-inspect/assets/ppt/media/image13.png",
+      "bytes": 2643
+    },
+    {
+      "entry": "ppt/media/image14.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image14.png",
+      "relativePath": "template-inspect/assets/ppt/media/image14.png",
+      "bytes": 49890
+    },
+    {
+      "entry": "ppt/media/image15.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image15.png",
+      "relativePath": "template-inspect/assets/ppt/media/image15.png",
+      "bytes": 479
+    },
+    {
+      "entry": "ppt/media/image16.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image16.png",
+      "relativePath": "template-inspect/assets/ppt/media/image16.png",
+      "bytes": 541
+    },
+    {
+      "entry": "ppt/media/image17.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image17.png",
+      "relativePath": "template-inspect/assets/ppt/media/image17.png",
+      "bytes": 721
+    },
+    {
+      "entry": "ppt/media/image18.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image18.png",
+      "relativePath": "template-inspect/assets/ppt/media/image18.png",
+      "bytes": 35930
+    },
+    {
+      "entry": "ppt/media/image19.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image19.png",
+      "relativePath": "template-inspect/assets/ppt/media/image19.png",
+      "bytes": 666
+    },
+    {
+      "entry": "ppt/media/image20.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image20.png",
+      "relativePath": "template-inspect/assets/ppt/media/image20.png",
+      "bytes": 481
+    },
+    {
+      "entry": "ppt/media/image21.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image21.png",
+      "relativePath": "template-inspect/assets/ppt/media/image21.png",
+      "bytes": 644
+    },
+    {
+      "entry": "ppt/media/image22.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image22.png",
+      "relativePath": "template-inspect/assets/ppt/media/image22.png",
+      "bytes": 64526
+    },
+    {
+      "entry": "ppt/media/image23.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image23.png",
+      "relativePath": "template-inspect/assets/ppt/media/image23.png",
+      "bytes": 385
+    },
+    {
+      "entry": "ppt/media/image24.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image24.png",
+      "relativePath": "template-inspect/assets/ppt/media/image24.png",
+      "bytes": 466
+    },
+    {
+      "entry": "ppt/media/image25.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image25.png",
+      "relativePath": "template-inspect/assets/ppt/media/image25.png",
+      "bytes": 530
+    },
+    {
+      "entry": "ppt/media/image26.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image26.png",
+      "relativePath": "template-inspect/assets/ppt/media/image26.png",
+      "bytes": 128029
+    },
+    {
+      "entry": "ppt/media/image27.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image27.png",
+      "relativePath": "template-inspect/assets/ppt/media/image27.png",
+      "bytes": 536
+    },
+    {
+      "entry": "ppt/media/image28.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image28.png",
+      "relativePath": "template-inspect/assets/ppt/media/image28.png",
+      "bytes": 544
+    },
+    {
+      "entry": "ppt/media/image29.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image29.png",
+      "relativePath": "template-inspect/assets/ppt/media/image29.png",
+      "bytes": 561
+    },
+    {
+      "entry": "ppt/media/image30.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image30.png",
+      "relativePath": "template-inspect/assets/ppt/media/image30.png",
+      "bytes": 30990
+    },
+    {
+      "entry": "ppt/media/image31.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image31.png",
+      "relativePath": "template-inspect/assets/ppt/media/image31.png",
+      "bytes": 633
+    },
+    {
+      "entry": "ppt/media/image32.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image32.png",
+      "relativePath": "template-inspect/assets/ppt/media/image32.png",
+      "bytes": 774
+    },
+    {
+      "entry": "ppt/media/image33.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image33.png",
+      "relativePath": "template-inspect/assets/ppt/media/image33.png",
+      "bytes": 71030
+    },
+    {
+      "entry": "ppt/media/image34.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image34.png",
+      "relativePath": "template-inspect/assets/ppt/media/image34.png",
+      "bytes": 503
+    },
+    {
+      "entry": "ppt/media/image35.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image35.png",
+      "relativePath": "template-inspect/assets/ppt/media/image35.png",
+      "bytes": 407
+    },
+    {
+      "entry": "ppt/media/image36.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image36.png",
+      "relativePath": "template-inspect/assets/ppt/media/image36.png",
+      "bytes": 629
+    },
+    {
+      "entry": "ppt/media/image37.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image37.png",
+      "relativePath": "template-inspect/assets/ppt/media/image37.png",
+      "bytes": 47243
+    },
+    {
+      "entry": "ppt/media/image38.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image38.png",
+      "relativePath": "template-inspect/assets/ppt/media/image38.png",
+      "bytes": 584
+    },
+    {
+      "entry": "ppt/media/image39.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image39.png",
+      "relativePath": "template-inspect/assets/ppt/media/image39.png",
+      "bytes": 550
+    },
+    {
+      "entry": "ppt/media/image40.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image40.png",
+      "relativePath": "template-inspect/assets/ppt/media/image40.png",
+      "bytes": 627
+    },
+    {
+      "entry": "ppt/media/image41.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image41.png",
+      "relativePath": "template-inspect/assets/ppt/media/image41.png",
+      "bytes": 525
+    },
+    {
+      "entry": "ppt/media/image42.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image42.png",
+      "relativePath": "template-inspect/assets/ppt/media/image42.png",
+      "bytes": 1726
+    },
+    {
+      "entry": "ppt/media/image43.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image43.png",
+      "relativePath": "template-inspect/assets/ppt/media/image43.png",
+      "bytes": 2266
+    },
+    {
+      "entry": "ppt/media/image44.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image44.png",
+      "relativePath": "template-inspect/assets/ppt/media/image44.png",
+      "bytes": 2032
+    },
+    {
+      "entry": "ppt/media/image45.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image45.png",
+      "relativePath": "template-inspect/assets/ppt/media/image45.png",
+      "bytes": 2284
+    },
+    {
+      "entry": "ppt/media/image46.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image46.png",
+      "relativePath": "template-inspect/assets/ppt/media/image46.png",
+      "bytes": 1647
+    },
+    {
+      "entry": "ppt/media/image47.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image47.png",
+      "relativePath": "template-inspect/assets/ppt/media/image47.png",
+      "bytes": 2543
+    },
+    {
+      "entry": "ppt/media/image48.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image48.png",
+      "relativePath": "template-inspect/assets/ppt/media/image48.png",
+      "bytes": 1901
+    },
+    {
+      "entry": "ppt/media/image49.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image49.png",
+      "relativePath": "template-inspect/assets/ppt/media/image49.png",
+      "bytes": 2261
+    },
+    {
+      "entry": "ppt/media/image50.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image50.png",
+      "relativePath": "template-inspect/assets/ppt/media/image50.png",
+      "bytes": 675
+    },
+    {
+      "entry": "ppt/media/image51.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image51.png",
+      "relativePath": "template-inspect/assets/ppt/media/image51.png",
+      "bytes": 438
+    },
+    {
+      "entry": "ppt/media/image52.png",
+      "path": "C:\\Users\\Karolis\\Desktop\\logistikos-pristatymai\\.codex\\tmp\\tsp-presentation-20260821\\template-inspect\\assets\\ppt\\media\\image52.png",
+      "relativePath": "template-inspect/assets/ppt/media/image52.png",
+      "bytes": 344
+    }
+  ],
+  "fonts": [
+    "+mj-cs",
+    "+mj-ea",
+    "+mj-lt",
+    "+mn-cs",
+    "+mn-ea",
+    "+mn-lt",
+    "Angsana New",
+    "Arial",
+    "Calibri",
+    "Cordia New",
+    "DaunPenh",
+    "DokChampa",
+    "Estrangelo Edessa",
+    "Euphemia",
+    "Gautami",
+    "Inter",
+    "Inter ExtraBold",
+    "Inter Medium",
+    "Inter SemiBold",
+    "Iskoola Pota",
+    "Kalinga",
+    "Kartika",
+    "Latha",
+    "MV Boli",
+    "Mangal",
+    "Microsoft Himalaya",
+    "Microsoft Uighur",
+    "Microsoft Yi Baiti",
+    "Mongolian Baiti",
+    "MoolBoran",
+    "Nyala",
+    "Plantagenet Cherokee",
+    "Raavi",
+    "Shruti",
+    "Sylfaen",
+    "Times New Roman",
+    "Tunga",
+    "Vrinda",
+    "宋体",
+    "新細明體",
+    "맑은 고딕",
+    "ＭＳ Ｐゴシック"
+  ],
+  "packageParts": {
+    "mediaCount": 52,
+    "slideXmlCount": 11,
+    "chartCount": 0,
+    "tableSlideCount": 0
+  }
+}

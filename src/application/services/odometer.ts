@@ -1,3 +1,5 @@
+import { validateOdometerInput } from '@/domain/shared-validation';
+
 export type OdometerValidationResult =
   | { ok: true; distanceKm: number }
   | {
@@ -34,6 +36,13 @@ export function validateOdometer(
       code: 'IMPLAUSIBLE_DISTANCE',
       message: `Skirtumas (${distanceKm} km) atrodo neįprastai didelis. Patikrinkite rodmenis.`,
     };
+  }
+
+  try {
+    validateOdometerInput(start, 'pradžios');
+    validateOdometerInput(end, 'galutinio');
+  } catch {
+    return { ok: false, code: 'NOT_A_NUMBER', message: 'Įveskite skaitinius odometro rodmenis.' };
   }
 
   return { ok: true, distanceKm };

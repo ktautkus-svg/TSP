@@ -1,17 +1,17 @@
+import { useRouter, type Href } from 'expo-router';
 import { useMemo } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import { useRouter, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { useLocalAccess } from '@/application/auth/local-access-context';
 import { roleLabel, sessionStateLabel } from '@/application/auth/employee-permissions';
+import { useLocalAccess } from '@/application/auth/local-access-context';
 import { GroupedMenuRow, GroupedMenuSection } from '@/components/grouped-menu';
 import { MenuArtwork } from '@/components/menu-artwork';
 import { StatusBadge } from '@/components/ui-primitives';
-import { radius, spacing, type } from '@/ui/tokens';
+import { Alert } from '@/ui/alert';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
-import { Alert } from '@/ui/alert';
+import { radius, spacing, type } from '@/ui/tokens';
 
 export function AccountMenuSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const router = useRouter();
@@ -24,11 +24,6 @@ export function AccountMenuSheet({ visible, onClose }: { visible: boolean; onClo
   function openSettings() {
     onClose();
     router.push('/settings' as Href);
-  }
-
-  function openTripSheets() {
-    onClose();
-    router.push({ pathname: '/trip-sheet', params: { returnTo: 'home' } } as Href);
   }
 
   function confirmSwitchAccount() {
@@ -68,7 +63,6 @@ export function AccountMenuSheet({ visible, onClose }: { visible: boolean; onClo
           </View>
 
           {profile.role !== 'quality' ? <GroupedMenuSection label="DARBO ĮRANKIAI">
-            {profile.role === 'driver' ? <GroupedMenuRow icon={<MenuArtwork kind="trip-sheet" />} onPress={openTripSheets} testID="account-menu-trip-sheets" title="Kelionės lapai" tone="success" /> : null}
             <GroupedMenuRow icon={<MenuArtwork kind="settings" />} onPress={openSettings} testID="account-menu-settings" title="Nustatymai" />
           </GroupedMenuSection> : null}
           <GroupedMenuSection label="PASKYRA">

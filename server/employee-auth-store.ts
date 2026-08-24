@@ -7,13 +7,6 @@ import {
     type RoutePriceSettings,
 } from '../src/application/routes/route-price.js';
 import {
-    NLL182_ODOMETER_DRIVER_NAME,
-    NLL182_ODOMETER_LOG,
-    odometerDistanceKm,
-    parseVehicleDayAssignmentId,
-    vehicleDayAssignmentId,
-} from '../src/domain/nll182-odometer-log.js';
-import {
     EXCEL_FUEL_LOG,
     NLL182_OPENING_FUEL_EFFECTIVE_AT,
     NLL182_OPENING_FUEL_LITERS,
@@ -38,7 +31,21 @@ import {
     type PalletCapacity,
 } from '../src/domain/fleet-cargo-specs.js';
 import { isVanBodyKind, type VanBodyKind } from '../src/domain/loading-schema.js';
+import {
+    NLL182_ODOMETER_DRIVER_NAME,
+    NLL182_ODOMETER_LOG,
+    odometerDistanceKm,
+    parseVehicleDayAssignmentId,
+    vehicleDayAssignmentId,
+} from '../src/domain/nll182-odometer-log.js';
 import { regionCodeFromSource, uniqueRegionCodes } from '../src/domain/route-code.js';
+import {
+    normalizeIsoDate as isoDateOrThrow,
+    validateFuelLiters,
+    validateFuelAmount as validateLiters,
+    validateOdometerInput as validateOdometer,
+    validateFuelPrice as validatePricePerLiter,
+} from '../src/domain/shared-validation';
 
 export const EMPLOYEE_ROLES = ['admin', 'dispatcher', 'driver', 'quality'] as const;
 export type EmployeeRole = (typeof EMPLOYEE_ROLES)[number];
@@ -2034,6 +2041,8 @@ export class EmployeeAuthStore {
     const document = await reference.get();
     const current = document.data() as ServerFuelEntry | undefined;
     if (!current) throw new EmployeeApiError('FUEL_ENTRY_NOT_FOUND', 'Kuro įrašas nerastas.', 404);
+    const storedVehicle = (await this.vehicles.doc(current.vehicleId).get()).data() as FleetVehicle | undefined;
+    assertCanEditTripReadings(profile, storedVehicle ? normalizeVehicle(storedVehicle) : null, current.driverId);
     const filledAt = input.filledAt === undefined ? current.filledAt : isoDateOrThrow(input.filledAt);
     const odometer = input.odometer === undefined ? current.odometer : validateOdometer(input.odometer, 'pylimo');
     if (odometer === null) throw new EmployeeApiError('INVALID_ODOMETER', 'Neteisingas odometro rodmuo.', 400);
@@ -2061,6 +2070,8 @@ export class EmployeeAuthStore {
     const document = await reference.get();
     const entry = document.data() as ServerFuelEntry | undefined;
     if (!entry) throw new EmployeeApiError('FUEL_ENTRY_NOT_FOUND', 'Kuro įrašas nerastas.', 404);
+    const storedVehicle = (await this.vehicles.doc(entry.vehicleId).get()).data() as FleetVehicle | undefined;
+    assertCanEditTripReadings(profile, storedVehicle ? normalizeVehicle(storedVehicle) : null, entry.driverId);
     await reference.delete();
     return entry;
   }
@@ -2275,43 +2286,6 @@ function validateRouteDate(value: string): string {
     throw new EmployeeApiError('INVALID_ROUTE_DATE', 'Maršruto data turi būti YYYY-MM-DD formato.', 400);
   }
   return normalized;
-}
-
-function validateFuelLiters(value: number): number {
-  if (!Number.isFinite(value) || value < 0 || value > 1_000) {
-    throw new EmployeeApiError('INVALID_FUEL_READING', 'Kuro likutis turi būti nuo 0 iki 1000 litrų.', 400);
-  }
-  return Math.round(value * 10) / 10;
-}
-
-function validateOdometer(value: number | null, label: string): number | null {
-  if (value === null) return null;
-  if (!Number.isFinite(value) || value < 0 || value > 10_000_000) {
-    throw new EmployeeApiError('INVALID_ODOMETER', `Neteisingas ${label} odometro rodmuo.`, 400);
-  }
-  return Math.round(value * 10) / 10;
-}
-
-function isoDateOrThrow(value: string): string {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    throw new EmployeeApiError('INVALID_FUEL_DATE', 'Neteisinga kuro pylimo data.', 400);
-  }
-  return parsed.toISOString();
-}
-
-function validateLiters(value: number): number {
-  if (!Number.isFinite(value) || value <= 0 || value > 1_000) {
-    throw new EmployeeApiError('INVALID_FUEL_AMOUNT', 'Įpilto kuro kiekis turi būti nuo 0,1 iki 1000 litrų.', 400);
-  }
-  return Math.round(value * 100) / 100;
-}
-
-function validatePricePerLiter(value: number): number {
-  if (!Number.isFinite(value) || value < 0 || value > 100) {
-    throw new EmployeeApiError('INVALID_FUEL_PRICE', 'Neteisinga litro kaina.', 400);
-  }
-  return Math.round(value * 1000) / 1000;
 }
 
 function vehicleSnapshot(vehicle: FleetVehicle): FleetVehicleSnapshot {

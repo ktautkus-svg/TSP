@@ -1,0 +1,154 @@
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: cloud-run-production
+  cancel-in-progress: true
+
+env:
+  GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  GCP_REGION: ${{ vars.GCP_REGION || 'europe-north1' }}
+  CLOUD_RUN_SERVICE: ${{ vars.CLOUD_RUN_SERVICE || 'logistikos-pristatymai' }}
+  GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+  GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+
+jobs:
+  quality:
+    name: Validate application
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Validate SQLite schema
+        run: npm run validate:schema
+
+      - name: Build PWA
+        run: npm run pwa:build
+
+  deploy:
+    name: Deploy production revision
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Create or update Secret Manager values
+        id: secrets
+        shell: bash
+        env:
+          GATEWAY_DEVICE_SECRET: ${{ secrets.GATEWAY_DEVICE_SECRET }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          GOOGLE_ROUTES_API_KEY: ${{ secrets.GOOGLE_ROUTES_API_KEY }}
+          GOOGLE_GEOCODING_API_KEY: ${{ secrets.GOOGLE_GEOCODING_API_KEY }}
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
+          GOOGLE_VISION_API_KEY: ${{ secrets.GOOGLE_VISION_API_KEY }}
+          HERE_API_KEY: ${{ secrets.HERE_API_KEY }}
+          TSP_INITIAL_ADMIN_PIN: ${{ secrets.TSP_INITIAL_ADMIN_PIN }}
+        run: |
+          set -euo pipefail
+          declare -A VALUES=(
+            [GATEWAY_DEVICE_SECRET]="${GATEWAY_DEVICE_SECRET}"
+            [GOOGLE_API_KEY]="${GOOGLE_API_KEY}"
+            [GOOGLE_ROUTES_API_KEY]="${GOOGLE_ROUTES_API_KEY}"
+            [GOOGLE_GEOCODING_API_KEY]="${GOOGLE_GEOCODING_API_KEY}"
+            [GOOGLE_MAPS_API_KEY]="${GOOGLE_MAPS_API_KEY}"
+            [GOOGLE_VISION_API_KEY]="${GOOGLE_VISION_API_KEY}"
+            [HERE_API_KEY]="${HERE_API_KEY}"
+            [TSP_INITIAL_ADMIN_PIN]="${TSP_INITIAL_ADMIN_PIN}"
+          )
+          pairs=()
+          for name in "${!VALUES[@]}"; do
+            value="${VALUES[$name]}"
+            if [ -z "$value" ]; then
+              continue
+            fi
+            gcloud secrets describe "$name" --project="$GCP_PROJECT_ID" >/dev/null 2>&1 || \
+              gcloud secrets create "$name" --replication-policy=automatic --project="$GCP_PROJECT_ID"
+            printf '%s' "$value" | gcloud secrets versions add "$name" --data-file=- --project="$GCP_PROJECT_ID" >/dev/null
+            pairs+=("${name}=${name}:latest")
+          done
+          if [ -z "$GATEWAY_DEVICE_SECRET" ] || [ -z "$TSP_INITIAL_ADMIN_PIN" ]; then
+            echo 'GATEWAY_DEVICE_SECRET and TSP_INITIAL_ADMIN_PIN are required.' >&2
+            exit 1
+          fi
+          if [ -z "$GOOGLE_API_KEY$GOOGLE_ROUTES_API_KEY$GOOGLE_GEOCODING_API_KEY$GOOGLE_MAPS_API_KEY$GOOGLE_VISION_API_KEY$HERE_API_KEY" ]; then
+            echo 'At least one provider API key is required.' >&2
+            exit 1
+          fi
+          echo "secrets_arg=$(IFS=,; echo \"${pairs[*]}\")" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push image
+        id: image
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/cloud-run-source-deploy/${CLOUD_RUN_SERVICE}:sha-${GITHUB_SHA}"
+          gcloud builds submit --project="$GCP_PROJECT_ID" --tag="$image" --timeout=1200s
+          echo "name=$image" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy image to Cloud Run
+        shell: bash
+        env:
+          ARMED: ${{ vars.GATEWAY_REAL_PROVIDER_ARMED || '0' }}
+          DAILY_BUDGET_CENTS: ${{ vars.GATEWAY_DAILY_BUDGET_CENTS || '500' }}
+          WEEKLY_BUDGET_CENTS: ${{ vars.GATEWAY_WEEKLY_BUDGET_CENTS || '2000' }}
+          DAILY_USAGE_UNITS: ${{ vars.GATEWAY_DAILY_USAGE_UNITS || '7290' }}
+          WEEKLY_USAGE_UNITS: ${{ vars.GATEWAY_WEEKLY_USAGE_UNITS || '36450' }}
+        run: |
+          set -euo pipefail
+          gcloud run deploy "$CLOUD_RUN_SERVICE" \
+            --image="${{ steps.image.outputs.name }}" \
+            --project="$GCP_PROJECT_ID" \
+            --region="$GCP_REGION" \
+            --allow-unauthenticated \
+            --max-instances=1 \
+            --set-secrets="${{ steps.secrets.outputs.secrets_arg }}" \
+            --set-env-vars="GATEWAY_AUTH_MODE=none,GATEWAY_ENV=production,GATEWAY_REAL_PROVIDER_ARMED=${ARMED},GATEWAY_DAILY_BUDGET_CENTS=${DAILY_BUDGET_CENTS},GATEWAY_WEEKLY_BUDGET_CENTS=${WEEKLY_BUDGET_CENTS},GATEWAY_DAILY_USAGE_UNITS=${DAILY_USAGE_UNITS},GATEWAY_WEEKLY_USAGE_UNITS=${WEEKLY_USAGE_UNITS},APP_VERSION=${GITHUB_SHA}" \
+            --quiet
+
+      - name: Verify deployment health
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="$(gcloud run services describe "$CLOUD_RUN_SERVICE" --project="$GCP_PROJECT_ID" --region="$GCP_REGION" --format='value(status.url)')"
+          status="$(curl --fail --silent --show-error --max-time 30 "$url/health" | node -e "let s=''; process.stdin.on('data', d => s += d).on('end', () => process.stdout.write(JSON.parse(s).status))")"
+          test "$status" = ok
+          echo "Cloud Run health: $url/health"
