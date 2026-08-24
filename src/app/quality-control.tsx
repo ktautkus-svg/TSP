@@ -146,12 +146,6 @@ export default function QualityControlScreen() {
     completed: completedRoutes.length,
     not_started: notStartedRoutes.length,
   };
-  const routeSharePercent = (routeCount: number) => visible.length === 0 ? 0 : Math.round((routeCount / visible.length) * 100);
-  const routeFilterPercents: Record<Exclude<RouteFilter, 'all'>, number> = {
-    in_progress: routeSharePercent(inProgressRoutes.length),
-    completed: routeSharePercent(completedRoutes.length),
-    not_started: routeSharePercent(notStartedRoutes.length),
-  };
 
   // Row 2 (taškai/užsakymai): stop-level KPIs, pooled across every stop in
   // the visible routes so one failed stop out of ten reads as 10%, not as
@@ -246,8 +240,8 @@ export default function QualityControlScreen() {
             key={item.key}
             active={filter === item.key}
             label={item.label}
+            mode="count"
             onPress={() => setFilter(item.key)}
-            percent={item.key === 'all' ? null : routeFilterPercents[item.key]}
             styles={styles}
             tone={item.tone}
             value={routeFilterCounts[item.key]}
@@ -258,8 +252,9 @@ export default function QualityControlScreen() {
             key={item.key}
             active={stopFilter === item.key}
             label={item.label}
+            mode={item.key === 'all' ? 'count' : 'percent'}
             onPress={() => setStopFilter((current) => current === item.key ? null : item.key)}
-            percent={item.key === 'all' ? null : stopFilterPercents[item.key]}
+            percent={item.key === 'all' ? undefined : stopFilterPercents[item.key]}
             styles={styles}
             tone={item.tone}
             value={stopFilterCounts[item.key]}
@@ -443,9 +438,9 @@ function RouteSequenceStop({ stop, nextSequence, styles }: { stop: QualityStopMo
   </View>;
 }
 
-function StatusFilter({ active, label, onPress, percent, tone, value, styles }: { active: boolean; label: string; onPress: () => void; percent: number | null; tone: FilterTone; value: number; styles: ReturnType<typeof createStyles> }) {
+function StatusFilter({ active, label, mode, onPress, percent, tone, value, styles }: { active: boolean; label: string; mode: 'count' | 'percent'; onPress: () => void; percent?: number; tone: FilterTone; value: number; styles: ReturnType<typeof createStyles> }) {
   return <Pressable accessibilityRole="tab" accessibilityState={{ selected: active }} onPress={onPress} style={({ pressed }) => [styles.filter, styles[`filterTone_${tone}`], active && styles[`filterActive_${tone}`], pressed && styles.filterPressed]}>
-    <Text style={[styles.filterValue, styles[`filterValueTone_${tone}`], active && styles.filterValueActive]}>{percent === null ? value : `${value} / ${percent}%`}</Text>
+    <Text style={[styles.filterValue, styles[`filterValueTone_${tone}`], active && styles.filterValueActive]}>{mode === 'percent' ? `${percent ?? 0}%` : value}</Text>
     <Text numberOfLines={1} style={[styles.filterLabel, active && styles.filterLabelActive]}>{label}</Text>
   </Pressable>;
 }

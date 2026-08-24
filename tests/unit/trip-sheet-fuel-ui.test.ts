@@ -23,7 +23,7 @@ describe('trip sheet fuel workflow', () => {
     expect(source).toContain('fuel-entry-form-');
     expect(source).toContain('/fuel-entries');
     expect(source).not.toContain('trip-sheet-odometer-entry');
-    expect(source).not.toContain('/api/trip-sheets/day-readings');
+    expect(source).toContain('/api/trip-sheets/day-readings');
     expect(source).not.toContain('ATLYGIS');
     expect(source).toContain('Kasos čekio Nr.');
     expect(source).toContain('Privalomi laukai: litrai ir data');
