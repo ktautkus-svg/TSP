@@ -15,6 +15,7 @@ module.exports = defineConfig([
       'tsp-integration/**',
       'tsp-premium-cockpit/**',
       'experiments/**',
+      '.codex/**',
     ],
   },
   {

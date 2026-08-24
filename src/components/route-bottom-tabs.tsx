@@ -16,9 +16,9 @@ export function RouteBottomTabs(props: RouteBottomTabsProps) {
   const { width } = useWindowDimensions();
   const barWidth = width >= 1100 ? 1120 : width >= 720 ? 760 : 430;
   const tabs = [
-    { key: 'dashboard', label: 'SKYDELIS', onPress: props.onDashboard },
-    { key: 'stops', label: 'STOTELĖS', onPress: props.onStops },
-    { key: 'routes', label: 'MARŠRUTAI', onPress: props.onRoutes },
+    { key: 'dashboard', label: 'Skydelis', onPress: props.onDashboard },
+    { key: 'stops', label: 'Stotelės', onPress: props.onStops },
+    { key: 'routes', label: 'Maršrutai', onPress: props.onRoutes },
   ] as const;
 
   return (
@@ -60,7 +60,7 @@ const styles = StyleSheet.create({
   tabBar: {
     alignSelf: 'center',
     width: '100%',
-    minHeight: 52,
+    minHeight: 56,
     flexShrink: 0,
     paddingBottom: 2,
     borderTopWidth: 1,
@@ -68,8 +68,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     flexDirection: 'row',
   },
-  tabItem: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 2, borderTopWidth: 2, borderTopColor: 'transparent' },
+  tabItem: { flex: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center', gap: 2, borderTopWidth: 2, borderTopColor: 'transparent' },
   tabItemActive: { borderTopColor: colors.primary },
-  tabLabel: { color: colors.textMuted, fontFamily: fonts.headingSemiBold, fontSize: 10, letterSpacing: 0.3 },
+  tabLabel: { color: colors.textMuted, fontFamily: fonts.headingSemiBold, fontSize: 12, letterSpacing: 0.2 },
   tabLabelActive: { color: colors.primary },
 });

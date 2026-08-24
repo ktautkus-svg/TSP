@@ -664,7 +664,7 @@ export default function AdminScreen() {
             {input(newUsername, setNewUsername, 'Prisijungimo vardas')}
             <TextInput autoCapitalize="none" autoComplete="email" keyboardType="email-address" value={newEmail} onChangeText={setNewEmail} placeholder="El. paštas (nebūtina)" placeholderTextColor={colors.textMuted} style={styles.input} />
             <TextInput autoComplete="tel" keyboardType="phone-pad" value={newPhone} onChangeText={setNewPhone} placeholder="Telefonas (nebūtina)" placeholderTextColor={colors.textMuted} style={styles.input} />
-            {input(newPin, (value) => setNewPin(value.replace(/\D/g, '').slice(0, 8)), '4–8 skaitmenų pradinis PIN', true)}
+            {input(newPin, (value) => setNewPin(value.replace(/\D/g, '').slice(0, 8)), '6–8 skaitmenų pradinis PIN', true)}
             {profile.role === 'admin' ? <View style={styles.choiceRow}>{(['driver', 'dispatcher', 'quality'] as EmployeeRole[]).map((role) =>
               <Pressable key={role} onPress={() => setNewRole(role)} style={[styles.choice, newRole === role && styles.choiceActive]}>
                 <Text style={[styles.choiceText, newRole === role && styles.choiceTextActive]}>{roleLabel(role)}</Text>
@@ -1065,7 +1065,7 @@ export default function AdminScreen() {
           <CollapsibleHeader title="Keisti savo PIN" expanded={expandedSection === 'pin'} onPress={() => toggleSection('pin')} styles={styles} />
           {expandedSection === 'pin' ? <>
           {input(currentPin, (value) => setCurrentPin(value.replace(/\D/g, '').slice(0, 8)), 'Dabartinis PIN', true)}
-          {input(nextPin, (value) => setNextPin(value.replace(/\D/g, '').slice(0, 8)), 'Naujas 4–8 skaitmenų PIN', true)}
+          {input(nextPin, (value) => setNextPin(value.replace(/\D/g, '').slice(0, 8)), 'Naujas 6–8 skaitmenų PIN', true)}
           {input(confirmPin, (value) => setConfirmPin(value.replace(/\D/g, '').slice(0, 8)), 'Pakartokite naują PIN', true)}
           <Pressable disabled={busy || !online} style={[styles.primaryButton, (busy || !online) && styles.disabled]} onPress={() => void changePin()}><Text style={styles.primaryText}>Pakeisti PIN</Text></Pressable>
           </> : null}
@@ -1092,7 +1092,7 @@ export default function AdminScreen() {
               <TextInput autoCapitalize="none" autoComplete="email" keyboardType="email-address" value={editEmployeeEmail} onChangeText={setEditEmployeeEmail} placeholder="El. paštas" placeholderTextColor={colors.textMuted} style={styles.input} />
               <TextInput autoComplete="tel" keyboardType="phone-pad" value={editEmployeePhone} onChangeText={setEditEmployeePhone} placeholder="Telefonas" placeholderTextColor={colors.textMuted} style={styles.input} />
               {canManageFinancials && editEmployeeRole === 'driver' ? <View style={styles.listContent} testID="driver-pay-rates">
-                <Text style={styles.sectionLabel}>Atlygis (netto)</Text>
+                <Text style={styles.sectionLabel}>Atlygis (neto)</Text>
                 <View style={styles.choiceRow}>
                   {([['variable', 'Kintantis'], ['fixed', 'Fiksuotas']] as const).map(([value, label]) =>
                     <Pressable accessibilityRole="radio" accessibilityState={{ checked: editPayType === value }} key={value}

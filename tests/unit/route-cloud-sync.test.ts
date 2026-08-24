@@ -127,7 +127,7 @@ describe('route cloud sync — push (upload)', () => {
     expect(pushedDeleted).toBe(true);
   });
 
-  it('adopts the server snapshot instead of retrying a losing push (conflict)', async () => {
+  it('keeps a working local route when the server reports a conflict', async () => {
     await saveEmployeeSession({ profile, expiresAt: '2099-01-01T00:00:00.000Z' });
     const { adapter, db } = createDb();
     insertRoute(adapter, { id: 'route-conflict', status: 'in_progress', totalWeightKg: 100, updatedAt: '2026-08-11T08:00:00.000Z' });
@@ -144,10 +144,36 @@ describe('route cloud sync — push (upload)', () => {
       return Response.json({ routes: [], cursor: '2026-08-11T09:30:00.000Z' });
     });
 
+    const outcome = await syncRoutesWithCloud(db);
+
+    const row = adapter.raw.prepare('SELECT status, total_weight_kg, cloud_synced_at FROM routes WHERE id = ?').get('route-conflict') as { status: string; total_weight_kg: number; cloud_synced_at: string | null };
+    expect(row.status).toBe('in_progress');
+    expect(row.total_weight_kg).toBe(100);
+    expect(row.cloud_synced_at).toBeNull();
+    expect(outcome.conflicts).toBe(1);
+  });
+
+  it('adopts a conflict snapshot when the local copy is not being worked', async () => {
+    await saveEmployeeSession({ profile, expiresAt: '2099-01-01T00:00:00.000Z' });
+    const { adapter, db } = createDb();
+    insertRoute(adapter, { id: 'route-conflict-planned', status: 'planned', totalWeightKg: 100, updatedAt: '2026-08-11T08:00:00.000Z' });
+
+    const serverSnapshot = {
+      route: { id: 'route-conflict-planned', date: '2026-08-11', status: 'planned', total_weight_kg: 250, created_at: '2026-08-11T08:00:00.000Z', updated_at: '2026-08-11T09:00:00.000Z', cloud_synced_at: null, cloud_deleted_at: null },
+      stops: [{ id: 'route-conflict-planned-stop-1', route_id: 'route-conflict-planned', original_order: 1, recipient: 'Gavėjas', address: 'Adresas 1', created_at: '2026-08-11T08:00:00.000Z', updated_at: '2026-08-11T09:00:00.000Z' }],
+      shipmentLines: [],
+    };
+    stubFetch(async (_url, init) => {
+      if (init?.method === 'POST') {
+        return Response.json({ results: [{ routeId: 'route-conflict-planned', outcome: 'conflict', routeSnapshot: serverSnapshot, deleted: false }] });
+      }
+      return Response.json({ routes: [], cursor: '2026-08-11T09:30:00.000Z' });
+    });
+
     await syncRoutesWithCloud(db);
 
-    const row = adapter.raw.prepare('SELECT status, total_weight_kg, cloud_synced_at FROM routes WHERE id = ?').get('route-conflict') as { status: string; total_weight_kg: number; cloud_synced_at: string };
-    expect(row.status).toBe('completed');
+    const row = adapter.raw.prepare('SELECT status, total_weight_kg, cloud_synced_at FROM routes WHERE id = ?').get('route-conflict-planned') as { status: string; total_weight_kg: number; cloud_synced_at: string };
+    expect(row.status).toBe('planned');
     expect(row.total_weight_kg).toBe(250);
     expect(row.cloud_synced_at).toBe('2026-08-11T09:00:00.000Z');
   });
@@ -243,6 +269,27 @@ describe('route cloud sync — pull (second device download)', () => {
     const stops = adapter.raw.prepare('SELECT * FROM delivery_stops WHERE route_id = ?').all('route-idempotent');
     expect(routes).toHaveLength(1);
     expect(stops).toHaveLength(1);
+  });
+
+  it('defers pulling a completed snapshot over a local working copy of the same route', async () => {
+    await saveEmployeeSession({ profile, expiresAt: '2099-01-01T00:00:00.000Z' });
+    const { adapter, db } = createDb();
+    insertRoute(adapter, { id: 'route-live', status: 'in_progress', updatedAt: '2026-08-11T08:00:00.000Z' });
+
+    const remoteSnapshot = {
+      route: { id: 'route-live', date: '2026-08-11', status: 'completed', created_at: '2026-08-11T07:00:00.000Z', updated_at: '2026-08-11T09:00:00.000Z' },
+      stops: [{ id: 'route-live-stop-1', route_id: 'route-live', original_order: 1, recipient: 'Gavėjas', address: 'Adresas', created_at: '2026-08-11T07:00:00.000Z', updated_at: '2026-08-11T09:00:00.000Z' }],
+      shipmentLines: [],
+    };
+    stubFetch(async (_url, init) => {
+      if (init?.method === 'POST') return Response.json({ results: [] });
+      return Response.json({ routes: [{ routeSnapshot: remoteSnapshot, deleted: false, serverUpdatedAt: '2026-08-11T09:00:01.000Z' }], cursor: '2026-08-11T09:00:01.000Z' });
+    });
+
+    const outcome = await syncRoutesWithCloud(db);
+    const row = adapter.raw.prepare('SELECT status FROM routes WHERE id = ?').get('route-live') as { status: string };
+    expect(row.status).toBe('in_progress');
+    expect(outcome.deferred).toBe(1);
   });
 
   it('defers a pulled non-terminal route when this device already has a different active route', async () => {
@@ -354,6 +401,36 @@ describe('route cloud sync — event-driven multi-device workflow', () => {
         delivery_status: 'delivered',
         delivered_at: '2026-08-11T10:00:00.000Z',
       });
+  });
+
+  it('defers a completed cloud copy over a live local route', async () => {
+    await saveEmployeeSession({ profile, expiresAt: '2099-01-01T00:00:00.000Z' });
+    const { adapter, db } = createDb();
+    insertRoute(adapter, {
+      id: 'route-live',
+      status: 'in_progress',
+      updatedAt: '2026-08-11T08:00:00.000Z',
+      cloudSyncedAt: '2026-08-11T08:00:00.000Z',
+    });
+
+    const completedSnapshot = {
+      route: { id: 'route-live', date: '2026-08-11', status: 'completed', total_weight_kg: 100, created_at: '2026-08-11T08:00:00.000Z', updated_at: '2026-08-11T11:00:00.000Z' },
+      stops: [{ id: 'route-live-stop-1', route_id: 'route-live', original_order: 1, recipient: 'Gavėjas', address: 'Adresas 1', delivery_status: 'delivered', created_at: '2026-08-11T08:00:00.000Z', updated_at: '2026-08-11T11:00:00.000Z' }],
+      shipmentLines: [],
+    };
+    stubFetch(async (_url, init) => {
+      if (init?.method === 'POST') return Response.json({ results: [] });
+      return Response.json({
+        routes: [{ routeSnapshot: completedSnapshot, deleted: false, serverUpdatedAt: '2026-08-11T11:00:01.000Z' }],
+        cursor: '2026-08-11T11:00:01.000Z',
+      });
+    });
+
+    const outcome = await syncRoutesWithCloud(db);
+    expect(outcome.deferred).toBe(1);
+    expect(adapter.raw.prepare('SELECT status FROM routes WHERE id = ?').get('route-live')).toMatchObject({ status: 'in_progress' });
+    expect(adapter.raw.prepare('SELECT last_reason FROM route_sync_deferrals WHERE route_id = ?').get('route-live'))
+      .toMatchObject({ last_reason: 'LOCAL_ROUTE_WORKING' });
   });
 
   it('keeps an offline delivery mutation local, then pushes it after reconnect', async () => {

@@ -606,7 +606,7 @@ function EarningsTab({ styles, colors, current, previous, routeCount, totalKm, d
   const perKm = totalKm === 0 ? null : current.totalEur / totalKm;
   return (
     <>
-      <BigNumber value={`${formatDecimal(current.totalEur)} €`} label="Pasirinktu laikotarpiu, netto" comparisonPercent={percentChange(current.totalEur, previous.totalEur)} styles={styles} />
+      <BigNumber value={`${formatDecimal(current.totalEur)} €`} label="Pasirinktu laikotarpiu, neto" comparisonPercent={percentChange(current.totalEur, previous.totalEur)} styles={styles} />
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Atlygis {current.series.granularity === 'day' ? 'per dieną' : 'per mėnesį'}</Text>
         <StatBarChart colors={colors} color={colors.success} data={current.series.points.map((point) => ({ label: current.series.granularity === 'day' ? shortDayLabel(point.key) : shortMonthLabel(point.key), value: point.eur }))} valueFormatter={(value) => `${value.toFixed(0)} €`} />

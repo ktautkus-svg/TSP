@@ -39,6 +39,7 @@ export const MANAGEMENT_PERMISSION_KEYS = [
   'canManageFinancials',
   'canEnterTripReadings',
   'canViewAllStatistics',
+  'canEditTripSheets',
 ] as const;
 export type ManagementPermissionKey = (typeof MANAGEMENT_PERMISSION_KEYS)[number];
 export type ManagementPermissions = Record<ManagementPermissionKey, boolean>;
@@ -78,7 +79,7 @@ export const DRIVER_PERMISSION_LABELS: Record<DriverPermissionKey, { title: stri
   },
   canViewCompensation: {
     title: 'Matyti atlygio skaičiavimą',
-    description: 'Vairuotojas kelionės lape ir maršruto suvestinėje mato preliminarų bei galutinį dienos netto atlygį.',
+    description: 'Vairuotojas kelionės lape ir maršruto suvestinėje mato preliminarų bei galutinį dienos neto atlygį.',
   },
   canEnterTripReadings: {
     title: 'Įvesti odometrą ir kurą',
@@ -92,6 +93,7 @@ export const DEFAULT_MANAGEMENT_PERMISSIONS: ManagementPermissions = {
   canManageFinancials: false,
   canEnterTripReadings: false,
   canViewAllStatistics: false,
+  canEditTripSheets: false,
 };
 
 export function normalizeDriverPermissions(value?: Partial<DriverPermissions> | null): DriverPermissions {
@@ -121,6 +123,10 @@ export const MANAGEMENT_PERMISSION_LABELS: Record<ManagementPermissionKey, { tit
   canViewAllStatistics: {
     title: 'Matyti visų vairuotojų statistiką',
     description: 'Dispečeris statistikos ekrane mato visus vairuotojus ir automobilius, o ne tik savo.',
+  },
+  canEditTripSheets: {
+    title: 'Taisyti kelionės lapus',
+    description: 'Dispečeris gali koreguoti jau išsaugotų kelionės lapų duomenis.',
   },
 };
 

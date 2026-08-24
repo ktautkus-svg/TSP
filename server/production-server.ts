@@ -3,7 +3,7 @@ import { createReadStream, existsSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { createServer, request as httpRequest, type IncomingMessage, type ServerResponse } from 'node:http';
 import { extname, join, normalize, resolve } from 'node:path';
-import { authenticateApiRequest, handleEmployeeApi } from './employee-api.js';
+import { authenticateApiRequest, handleEmployeeApi, requireProductionAdminPin } from './employee-api.js';
 import { EmployeeApiError } from './employee-auth-store.js';
 
 const publicPort = numberFromEnv('PORT', 8080);
@@ -18,6 +18,7 @@ process.env.GATEWAY_PORT = String(internalGatewayPort);
 process.env.GATEWAY_ALLOWED_ORIGIN = '';
 
 async function start(): Promise<void> {
+  requireProductionAdminPin();
   const server = createServer(async (request, response) => {
     const requestId = header(request, 'x-request-id') ?? randomUUID();
     response.setHeader('x-request-id', requestId);
@@ -152,7 +153,17 @@ function forwardedHeaders(request: IncomingMessage, requestId: string): Record<s
     const value = header(request, name);
     if (value) result[name] = value;
   }
+  result['x-tsp-rate-limit-key'] = rateLimitKey(request);
   return result;
+}
+
+function rateLimitKey(request: IncomingMessage): string {
+  const cookie = header(request, 'cookie') ?? '';
+  const session = cookie.split(';').map((part) => part.trim()).find((part) => part.startsWith('tsp_session='));
+  if (session) return `session:${session.slice('tsp_session='.length, 'tsp_session='.length + 24)}`;
+  const forwarded = header(request, 'x-forwarded-for')?.split(',')[0]?.trim();
+  if (forwarded) return `ip:${forwarded}`;
+  return `ip:${request.socket.remoteAddress ?? 'unknown'}`;
 }
 
 async function serveApplication(pathname: string, response: ServerResponse, headOnly: boolean): Promise<void> {

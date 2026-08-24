@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { describe, expect, it } from 'vitest';
 
-import { LocalAccessService, validatePin, validateUsername } from '../../src/application/auth/local-access';
+import { LocalAccessService, validateNewPin, validatePin, validateUsername } from '../../src/application/auth/local-access';
 
 class ExpoLikeDatabase {
   readonly raw = new DatabaseSync(':memory:');
@@ -22,27 +22,29 @@ describe('local owner access', () => {
     expect(() => validatePin('12a4')).toThrow();
     expect(() => validatePin('123')).toThrow();
     expect(() => validatePin('1234')).not.toThrow();
+    expect(() => validateNewPin('1234')).toThrow();
+    expect(() => validateNewPin('123456')).not.toThrow();
   });
 
   it('stores only a salted hash, verifies access and changes PIN', async () => {
     const adapter = new ExpoLikeDatabase();
     const service = new LocalAccessService(adapter as unknown as SQLiteDatabase);
-    await service.configure('Karolis', '2580');
-    expect(await service.verify('karolis', '2580')).toBe(true);
-    expect(await service.verify('karolis', '0000')).toBe(false);
+    await service.configure('Karolis', '258025');
+    expect(await service.verify('karolis', '258025')).toBe(true);
+    expect(await service.verify('karolis', '000000')).toBe(false);
     const stored = adapter.raw.prepare('SELECT value FROM app_preferences').all().map((row) => String(row.value));
-    expect(stored).not.toContain('2580');
-    await service.changePin('2580', '7412');
-    expect(await service.verify('karolis', '2580')).toBe(false);
-    expect(await service.verify('karolis', '7412')).toBe(true);
+    expect(stored).not.toContain('258025');
+    await service.changePin('258025', '741258');
+    expect(await service.verify('karolis', '258025')).toBe(false);
+    expect(await service.verify('karolis', '741258')).toBe(true);
   });
 
   it('replaces an old local device lock after a successful server login', async () => {
     const adapter = new ExpoLikeDatabase();
     const service = new LocalAccessService(adapter as unknown as SQLiteDatabase);
-    await service.configure('senas-vartotojas', '2580');
+    await service.configure('senas-vartotojas', '258025');
     await service.syncServerCredentials('naujas-vairuotojas', '654321');
-    expect(await service.verify('senas-vartotojas', '2580')).toBe(false);
+    expect(await service.verify('senas-vartotojas', '258025')).toBe(false);
     expect(await service.verify('naujas-vairuotojas', '654321')).toBe(true);
   });
 });

@@ -110,7 +110,7 @@ export const server = createServer(async (request, response) => {
     ) {
       return json(response, 404, { error: { code: 'NOT_FOUND' } });
     }
-    const client = request.socket.remoteAddress ?? 'unknown';
+    const client = header(request, 'x-tsp-rate-limit-key') ?? request.socket.remoteAddress ?? 'unknown';
     const endpoint = request.url;
     if (endpoint === '/v1/device/check' && !deviceConnectionLimiter.consume(client)) {
       throw new GatewayError(

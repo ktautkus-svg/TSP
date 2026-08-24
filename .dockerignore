@@ -24,4 +24,5 @@ experiments
 sdk54-phone
 ios
 android
+tsp-*/
 npm-debug.log*

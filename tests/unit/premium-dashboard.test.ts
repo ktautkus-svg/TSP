@@ -107,7 +107,8 @@ describe('premium route dashboard', () => {
     expect(delivery).toContain('completed={Boolean(route?.returnArrivedAt)}');
     expect(delivery).toContain('Visi pristatymai užbaigti');
     expect(delivery).toContain('styles.gaugeCenterStats');
-    expect(delivery).toContain('IKI ARTIMIAUSIOS');
+    expect(delivery).toContain('IKI KM');
+    expect(delivery).toContain('IKI MIN');
     expect(delivery).toContain('NAVIGUOTI');
     expect(delivery).toContain('void navigate(nextStop)');
     expect(delivery).toContain('dashboard-stop-heading');

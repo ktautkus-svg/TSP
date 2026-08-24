@@ -6,10 +6,7 @@ import { RoutingEngine } from '@/application/routing/routing-engine';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import type { CandidateLeg, CandidateStopSchedule, RouteOptimizationRequest } from '@/domain/routing/models';
 import { SQLiteRoutingAuditRepository } from '@/infrastructure/routing/persistence/sqlite-routing-audit-repository';
-import { FallbackTravelCostProvider } from '@/infrastructure/routing/providers/fallback-travel-cost-provider';
-import { GoogleTravelCostProvider, HereTravelCostProvider } from '@/infrastructure/routing/providers/gateway-travel-cost-provider';
-import { PlanningRunTravelCostProvider } from '@/infrastructure/routing/providers/planning-run-travel-cost-provider';
-import { SyntheticTravelCostProvider } from '@/infrastructure/routing/providers/synthetic-travel-cost-provider';
+import { createPlanningTravelProvider } from '@/application/routing/planning-travel-provider';
 import { persistCandidateEtas, RefreshRouteEtas } from './route-eta';
 
 export type RouteRecalculationProposal = {
@@ -90,12 +87,7 @@ export class ProposeRemainingRouteRecalculation {
     };
     // Same rule mid-route as when planning: one recalculation buys one matrix,
     // and repeated taps on "recalculate" cannot each start their own.
-    const selectedProvider = process.env.EXPO_PUBLIC_ROUTING_PROVIDER === 'here'
-      ? new HereTravelCostProvider()
-      : new GoogleTravelCostProvider();
-    const provider = new PlanningRunTravelCostProvider(
-      new FallbackTravelCostProvider([selectedProvider, new SyntheticTravelCostProvider('linear')]),
-    );
+    const provider = createPlanningTravelProvider();
     const result = await new RoutingEngine(provider).optimize(request);
     const next = result.recommended;
     if (!next) throw new Error('Naujas įvykdomas variantas nerastas. Esama seka nekeičiama.');

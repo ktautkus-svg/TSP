@@ -19,10 +19,26 @@ const store = new EmployeeAuthStore();
 const routeSyncStore = new RouteSyncStore();
 const bootstrapNonces = new GatewayNonceRegistry();
 const loginAttempts = new Map<string, number[]>();
-const initialAdminPin = process.env.TSP_INITIAL_ADMIN_PIN?.trim() || '12345';
 let legacyAdminMigration: Promise<void> | null = null;
 
+const TRIVIAL_ADMIN_PINS = new Set(['12345', '123456', '000000', '111111']);
+
+export function requireProductionAdminPin(): void {
+  if (process.env.GATEWAY_ENV !== 'production') return;
+  const pin = process.env.TSP_INITIAL_ADMIN_PIN?.trim() ?? '';
+  if (!pin) return;
+  if (!/^\d{6,8}$/.test(pin) || TRIVIAL_ADMIN_PINS.has(pin) || /^(\d)\1+$/.test(pin)) {
+    throw new Error('TSP_INITIAL_ADMIN_PIN turi būti 6–8 skaitmenys ir ne trivialus kodas.');
+  }
+}
+
+function resolveInitialAdminPin(): string {
+  return process.env.TSP_INITIAL_ADMIN_PIN?.trim() ?? '';
+}
+
 function ensureLegacyAdminMigrated(): Promise<void> {
+  const initialAdminPin = resolveInitialAdminPin();
+  if (!initialAdminPin) return Promise.resolve();
   if (!legacyAdminMigration) {
     legacyAdminMigration = store.migrateLegacyAdmin({
       fromUsername: 'admln',
@@ -55,6 +71,10 @@ export async function handleEmployeeApi(
       verifyBootstrapSignature(request, rawBody);
       const body = parseObject(rawBody);
       const pin = stringField(body, 'pin');
+      const initialAdminPin = resolveInitialAdminPin();
+      if (!initialAdminPin) {
+        throw new EmployeeApiError('INITIAL_PIN_UNSET', 'Serveris neturi pradinio administratoriaus PIN. Nustatykite TSP_INITIAL_ADMIN_PIN.', 503);
+      }
       if (pin !== initialAdminPin) {
         throw new EmployeeApiError('INVALID_INITIAL_PIN', 'Neteisingas pradinis administratoriaus PIN.', 400);
       }
@@ -559,7 +579,7 @@ function requireRole(profile: EmployeeProfile, roles: EmployeeRole[]): void {
   if (!roles.includes(profile.role)) throw new EmployeeApiError('FORBIDDEN', 'Šiam veiksmui neturite teisės.', 403);
 }
 
-function requireManagementPermission(profile: EmployeeProfile, permission: 'canManageEmployees' | 'canManageVehicles' | 'canManageFinancials'): void {
+function requireManagementPermission(profile: EmployeeProfile, permission: 'canManageEmployees' | 'canManageVehicles' | 'canManageFinancials' | 'canEditTripSheets'): void {
   if (profile.role === 'admin') return;
   if (profile.role === 'dispatcher' && profile.permissions[permission]) return;
   throw new EmployeeApiError('FORBIDDEN', 'Šiam veiksmui neturite suteiktos teisės.', 403);

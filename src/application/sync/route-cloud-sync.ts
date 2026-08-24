@@ -183,6 +183,17 @@ async function pushDirtyRoutes(db: SQLiteDatabase, employeeId: string): Promise<
       }
       pushed += 1;
     } else if (result.outcome === 'conflict') {
+      const local = await db.getFirstAsync<{ status: string }>(
+        'SELECT status FROM routes WHERE id = ?',
+        result.routeId,
+      );
+      // A route that is physically being worked must not be replaced by a
+      // later completed/deleted snapshot from another device. Leave it dirty
+      // so the next push after the workday can still compete on LWW.
+      if (local && WORKING_STATUSES.includes(local.status)) {
+        conflicts += 1;
+        continue;
+      }
       // The server's write already won (later update or a terminal route);
       // adopt its copy locally instead of retrying a losing push.
       if (result.deleted) {
@@ -269,7 +280,7 @@ async function applyPulledRoute(db: SQLiteDatabase, employeeId: string, pulledRo
       await clearDeferral(db, employeeId, routeId);
       return 'skipped';
     }
-    if (existing.status === 'in_progress') {
+    if (WORKING_STATUSES.includes(existing.status)) {
       // Never delete work that is physically happening right now; retry once
       // the route is no longer being driven.
       await deferRoute(db, employeeId, pulledRoute, 'ROUTE_IN_PROGRESS');
@@ -281,6 +292,7 @@ async function applyPulledRoute(db: SQLiteDatabase, employeeId: string, pulledRo
   }
 
   const incomingUpdatedAt = String(pulledRoute.routeSnapshot.route.updated_at ?? '');
+  const incomingStatus = String(pulledRoute.routeSnapshot.route.status ?? '');
 
   // The local copy is newer: it wins by the same latest-write-wins rule the
   // server applies, and it is still dirty, so the next push carries it up.
@@ -290,7 +302,13 @@ async function applyPulledRoute(db: SQLiteDatabase, employeeId: string, pulledRo
     return 'skipped';
   }
 
-  const incomingStatus = String(pulledRoute.routeSnapshot.route.status ?? '');
+  // Keep a physically worked route. Same-status progress from another device
+  // (Device B delivered a stop) must still apply; only a status drop to
+  // planned/completed/cancelled is postponed until this device is done.
+  if (existing && WORKING_STATUSES.includes(existing.status) && !WORKING_STATUSES.includes(incomingStatus)) {
+    await deferRoute(db, employeeId, pulledRoute, 'LOCAL_ROUTE_WORKING');
+    return 'deferred';
+  }
   if (!existing && WORKING_STATUSES.includes(incomingStatus)) {
     const active = await db.getFirstAsync<{ id: string }>(
       "SELECT id FROM routes WHERE status IN ('loading','loaded','in_progress') LIMIT 1",

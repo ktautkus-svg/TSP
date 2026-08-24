@@ -5,6 +5,7 @@ export type RouteCloudSyncAttention = {
   foreign: number;
   rejected: number;
   deferred: number;
+  conflicts: number;
 };
 
 export type RouteCloudSyncState = {
@@ -146,8 +147,9 @@ export function attentionFrom(outcome: unknown): RouteCloudSyncAttention | null 
     foreign: positiveCount(counts.foreign),
     rejected: positiveCount(counts.rejected),
     deferred: positiveCount(counts.deferred),
+    conflicts: positiveCount(counts.conflicts),
   };
-  const total = attention.foreign + attention.rejected + attention.deferred;
+  const total = attention.foreign + attention.rejected + attention.deferred + attention.conflicts;
   return total > 0 ? attention : null;
 }
 
@@ -166,6 +168,9 @@ export function describeAttention(attention: RouteCloudSyncAttention): string {
   }
   if (attention.deferred > 0) {
     reasons.push('Dalis gautų duomenų bus pritaikyta vėliau — dabar vykdomas kitas maršrutas.');
+  }
+  if (attention.conflicts > 0) {
+    reasons.push('Kito įrenginio duomenys nesutampa su vykdomu maršrutu. Šis maršrutas paliktas įrenginyje ir nebuvo perrašytas.');
   }
   return reasons.join('\n\n');
 }

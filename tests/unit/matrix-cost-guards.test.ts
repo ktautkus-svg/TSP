@@ -308,9 +308,11 @@ describe('D2 · realios HTTP užklausos, ne tik loginis kvietimas', () => {
 describe('E · eismas tik galutiniam maršrutui', () => {
   it('planavimo ekranas naudoja vienos eigos tiekėją', () => {
     const screen = readFileSync(resolve(__dirname, '../../src/app/route/[id]/alternatives.tsx'), 'utf8');
-    expect(screen).toContain('PlanningRunTravelCostProvider');
+    expect(screen).toContain('createPlanningTravelProvider');
     const recalculation = readFileSync(resolve(__dirname, '../../src/application/routes/route-recalculation.ts'), 'utf8');
-    expect(recalculation).toContain('PlanningRunTravelCostProvider');
+    expect(recalculation).toContain('createPlanningTravelProvider');
+    const factory = readFileSync(resolve(__dirname, '../../src/application/routing/planning-travel-provider.ts'), 'utf8');
+    expect(factory).toContain('PlanningRunTravelCostProvider');
   });
 
   it('polyline tiekėjas eismą vis dar naudoja - tik pasirinktam maršrutui', () => {

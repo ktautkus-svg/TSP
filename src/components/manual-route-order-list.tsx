@@ -168,7 +168,7 @@ const styles = StyleSheet.create({
   address: { flex: 1, minWidth: 0, fontSize: 12, lineHeight: 16 },
   weight: { flexShrink: 0, fontSize: 12, lineHeight: 16 },
   stepperColumn: { gap: 3, paddingVertical: 4 },
-  stepper: { width: 40, height: 26, borderWidth: 1, borderRadius: 7, alignItems: 'center', justifyContent: 'center' },
+  stepper: { minWidth: 44, minHeight: 44, borderWidth: 1, borderRadius: 7, alignItems: 'center', justifyContent: 'center' },
   stepperDisabled: { opacity: 0.3 },
   stepperText: { fontSize: 12, fontWeight: '900' },
   dragHandle: {

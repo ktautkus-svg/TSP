@@ -95,6 +95,7 @@ jobs:
             GOOGLE_MAPS_API_KEY
             GOOGLE_VISION_API_KEY
             HERE_API_KEY
+            TSP_INITIAL_ADMIN_PIN
           )
           PAIRS=()
           for name in "${SECRET_NAMES[@]}"; do

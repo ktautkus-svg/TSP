@@ -50,7 +50,7 @@ describe('administrator workspace navigation', () => {
     expect(stackNavigation).toContain('router.replace(navigation.homeTarget)');
     expect(stackNavigation).toContain('roleHomePath(profile.role)');
     expect(roleHome).toContain("if (role === 'dispatcher') return '/dispatcher'");
-    expect(roleHome).toContain("if (role === 'driver') return '/history'");
+    expect(roleHome).toContain("if (role === 'driver') return '/'");
     expect(routes).not.toContain('routes-back-home');
   });
 

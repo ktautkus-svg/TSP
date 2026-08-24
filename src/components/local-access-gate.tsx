@@ -65,8 +65,8 @@ export function LocalAccessGate({ children }: LocalAccessGateProps) {
       try { cachedSession = await refreshEmployeeSession(); } catch { /* Offline or expired server session: keep the explicit local session. */ }
     }
     setConfigured(configuration.configured);
-    setUsername(cachedSession?.profile.username ?? configuration.username ?? (initialized === false ? 'sensejus' : ''));
-    setDisplayName(cachedSession?.profile.displayName ?? (initialized === false ? 'Sensejus' : ''));
+    setUsername(cachedSession?.profile.username ?? configuration.username ?? '');
+    setDisplayName(cachedSession?.profile.displayName ?? '');
     setProfile(cachedSession?.profile ?? null);
     setUnlocked(Boolean(cachedSession));
     setOnline(Boolean(cachedSession && initialized !== null));
@@ -163,7 +163,7 @@ export function LocalAccessGate({ children }: LocalAccessGateProps) {
         </View>
         <View style={[styles.card, !bootstrap && styles.loginCard, bootstrap && styles.bootstrapCard]}>
           {bootstrap ? <Text style={styles.title}>Aktyvuoti administratorių</Text> : null}
-          {bootstrap ? <Text style={styles.helper}>Aktyvuokite administratoriaus paskyrą „Sensejus“. Pradinį 4–8 skaitmenų PIN vėliau galėsite pakeisti nustatymuose.</Text> : null}
+          {bootstrap ? <Text style={styles.helper}>Sukurkite pirmą administratoriaus paskyrą. Pradinis PIN turi sutapti su serverio TSP_INITIAL_ADMIN_PIN (6–8 skaitmenys) ir vėliau galėsite jį pakeisti nustatymuose.</Text> : null}
           {bootstrap ? <TextInput
             value={displayName}
             onChangeText={setDisplayName}

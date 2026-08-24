@@ -127,15 +127,22 @@ describe('cloud sync status reflects unresolved work', () => {
   it('ignores an outcome that carries no counts at all', () => {
     expect(attentionFrom(undefined)).toBeNull();
     expect(attentionFrom({})).toBeNull();
-    expect(attentionFrom({ foreign: 0, rejected: 0, deferred: 0 })).toBeNull();
+    expect(attentionFrom({ foreign: 0, rejected: 0, deferred: 0, conflicts: 0 })).toBeNull();
+  });
+
+  it('reports a working-route conflict as needing attention', async () => {
+    const state = await passWith({ ...cleanPass, conflicts: 1 });
+    expect(state.status).toBe('attention');
+    expect(state.attention).toMatchObject({ conflicts: 1 });
   });
 
   it('explains each reason in plain language, without counts or internal wording', () => {
-    const detail = describeAttention({ foreign: 2, rejected: 1, deferred: 1 });
+    const detail = describeAttention({ foreign: 2, rejected: 1, deferred: 1, conflicts: 1 });
     expect(detail).toContain('sukurtų su kita paskyra');
     expect(detail).toContain('išsiųsti nepavyko');
     expect(detail).toContain('bus pritaikyta vėliau');
-    expect(detail).not.toMatch(/foreign|rejected|deferred|tombstone|cursor/i);
+    expect(detail).toContain('nebuvo perrašytas');
+    expect(detail).not.toMatch(/foreign|rejected|deferred|tombstone|cursor|conflicts/i);
   });
 });
 

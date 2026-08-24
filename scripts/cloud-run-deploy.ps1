@@ -79,7 +79,7 @@ function Set-Secret([string]$name, [string]$value) {
   }
 }
 
-$apiKeys = @('GOOGLE_ROUTES_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_GEOCODING_API_KEY', 'GOOGLE_MAPS_API_KEY', 'GOOGLE_VISION_API_KEY', 'HERE_API_KEY')
+$apiKeys = @('GOOGLE_ROUTES_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_GEOCODING_API_KEY', 'GOOGLE_MAPS_API_KEY', 'GOOGLE_VISION_API_KEY', 'HERE_API_KEY', 'TSP_INITIAL_ADMIN_PIN')
 $allSecrets = [System.Collections.Generic.List[string]]::new()
 $allSecrets.Add('GATEWAY_DEVICE_SECRET')
 Set-Secret 'GATEWAY_DEVICE_SECRET' $deviceSecret

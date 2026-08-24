@@ -43,7 +43,7 @@ function useLogicalStackNavigation(explicitFallback?: Href) {
   const params = useGlobalSearchParams<{ id?: string | string[]; mode?: string | string[]; returnTo?: string | string[] }>();
   const { profile } = useLocalAccess();
   const homeTarget = roleHomePath(profile.role);
-  const driverPrimary = profile.role === 'driver' && ['/history', '/statistics', '/settings'].includes(pathname);
+  const driverPrimary = profile.role === 'driver' && ['/', '/history', '/statistics', '/settings'].includes(pathname);
   const roleRoot = pathname === homeTarget;
   const backTarget = explicitFallback ?? returnTarget(params.returnTo) ?? logicalParent(pathname, firstParam(params.id), firstParam(params.mode), homeTarget);
   return {

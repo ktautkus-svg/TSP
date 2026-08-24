@@ -24,12 +24,10 @@ import { RouteRepository } from '@/database/repositories/route-repository';
 import { evaluateCandidate } from '@/domain/routing/evaluation/candidate-evaluator';
 import type { OptimizationStop, RouteCandidate, RouteOptimizationRequest, RouteOptimizationResult, RoutePolylineResult, TravelCostProvider, TravelMatrix } from '@/domain/routing/models';
 import { SQLiteRoutingAuditRepository } from '@/infrastructure/routing/persistence/sqlite-routing-audit-repository';
-import { FallbackTravelCostProvider } from '@/infrastructure/routing/providers/fallback-travel-cost-provider';
+import { createPlanningTravelProvider } from '@/application/routing/planning-travel-provider';
 import { GatewayPolylineProvider } from '@/infrastructure/routing/providers/gateway-polyline-provider';
-import { GoogleTravelCostProvider, HereTravelCostProvider } from '@/infrastructure/routing/providers/gateway-travel-cost-provider';
-import { PlanningRunTravelCostProvider } from '@/infrastructure/routing/providers/planning-run-travel-cost-provider';
-import { SyntheticTravelCostProvider } from '@/infrastructure/routing/providers/synthetic-travel-cost-provider';
 import { Alert } from '@/ui/alert';
+import { presentRoutingDataSource } from '@/ui/routing-data-source';
 import { devWarn } from '@/ui/dev-log';
 import { clockLabel, durationLabel } from '@/ui/route-eta-labels';
 import { useTheme } from '@/ui/theme';
@@ -52,6 +50,7 @@ export default function RouteAlternativesScreen() {
   const [polylineError, setPolylineError] = useState<string | null>(null);
   const [showPolyline, setShowPolyline] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [allowSynthetic, setAllowSynthetic] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [expandedCandidateId, setExpandedCandidateId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -92,7 +91,7 @@ export default function RouteAlternativesScreen() {
         return;
       }
       const nextRequest = buildOptimizationRequestFromRoute(persisted.route, persisted.stops);
-      const provider = createTravelProvider();
+      const provider = createPlanningTravelProvider({ allowSynthetic });
       const four = await buildRouteAlternatives(new RoutingEngine(provider), nextRequest);
       await new SQLiteRoutingAuditRepository(db).saveOptimizationRun(routeId, four.request, four.result);
       setRequest(four.request);
@@ -102,7 +101,7 @@ export default function RouteAlternativesScreen() {
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Nepavyko apskaičiuoti maršruto.');
     }
-  }, [db, repository, routeId, router]);
+  }, [allowSynthetic, db, repository, routeId, router]);
 
   useEffect(() => {
     void calculate();
@@ -509,6 +508,18 @@ export default function RouteAlternativesScreen() {
             onPress={() => router.replace(roleHomePath(profile.role) as Href)}>
             <Text style={[styles.primaryText, { color: colors.primary }]}>Atverti pradžios ekraną</Text>
           </Pressable>
+          {!allowSynthetic ? (
+            <Pressable
+              style={[styles.primaryButton, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.warning }]}
+              testID="retry-planning-synthetic"
+              onPress={() => {
+                startedForRoute.current = null;
+                setAllowSynthetic(true);
+                setError(null);
+              }}>
+              <Text style={[styles.primaryText, { color: colors.warning }]}>Planuoti su sintetiniais duomenimis</Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
       {candidates.length > 0 ? (
@@ -671,13 +682,28 @@ export default function RouteAlternativesScreen() {
           ) : <Text style={styles.description}>Žemėlapis bus rodomas, kai taškai turės koordinates.</Text>}
         </View>
       ) : null}
-      {result && result.executionMode !== 'real' ? (
+      {result && result.executionMode === 'synthetic' ? (
         <View style={styles.errorCard}>
-          <Text style={styles.error}>⚠️ Maršrutas suplanuotas be realių kelių duomenų</Text>
+          <Text style={styles.error}>{presentRoutingDataSource({
+            provider: result.provider,
+            executionMode: result.executionMode,
+            trafficMode: result.matrix.trafficMode,
+          }).title}</Text>
           <Text style={styles.description}>
-            Nepavyko pasiekti Google ir HERE, todėl atstumai apskaičiuoti tiesiomis linijomis — be upių,
-            vienpusių gatvių ir greitkelių. Eiliškumas gali būti netikslus. Patikrinkite ryšį ir
-            perskaičiuokite prieš išvažiuodami.
+            Atstumai apskaičiuoti tiesiomis linijomis — be upių, vienpusių gatvių ir greitkelių.
+            Eiliškumas gali būti netikslus. Patikrinkite ryšį ir perskaičiuokite prieš išvažiuodami.
+          </Text>
+        </View>
+      ) : null}
+      {result && result.executionMode === 'cache' ? (
+        <View style={styles.warningCard}>
+          <Text style={styles.warningTitle}>{presentRoutingDataSource({
+            provider: result.provider,
+            executionMode: result.executionMode,
+            trafficMode: result.matrix.trafficMode,
+          }).title}</Text>
+          <Text style={styles.description}>
+            Naudojami anksčiau gauti realūs kelių duomenys. Jie gali būti senesni už dabartinį eismą.
           </Text>
         </View>
       ) : null}
@@ -860,27 +886,4 @@ function reuseTravelMatrix(matrix: TravelMatrix): TravelCostProvider {
     name: matrix.provider || 'reused-matrix',
     getMatrix: async () => matrix,
   };
-}
-
-/**
- * One planning run, one paid matrix.
- *
- * PlanningRunTravelCostProvider must wrap the fallback chain, not sit inside it:
- * buildRouteAlternatives runs the engine twice and both runs have to land on the
- * same purchase. Wrapped this way they share a single in-flight request, and
- * duplicate delivery addresses are collapsed before Google ever sees them.
- *
- * A fresh instance per planning action is deliberate - nothing about the matrix
- * outlives the run that paid for it.
- */
-function createTravelProvider() {
-  const selectedProvider = process.env.EXPO_PUBLIC_ROUTING_PROVIDER === 'here'
-    ? new HereTravelCostProvider()
-    : new GoogleTravelCostProvider();
-  return new PlanningRunTravelCostProvider(
-    new FallbackTravelCostProvider([
-      selectedProvider,
-      new SyntheticTravelCostProvider('linear'),
-    ]),
-  );
 }

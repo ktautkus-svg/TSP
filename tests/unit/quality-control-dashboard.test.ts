@@ -12,6 +12,7 @@ const deliverySource = readFileSync(resolve(root, 'src/app/route/[id]/delivery.t
 const layoutSource = readFileSync(resolve(root, 'src/app/_layout.tsx'), 'utf8');
 const brandHeaderSource = readFileSync(resolve(root, 'src/components/brand-header.tsx'), 'utf8');
 const syncContextSource = readFileSync(resolve(root, 'src/application/sync/route-cloud-sync-context.tsx'), 'utf8');
+const periodSource = readFileSync(resolve(root, 'src/application/reporting/period-range.ts'), 'utf8');
 const paletteSource = readFileSync(resolve(root, 'src/ui/quality-control-palette.ts'), 'utf8');
 
 function assignment(): RouteAssignment {
@@ -101,6 +102,9 @@ describe('quality control dashboard', () => {
   it('can review a day, week, month or custom period for all or one driver', () => {
     expect(dashboardSource).toContain("type PeriodMode");
     expect(dashboardSource).toContain("from '@/application/reporting/period-range'");
+    expect(periodSource).toContain("export type PeriodMode = 'day' | 'week' | 'month' | 'custom'");
+    expect(periodSource).toContain("{ key: 'week', label: 'Savaitė' }");
+    expect(periodSource).toContain("{ key: 'month', label: 'Mėnuo' }");
     expect(dashboardSource).toContain('periodRange(periodMode, anchorDate, customFrom, customTo)');
     expect(dashboardSource).toContain("route.date >= period.from && route.date <= period.to");
     expect(dashboardSource).toContain("driverId === 'all' || route.driverId === driverId");

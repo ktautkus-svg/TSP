@@ -16,6 +16,7 @@ export interface DriverAppTabsProps {
 }
 
 const tabs: readonly { key: DriverAppTab; label: string; href: Href }[] = [
+  { key: 'now', label: 'Dabar', href: '/' },
   { key: 'routes', label: 'Maršrutai', href: '/history' },
   { key: 'statistics', label: 'Statistika', href: '/statistics' },
   { key: 'settings', label: 'Nustatymai', href: '/settings' },
@@ -53,6 +54,7 @@ function TabIcon({ active, palette, tab }: { readonly active: boolean; readonly 
   const color = active ? palette.surface : palette.muted;
   return (
     <Svg accessibilityLabel="" height={22} viewBox="0 0 24 24" width={22}>
+      {tab === 'now' ? <Path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1Z" fill="none" stroke={color} strokeLinejoin="round" strokeWidth={1.8} /> : null}
       {tab === 'routes' ? <Path d="M6 4v4m0 0a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm0 0v8m0 0v4m0-4c7 0 5-8 12-8m0 0a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm0 0v12" fill="none" stroke={color} strokeLinecap="round" strokeWidth={1.8} /> : null}
       {tab === 'statistics' ? <Path d="M5 20v-6h3v6Zm6 0V5h3v15Zm6 0V10h3v10Z" fill={color} /> : null}
       {tab === 'settings' ? <><Circle cx={12} cy={12} fill="none" r={3.2} stroke={color} strokeWidth={1.8} /><Path d="m12 3 1.2 2.2 2.5.6 2.2-1.1 1.4 1.4-1.1 2.2.6 2.5L21 12l-2.2 1.2-.6 2.5 1.1 2.2-1.4 1.4-2.2-1.1-2.5.6L12 21l-1.2-2.2-2.5-.6-2.2 1.1-1.4-1.4 1.1-2.2-.6-2.5L3 12l2.2-1.2.6-2.5-1.1-2.2 1.4-1.4 2.2 1.1 2.5-.6Z" fill="none" stroke={color} strokeLinejoin="round" strokeWidth={1.3} /></> : null}
@@ -62,8 +64,8 @@ function TabIcon({ active, palette, tab }: { readonly active: boolean; readonly 
 
 const createStyles = (palette: DriverPalette) => StyleSheet.create({
   tabBar: { alignSelf: 'center', width: '100%', minHeight: 64, flexShrink: 0, borderTopWidth: 1, borderTopColor: palette.border, backgroundColor: palette.surface, flexDirection: 'row', paddingHorizontal: 4, paddingVertical: 4 },
-  tab: { flex: 1, minWidth: 0, alignItems: 'center', justifyContent: 'center', gap: 2, paddingHorizontal: 2, borderRadius: radius.md },
+  tab: { flex: 1, minWidth: 0, minHeight: 44, alignItems: 'center', justifyContent: 'center', gap: 2, paddingHorizontal: 2, borderRadius: radius.md },
   tabActive: { backgroundColor: palette.routeBlue },
-  label: { color: palette.muted, fontFamily: fonts.headingSemiBold, fontSize: 9, letterSpacing: 0.1 },
+  label: { color: palette.muted, fontFamily: fonts.headingSemiBold, fontSize: 12, letterSpacing: 0.1 },
   labelActive: { color: palette.surface },
 });

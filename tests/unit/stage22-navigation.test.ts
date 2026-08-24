@@ -64,12 +64,14 @@ describe('stage 2.2 deterministic navigation', () => {
     expect(dashboard).toContain('<DriverAppTabs active="now"');
   });
 
-  it('keeps the three non-duplicated driver destinations consistent across global screens', () => {
+  it('keeps driver destinations consistent across global screens', () => {
     const tabs = source('src/components/driver-app-tabs.tsx');
-    expect(tabs).not.toContain("label: 'Dabar'");
+    expect(tabs).toContain("label: 'Dabar'");
+    expect(tabs).toContain("href: '/'");
     expect(tabs).toContain("label: 'Maršrutai'");
     expect(tabs).toContain("label: 'Statistika'");
     expect(tabs).toContain("label: 'Nustatymai'");
+    expect(source('src/app/index.tsx')).toContain('<DriverAppTabs active="now"');
     expect(source('src/app/history.tsx')).toContain('<DriverAppTabs active="routes"');
     expect(source('src/app/statistics.tsx')).toContain('<DriverAppTabs active="statistics"');
     expect(source('src/app/settings/index.tsx')).toContain('<DriverAppTabs active="settings"');
@@ -82,7 +84,7 @@ describe('stage 2.2 deterministic navigation', () => {
     expect(layout).toContain('headerRight: () => <StackHeaderActions />');
     expect(stackNavigation).toContain('router.replace(navigation.homeTarget)');
     expect(stackNavigation).toContain('roleHomePath(profile.role)');
-    expect(roleHome).toContain("if (role === 'driver') return '/history'");
+    expect(roleHome).toContain("if (role === 'driver') return '/'");
     expect(roleHome).toContain("if (role === 'dispatcher') return '/dispatcher'");
     expect(roleHome).toContain("if (role === 'quality') return '/quality-control'");
     expect(stackNavigation).not.toContain('router.back()');

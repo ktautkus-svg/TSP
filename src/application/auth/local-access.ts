@@ -34,7 +34,7 @@ export class LocalAccessService {
 
   async configure(username: string, pin: string): Promise<void> {
     const normalizedUsername = validateUsername(username);
-    validatePin(pin);
+    validateNewPin(pin);
     const existing = await this.getConfiguration();
     if (existing.configured) throw new Error('Prisijungimas jau sukurtas. PIN keiskite administratoriaus panelėje.');
     const salt = await randomSalt();
@@ -72,7 +72,7 @@ export class LocalAccessService {
     if (!configuration.username || !await this.verify(configuration.username, currentPin)) {
       throw new Error('Dabartinis PIN neteisingas.');
     }
-    validatePin(nextPin);
+    validateNewPin(nextPin);
     const salt = await randomSalt();
     const hash = await derivePinHash(configuration.username, nextPin, salt);
     await this.persist(configuration.username, salt, hash);
@@ -109,6 +109,10 @@ export function validateUsername(value: string): string {
 
 export function validatePin(pin: string): void {
   if (!/^\d{4,8}$/.test(pin)) throw new Error('PIN turi sudaryti 4–8 skaitmenys.');
+}
+
+export function validateNewPin(pin: string): void {
+  if (!/^\d{6,8}$/.test(pin)) throw new Error('PIN turi sudaryti 6–8 skaitmenys.');
 }
 
 function constantTimeEqual(left: string, right: string): boolean {

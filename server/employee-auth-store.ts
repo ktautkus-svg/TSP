@@ -446,7 +446,7 @@ export class EmployeeAuthStore {
     const fromUsername = normalizeUsername(input.fromUsername);
     const username = validateUsername(input.username);
     const displayName = validateDisplayName(input.displayName);
-    validatePin(input.pin);
+    validateNewPin(input.pin);
     if (fromUsername === username) return;
 
     let migratedUserId: string | null = null;
@@ -487,7 +487,7 @@ export class EmployeeAuthStore {
   async bootstrapAdmin(input: { username: string; displayName: string; pin: string }): Promise<EmployeeProfile> {
     const username = validateUsername(input.username);
     const displayName = validateDisplayName(input.displayName);
-    validatePin(input.pin);
+    validateNewPin(input.pin);
     const stored = createStoredUser({ username, displayName, role: 'admin', pin: input.pin });
     await this.db.runTransaction(async (transaction) => {
       const existing = await transaction.get(this.users.limit(1));
@@ -1291,7 +1291,7 @@ export class EmployeeAuthStore {
   async createUser(input: { username: string; displayName: string; pin: string; role: EmployeeRole; email?: string; phone?: string }): Promise<EmployeeProfile> {
     const username = validateUsername(input.username);
     const displayName = validateDisplayName(input.displayName);
-    validatePin(input.pin);
+    validateNewPin(input.pin);
     if (!EMPLOYEE_ROLES.includes(input.role)) throw new EmployeeApiError('INVALID_ROLE', 'Neleistina darbuotojo rolė.', 400);
     const stored = createStoredUser({
       username,
@@ -1335,7 +1335,7 @@ export class EmployeeAuthStore {
     if (input.phone !== undefined) patch.phone = validatePhone(input.phone);
     if (input.compensation !== undefined) patch.compensation = validateCompensationInput(input.compensation);
     if (input.pin !== undefined) {
-      validatePin(input.pin);
+      validateNewPin(input.pin);
       const credentials = pinCredentials(nextUsername, input.pin);
       Object.assign(patch, credentials);
     }
@@ -2246,8 +2246,8 @@ function validateDisplayName(value: string): string {
   return normalized;
 }
 
-function validatePin(pin: string): void {
-  if (!/^\d{4,8}$/.test(pin)) throw new EmployeeApiError('INVALID_PIN', 'Serverio PIN turi būti 4–8 skaitmenų.', 400);
+function validateNewPin(pin: string): void {
+  if (!/^\d{6,8}$/.test(pin)) throw new EmployeeApiError('INVALID_PIN', 'Naujas PIN turi būti 6–8 skaitmenų.', 400);
 }
 
 function validateEmail(value: string | null | undefined): string | null {

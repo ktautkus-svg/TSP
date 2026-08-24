@@ -1,6 +1,6 @@
 # TSP dabartinė projekto būsena
 
-Atnaujinta: 2026-08-19
+Atnaujinta: 2026-08-24
 
 ## Kanoninis kodas
 
@@ -37,33 +37,36 @@ npm run pwa:test
 PWA patikra papildomai skenuoja produkcinį bundle ir neleidžia jame palikti
 konfigūruotų kūrimo URL, privačių IP adresų, testinių adresų ar paslapčių.
 
-## 2026-08-19 rezultatai
+## Schema
+
+SQLite schema v25, 36 lentelės (`npm run validate:schema`).
+
+## 2026-08-24 patikros
 
 - TypeScript: praėjo.
 - ESLint: praėjo.
-- SQLite schema: praėjo, schema v21, 32 lentelės.
-- PWA testai ir bundle scan: praėjo, 8 testai.
-- Pilnas Vitest paleidimas: praėjo, 87 failai ir 784 testai.
+- SQLite schema: praėjo, schema v25, 36 lentelės.
+- Vitest: praėjo, 102 failai ir 909 testai.
 
-## Sinchronizacijos aprėptis
+## 2026-08-24 pataisymai prieš deploy
 
-Esami testai tikrina:
-
-- kelių įrenginių paskyros izoliaciją;
-- serverio sesijos tapatybės naudojimą vietoje pasenusio kliento profilio;
-- konfliktą, kai laimi naujesnė arba terminalinė serverio kopija;
-- draudžiamą svetimo savininko maršruto įkėlimą;
-- tombstone trynimus;
-- atidėtų maršrutų pakartotinį pritaikymą;
-- offline klaidos izoliaciją ir nepažeistus vietinius duomenis.
+- Debesų sinchronizacija neperrašo vietinio `loading|loaded|in_progress` maršruto
+  tyliai; konfliktas paliekamas ir rodomas vairuotojui.
+- OCR eina per usage guard; synthetic routing neįsijungia tyliai.
+- Rate limit raktas naudoja `x-tsp-rate-limit-key` (sesija arba `x-forwarded-for`).
+- Nauji PIN 6–8 skaitmenys; produkcijoje nėra numatytojo `12345`.
+  `TSP_INITIAL_ADMIN_PIN` reikalingas tik pirmai administratoriaus paskyrai.
+- Vairuotojo pradžia yra `/` (Dabar), ne `/history`.
+- Pristatymo ekranas naudoja temą, kitą adresą rodo pirmą, metrikos `IKI KM` / `IKI MIN`.
 
 ## Routing API sauga
 
 Realūs provideriai pagal nutylėjimą yra išjungti (`GATEWAY_REAL_PROVIDER_ARMED=0`).
 Gateway prieš realų providerio call tikrina dienos ir savaitės usage limitus, o
 cache hitai limito nenaudoja. Production matrix, geocode ir polyline cache naudoja
-failinį sluoksnį, o routing UI vienai operacijai renkasi tik vieną mokamą providerį;
-po jo klaidos naudojamas synthetic fallback.
+failinį sluoksnį, o routing UI vienai operacijai renkasi tik vieną mokamą providerį.
+Synthetic fallback naudojamas tik jei vairuotojas patvirtina, arba
+`EXPO_PUBLIC_ALLOW_SYNTHETIC_FALLBACK=1` vietiniam darbui.
 
 Prieš įjungiant realų API reikia patikrinti providerio billing kainas, nustatyti
 `GATEWAY_DAILY_BUDGET_CENTS`, `GATEWAY_WEEKLY_BUDGET_CENTS` ir perkelti usage ledger
@@ -78,4 +81,4 @@ Windows Firewall, vietinio gateway pasiekiamumą, safe-area, klaviatūrą ir gr�
 navigacijos į aplikaciją.
 
 Istorines projektines ataskaitas reikia skaityti kartu su šiuo dokumentu; jų ankstesni
-testų skaičiai ir schemos versijos nebūtinai atspindi dabartinį kodą.
+skaičiai ir schema versijos gali būti pasenę.

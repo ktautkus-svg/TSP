@@ -98,7 +98,7 @@ export default function RouteResultScreen() {
         ) : null}
         {compensation ? <View style={styles.compensation} testID="route-result-compensation">
           <Text style={styles.compensationLabel}>{compensation.preliminary ? 'PRELIMINARUS DIENOS ATLYGIS' : 'GALUTINIS DIENOS ATLYGIS'}</Text>
-          <Text style={styles.compensationValue}>{formatMoney(compensation.totalNetEur)} netto</Text>
+          <Text style={styles.compensationValue}>{formatMoney(compensation.totalNetEur)} neto</Text>
           <Text style={styles.compensationMeta}>€23,00 diena + {compensation.distanceKm.toFixed(1)} km + {Math.round(compensation.weightKg)} kg + {compensation.stops} tašk.</Text>
         </View> : null}
         {route ? (

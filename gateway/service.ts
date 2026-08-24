@@ -68,6 +68,7 @@ export class OptimizationGatewayService {
   ) {}
 
   async recognizeDocument(request: GatewayOcrRequest): Promise<GatewayOcrResponse> {
+    await this.usageGuard.reserve(1, null);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), Math.max(this.config.requestTimeoutMs, 30_000));
     try {

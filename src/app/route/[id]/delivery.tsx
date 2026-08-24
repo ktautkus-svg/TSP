@@ -64,8 +64,9 @@ import { devWarn } from '@/ui/dev-log';
 import { formatWeightKg } from '@/ui/format-weight';
 import { arrivalWindowStatus, deliveryWindowValue, durationLabel, etaLabel, legLabel, offlineEtaLabel, scheduleLabel, windowLabel, windowUrgencyColor } from '@/ui/route-eta-labels';
 import { failedDeliveryLabel, userVisibleStopNote } from '@/ui/route-labels';
+import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
-import { fonts, colors as instrumentColors, radius, spacing, type } from '@/ui/tokens';
+import { fonts, radius, spacing, type } from '@/ui/tokens';
 
 function ScheduleDot({ stop, colors, routeDate }: { stop?: DeliveryStop | null; colors: ColorPalette; routeDate?: string | null }) {
   const color = windowUrgencyColor(stop, routeDate);
@@ -91,10 +92,7 @@ export default function DeliveryScreen() {
   const insets = useSafeAreaInsets();
   const { width: viewportWidth } = useWindowDimensions();
   const { id: routeId = '', redirectReason, returnTo, view } = useLocalSearchParams<{ id: string; redirectReason?: string; returnTo?: string; view?: string }>();
-  // The route cockpit is a fixed light instrument design: every surface is a
-  // hardcoded light colour, so following the system dark palette would paint
-  // near-white text onto white cards and make the stop list unreadable.
-  const colors: ColorPalette = instrumentColors;
+  const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const repository = useMemo(() => new RouteRepository(db), [db]);
   const [route, setRoute] = useState<Route | null>(null);
@@ -711,14 +709,14 @@ export default function DeliveryScreen() {
                 <View style={styles.routeMetricCard}>
                   <View style={styles.metricIconCircle}><DistanceIcon size={20} /></View>
                   <View style={styles.routeMetricText}>
-                    <Text style={styles.routeMetricLabel}>IKI ARTIMIAUSIOS</Text>
+                    <Text style={styles.routeMetricLabel}>IKI KM</Text>
                     <Text numberOfLines={1} style={styles.routeMetricValue}>{nextStop?.legDistanceKm === null || nextStop?.legDistanceKm === undefined ? '—' : `${new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(nextStop.legDistanceKm)} km`}</Text>
                   </View>
                 </View>
                 <View style={styles.routeMetricCard}>
                   <View style={styles.metricIconCircle}><ClockIcon size={20} /></View>
                   <View style={styles.routeMetricText}>
-                    <Text style={styles.routeMetricLabel}>IKI ARTIMIAUSIOS</Text>
+                    <Text style={styles.routeMetricLabel}>IKI MIN</Text>
                     <Text numberOfLines={1} style={styles.routeMetricValue}>{nextStop?.legDurationMinutes === null || nextStop?.legDurationMinutes === undefined ? '—' : durationLabel(nextStop.legDurationMinutes)}</Text>
                   </View>
                 </View>
@@ -1181,6 +1179,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     maxWidth: 430,
     overflow: 'hidden',
     gap: 0,
+    flexDirection: 'column-reverse',
     backgroundColor: colors.surface,
   },
   dashboardWide: { maxWidth: 1120, flexDirection: 'row', alignItems: 'flex-start', gap: spacing.lg, backgroundColor: colors.background },
@@ -1219,9 +1218,9 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     justifyContent: 'center',
     gap: 2,
   },
-  gaugeCenterLabel: { color: colors.textSecondary, fontFamily: fonts.headingSemiBold, fontSize: 8, textAlign: 'center', letterSpacing: 0.3 },
+  gaugeCenterLabel: { ...type.label, color: colors.textSecondary, textAlign: 'center' },
   gaugeCenterValue: { color: colors.text, fontFamily: fonts.headingExtraBold, fontSize: 17, lineHeight: 21, textAlign: 'center' },
-  gaugeCenterUnit: { color: colors.textSecondary, fontFamily: fonts.headingSemiBold, fontSize: 9, lineHeight: 11, textAlign: 'center' },
+  gaugeCenterUnit: { ...type.label, color: colors.textSecondary, textAlign: 'center' },
   gaugeCenterDivider: { width: '100%', height: 1, marginVertical: 5, backgroundColor: colors.border },
   routeMetrics: { flexDirection: 'row', paddingHorizontal: 14, borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
   routeMetricCard: {
@@ -1276,7 +1275,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   dashboardDeliveredButton: { backgroundColor: colors.success },
   dashboardFailedButton: { backgroundColor: colors.danger },
   dashboardActionIcon: { color: colors.textInverse, fontFamily: fonts.headingExtraBold, fontSize: 26, lineHeight: 28 },
-  dashboardActionText: { ...type.label, color: colors.textInverse },
+  dashboardActionText: { ...type.button, color: colors.textInverse },
   flex: { flex: 1, minWidth: 0 },
   contactRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   callButton: { minHeight: 44, minWidth: 112, borderRadius: radius.md, backgroundColor: colors.actionRoute, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
@@ -1308,7 +1307,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   stopsProgressTrack: { height: 9, borderRadius: radius.pill, overflow: 'hidden', backgroundColor: colors.disabledSurface },
   stopsProgressFill: { height: '100%', borderRadius: radius.pill, backgroundColor: colors.success },
   filters: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
-  filterChip: { minHeight: 42, paddingHorizontal: 13, borderRadius: radius.pill, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
+  filterChip: { minHeight: 48, paddingHorizontal: 13, borderRadius: radius.pill, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   filterChipActive: { backgroundColor: colors.actionPrimary, borderColor: colors.actionPrimary },
   filterText: { ...type.secondaryStrong, color: colors.textSecondary },
   filterTextActive: { color: colors.textInverse },
