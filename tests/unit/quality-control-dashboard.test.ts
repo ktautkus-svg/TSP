@@ -107,7 +107,7 @@ describe('quality control dashboard', () => {
     expect(dashboardSource).toContain('Visi vairuotojai');
     expect(dashboardSource).toContain('Baigta pasirinktu laikotarpiu');
     expect(dashboardSource).toContain("{ key: 'completed', label: 'Įvykdyti', tone: 'success' }");
-    expect(dashboardSource).toContain("completed: completed.length");
+    expect(dashboardSource).toContain("completed: completedRoutes.length");
   });
 
   it('matches the current red and blue TSP identity instead of the old green dark theme', () => {

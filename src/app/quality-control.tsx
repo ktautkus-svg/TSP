@@ -29,15 +29,26 @@ const REFRESH_INTERVAL_MS = 15_000;
 const STALE_AFTER_MS = 120_000;
 const MINOR_DELAY_MINUTES = 45;
 
-type QualityFilter = 'all' | 'in_progress' | 'completed' | 'late' | 'issues';
+// Top row: route-level ("reisai") — clicking filters the route cards below.
+type RouteFilter = 'all' | 'in_progress' | 'completed' | 'not_started';
+// Second row: stop-level ("taškai / užsakymai") — clicking opens a combined
+// cross-route list of the matching stops (not grouped by route).
+type StopFilter = 'all' | 'delivered' | 'pending' | 'failed' | 'late';
 type FilterTone = 'neutral' | 'info' | 'warning' | 'success' | 'danger';
 
-const FILTERS: readonly { key: QualityFilter; label: string; tone: FilterTone }[] = [
-  { key: 'all', label: 'Visi', tone: 'neutral' },
+const ROUTE_FILTERS: readonly { key: RouteFilter; label: string; tone: FilterTone }[] = [
+  { key: 'all', label: 'Viso', tone: 'neutral' },
   { key: 'in_progress', label: 'Kelyje', tone: 'info' },
   { key: 'completed', label: 'Įvykdyti', tone: 'success' },
-  { key: 'late', label: 'Vėluoja', tone: 'warning' },
-  { key: 'issues', label: 'Neatitikimai', tone: 'danger' },
+  { key: 'not_started', label: 'Nepradėti', tone: 'warning' },
+];
+
+const STOP_FILTERS: readonly { key: StopFilter; label: string; tone: FilterTone }[] = [
+  { key: 'all', label: 'Visi', tone: 'neutral' },
+  { key: 'delivered', label: 'Įvykdyta', tone: 'success' },
+  { key: 'pending', label: 'Neįvykdyta', tone: 'warning' },
+  { key: 'failed', label: 'Atmesta', tone: 'danger' },
+  { key: 'late', label: 'KPI', tone: 'info' },
 ];
 
 const PERIODS = PERIOD_OPTIONS;
@@ -54,7 +65,8 @@ export default function QualityControlScreen() {
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
-  const [filter, setFilter] = useState<QualityFilter>('all');
+  const [filter, setFilter] = useState<RouteFilter>('all');
+  const [stopFilter, setStopFilter] = useState<StopFilter | null>(null);
   const [completedOpen, setCompletedOpen] = useState(false);
   const initialDate = useMemo(() => localDateKey(new Date()), []);
   const [periodMode, setPeriodMode] = useState<PeriodMode>('day');
@@ -111,49 +123,70 @@ export default function QualityControlScreen() {
   const visible = routes.filter((route) => route.date >= period.from && route.date <= period.to
     && (driverId === 'all' || route.driverId === driverId)
     && (vehicleId === 'all' || route.vehicle?.id === vehicleId));
-  // "Kelyje" covers both actually driving and still waiting to start — the
-  // driver-facing distinction between assigned/downloaded/in_progress is not
-  // useful to a dispatcher scanning today's board.
-  const active = visible.filter((route) => route.status === 'in_progress' || ['assigned', 'downloaded'].includes(route.status));
-  // Sort routes with delivery discrepancies (failed stops) first, so problems
-  // are visible without opening every card.
-  const completed = visible
+  // Row 1 (reisai/routes): "Kelyje" is only routes actually being driven;
+  // "Nepradėti" is everything still waiting (assigned/downloaded).
+  const inProgressRoutes = visible.filter((route) => route.status === 'in_progress');
+  const notStartedRoutes = visible.filter((route) => ['assigned', 'downloaded'].includes(route.status));
+  // Sort completed routes with delivery discrepancies (failed stops) first,
+  // so problems are visible without opening every card.
+  const completedRoutes = visible
     .filter((route) => route.status === 'completed')
     .sort((left, right) => right.failedStops - left.failedStops);
-  const issues = visible
-    .filter((route) => route.failedStops > 0)
-    .sort((left, right) => Number(left.status === 'completed') - Number(right.status === 'completed') || right.failedStops - left.failedStops);
-  const late = visible
-    .filter((route) => routeHasLateStop(route))
-    .sort((left, right) => Number(left.status === 'completed') - Number(right.status === 'completed'));
   const vehicleCount = new Set(visible.map((route) => route.vehicle?.id).filter(Boolean)).size;
   const filteredRoutes = filter === 'all'
     ? visible
     : filter === 'in_progress'
-      ? active
+      ? inProgressRoutes
       : filter === 'completed'
-        ? completed
-        : filter === 'late'
-          ? late
-          : issues;
-  const filterCounts: Record<QualityFilter, number> = {
+        ? completedRoutes
+        : notStartedRoutes;
+  const routeFilterCounts: Record<RouteFilter, number> = {
     all: visible.length,
-    in_progress: active.length,
-    completed: completed.length,
-    late: late.length,
-    issues: issues.length,
+    in_progress: inProgressRoutes.length,
+    completed: completedRoutes.length,
+    not_started: notStartedRoutes.length,
   };
-  // Percentages are pooled across every stop in the visible routes, not
-  // averaged per route — a route with 10 stops and 1 failure should read as
-  // 10% of that route's stops, not as "1 problem route out of 1" (100%).
-  const totalStopsVisible = visible.reduce((sum, route) => sum + route.totalStops, 0);
-  const stopSharePercent = (stopCount: number) => totalStopsVisible === 0 ? 0 : Math.round((stopCount / totalStopsVisible) * 100);
-  const filterStopPercents: Record<Exclude<QualityFilter, 'all'>, number> = {
-    in_progress: stopSharePercent(active.reduce((sum, route) => sum + route.totalStops, 0)),
-    completed: stopSharePercent(completed.reduce((sum, route) => sum + route.totalStops, 0)),
-    late: stopSharePercent(late.reduce((sum, route) => sum + countLateStops(route), 0)),
-    issues: stopSharePercent(issues.reduce((sum, route) => sum + route.failedStops, 0)),
+  const routeSharePercent = (routeCount: number) => visible.length === 0 ? 0 : Math.round((routeCount / visible.length) * 100);
+  const routeFilterPercents: Record<Exclude<RouteFilter, 'all'>, number> = {
+    in_progress: routeSharePercent(inProgressRoutes.length),
+    completed: routeSharePercent(completedRoutes.length),
+    not_started: routeSharePercent(notStartedRoutes.length),
   };
+
+  // Row 2 (taškai/užsakymai): stop-level KPIs, pooled across every stop in
+  // the visible routes so one failed stop out of ten reads as 10%, not as
+  // "1 problem route out of 1" (100%). Clicking a tile opens a combined
+  // cross-route list of the matching stops below, not a route filter.
+  const allStops: StopWithRoute[] = visible.flatMap((route) => route.stops.map((stop) => withRoute(stop, route)));
+  const deliveredStopsList = allStops.filter((stop) => stop.status === 'delivered');
+  const pendingStopsList = allStops.filter((stop) => stop.status === 'pending');
+  const failedStopsList = allStops.filter((stop) => stop.status === 'failed');
+  const lateStopsList = visible.flatMap((route) => lateStops(route).map((stop) => withRoute(stop, route)));
+  const stopSharePercent = (stopCount: number) => allStops.length === 0 ? 0 : Math.round((stopCount / allStops.length) * 100);
+  const stopFilterCounts: Record<StopFilter, number> = {
+    all: allStops.length,
+    delivered: deliveredStopsList.length,
+    pending: pendingStopsList.length,
+    failed: failedStopsList.length,
+    late: lateStopsList.length,
+  };
+  const stopFilterPercents: Record<Exclude<StopFilter, 'all'>, number> = {
+    delivered: stopSharePercent(deliveredStopsList.length),
+    pending: stopSharePercent(pendingStopsList.length),
+    failed: stopSharePercent(failedStopsList.length),
+    late: stopSharePercent(lateStopsList.length),
+  };
+  const stopFilterList: StopWithRoute[] = stopFilter === 'all'
+    ? allStops
+    : stopFilter === 'delivered'
+      ? deliveredStopsList
+      : stopFilter === 'pending'
+        ? pendingStopsList
+        : stopFilter === 'failed'
+          ? failedStopsList
+          : stopFilter === 'late'
+            ? lateStopsList
+            : [];
 
   return <SafeAreaView style={styles.safeArea}>
     <Stack.Screen options={{ headerShown: false }} />
@@ -209,18 +242,32 @@ export default function QualityControlScreen() {
           </View>
         </View>
         <View accessibilityLabel="Maršrutų suvestinė" style={styles.filters}>
-          {FILTERS.map((item) => <StatusFilter
+          {ROUTE_FILTERS.map((item) => <StatusFilter
             key={item.key}
             active={filter === item.key}
             label={item.label}
             onPress={() => setFilter(item.key)}
-            percent={item.key === 'all' ? null : filterStopPercents[item.key]}
+            percent={item.key === 'all' ? null : routeFilterPercents[item.key]}
             styles={styles}
             tone={item.tone}
-            value={filterCounts[item.key]}
+            value={routeFilterCounts[item.key]}
+          />)}
+        </View>
+        <View accessibilityLabel="Taškų suvestinė" style={styles.filters}>
+          {STOP_FILTERS.map((item) => <StatusFilter
+            key={item.key}
+            active={stopFilter === item.key}
+            label={item.label}
+            onPress={() => setStopFilter((current) => current === item.key ? null : item.key)}
+            percent={item.key === 'all' ? null : stopFilterPercents[item.key]}
+            styles={styles}
+            tone={item.tone}
+            value={stopFilterCounts[item.key]}
           />)}
         </View>
       </View>
+
+      {stopFilter ? <StopSection filter={stopFilter} stops={stopFilterList} styles={styles} /> : null}
 
       <View style={styles.periodPanel} testID="quality-period-panel">
         <View style={styles.periodHeading}>
@@ -272,14 +319,14 @@ export default function QualityControlScreen() {
       {busy && routes.length === 0 ? <ActivityIndicator color={colors.info} size="large" /> : null}
       {!busy && filteredRoutes.length === 0 ? <View style={styles.empty}><Text style={styles.emptyTitle}>{emptyTitle(filter)}</Text><Text style={styles.muted}>Pakeiskite laikotarpį, vairuotoją arba būseną.</Text></View> : null}
 
-      {filteredRoutes.length > 0 ? <RouteSection title={filterTitle(filter)} count={filteredRoutes.length} routes={filteredRoutes} desktop={desktop} mobile={mobile} styles={styles} defaultExpanded={filter === 'issues'} /> : null}
+      {filteredRoutes.length > 0 ? <RouteSection title={filterTitle(filter)} count={filteredRoutes.length} routes={filteredRoutes} desktop={desktop} mobile={mobile} styles={styles} /> : null}
 
-      {!['all', 'issues', 'completed'].includes(filter) && completed.length > 0 ? <View style={styles.completedSection}>
+      {!['all', 'completed'].includes(filter) && completedRoutes.length > 0 ? <View style={styles.completedSection}>
         <Pressable accessibilityRole="button" accessibilityState={{ expanded: completedOpen }} onPress={() => setCompletedOpen((value) => !value)} style={({ pressed }) => [styles.completedHeader, pressed && styles.cardSummaryPressed]}>
           <View><Text style={styles.sectionTitle}>Baigta pasirinktu laikotarpiu</Text><Text style={styles.muted}>Užbaigti maršrutai suskleisti, kad netrukdytų stebėti darbo.</Text></View>
-          <View style={styles.completedHeaderRight}><Text style={styles.count}>{completed.length}</Text><Text style={styles.expandIcon}>{completedOpen ? '⌃' : '⌄'}</Text></View>
+          <View style={styles.completedHeaderRight}><Text style={styles.count}>{completedRoutes.length}</Text><Text style={styles.expandIcon}>{completedOpen ? '⌃' : '⌄'}</Text></View>
         </Pressable>
-        {completedOpen ? <View style={[styles.routeGrid, desktop && styles.routeGridDesktop]}>{completed.map((route) => <RouteCard key={`completed-${route.id}`} route={route} desktop={desktop} mobile={mobile} styles={styles} />)}</View> : null}
+        {completedOpen ? <View style={[styles.routeGrid, desktop && styles.routeGridDesktop]}>{completedRoutes.map((route) => <RouteCard key={`completed-${route.id}`} route={route} desktop={desktop} mobile={mobile} styles={styles} />)}</View> : null}
       </View> : null}
     </ScrollView>
 
@@ -403,6 +450,43 @@ function StatusFilter({ active, label, onPress, percent, tone, value, styles }: 
   </Pressable>;
 }
 
+type StopWithRoute = QualityStopMonitor & { routeKey: string; date: string; driverName: string; vehicleText: string };
+
+function withRoute(stop: QualityStopMonitor, route: QualityRouteMonitor): StopWithRoute {
+  return { ...stop, routeKey: route.id, date: route.date, driverName: route.driverName, vehicleText: vehicleLabel(route) };
+}
+
+function StopSection({ filter, stops, styles }: { filter: StopFilter; stops: StopWithRoute[]; styles: ReturnType<typeof createStyles> }) {
+  return <View style={styles.section} testID="quality-stop-section">
+    <View style={styles.sectionHeading}><Text style={styles.sectionTitle}>{stopFilterTitle(filter)}</Text><Text style={styles.count}>{stops.length}</Text></View>
+    {stops.length === 0 ? <View style={styles.empty}><Text style={styles.emptyTitle}>Pasirinktu laikotarpiu tokių taškų nėra</Text></View> : <View style={styles.stopList}>
+      {stops.map((stop) => <StopRow key={`${stop.routeKey}-${stop.sequence}`} stop={stop} styles={styles} />)}
+    </View>}
+  </View>;
+}
+
+function StopRow({ stop, styles }: { stop: StopWithRoute; styles: ReturnType<typeof createStyles> }) {
+  const timing = stop.status === 'pending'
+    ? { label: stop.plannedArrivalAt ? `Numatyta ${formatClockShort(stop.plannedArrivalAt)}` : 'Laukia', tone: 'neutral' as const }
+    : stopTiming(stop);
+  return <View style={[styles.stopRow, styles[`processedStop_${timing.tone}`]]} testID="quality-stop-row">
+    <View style={styles.flex}>
+      <Text style={styles.stopVehicleDriver}>{stop.vehicleText} · {stop.driverName}</Text>
+      <Text numberOfLines={1} style={styles.processedRecipient}>{stop.recipient}</Text>
+      <Text numberOfLines={2} style={styles.processedAddress}>{stop.address}</Text>
+      <View style={styles.sequenceMeta}>
+        <Text style={styles.processedWindow}>{formatDateKey(stop.date)}</Text>
+        {formatWindow(stop) ? <Text style={styles.processedWindow}>Langas {formatWindow(stop)}</Text> : null}
+      </View>
+    </View>
+    <View style={[styles.timingBadge, styles[`timingBadge_${timing.tone}`]]}><Text style={[styles.timingText, styles[`timingText_${timing.tone}`]]}>{timing.label}</Text></View>
+  </View>;
+}
+
+function stopFilterTitle(filter: StopFilter): string {
+  return ({ all: 'Visi taškai', delivered: 'Įvykdyti taškai', pending: 'Neįvykdyti taškai', failed: 'Atmesti taškai', late: 'KPI · vėluojantys pristatymai' })[filter];
+}
+
 function stopTiming(stop: QualityStopMonitor): { label: string; tone: 'neutral' | 'success' | 'warning' | 'danger' } {
   if (stop.status === 'failed') {
     const reason = [stop.failureReason, stop.failureComment].filter(Boolean).join(': ');
@@ -446,14 +530,12 @@ function DriverChoice({ active, label, onPress, styles }: { active: boolean; lab
     <Text numberOfLines={1} style={[styles.driverChoiceText, active && styles.driverChoiceTextActive]}>{label}</Text>
   </Pressable>;
 }
-function filterTitle(filter: QualityFilter): string { return ({ all: 'Visi maršrutai', in_progress: 'Kelyje', completed: 'Įvykdyti maršrutai', late: 'Vėluojantys maršrutai', issues: 'Neatitikimai' })[filter]; }
-function emptyTitle(filter: QualityFilter): string { return ({ all: 'Pasirinktu laikotarpiu maršrutų nėra', in_progress: 'Pasirinktu laikotarpiu vykdomų maršrutų nėra', completed: 'Pasirinktu laikotarpiu įvykdytų maršrutų nėra', late: 'Pasirinktu laikotarpiu vėluojančių maršrutų nėra', issues: 'Pasirinktu laikotarpiu neatitikimų nėra' })[filter]; }
+function filterTitle(filter: RouteFilter): string { return ({ all: 'Visi maršrutai', in_progress: 'Kelyje', completed: 'Įvykdyti maršrutai', not_started: 'Nepradėti maršrutai' })[filter]; }
+function emptyTitle(filter: RouteFilter): string { return ({ all: 'Pasirinktu laikotarpiu maršrutų nėra', in_progress: 'Pasirinktu laikotarpiu vykdomų maršrutų nėra', completed: 'Pasirinktu laikotarpiu įvykdytų maršrutų nėra', not_started: 'Pasirinktu laikotarpiu nepradėtų maršrutų nėra' })[filter]; }
 function lateStops(route: QualityRouteMonitor): QualityStopMonitor[] {
   return route.stops.filter((stop) => stop.status !== 'failed' && Boolean(stop.deliveredAt)
     && classifyDeliveryWindow(stop.deliveredAt, stop.deliveryTimeFrom, stop.deliveryTimeTo) === 'late');
 }
-function routeHasLateStop(route: QualityRouteMonitor): boolean { return lateStops(route).length > 0; }
-function countLateStops(route: QualityRouteMonitor): number { return lateStops(route).length; }
 function vehicleLabel(route: QualityRouteMonitor): string { return route.vehicle ? `${route.vehicle.registrationNumber} · ${route.vehicle.model}` : 'Automobilis nepriskirtas'; }
 function regionLabel(codes: string[]): string { return codes.length > 0 ? `Regionai ${codes.join(', ')}` : 'Regionas nenurodytas'; }
 function initials(name: string): string { return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join(''); }
@@ -489,6 +571,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   driverFilter: { gap: spacing.xs }, driverChoices: { gap: spacing.sm, paddingVertical: 2 }, driverChoice: { minHeight: 44, maxWidth: 240, flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceSubtle }, driverChoiceActive: { borderColor: colors.info, backgroundColor: colors.infoSoft }, driverChoiceDot: { width: 8, height: 8, borderRadius: radius.pill, backgroundColor: colors.borderStrong }, driverChoiceDotActive: { backgroundColor: colors.info }, driverChoiceText: { ...type.bodyStrong, color: colors.textSecondary }, driverChoiceTextActive: { color: colors.info },
   empty: { padding: spacing.xl, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }, emptyTitle: { ...type.sectionTitle, color: colors.text }, muted: { ...type.secondary, color: colors.textMuted },
   section: { gap: spacing.md }, sectionHeading: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm }, sectionTitle: { ...type.sectionTitle, color: colors.text, fontSize: 20, lineHeight: 26 }, count: { minWidth: 30, textAlign: 'center', paddingVertical: 4, borderRadius: radius.pill, overflow: 'hidden', backgroundColor: colors.infoSoft, ...type.secondaryStrong, color: colors.info },
+  stopList: { gap: spacing.sm }, stopRow: { minHeight: 76, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderLeftWidth: 4, borderRadius: radius.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }, stopVehicleDriver: { ...type.label, color: colors.info, marginBottom: 2 },
   completedSection: { gap: spacing.md }, completedHeader: { minHeight: 64, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.success, backgroundColor: colors.accentSoft, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md }, completedHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   routeGrid: { gap: spacing.md }, routeGridDesktop: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start' }, routeCard: { borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, overflow: 'hidden', shadowColor: colors.primary, shadowOpacity: 0.07, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 2 }, routeCardMobile: {}, routeCardDesktop: { width: '48.9%', flexGrow: 1, maxWidth: '50%' }, routeCardCompleted: { borderColor: colors.border },
   routeCardActive: { borderLeftWidth: 5, borderLeftColor: colors.info }, routeCardWaiting: { borderLeftWidth: 5, borderLeftColor: colors.warning }, routeCardIssue: { borderLeftWidth: 5, borderLeftColor: colors.danger },
