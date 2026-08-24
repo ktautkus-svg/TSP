@@ -207,9 +207,11 @@ export default function QualityControlScreen() {
             <Text style={styles.tripSheetHeaderText}>Kelionės lapai</Text>
           </Pressable>
         ) : null}
-        <Pressable accessibilityLabel="Statistika" accessibilityRole="button" onPress={() => router.push({ pathname: '/statistics', params: { returnTo: 'quality-control' } } as unknown as Href)} style={({ pressed }) => [styles.headerNavButton, pressed && styles.cardSummaryPressed]} testID="quality-open-statistics">
-          <StatsIcon size={22} color={colors.primary} />
-        </Pressable>
+        {profile.role === 'quality' ? (
+          <Pressable accessibilityLabel="Statistika" accessibilityRole="button" onPress={() => router.push({ pathname: '/statistics', params: { returnTo: 'quality-control' } } as unknown as Href)} style={({ pressed }) => [styles.headerNavButton, pressed && styles.cardSummaryPressed]} testID="quality-open-statistics">
+            <StatsIcon size={22} color={colors.primary} />
+          </Pressable>
+        ) : null}
         <Pressable accessibilityLabel="Atidaryti paskyros meniu" accessibilityRole="button" onPress={() => setAccountMenuOpen(true)} style={({ pressed }) => [styles.accountButton, pressed && styles.accountButtonPressed]}>
           <Text style={styles.accountInitials}>{initials(profile.displayName)}</Text>
         </Pressable>
