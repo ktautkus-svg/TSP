@@ -343,6 +343,17 @@ export async function handleEmployeeApi(
       });
       return send(response, 200, { reading }, requestId);
     }
+    const tripSheetCorrectionMatch = pathname.match(/^\/api\/trip-sheets\/([^/]+)$/);
+    if (tripSheetCorrectionMatch && request.method === 'PATCH') {
+      requireRole(profile, ['admin', 'dispatcher']);
+      const body = parseObject(await readBody(request, 32_000));
+      const tripSheet = await store.updateTripSheet(decodeURIComponent(tripSheetCorrectionMatch[1]), {
+        startOdometer: body.startOdometer === undefined ? undefined : body.startOdometer === null ? null : numberField(body, 'startOdometer'),
+        endOdometer: body.endOdometer === undefined ? undefined : body.endOdometer === null ? null : numberField(body, 'endOdometer'),
+        driverId: body.driverId === undefined ? undefined : stringField(body, 'driverId'),
+      });
+      return send(response, 200, { tripSheet }, requestId);
+    }
     const unassignedTripDayMatch = pathname.match(/^\/api\/admin\/trip-sheets\/unassigned-day\/([^/]+)\/([^/]+)$/);
     if (unassignedTripDayMatch && request.method === 'DELETE') {
       requireManagementPermission(profile, 'canManageFinancials');
