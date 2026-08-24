@@ -661,6 +661,9 @@ export default function AdminScreen() {
             <CollapsibleHeader title={`Automobilių parkas (${vehicles.length})`} expanded={expandedSection === 'fleet'} onPress={() => toggleSection('fleet')} styles={styles} />
             {expandedSection === 'fleet' ? <>
             <Text style={styles.meta}>Bako talpa, PLL talpa ir šoninės durys yra automobilio techniniai laukai. Kuro likutis čia nerašomas. Miestas automobiliams nesaugomas.</Text>
+            <Pressable accessibilityRole="button" onPress={() => router.push({ pathname: '/loading-schema-preview', params: { returnTo: 'admin' } } as unknown as Href)} style={styles.smallButton} testID="open-loading-schema-preview">
+              <Text style={styles.smallButtonText}>Krovimo schemos peržiūra (bandomieji taškai)</Text>
+            </Pressable>
             <View style={styles.vehicleList}>
               {vehicles.map((vehicle) => {
                 const driver = users.find((item) => item.id === vehicle.assignedDriverId);
