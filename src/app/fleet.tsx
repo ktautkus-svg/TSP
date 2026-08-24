@@ -42,12 +42,12 @@ export default function FleetScreen() {
           testID="fleet-open-technical"
           title="Techniniai duomenys" />
         <FleetCard
-          description="Odometro įvedimas ir kelionės lapai su nuvažiuotais kilometrais."
+          description="Odometro įvedimas ir nuvažiuoti kilometrai kelionės lape."
           icon="trip-sheet"
           onPress={() => open({ pathname: '/trip-sheet', params: { returnTo: 'fleet' } } as Href)}
           styles={styles}
           testID="fleet-open-km"
-          title="Kilometražas" />
+          title="Kelionės lapai" />
         <FleetCard
           description="Vairuotojų praneštų kuro likučio pakeitimų tvirtinimas."
           icon="trip-sheet"
