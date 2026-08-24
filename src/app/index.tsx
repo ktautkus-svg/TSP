@@ -149,13 +149,10 @@ export default function HomeScreen() {
                 <GroupedMenuRow description="Kurti, redaguoti, vykdyti ir stebėti maršrutus." icon={<MenuArtwork kind="dispatch" />} onPress={() => router.push('/dispatcher' as Href)} title="Dispečerio skydelis" tone="success" />
               </GroupedMenuSection></View>
               <View style={styles.adminMenuSections}>
-                <View style={styles.adminMenuGroup}><GroupedMenuSection label="STEBĖJIMAS">
+                <View style={styles.adminMenuGroup}><GroupedMenuSection label="STEBĖJIMAS IR APSKAITA">
                   <GroupedMenuRow description="Taškų seka, laikai ir pristatymo kokybė." icon={<MenuArtwork kind="quality" />} onPress={() => router.push('/quality-control' as Href)} title="Kokybės kontrolė" tone="success" />
                   <GroupedMenuRow description="Kilometrai, taškai, svoris ir kokybė pagal laikotarpį." icon={<MenuArtwork kind="statistics" />} onPress={() => router.push({ pathname: '/statistics', params: { returnTo: 'home' } } as Href)} title="Statistika" tone="info" />
-                </GroupedMenuSection></View>
-                <View style={styles.adminMenuGroup}><GroupedMenuSection label="APSKAITA">
                   <GroupedMenuRow description="Reiso savikaina, kuras ir atlygis pagal laikotarpį." icon={<MenuArtwork kind="finance" />} onPress={() => router.push({ pathname: '/finance', params: { returnTo: 'home' } } as unknown as Href)} title="Finansai" tone="neutral" />
-                  <GroupedMenuRow description="Odometrai, suvestinės ir spausdinimas." icon={<MenuArtwork kind="trip-sheet" />} onPress={() => router.push({ pathname: '/trip-sheet', params: { returnTo: 'home' } } as Href)} title="Kelionės lapai" tone="neutral" />
                 </GroupedMenuSection></View>
                 <View style={styles.adminMenuGroup}><GroupedMenuSection label="IŠTEKLIAI">
                   <GroupedMenuRow description="Duomenys, prisijungimai ir leidimai." icon={<MenuArtwork kind="drivers" />} onPress={() => router.push({ pathname: '/admin', params: { section: 'employees', returnTo: 'home' } } as Href)} title="Vairuotojai" />

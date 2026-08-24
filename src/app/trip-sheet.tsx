@@ -223,7 +223,10 @@ export default function TripSheetScreen() {
       link.href = url;
       link.download = `keliones-lapai-${selectedMonth === 'all' ? new Date().toISOString().slice(0, 10) : selectedMonth}.xlsx`;
       link.click();
-      URL.revokeObjectURL(url);
+      // Revoking the object URL synchronously can race the browser's actual
+      // download write on some systems, producing a 0-byte/truncated file
+      // that still opens (and looks blank) — give it a beat first.
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
       setMessage(`Excel ataskaita paruošta: ${monthlyGroups.length} lap.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Excel ataskaitos sukurti nepavyko.');
@@ -280,7 +283,7 @@ export default function TripSheetScreen() {
           <Pressable style={styles.secondaryButton} onPress={exportExcel} testID="export-trip-sheets-xlsx"><Text style={styles.secondaryText}>Eksportuoti Excel</Text></Pressable>
         </View>
         {!online ? <Pressable style={styles.secondaryButton} disabled={busy} onPress={() => { void syncLocal(); }} testID="sync-trip-sheets"><Text style={styles.secondaryText}>Atnaujinti iš įrenginio maršrutų</Text></Pressable> : null}
-        {canEditFleetReadings ? <View style={styles.odometerCard} testID="odometer-entry">
+        {canEditFleetReadings ? <View style={styles.odometerCard} testID="trip-sheet-odometer-entry">
           <Pressable accessibilityRole="button" accessibilityState={{ expanded: odometerOpen }} onPress={() => setOdometerOpen((value) => !value)} style={styles.odometerHeader} testID="odometer-entry-toggle">
             <Text style={styles.cardTitle}>Įvesti odometrą rankiniu būdu</Text>
             <Text style={styles.meta}>{odometerOpen ? '⌃' : '⌄'}</Text>

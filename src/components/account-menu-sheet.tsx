@@ -67,10 +67,10 @@ export function AccountMenuSheet({ visible, onClose }: { visible: boolean; onClo
             </View>
           </View>
 
-          <GroupedMenuSection label="DARBO ĮRANKIAI">
-            <GroupedMenuRow icon={<MenuArtwork kind="trip-sheet" />} onPress={openTripSheets} testID="account-menu-trip-sheets" title="Kelionės lapai" tone="success" />
-            {profile.role !== 'quality' ? <GroupedMenuRow icon={<MenuArtwork kind="settings" />} onPress={openSettings} testID="account-menu-settings" title="Nustatymai" /> : null}
-          </GroupedMenuSection>
+          {profile.role !== 'quality' ? <GroupedMenuSection label="DARBO ĮRANKIAI">
+            {profile.role === 'driver' ? <GroupedMenuRow icon={<MenuArtwork kind="trip-sheet" />} onPress={openTripSheets} testID="account-menu-trip-sheets" title="Kelionės lapai" tone="success" /> : null}
+            <GroupedMenuRow icon={<MenuArtwork kind="settings" />} onPress={openSettings} testID="account-menu-settings" title="Nustatymai" />
+          </GroupedMenuSection> : null}
           <GroupedMenuSection label="PASKYRA">
             <GroupedMenuRow description="Prisijungti kitu darbuotojo vardu." icon={<MenuArtwork kind="account" />} onPress={confirmSwitchAccount} testID="account-menu-switch" title="Keisti paskyrą" />
             <GroupedMenuRow icon={<MenuArtwork kind="logout" />} onPress={confirmLogout} testID="account-menu-logout" title="Atsijungti" tone="danger" />

@@ -240,9 +240,9 @@ export default function StatisticsScreen() {
         ) : null}
         {customError ? <Text style={styles.error}>{customError}</Text> : null}
 
-        <Pressable style={styles.tripSheetButton} onPress={() => router.push({ pathname: '/trip-sheet', params: { returnTo: 'statistics' } } as Href)} testID="open-trip-sheets">
+        {profile.role === 'driver' ? <Pressable style={styles.tripSheetButton} onPress={() => router.push({ pathname: '/trip-sheet', params: { returnTo: 'statistics' } } as Href)} testID="open-trip-sheets">
           <Text style={styles.tripSheetText}>Kelionės lapai</Text>
-        </Pressable>
+        </Pressable> : null}
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
 

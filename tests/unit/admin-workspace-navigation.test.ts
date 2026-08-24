@@ -21,8 +21,9 @@ describe('administrator workspace navigation', () => {
     expect(home).not.toContain('title="Maršrutai"');
     expect(home).toContain('Kokybės kontrolė');
     expect(home).not.toContain('Vykdyti maršrutą');
-    expect(home).toContain('Kelionės lapai');
-    expect(home).toContain('<MenuArtwork kind="trip-sheet" />');
+    // Kelionės lapai lives only on the dispatcher dashboard now — the admin
+    // home menu no longer duplicates it.
+    expect(home).not.toContain('Kelionės lapai');
     expect(home).toContain('title="Automobiliai"');
     expect(home).toContain('title="Vairuotojai"');
     expect(home).toContain('title="Finansai"');
