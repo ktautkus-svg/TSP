@@ -1,11 +1,12 @@
 import { Stack, useRouter, type Href } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { roleHomePath } from '@/application/navigation/role-home';
 import { AccountMenuSheet } from '@/components/account-menu-sheet';
 import { BackIcon, StatsIcon } from '@/components/app-icons';
+import { DateInput } from '@/components/date-input';
 import { TspBrand } from '@/components/tsp-brand';
 import {
   PERIOD_OPTIONS,
@@ -510,13 +511,11 @@ function failureLabel(stop: QualityStopMonitor): string {
 function DateField({ label, value, onChange, styles }: { label: string; value: string; onChange: (value: string) => void; styles: ReturnType<typeof createStyles> }) {
   return <View style={styles.dateField}>
     <Text style={styles.fieldLabel}>{label.toUpperCase()}</Text>
-    <TextInput
+    <DateInput
       accessibilityLabel={label}
       onChangeText={onChange}
-      placeholder="YYYY-MM-DD"
       style={styles.dateInput}
       value={value}
-      {...({ type: 'date' } as object)}
     />
   </View>;
 }

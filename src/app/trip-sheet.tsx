@@ -9,6 +9,7 @@ import { pushCompletedRouteAssignmentProgress } from '@/application/auth/route-a
 import { CompanyProfileSettings, type CompanyProfile } from '@/application/settings/company-profile';
 import { buildTripSheetWorkbook, MIME_XLSX } from '@/application/trip-sheet/export-xlsx';
 import { buildFuelLedger, type FuelLedgerDay } from '@/application/trip-sheet/fuel-balance';
+import { DateInput } from '@/components/date-input';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { TripSheetRepository, type TripSheetWithRoutes } from '@/database/repositories/trip-sheet-repository';
 import type { FuelType } from '@/domain/vehicle-and-trip';
@@ -294,7 +295,7 @@ export default function TripSheetScreen() {
               {fleetVehicles.map((vehicle) => <Filter key={vehicle.id} label={vehicle.registrationNumber} active={odometerVehicleId === vehicle.id} onPress={() => setOdometerVehicleId(vehicle.id)} styles={styles} />)}
             </View>
             <View style={styles.odometerFields}>
-              <TextInput accessibilityLabel="Data" onChangeText={setOdometerDate} placeholder="YYYY-MM-DD" style={styles.odometerInput} value={odometerDate} {...({ type: 'date' } as object)} />
+              <DateInput accessibilityLabel="Data" onChangeText={setOdometerDate} style={styles.odometerInput} value={odometerDate} />
               <TextInput accessibilityLabel="Odometras pradžioje" keyboardType="decimal-pad" onChangeText={setOdometerStart} placeholder="Odometras pradžioje" style={styles.odometerInput} value={odometerStart} />
               <TextInput accessibilityLabel="Odometras pabaigoje" keyboardType="decimal-pad" onChangeText={setOdometerEnd} placeholder="Odometras pabaigoje" style={styles.odometerInput} value={odometerEnd} />
             </View>

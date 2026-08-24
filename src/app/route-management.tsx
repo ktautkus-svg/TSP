@@ -19,6 +19,7 @@ import { AdminCompleteRoute } from '@/application/routes/route-workday';
 import { markRouteDeletedForCloud } from '@/application/sync/route-cloud-sync';
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon, TrashIcon } from '@/components/app-icons';
+import { DateInput } from '@/components/date-input';
 import { uniqueRegionCodes } from '@/domain/route-code';
 import { employeeApi, type EmployeeProfile, type ServerFleetVehicle, type ServerRouteAssignment } from '@/infrastructure/auth/employee-session';
 import { Alert } from '@/ui/alert';
@@ -724,7 +725,7 @@ export default function RouteManagementScreen() {
             </View>
             <View style={styles.modalField}>
               <Text style={styles.selectorLabel}>Maršruto data</Text>
-              <TextInput value={editingAssignmentDate} onChangeText={setEditingAssignmentDate} placeholder="YYYY-MM-DD" style={styles.modalInput} {...({ type: 'date' } as object)} testID="assignment-date-input" />
+              <DateInput value={editingAssignmentDate} onChangeText={setEditingAssignmentDate} style={styles.modalInput} testID="assignment-date-input" />
             </View>
             <Text style={styles.panelHint}>Datą galima keisti, kol vairuotojas maršruto dar nepradėjo.</Text>
             <View style={styles.modalActions}>

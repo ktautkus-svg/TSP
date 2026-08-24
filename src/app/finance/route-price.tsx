@@ -1,6 +1,6 @@
 import { Stack, useRouter, type Href } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { normalizeEmployeePermissions } from '@/application/auth/employee-permissions';
 import { useLocalAccess } from '@/application/auth/local-access-context';
@@ -15,6 +15,7 @@ import {
   type PeriodMode,
 } from '@/application/reporting/period-range';
 import { estimatePreliminaryRoutePrice, type PreliminaryRoutePrice } from '@/application/routes/route-price';
+import { DateInput } from '@/components/date-input';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { MenuArtwork } from '@/components/menu-artwork';
 import { employeeApi, type ServerTripSheet } from '@/infrastructure/auth/employee-session';
@@ -189,13 +190,11 @@ function Metric({ label, value, emphasis, styles }: { label: string; value: stri
 function DateField({ label, value, onChange, styles }: { label: string; value: string; onChange: (value: string) => void; styles: ReturnType<typeof createStyles> }) {
   return <View style={styles.dateField}>
     <Text style={styles.fieldLabel}>{label.toUpperCase()}</Text>
-    <TextInput
+    <DateInput
       accessibilityLabel={label}
       onChangeText={onChange}
-      placeholder="YYYY-MM-DD"
       style={styles.dateInput}
       value={value}
-      {...({ type: 'date' } as object)}
     />
   </View>;
 }

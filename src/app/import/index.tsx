@@ -43,6 +43,7 @@ import {
 import { resolveRoute } from '@/application/routes/route-navigation';
 import { GetDefaultLocations, KRETINGA_WAREHOUSE_ADDRESS, PlanningModePreference, SaveDefaultLocation } from '@/application/routes/saved-locations';
 import { CameraIcon, ChevronDownIcon, ChevronRightIcon, ClipboardIcon, ExcelIcon, GalleryIcon, PdfIcon, PencilIcon, RegionIcon, WindowIcon } from '@/components/app-icons';
+import { DateInput } from '@/components/date-input';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { ExcelImportRepository, type ExcelSheetSession } from '@/database/repositories/excel-import-repository';
 import { AddressResolutionMemoryRepository } from '@/database/repositories/address-resolution-memory-repository';
@@ -1111,13 +1112,11 @@ export default function ImportScreen() {
                 <View style={styles.scheduleRow}>
                   <View style={styles.scheduleField}>
                     <Text style={styles.fieldCaption}>Data</Text>
-                    <TextInput
+                    <DateInput
                       value={planningDate}
                       onChangeText={setPlanningDate}
                       style={styles.scheduleInput}
-                      placeholder="YYYY-MM-DD"
                       placeholderTextColor={colors.textMuted}
-                      {...({ type: 'date' } as object)}
                       testID="planning-date"
                     />
                   </View>
