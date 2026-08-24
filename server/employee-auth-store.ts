@@ -2770,7 +2770,14 @@ export function buildQualityRouteMonitor(assignment: RouteAssignment, vehicle: F
   return {
     id: assignment.id,
     routeId: assignment.routeId,
-    date: optionalText(route.date) ?? assignment.assignedAt.slice(0, 10),
+    // route.date is set once at creation and should always be present, but if
+    // it is ever missing, the date the ROUTE WAS DRIVEN (completed/started) is
+    // the honest fallback — assignedAt is when a dispatcher clicked "assign",
+    // which can be a different day than when the driver actually ran it.
+    date: optionalText(route.date)
+      ?? optionalText(route.completed_at)?.slice(0, 10)
+      ?? optionalText(route.started_at)?.slice(0, 10)
+      ?? assignment.assignedAt.slice(0, 10),
     routeNumbers,
     status: assignment.status,
     driverId: assignment.driverId,

@@ -64,7 +64,7 @@ export type RoutePriceSettings = {
 export const DEFAULT_ROUTE_PRICE_SETTINGS: RoutePriceSettings = {
   fuelPriceByMonth: [1.26, 1.25, 1.17, 1.10, 1.08, 1.13, 1.13, 1.13, 1.13, 1.13, 1.13, 1.13],
   workingDaysByMonth: [22, 20, 20, 20, 21, 20, 23, 20, 22, 23, 20, 20],
-  overheadPercent: 5,
+  overheadPercent: 10,
   payrollTaxPercent: 51,
   // KJL116, MCI855, MCP563, MFJ465 and NYP356 were removed from the fleet;
   // MSZ867 was reissued as NLL182 (same vehicle, same rate profile).

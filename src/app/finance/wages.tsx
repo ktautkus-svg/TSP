@@ -197,16 +197,27 @@ export default function FinanceScreen() {
                   <Text style={[styles.detailCell, styles.detailHeaderText]}>Km</Text>
                   <Text style={[styles.detailCell, styles.detailHeaderText]}>Kuras (l)</Text>
                   <Text style={[styles.detailCell, styles.detailHeaderText]}>Kuras €</Text>
+                  <Text style={[styles.detailCell, styles.detailHeaderText]}>Bazė €</Text>
+                  <Text style={[styles.detailCell, styles.detailHeaderText]}>Km €</Text>
+                  <Text style={[styles.detailCell, styles.detailHeaderText]}>Kg €</Text>
+                  <Text style={[styles.detailCell, styles.detailHeaderText]}>Tšk €</Text>
+                  <Text style={[styles.detailCell, styles.detailHeaderText]}>Atlygis €</Text>
                 </View>
                 {row.sheets.map((sheet) => {
                   const liters = sheet.fuelEntries.reduce((sum, entry) => sum + entry.liters, 0);
                   const cost = sheet.fuelEntries.reduce((sum, entry) => sum + (entry.totalCost ?? 0), 0);
+                  const wage = sheet.compensation;
                   return <View key={sheet.id} style={styles.detailRow}>
                     <Text style={[styles.detailCell, styles.detailDateColumn]}>{sheet.date}</Text>
                     <Text style={[styles.detailCell, styles.detailVehicleColumn]}>{sheet.vehicle?.registrationNumber ?? '—'}</Text>
                     <Text style={styles.detailCell}>{kmFormatter.format(sheet.actualDistanceKm ?? sheet.plannedDistanceKm ?? 0)}</Text>
                     <Text style={styles.detailCell}>{litersFormatter.format(liters)}</Text>
                     <Text style={styles.detailCell}>{eurFormatter.format(cost)}</Text>
+                    <Text style={styles.detailCell}>{wage ? eurFormatter.format(wage.fixedAmountEur) : '—'}</Text>
+                    <Text style={styles.detailCell}>{wage ? eurFormatter.format(wage.distanceAmountEur) : '—'}</Text>
+                    <Text style={styles.detailCell}>{wage ? eurFormatter.format(wage.weightAmountEur) : '—'}</Text>
+                    <Text style={styles.detailCell}>{wage ? eurFormatter.format(wage.stopsAmountEur) : '—'}</Text>
+                    <Text style={[styles.detailCell, styles.detailTotalCell]}>{wage ? eurFormatter.format(wage.totalNetEur) : '—'}</Text>
                   </View>;
                 })}
                 <Text style={styles.disclaimer}>Atlygis {eurFormatter.format(row.wageEur)} skaičiuojamas per dieną (ne per reisą) — jei tą dieną buvo keli reisai, jie prisideda prie tos pačios dienos sumos, ne kelios atskiros.</Text>
@@ -340,6 +351,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   detailHeaderText: { ...type.label, color: colors.textMuted, textAlign: 'right' },
   detailDateColumn: { flex: 1.4, textAlign: 'left' },
   detailVehicleColumn: { flex: 1.2, textAlign: 'left' },
+  detailTotalCell: { ...type.bodyStrong, color: colors.text },
   dangerButton: { alignSelf: 'flex-start', minHeight: 40, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.dangerSoft, alignItems: 'center', justifyContent: 'center' },
   dangerButtonText: { ...type.button, color: colors.danger },
   disabled: { opacity: 0.6 },

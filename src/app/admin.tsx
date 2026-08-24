@@ -127,12 +127,12 @@ export default function AdminScreen() {
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
-  const focus = requestedSection === 'employees' || requestedSection === 'fleet' ? requestedSection : null;
+  const focus = requestedSection === 'employees' || requestedSection === 'fleet' || requestedSection === 'fuel-reports' ? requestedSection : null;
   const currentPermissions = normalizeEmployeePermissions(profile.permissions);
   const canManageEmployees = profile.role === 'admin' || (profile.role === 'dispatcher' && currentPermissions.canManageEmployees);
   const canManageVehicles = profile.role === 'admin' || (profile.role === 'dispatcher' && currentPermissions.canManageVehicles);
   const canManageFinancials = profile.role === 'admin' || (profile.role === 'dispatcher' && currentPermissions.canManageFinancials);
-  const canOpenWorkspace = focus === 'employees' ? canManageEmployees : focus === 'fleet' ? canManageVehicles : profile.role === 'admin';
+  const canOpenWorkspace = focus === 'employees' ? canManageEmployees : focus === 'fleet' ? canManageVehicles : focus === 'fuel-reports' ? canManageFinancials : profile.role === 'admin';
 
   const load = useCallback(async () => {
     const [routeCount, active, completed, stops, localRoutes] = await Promise.all([
@@ -531,8 +531,8 @@ export default function AdminScreen() {
       <FoundationScreen
         contentMaxWidth={focus ? 900 : desktop ? 1440 : tablet ? 980 : undefined}
         showFoundationNotice={false}
-        title={focus === 'employees' ? 'Vairuotojai ir darbuotojai' : focus === 'fleet' ? 'Automobiliai' : 'Administratoriaus panelė'}
-        description={focus === 'employees' ? 'Redaguokite darbuotojo duomenis, PIN ir vairuotojo leidimus.' : focus === 'fleet' ? 'Redaguokite automobilio numerį, kėbulą, šonines duris ir priskyrimą.' : 'Darbuotojai, automobiliai ir maršrutų priskyrimai.'}>
+        title={focus === 'employees' ? 'Vairuotojai ir darbuotojai' : focus === 'fleet' ? 'Automobiliai' : focus === 'fuel-reports' ? 'Kuro likučio pakeitimai' : 'Administratoriaus panelė'}
+        description={focus === 'employees' ? 'Redaguokite darbuotojo duomenis, PIN ir vairuotojo leidimus.' : focus === 'fleet' ? 'Redaguokite automobilio numerį, kėbulą, šonines duris ir priskyrimą.' : focus === 'fuel-reports' ? 'Patvirtinkite arba atmeskite vairuotojų praneštus kuro likučio neatitikimus.' : 'Darbuotojai, automobiliai ir maršrutų priskyrimai.'}>
         {!focus ? <View style={styles.card} testID="admin-account-summary">
           <Text style={styles.title}>{profile.displayName}</Text>
           <Text style={styles.username}>@{username} · {roleLabel(profile.role)}</Text>
@@ -547,7 +547,7 @@ export default function AdminScreen() {
         </View> : null}
 
         {canOpenWorkspace ? <View style={[styles.workspace, desktop && styles.workspaceDesktop]}>
-          <View style={[styles.column, (focus === 'fleet' || !canManageEmployees) && styles.hidden]}>
+          <View style={[styles.column, (focus === 'fleet' || focus === 'fuel-reports' || !canManageEmployees) && styles.hidden]}>
           <View style={styles.card} testID="employee-create-form">
             <CollapsibleHeader title="Naujas darbuotojas" expanded={expandedSection === 'employee-create'} onPress={() => toggleSection('employee-create')} styles={styles} />
             {expandedSection === 'employee-create' ? <>
@@ -657,7 +657,7 @@ export default function AdminScreen() {
             </> : null}
           </View>
 
-          <View style={[styles.card, (focus === 'employees' || !canManageVehicles) && styles.hidden]} testID="fleet-vehicle-management">
+          <View style={[styles.card, (focus === 'employees' || focus === 'fuel-reports' || !canManageVehicles) && styles.hidden]} testID="fleet-vehicle-management">
             <CollapsibleHeader title={`Automobilių parkas (${vehicles.length})`} expanded={expandedSection === 'fleet'} onPress={() => toggleSection('fleet')} styles={styles} />
             {expandedSection === 'fleet' ? <>
             <Text style={styles.meta}>Bako talpa, PLL talpa ir šoninės durys yra automobilio techniniai laukai. Kuro likutis čia nerašomas. Miestas automobiliams nesaugomas.</Text>
@@ -832,7 +832,7 @@ export default function AdminScreen() {
             </> : null}
           </View>
 
-          <View style={[styles.card, Boolean(focus) && styles.hidden]} testID="fuel-report-management">
+          <View style={[styles.card, (focus === 'employees' || focus === 'fleet') && styles.hidden]} testID="fuel-report-management">
             <CollapsibleHeader title={`Kuro likučio pakeitimai (${fuelReports.filter((report) => report.status === 'pending').length})`} expanded={expandedSection === 'fuel-reports'} onPress={() => toggleSection('fuel-reports')} styles={styles} />
             {expandedSection === 'fuel-reports' ? <>
               <Text style={styles.meta}>Pirmasis automobilio kuro likutis priimamas automatiškai. Vėlesnį neatitikimą patvirtina administratorius.</Text>

@@ -7,7 +7,7 @@ import {
 } from '../../src/application/routes/route-price';
 
 describe('preliminary route price imported from Maršruto kaina.xlsm logic', () => {
-  it('reconciles the workbook own-transport example to 185.60 euro', () => {
+  it('reconciles the workbook own-transport example (base costs) at the current 10% overhead', () => {
     const result = estimatePreliminaryRoutePrice({
       date: '2025-04-26',
       distanceKm: 400,
@@ -17,12 +17,16 @@ describe('preliminary route price imported from Maršruto kaina.xlsm logic', () 
       vehicle: { registrationNumber: 'LMC891', maximumPayloadKg: 1_200 },
     });
 
+    // The base cost components (fuel/road/insurance/driver) reconcile exactly
+    // to the workbook's 176.77 € regardless of overhead. Overhead itself was
+    // raised from the workbook's original 5% to 10%, so totalEur is now
+    // 176.77 * 1.10 = 194.44 instead of the workbook's 185.60.
     expect(result).toMatchObject({
       fuelCostEur: 61.6,
       roadCostEur: 1.85,
       insuranceCostEur: 0.82,
       driverCostEur: 112.5,
-      totalEur: 185.6,
+      totalEur: 194.44,
       source: 'excel-vehicle',
     });
   });

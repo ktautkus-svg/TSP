@@ -42,16 +42,16 @@ export default function FleetScreen() {
           testID="fleet-open-technical"
           title="Techniniai duomenys" />
         <FleetCard
-          description="Odometro įvedimas per kelionės lapą ir nuvažiuotų kilometrų statistika."
-          icon="statistics"
-          onPress={() => open({ pathname: '/statistics', params: { returnTo: 'fleet' } } as Href)}
+          description="Odometro įvedimas ir kelionės lapai su nuvažiuotais kilometrais."
+          icon="trip-sheet"
+          onPress={() => open({ pathname: '/trip-sheet', params: { returnTo: 'fleet' } } as Href)}
           styles={styles}
           testID="fleet-open-km"
           title="Kilometražas" />
         <FleetCard
-          description="Kuro likučio patvirtinimai, korekcijos ir pylimų taisyklės."
+          description="Vairuotojų praneštų kuro likučio pakeitimų tvirtinimas."
           icon="trip-sheet"
-          onPress={() => open({ pathname: '/admin', params: { section: 'fleet', returnTo: 'fleet' } } as Href)}
+          onPress={() => open({ pathname: '/admin', params: { section: 'fuel-reports', returnTo: 'fleet' } } as unknown as Href)}
           styles={styles}
           testID="fleet-open-fuel"
           title="Kuras" />
