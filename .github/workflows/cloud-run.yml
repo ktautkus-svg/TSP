@@ -122,14 +122,19 @@ jobs:
         run: |
           set -euo pipefail
           image="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/cloud-run-source-deploy/${CLOUD_RUN_SERVICE}:sha-${GITHUB_SHA}"
+<<<<<<< HEAD
           # Use --async because this SA cannot stream the default Cloud Build
           # logs bucket (blocked by VPC-SC policy). Poll until the build finishes.
           BUILD_ID=$(gcloud builds submit \
+=======
+          build_id=$(gcloud builds submit \
+>>>>>>> 047176c (Automatinis deploy ir kodų stabilizavimas)
             --project="$GCP_PROJECT_ID" \
             --tag="$image" \
             --timeout=1200s \
             --async \
             --format='value(id)')
+<<<<<<< HEAD
           echo "Cloud Build ${BUILD_ID} submitted"
           STATUS=""
           for _ in $(seq 1 120); do
@@ -141,13 +146,31 @@ jobs:
               SUCCESS) break ;;
               FAILURE|TIMEOUT|CANCELLED|EXPIRED|INTERNAL_ERROR)
                 echo "Cloud Build failed with status: ${STATUS}"
+=======
+          echo "Cloud Build ${build_id} started for ${image}"
+          status=""
+          for _ in $(seq 1 120); do
+            status=$(gcloud builds describe "$build_id" --project="$GCP_PROJECT_ID" --format='value(status)')
+            echo "$(date -u +%H:%M:%S) Cloud Build ${status}"
+            case "$status" in
+              SUCCESS)
+                break
+                ;;
+              FAILURE|TIMEOUT|CANCELLED|EXPIRED|INTERNAL_ERROR)
+                echo "Cloud Build failed: ${status}" >&2
+>>>>>>> 047176c (Automatinis deploy ir kodų stabilizavimas)
                 exit 1
                 ;;
             esac
             sleep 10
           done
+<<<<<<< HEAD
           if [ "$STATUS" != SUCCESS ]; then
             echo "Cloud Build did not finish in time (status: ${STATUS:-unknown})"
+=======
+          if [ "$status" != SUCCESS ]; then
+            echo "Cloud Build did not finish in time: ${status:-unknown}" >&2
+>>>>>>> 047176c (Automatinis deploy ir kodų stabilizavimas)
             exit 1
           fi
           echo "name=$image" >> "$GITHUB_OUTPUT"
