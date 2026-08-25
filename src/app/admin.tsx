@@ -1,53 +1,53 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 
-import { assignRouteToDriver, completeAssignedRoute } from '@/application/auth/route-assignment-sync';
-import { markRouteDeletedForCloud } from '@/application/sync/route-cloud-sync';
-import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
-import { CancelDraftRoute } from '@/application/routes/route-commands';
-import { AdminCompleteRoute } from '@/application/routes/route-workday';
+import {
+    DRIVER_PERMISSION_KEYS,
+    DRIVER_PERMISSION_LABELS,
+    MANAGEMENT_PERMISSION_KEYS,
+    MANAGEMENT_PERMISSION_LABELS,
+    normalizeDriverPermissions,
+    normalizeEmployeePermissions,
+    roleLabel,
+    type EmployeePermissionKey,
+} from '@/application/auth/employee-permissions';
 import { LocalAccessService } from '@/application/auth/local-access';
 import { useLocalAccess } from '@/application/auth/local-access-context';
-import {
-  DRIVER_PERMISSION_KEYS,
-  DRIVER_PERMISSION_LABELS,
-  MANAGEMENT_PERMISSION_KEYS,
-  MANAGEMENT_PERMISSION_LABELS,
-  normalizeEmployeePermissions,
-  normalizeDriverPermissions,
-  roleLabel,
-  type EmployeePermissionKey,
-} from '@/application/auth/employee-permissions';
+import { assignRouteToDriver, completeAssignedRoute } from '@/application/auth/route-assignment-sync';
+import { CancelDraftRoute } from '@/application/routes/route-commands';
+import { AdminCompleteRoute } from '@/application/routes/route-workday';
+import { markRouteDeletedForCloud } from '@/application/sync/route-cloud-sync';
+import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 import { DateInput } from '@/components/date-input';
 import { FoundationScreen } from '@/components/foundation-screen';
 import {
-  PALLET_CAPACITIES,
-  bodyKindFromPalletCapacity,
-  fleetCargoSpec,
-  fleetTankCapacity,
-  resolveVehicleCargo,
-  type PalletCapacity,
+    PALLET_CAPACITIES,
+    bodyKindFromPalletCapacity,
+    fleetCargoSpec,
+    fleetTankCapacity,
+    resolveVehicleCargo,
+    type PalletCapacity,
 } from '@/domain/fleet-cargo-specs';
 import { parseVehicleDayAssignmentId } from '@/domain/nll182-odometer-log';
-import { Alert } from '@/ui/alert';
-import { describeVehicleLoad } from '@/ui/vehicle-load';
 import {
-  employeeApi,
-  loginEmployee,
-  type EmployeeProfile,
-  type EmployeeRole,
-  type FuelReport,
-  type ServerDepartureOverride,
-  type ServerFleetVehicle,
-  type ServerRouteAssignment,
-  type ServerTripSheet,
-  type ServerVehicleFault,
+    employeeApi,
+    loginEmployee,
+    type EmployeeProfile,
+    type EmployeeRole,
+    type FuelReport,
+    type ServerDepartureOverride,
+    type ServerFleetVehicle,
+    type ServerRouteAssignment,
+    type ServerTripSheet,
+    type ServerVehicleFault,
 } from '@/infrastructure/auth/employee-session';
-import { radius, spacing, type } from '@/ui/tokens';
+import { Alert } from '@/ui/alert';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
+import { radius, spacing, type } from '@/ui/tokens';
+import { describeVehicleLoad } from '@/ui/vehicle-load';
 
 type Counts = { routes: number; activeRoutes: number; completedRoutes: number; stops: number };
 type RouteChoice = { id: string; date: string; status: string; total_stops: number; total_weight_kg: number };
@@ -909,7 +909,7 @@ export default function AdminScreen() {
             </> : null}
           </View>
 
-          <View style={[styles.card, (focus === 'employees' || focus === 'fuel-reports' || !canManageVehicles) && styles.hidden]} testID="odometer-corrections">
+          <View style={[styles.card, styles.hidden]} testID="odometer-corrections">
             <CollapsibleHeader title="Odometro ir kelionės duomenų korekcijos" expanded={expandedSection === 'odometer-corrections'} onPress={() => toggleSection('odometer-corrections')} styles={styles} />
             {expandedSection === 'odometer-corrections' ? <>
             <Text style={styles.meta}>Automobiliui ir dienai, kurios dar nedengia joks maršrutas (pvz. kelionė be užsakymų), taip pat tikrų užbaigtų maršrutų odometro ir vairuotojo pataisymai.</Text>

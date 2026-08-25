@@ -42,9 +42,9 @@ export default function FleetScreen() {
           testID="fleet-open-technical"
           title="Techniniai duomenys" />
         <FleetCard
-          description="Kuro likutis, papildymai ir vairuotojų praneštų pakeitimų tvirtinimas."
+          description="Kuro likutis ir papildymų redagavimas pasirinktam automobiliui."
           icon="trip-sheet"
-          onPress={() => open({ pathname: '/admin', params: { section: 'fuel-reports', returnTo: 'fleet' } } as unknown as Href)}
+          onPress={() => open({ pathname: '/vehicle', params: { returnTo: 'fleet' } } as Href)}
           styles={styles}
           testID="fleet-open-fuel"
           title="Kuras" />

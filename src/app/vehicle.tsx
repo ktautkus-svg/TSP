@@ -16,7 +16,7 @@ import { VehicleDepartureOverrideRepository } from '@/database/repositories/vehi
 import { VehicleFaultRepository } from '@/database/repositories/vehicle-fault-repository';
 import { evaluateDepartureReadiness, type DepartureOverrideInput } from '@/domain/departure-readiness';
 import type { FuelType, VehicleFault } from '@/domain/vehicle-and-trip';
-import { employeeApi, type FuelStatus, type ServerFleetVehicle, type ServerFleetVehicleSnapshot, type ServerTripSheet } from '@/infrastructure/auth/employee-session';
+import { employeeApi, type FuelStatus, type ServerFleetVehicle, type ServerFleetVehicleSnapshot, type ServerFuelEntry, type ServerTripSheet } from '@/infrastructure/auth/employee-session';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { radius, spacing, type } from '@/ui/tokens';
@@ -57,6 +57,10 @@ export default function VehicleScreen() {
   const [readingEnd, setReadingEnd] = useState('');
   const [readingDistance, setReadingDistance] = useState('');
   const [readingMode, setReadingMode] = useState<'range' | 'distance'>('range');
+  const [fuelDate, setFuelDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [fuelLiters, setFuelLiters] = useState('');
+  const [fuelReceipt, setFuelReceipt] = useState('');
+  const [editingFuelId, setEditingFuelId] = useState<string | null>(null);
   const canApprove = canApproveExpiredDeparture(profile);
 
   const applyVehicle = useCallback(async (vehicleId: string) => {
@@ -102,6 +106,34 @@ export default function VehicleScreen() {
     } finally { setBusy(false); }
   };
 
+  const vehicleFuelEntries = vehicleReadings.flatMap((reading) => reading.fuelEntries ?? []).filter((entry) => entry.vehicleId === selectedVehicleId);
+  const saveFuel = async () => {
+    if (busy) return;
+    const liters = Number(fuelLiters.replace(',', '.'));
+    if (!Number.isFinite(liters) || liters <= 0) { setMessage('Įveskite įpiltų litrų kiekį.'); return; }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fuelDate)) { setMessage('Įveskite datą formatu YYYY-MM-DD.'); return; }
+    setBusy(true);
+    try {
+      const body = { filledAt: new Date(`${fuelDate}T12:00:00`).toISOString(), liters, receiptNumber: fuelReceipt.trim() || null };
+      if (editingFuelId) {
+        await employeeApi(`/api/fuel-entries/${encodeURIComponent(editingFuelId)}`, { method: 'PATCH', body: JSON.stringify(body) });
+      } else {
+        const reading = vehicleReadings.find((item) => item.date === fuelDate) ?? vehicleReadings[0];
+        if (!reading) throw new Error('Šiai datai nėra odometro įrašo. Pirmiausia įrašykite dienos odometrą.');
+        await employeeApi(`/api/trip-sheets/${encodeURIComponent(reading.assignmentId)}/fuel-entries`, { method: 'POST', body: JSON.stringify({ ...body, odometer: reading.endOdometer ?? reading.startOdometer ?? 0 }) });
+      }
+      setFuelLiters(''); setFuelReceipt(''); setEditingFuelId(null); setMessage('Kuro įrašas išsaugotas.');
+      await applyVehicle(selectedVehicleId);
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Kuro įrašo išsaugoti nepavyko.'); }
+    finally { setBusy(false); }
+  };
+  const deleteFuel = async (entry: ServerFuelEntry) => {
+    setBusy(true);
+    try { await employeeApi(`/api/fuel-entries/${encodeURIComponent(entry.id)}`, { method: 'DELETE' }); setMessage('Kuro įrašas ištrintas.'); await applyVehicle(selectedVehicleId); }
+    catch (error) { setMessage(error instanceof Error ? error.message : 'Kuro įrašo ištrinti nepavyko.'); }
+    finally { setBusy(false); }
+  };
+
   const load = useCallback(async () => {
     let available: (ServerFleetVehicle | ServerFleetVehicleSnapshot)[] = [];
     if (online) {
@@ -132,6 +164,8 @@ export default function VehicleScreen() {
       setOpenFaults(await faults.listOpen(preferred.id));
       const saved = await new VehicleDepartureOverrideRepository(db).getLatest(preferred.id);
       setOverride(saved ? { status: saved.status, fingerprint: saved.fingerprint } : null);
+      const response = await employeeApi<{ tripSheets: ServerTripSheet[] }>('/api/trip-sheets').catch(() => ({ tripSheets: [] }));
+      setVehicleReadings(response.tripSheets.filter((sheet) => sheet.vehicle?.id === preferred.id).sort((a, b) => b.date.localeCompare(a.date)));
       return;
     }
     const vehicle = await repository.getVehicle();
@@ -284,6 +318,16 @@ export default function VehicleScreen() {
           <Pressable disabled={busy || !online} onPress={() => { void saveReading(); }} style={[styles.button, (busy || !online) && styles.disabled]} testID="save-vehicle-odometer"><Text style={styles.buttonText}>{busy ? 'Saugoma…' : 'Išsaugoti dieną'}</Text></Pressable>
           {vehicleReadings.slice(0, 5).map((reading) => <View key={reading.assignmentId} style={styles.readingRow}><Text style={styles.readingTitle}>{reading.date}</Text><Text style={styles.hint}>{reading.startOdometer ?? '—'} → {reading.endOdometer ?? '—'} km</Text></View>)}
         </View> : null}
+        {selectedVehicleId ? <View style={styles.odometerPanel} testID="vehicle-fuel-editor">
+          <Text style={styles.sectionTitle}>Kuras ir papildymai</Text>
+          <TextInput value={fuelDate} onChangeText={setFuelDate} style={styles.input} placeholder="Data, YYYY-MM-DD" placeholderTextColor={colors.textMuted} />
+          <View style={styles.inlineInputs}>
+            <TextInput value={fuelLiters} onChangeText={setFuelLiters} keyboardType="decimal-pad" style={[styles.input, styles.inlineInput]} placeholder="Įpilta, l" placeholderTextColor={colors.textMuted} />
+            <TextInput value={fuelReceipt} onChangeText={setFuelReceipt} style={[styles.input, styles.inlineInput]} placeholder="Čekio Nr. (nebūtina)" placeholderTextColor={colors.textMuted} />
+          </View>
+          <Pressable disabled={busy || !online} onPress={() => { void saveFuel(); }} style={[styles.button, (busy || !online) && styles.disabled]}><Text style={styles.buttonText}>{editingFuelId ? 'Išsaugoti kuro pakeitimą' : 'Įrašyti papildymą'}</Text></Pressable>
+          {vehicleFuelEntries.slice(0, 8).map((entry) => <View key={entry.id} style={styles.readingRow}><View><Text style={styles.readingTitle}>{new Date(entry.filledAt).toLocaleDateString('lt-LT')}</Text><Text style={styles.hint}>{entry.liters} l{entry.receiptNumber ? ` · čekis ${entry.receiptNumber}` : ''}</Text></View><View style={styles.entryActions}><Pressable onPress={() => { setEditingFuelId(entry.id); setFuelDate(entry.filledAt.slice(0, 10)); setFuelLiters(String(entry.liters)); setFuelReceipt(entry.receiptNumber ?? ''); }} style={styles.smallButton}><Text style={styles.smallButtonText}>Redaguoti</Text></Pressable><Pressable disabled={busy} onPress={() => { void deleteFuel(entry); }} style={styles.deleteFuelButton}><Text style={styles.deleteFuelText}>Trinti</Text></Pressable></View></View>)}
+        </View> : null}
         <Text style={styles.label}>Kuro rūšis</Text>
         <View style={styles.options}>
           {fuelOptions.map((option) => (
@@ -368,6 +412,11 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   inlineInput: { flex: 1, minWidth: 0 },
   readingRow: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.sm, paddingVertical: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border },
   readingTitle: { ...type.bodyStrong, color: colors.text },
+  entryActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
+  smallButton: { minHeight: 40, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderStrong, paddingHorizontal: spacing.sm, alignItems: 'center', justifyContent: 'center' },
+  smallButtonText: { ...type.label, color: colors.info },
+  deleteFuelButton: { minHeight: 40, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.danger, paddingHorizontal: spacing.sm, alignItems: 'center', justifyContent: 'center' },
+  deleteFuelText: { ...type.label, color: colors.danger },
   sectionTitle: { ...type.cardTitle, color: colors.text },
   label: { ...type.cardTitle, color: colors.text },
   hint: { ...type.secondary, color: colors.textMuted },

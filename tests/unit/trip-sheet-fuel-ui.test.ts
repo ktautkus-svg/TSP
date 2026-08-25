@@ -18,24 +18,25 @@ describe('trip sheet fuel workflow', () => {
       expect(source).toContain(label);
     }
     expect(source).toContain('Atidaryti kelionės lapą · ${group.rows.length} d.');
-    expect(source).toContain('+ Įvesti kurą');
-    expect(source).toContain('+ Kuro papildymas');
-    expect(source).toContain('fuel-entry-form-');
-    expect(source).toContain('/fuel-entries');
-    // Standalone odometer entry (and correcting real routes' odometer/driver)
-    // moved to admin.tsx's "Odometro ir kelionės duomenų korekcijos" section —
-    // this report screen only generates/prints/exports the trip sheet itself.
+    expect(source).toContain('trip-sheet-date-range');
+    expect(source).toContain('VISO PASIRINKTU LAIKOTARPIU');
+    expect(source).not.toContain('Generuoti kelionės lapą');
+    expect(source).not.toContain('+ Įvesti kurą');
+    expect(source).not.toContain('+ Kuro papildymas');
+    expect(source).not.toContain('fuel-entry-form-');
+    expect(source).not.toContain('/fuel-entries');
+    // Odometer and fuel editing belongs beside the selected vehicle, while
+    // this screen remains a read-only report for the dispatcher.
     expect(source).not.toContain('trip-sheet-odometer-entry');
     expect(source).not.toContain('/api/trip-sheets/day-readings');
     expect(source).not.toContain('ATLYGIS');
-    expect(source).toContain('Kasos čekio Nr.');
-    expect(source).toContain('Privalomi laukai: litrai ir data');
+    expect(source).toContain('KURO PAPILDYMAI');
     expect(source).toContain('NUVAŽIUOTA');
     expect(source).toContain('Eksportuoti Excel');
     expect(source).not.toContain('Sustojimo trukmė');
     expect(source).not.toContain('Stovėjimo laikas');
     expect(source).not.toContain('Kaina už litrą');
     expect(source).not.toContain('Degalinė');
-    expect(source).toContain("timeZone: 'Europe/Vilnius'");
+    expect(source).not.toContain('timeStyle:');
   });
 });

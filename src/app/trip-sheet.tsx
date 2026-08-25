@@ -3,7 +3,6 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 
-import { canEnterTripReadings } from '@/application/auth/employee-permissions';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { pushCompletedRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
 import { CompanyProfileSettings, type CompanyProfile } from '@/application/settings/company-profile';
@@ -64,12 +63,6 @@ type MonthlyTripGroup = {
   rows: DailyTripRow[];
 };
 
-type FuelEntryInput = {
-  date: string;
-  liters: number;
-  receiptNumber: string | null;
-};
-
 export default function TripSheetScreen() {
   const db = useSQLiteContext();
   const { profile, online } = useLocalAccess();
@@ -81,12 +74,12 @@ export default function TripSheetScreen() {
   const [selectedDriverId, setSelectedDriverId] = useState('all');
   const [selectedVehicleId, setSelectedVehicleId] = useState('all');
   const [selectedMonth, setSelectedMonth] = useState('all');
-  const [generated, setGenerated] = useState(false);
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [busy, setBusy] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
   const [companyProfile, setCompanyProfile] = useState<CompanyProfile>({ name: '', address: '' });
   const [vehicleFuelType, setVehicleFuelType] = useState<FuelType>('diesel');
-  const canEditFleetReadings = canEnterTripReadings(profile);
 
   useEffect(() => {
     void new CompanyProfileSettings(db).get().then(setCompanyProfile);
@@ -138,9 +131,11 @@ export default function TripSheetScreen() {
   const visible = sheets.filter((sheet) =>
     (profile.role === 'driver' || selectedDriverId === 'all' || sheet.driverId === selectedDriverId)
     && (selectedVehicleId === 'all' || sheet.vehicle?.id === selectedVehicleId)
-    && (selectedMonth === 'all' || sheet.date.startsWith(selectedMonth)));
+    && (selectedMonth === 'all' || sheet.date.startsWith(selectedMonth))
+    && (!dateFrom || sheet.date >= dateFrom)
+    && (!dateTo || sheet.date <= dateTo));
   const monthlyGroups = useMemo(() => buildMonthlyGroups(visible), [visible]);
-  const selectFilter = (apply: () => void) => { apply(); setGenerated(false); };
+  const selectFilter = (apply: () => void) => { apply(); };
   const print = () => {
     if (Platform.OS === 'web' && typeof window !== 'undefined') window.print();
     else setMessage('PDF arba spausdinimą atidarykite interneto naršyklėje.');
@@ -192,66 +187,13 @@ export default function TripSheetScreen() {
       setMessage(error instanceof Error ? error.message : 'Excel ataskaitos sukurti nepavyko.');
     }
   };
-  const addFuel = async (row: DailyTripRow, input: FuelEntryInput) => {
-    if (busy) return;
-    setBusy(true);
-    setMessage(null);
-    try {
-      const filledAt = new Date(`${input.date}T12:00:00`).toISOString();
-      if (online && row.source === 'server') {
-        await employeeApi<{ entry: ServerFuelEntry }>(`/api/trip-sheets/${encodeURIComponent(row.assignmentId)}/fuel-entries`, {
-          method: 'POST',
-          body: JSON.stringify({
-            filledAt,
-            liters: input.liters,
-            receiptNumber: input.receiptNumber ?? undefined,
-          }),
-        });
-      } else {
-        await repository.saveFuelEntry({
-          tripSheetId: row.tripSheetId,
-          filledAt,
-          odometer: row.endOdometer ?? row.startOdometer ?? 0,
-          liters: input.liters,
-          pricePerLiter: null,
-          station: null,
-          receiptNumber: input.receiptNumber,
-          notes: null,
-        });
-      }
-      await load();
-      setMessage(`Įpilta ${formatNumber(input.liters)} l – kuro įrašas išsaugotas.`);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Kuro įrašo išsaugoti nepavyko.');
-      setBusy(false);
-      throw error;
-    }
-  };
-  const updateFuel = async (entry: TripFuelEntry, input: FuelEntryInput) => {
-    await employeeApi(`/api/fuel-entries/${encodeURIComponent(entry.id)}`, {
-      method: 'PATCH',
-      body: JSON.stringify({
-        filledAt: new Date(`${input.date}T12:00:00`).toISOString(),
-        liters: input.liters,
-        receiptNumber: input.receiptNumber,
-      }),
-    });
-    await load();
-    setMessage('Kuro įrašas atnaujintas.');
-  };
-  const deleteFuel = async (entry: TripFuelEntry) => {
-    await employeeApi(`/api/fuel-entries/${encodeURIComponent(entry.id)}`, { method: 'DELETE' });
-    await load();
-    setMessage('Kuro įrašas ištrintas.');
-  };
-  const requiresGenerate = profile.role !== 'driver';
-  const showGroups = !requiresGenerate || generated;
+  const showGroups = true;
   return (
     <>
       <Stack.Screen options={{ gestureEnabled: false, title: 'Kelionės lapai' }} />
       <FoundationScreen showFoundationNotice={false} title="Kelionės lapai" description={profile.role === 'driver'
         ? 'Jūsų užbaigtų maršrutų faktiniai darbo duomenys.'
-        : 'Pasirinkite automobilį, vairuotoją ir laikotarpį, tada sugeneruokite kelionės lapą.'}>
+        : 'Pasirinkite automobilį, vairuotoją ir laikotarpį. Ataskaita atnaujinama iškart.'}>
         <View style={styles.actionRow} testID="trip-sheet-controls">
           <Pressable style={styles.primaryButton} disabled={busy} onPress={() => { void load(); }} testID="refresh-trip-sheets">
             {busy ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.primaryText}>Atnaujinti</Text>}
@@ -260,11 +202,15 @@ export default function TripSheetScreen() {
           <Pressable style={styles.secondaryButton} onPress={exportExcel} testID="export-trip-sheets-xlsx"><Text style={styles.secondaryText}>Eksportuoti Excel</Text></Pressable>
         </View>
         {!online ? <Pressable style={styles.secondaryButton} disabled={busy} onPress={() => { void syncLocal(); }} testID="sync-trip-sheets"><Text style={styles.secondaryText}>Atnaujinti iš įrenginio maršrutų</Text></Pressable> : null}
-        {requiresGenerate && vehicles.length > 1 ? <View style={styles.filters} testID="trip-sheet-vehicle-filter">
+        {profile.role !== 'driver' ? <View style={styles.dateRange} testID="trip-sheet-date-range">
+          <TextInput value={dateFrom} onChangeText={setDateFrom} style={[styles.input, styles.dateInput]} placeholder="Nuo, YYYY-MM-DD" placeholderTextColor={colors.textMuted} />
+          <TextInput value={dateTo} onChangeText={setDateTo} style={[styles.input, styles.dateInput]} placeholder="Iki, YYYY-MM-DD" placeholderTextColor={colors.textMuted} />
+        </View> : null}
+        {vehicles.length > 1 ? <View style={styles.filters} testID="trip-sheet-vehicle-filter">
           <Filter label="Visi automobiliai" active={selectedVehicleId === 'all'} onPress={() => selectFilter(() => setSelectedVehicleId('all'))} styles={styles} />
           {vehicles.map(([id, registrationNumber]) => <Filter key={id} label={registrationNumber} active={selectedVehicleId === id} onPress={() => selectFilter(() => setSelectedVehicleId(id))} styles={styles} />)}
         </View> : null}
-        {requiresGenerate && drivers.length > 1 ? <View style={styles.filters} testID="trip-sheet-driver-filter">
+        {drivers.length > 1 ? <View style={styles.filters} testID="trip-sheet-driver-filter">
           <Filter label="Visi vairuotojai" active={selectedDriverId === 'all'} onPress={() => selectFilter(() => setSelectedDriverId('all'))} styles={styles} />
           {drivers.map(([id, name]) => <Filter key={id} label={name} active={selectedDriverId === id} onPress={() => selectFilter(() => setSelectedDriverId(id))} styles={styles} />)}
         </View> : null}
@@ -272,37 +218,23 @@ export default function TripSheetScreen() {
           <Filter label="Visi mėnesiai" active={selectedMonth === 'all'} onPress={() => selectFilter(() => setSelectedMonth('all'))} styles={styles} />
           {months.map((month) => <Filter key={month} label={formatMonth(month)} active={selectedMonth === month} onPress={() => selectFilter(() => setSelectedMonth(month))} styles={styles} />)}
         </View> : null}
-        {requiresGenerate ? <Pressable disabled={busy} onPress={() => setGenerated(true)} style={styles.primaryButton} testID="generate-trip-sheet">
-          <Text style={styles.primaryText}>Generuoti kelionės lapą</Text>
-        </Pressable> : null}
         {message ? <Text accessibilityRole="alert" style={styles.message}>{message}</Text> : null}
         {!busy && showGroups && monthlyGroups.length === 0 ? <View style={styles.empty}><Text style={styles.cardTitle}>Kelionės lapų nerasta</Text><Text style={styles.meta}>Lapas atsiranda užbaigus maršrutą. Pakeiskite automobilį, vairuotoją arba laikotarpį.</Text></View> : null}
-        {showGroups ? monthlyGroups.map((group) => <MonthlyTripSheet canEdit={canEditFleetReadings || profile.role === 'driver'} companyProfile={companyProfile} compact={width < 820} group={group} key={group.key} onAddFuel={addFuel} onDeleteFuel={deleteFuel} onUpdateFuel={updateFuel} saving={busy} styles={styles} vehicleFuelType={vehicleFuelType} />) : null}
+        {showGroups ? monthlyGroups.map((group) => <MonthlyTripSheet companyProfile={companyProfile} compact={width < 820} group={group} key={group.key} styles={styles} vehicleFuelType={vehicleFuelType} />) : null}
       </FoundationScreen>
     </>
   );
 }
 
-function MonthlyTripSheet({ group, compact, canEdit, onAddFuel, onUpdateFuel, onDeleteFuel, saving, styles, companyProfile, vehicleFuelType }: {
+function MonthlyTripSheet({ group, compact, styles, companyProfile, vehicleFuelType }: {
   group: MonthlyTripGroup;
   compact: boolean;
-  canEdit: boolean;
-  onAddFuel: (row: DailyTripRow, input: FuelEntryInput) => Promise<void>;
-  onUpdateFuel: (entry: TripFuelEntry, input: FuelEntryInput) => Promise<void>;
-  onDeleteFuel: (entry: TripFuelEntry) => Promise<void>;
-  saving: boolean;
   styles: ReturnType<typeof createStyles>;
   companyProfile: CompanyProfile;
   vehicleFuelType: FuelType;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [expandedDay, setExpandedDay] = useState<string | null>(null);
-  const [fuelEditorDay, setFuelEditorDay] = useState<string | null>(null);
-  const [fuelEditorEntry, setFuelEditorEntry] = useState<TripFuelEntry | null>(null);
-  const [fuelDate, setFuelDate] = useState('');
-  const [fuelLiters, setFuelLiters] = useState('');
-  const [fuelReceiptNumber, setFuelReceiptNumber] = useState('');
-  const [formError, setFormError] = useState<string | null>(null);
   const totalDistance = group.rows.reduce((sum, row) => sum + (row.distanceKm ?? 0), 0);
   const totalFuel = group.rows.reduce((sum, row) => sum + (row.fuelConsumed ?? 0), 0);
   const totalFuelAdded = group.rows.reduce((sum, row) => sum + (row.fuelAdded ?? 0), 0);
@@ -310,46 +242,6 @@ function MonthlyTripSheet({ group, compact, canEdit, onAddFuel, onUpdateFuel, on
   const lastOdometer = [...group.rows].reverse().find((row) => row.endOdometer !== null)?.endOdometer ?? null;
   const firstFuel = group.rows.find((row) => row.fuelStart !== null)?.fuelStart ?? null;
   const lastFuel = [...group.rows].reverse().find((row) => row.fuelEnd !== null)?.fuelEnd ?? null;
-  const latestRow = group.rows.at(-1) ?? null;
-
-  const openFuelEditor = (row: DailyTripRow) => {
-    setExpandedDay(row.date);
-    setFuelEditorDay(row.date);
-    setFuelDate(row.date);
-    setFuelLiters('');
-    setFuelReceiptNumber('');
-    setFuelEditorEntry(null);
-    setFormError(null);
-  };
-  const openExistingFuelEditor = (entry: TripFuelEntry, row: DailyTripRow) => {
-    setExpandedDay(row.date);
-    setFuelEditorDay(row.date);
-    setFuelEditorEntry(entry);
-    setFuelDate(entry.filledAt.slice(0, 10));
-    setFuelLiters(String(entry.liters));
-    setFuelReceiptNumber(entry.receiptNumber ?? '');
-    setFormError(null);
-  };
-  const saveFuel = async (row: DailyTripRow) => {
-    const liters = parseDecimal(fuelLiters);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(fuelDate)) return setFormError('Įveskite datą formatu YYYY-MM-DD.');
-    if (liters === null || liters <= 0) return setFormError('Įveskite įpiltų litrų kiekį.');
-    setFormError(null);
-    try {
-      const input = {
-        date: fuelDate,
-        liters,
-        receiptNumber: fuelReceiptNumber.trim() || null,
-      };
-      if (fuelEditorEntry) await onUpdateFuel(fuelEditorEntry, input);
-      else await onAddFuel(row, input);
-      setFuelEditorDay(null);
-      setFuelEditorEntry(null);
-    } catch {
-      setFormError('Kuro įrašo išsaugoti nepavyko. Patikrinkite ryšį ir bandykite dar kartą.');
-    }
-  };
-
   return <View style={styles.sheet} testID={`monthly-trip-sheet-${group.key}`}>
     <View style={styles.screenView} testID="trip-sheet-screen-view">
     <View style={styles.sheetHeader}>
@@ -371,16 +263,6 @@ function MonthlyTripSheet({ group, compact, canEdit, onAddFuel, onUpdateFuel, on
       <Metric label="DABARTINIS LIKUTIS" value={lastFuel === null ? '—' : `${formatNumber(lastFuel)} l`} styles={styles} />
     </View>
     <View style={styles.summaryActions}>
-      {latestRow ? <Pressable
-        accessibilityRole="button"
-        disabled={saving}
-        onPress={() => {
-          setExpanded(true);
-          openFuelEditor(latestRow);
-        }}
-        style={styles.addFuelPrimary}>
-        <Text style={styles.addFuelPrimaryText}>+ Įvesti kurą</Text>
-      </Pressable> : null}
       <Pressable accessibilityRole="button" onPress={() => setExpanded((current) => !current)} style={styles.detailsToggle}>
         <Text style={styles.detailsToggleText}>{expanded ? 'Suskleisti' : `Atidaryti kelionės lapą · ${group.rows.length} d.`}</Text>
         <Text style={styles.chevron}>{expanded ? '⌃' : '⌄'}</Text>
@@ -394,7 +276,6 @@ function MonthlyTripSheet({ group, compact, canEdit, onAddFuel, onUpdateFuel, on
       </View>
       {group.rows.map((row) => {
         const open = expandedDay === row.date;
-        const editingFuel = fuelEditorDay === row.date;
         return <View key={row.date} style={styles.dayRow}>
           <Pressable accessibilityRole="button" onPress={() => setExpandedDay(open ? null : row.date)} style={styles.daySummary}>
             <View style={styles.flex}>
@@ -408,7 +289,6 @@ function MonthlyTripSheet({ group, compact, canEdit, onAddFuel, onUpdateFuel, on
             <Text style={styles.chevron}>{open ? '⌃' : '⌄'}</Text>
           </Pressable>
           {open ? <View style={styles.dayDetails}>
-            <Text style={styles.routeAddress}>{row.startAddress} → {row.endAddress}</Text>
             <View style={styles.mobileDayMetrics}>
               <Metric
                 label={row.distanceSource === 'planned' ? 'NUVAŽIUOTA (PLANUOTA)' : 'NUVAŽIUOTA'}
@@ -436,34 +316,17 @@ function MonthlyTripSheet({ group, compact, canEdit, onAddFuel, onUpdateFuel, on
             {row.fuelEntries.length > 0 ? <View style={styles.fuelEntries}>
               <Text style={styles.fuelEntriesTitle}>KURO PAPILDYMAI</Text>
               {row.fuelEntries.map((entry) => <View key={entry.id} style={styles.fuelEntryRow}>
-                <View style={styles.flex}><Text style={styles.tableStrong}>{formatNumber(entry.liters)} l</Text><Text style={styles.meta}>{formatDateTime(entry.filledAt)}{entry.receiptNumber ? ` · čekis ${entry.receiptNumber}` : ''}</Text></View>
-                {canEdit ? <View style={styles.entryActions}>
-                  <Pressable onPress={() => openExistingFuelEditor(entry, row)} style={styles.smallButton}><Text style={styles.smallButtonText}>Redaguoti</Text></Pressable>
-                  <Pressable disabled={saving} onPress={() => void onDeleteFuel(entry)} style={styles.deleteFuelButton}><Text style={styles.deleteFuelText}>Trinti</Text></Pressable>
-                </View> : null}
+                <View style={styles.flex}><Text style={styles.tableStrong}>{formatNumber(entry.liters)} l</Text><Text style={styles.meta}>{formatDate(entry.filledAt)}{entry.receiptNumber ? ` · čekis ${entry.receiptNumber}` : ''}</Text></View>
               </View>)}
             </View> : <Text style={styles.meta}>Šią dieną kuro papildymų dar neįvesta.</Text>}
-            {canEdit && !editingFuel ? <View style={styles.formActions}>
-              <Pressable onPress={() => openFuelEditor(row)} style={styles.addFuelButton}><Text style={styles.addFuelButtonText}>+ Kuro papildymas</Text></Pressable>
-            </View> : null}
-            {editingFuel ? <View style={styles.fuelForm} testID={`fuel-entry-form-${row.date}`}>
-              <Text style={styles.cardTitle}>{fuelEditorEntry ? 'Redaguoti kuro papildymą' : 'Kuro papildymas'}</Text>
-              <Text style={styles.meta}>Privalomi laukai: litrai ir data. Čekio numeris nebūtinas.</Text>
-              <View style={styles.formGrid}>
-                <Field label="Įpilta, l *" value={fuelLiters} onChangeText={setFuelLiters} placeholder="Pvz. 45,5" keyboardType="decimal-pad" styles={styles} />
-                <Field label="Data *" value={fuelDate} onChangeText={setFuelDate} placeholder="YYYY-MM-DD" styles={styles} />
-                <Field label="Kasos čekio Nr." value={fuelReceiptNumber} onChangeText={setFuelReceiptNumber} placeholder="Nebūtina" styles={styles} />
-              </View>
-              {formError ? <Text accessibilityRole="alert" style={styles.formError}>{formError}</Text> : null}
-              <View style={styles.formActions}>
-                <Pressable disabled={saving} onPress={() => setFuelEditorDay(null)} style={styles.cancelFuelButton}><Text style={styles.secondaryText}>Atšaukti</Text></Pressable>
-                <Pressable disabled={saving} onPress={() => void saveFuel(row)} style={[styles.saveFuelButton, saving && styles.disabled]}><Text style={styles.primaryText}>{saving ? 'Saugoma…' : 'Išsaugoti'}</Text></Pressable>
-              </View>
-            </View> : null}
           </View> : null}
         </View>;
       })}
       <Text style={styles.calculationNote}>Likutis = pradinis likutis + faktiškai įpilta − kilometrai × automobilio norma / 100.</Text>
+      <View style={styles.monthTotal}>
+        <Text style={styles.monthTotalTitle}>VISO PASIRINKTU LAIKOTARPIU</Text>
+        <Text style={styles.monthTotalText}>Nuvaziuota: {formatNumber(totalDistance)} km · Įpilta: {formatNumber(totalFuelAdded)} l · Sunaudota: {formatNumber(totalFuel)} l</Text>
+      </View>
     </View> : null}
     </View>
 
@@ -651,17 +514,6 @@ function fuelMissingHint(missing: FuelLedgerDay['missing']): string | null {
 function minimum(values: (number | null)[]): number | null { const present = values.filter((value): value is number => value !== null); return present.length > 0 ? Math.min(...present) : null; }
 function maximum(values: (number | null)[]): number | null { const present = values.filter((value): value is number => value !== null); return present.length > 0 ? Math.max(...present) : null; }
 
-function Field({ label, styles, ...inputProps }: {
-  label: string;
-  styles: ReturnType<typeof createStyles>;
-  value: string;
-  onChangeText: (value: string) => void;
-  placeholder: string;
-  keyboardType?: 'default' | 'decimal-pad';
-}) {
-  return <View style={styles.field}><Text style={styles.fieldLabel}>{label}</Text><TextInput {...inputProps} style={styles.input} /></View>;
-}
-
 function Filter({ label, active, onPress, styles }: { label: string; active: boolean; onPress: () => void; styles: ReturnType<typeof createStyles> }) {
   return <Pressable onPress={onPress} style={[styles.filter, active && styles.filterActive]}><Text style={[styles.filterText, active && styles.filterTextActive]}>{label}</Text></Pressable>;
 }
@@ -689,19 +541,12 @@ function localSheet(sheet: TripSheetWithRoutes, fuelEntries: TripFuelEntry[] = [
 
 function formatDate(value: string): string { const date = new Date(`${value}T12:00:00`); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('lt-LT', { dateStyle: 'long' }).format(date); }
 function formatShortDate(value: string): string { const date = new Date(`${value}T12:00:00`); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('lt-LT', { month: '2-digit', day: '2-digit' }).format(date); }
-function formatDateTime(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? value
-    : new Intl.DateTimeFormat('lt-LT', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Vilnius' }).format(date);
-}
 function tripRouteLabel(row: DailyTripRow): string {
   if (row.routeNumbers.length > 0) return row.routeNumbers.join(' · ');
-  return row.startAddress === row.endAddress ? row.startAddress : `${row.startAddress} - ${row.endAddress}`;
+  return '—';
 }
 function formatMonth(value: string): string { const date = new Date(`${value}-15T12:00:00`); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('lt-LT', { year: 'numeric', month: 'long' }).format(date); }
 function formatNumber(value: number | null): string { return value === null ? '—' : new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(value); }
-function parseDecimal(value: string): number | null { const parsed = Number(value.trim().replace(',', '.')); return Number.isFinite(parsed) ? parsed : null; }
 function formatFuelNorm(value: number | null): string { return value === null ? '—' : `${new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 2 }).format(value)} L/100km`; }
 function formatMonthPeriod(month: string): string {
   const [year, monthIndex] = month.split('-').map(Number);
@@ -713,7 +558,7 @@ function formatMonthPeriod(month: string): string {
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   headerAction: { minWidth: 120, minHeight: 48, justifyContent: 'center' }, headerText: { ...type.button, color: colors.brandNavy },
-  actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }, dateRange: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }, dateInput: { flexGrow: 1, flexBasis: 220, minWidth: 0 },
   primaryButton: { flexGrow: 1, minWidth: 150, minHeight: 52, borderRadius: radius.md, backgroundColor: colors.actionPrimary, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md }, primaryText: { ...type.button, color: colors.textInverse },
   secondaryButton: { flexGrow: 1, minWidth: 150, minHeight: 52, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md }, secondaryText: { ...type.button, color: colors.textSecondary },
   filters: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }, filter: { minHeight: 44, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.md, justifyContent: 'center' }, filterActive: { backgroundColor: colors.info, borderColor: colors.info }, filterText: { ...type.secondaryStrong, color: colors.text }, filterTextActive: { color: colors.textInverse },
@@ -801,5 +646,5 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   cancelFuelButton: { flex: 1, minHeight: 48, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
   saveFuelButton: { flex: 1, minHeight: 48, backgroundColor: colors.success, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
   disabled: { opacity: 0.55 },
-  calculationNote: { ...type.meta, color: colors.textMuted, padding: spacing.sm, borderRadius: radius.sm, backgroundColor: colors.surfaceSubtle },
+  calculationNote: { ...type.meta, color: colors.textMuted, padding: spacing.sm, borderRadius: radius.sm, backgroundColor: colors.surfaceSubtle }, monthTotal: { marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.infoSoft, borderWidth: 1, borderColor: colors.info, gap: spacing.xs }, monthTotalTitle: { ...type.label, color: colors.info }, monthTotalText: { ...type.bodyStrong, color: colors.text },
 });

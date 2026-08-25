@@ -1584,14 +1584,9 @@ export class EmployeeAuthStore {
   async listTripSheets(profile: EmployeeProfile): Promise<ServerTripSheet[]> {
     const assignments = (await this.listAssignments(profile)).filter((assignment) => assignment.status === 'completed');
     const vehicles = await this.listVehicles();
-    // The NLL182 odometer/opening-fuel seeds are idempotent and always carry a
-    // real, named driver (never "Nepriskirtas"), so keeping them here is safe —
-    // they only fill in days that are still missing. The generic Excel fuel
-    // log seed is deliberately NOT re-run: it has no per-vehicle driver to
-    // attribute fuel to, so it kept recreating "Nepriskirtas" entries on every
-    // read even after an admin deleted them via deleteUnassignedTripDay.
-    await this.seedNll182OdometerLog(vehicles);
-    await this.seedNll182OpeningFuel(vehicles);
+    // Fixture data is created explicitly during database initialization. It
+    // must not be reseeded while reading reports, otherwise a deleted day
+    // reappears in the odometer history.
     const currentVehicles = new Map(
       vehicles.filter((vehicle) => vehicle.assignedDriverId).map((vehicle) => [vehicle.assignedDriverId!, vehicleSnapshot(vehicle)]),
     );
@@ -1830,7 +1825,6 @@ export class EmployeeAuthStore {
     const vehicle = vehicles.find((item) => item.registrationNumber.toUpperCase() === 'NLL182');
     if (!vehicle) return;
     const existing = await this.vehicleDayReadings.where('vehicleId', '==', vehicle.id).get();
-    if (existing.size >= NLL182_ODOMETER_LOG.length) return;
     const have = new Set(existing.docs.map((document) => (document.data() as VehicleDayReading).date));
     const driver = await this.resolveReadingDriver(vehicle, vehicle.assignedDriverId);
     const now = new Date().toISOString();
