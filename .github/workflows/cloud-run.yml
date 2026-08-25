@@ -164,10 +164,6 @@ jobs:
             esac
             sleep 10
           done
-<<<<<<< HEAD
-          if [ "$STATUS" != SUCCESS ]; then
-            echo "Cloud Build did not finish in time (status: ${STATUS:-unknown})"
-=======
           if [ "$status" != SUCCESS ]; then
             echo "Cloud Build did not finish in time: ${status:-unknown}" >&2
             exit 1
