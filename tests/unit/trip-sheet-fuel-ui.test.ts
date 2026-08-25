@@ -46,6 +46,10 @@ describe('trip sheet fuel workflow', () => {
     expect(vehicleSource).toContain('editingReadingEnd');
     expect(vehicleSource).toContain('editingReadingDriverId');
     expect(vehicleSource).toContain('saveReading(reading)');
+    expect(vehicleSource).toContain('add-vehicle-odometer-day');
+    expect(vehicleSource).toContain('new-vehicle-odometer-day');
+    expect(vehicleSource).toContain('saveNewReading');
+    expect(vehicleSource).toContain('a.date.localeCompare(b.date)');
     expect(vehicleSource).not.toContain('Kelių dienų korekcija');
     expect(vehicleSource).not.toContain('vehicle-odometer-bulk-editor');
   });

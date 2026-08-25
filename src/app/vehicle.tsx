@@ -63,6 +63,11 @@ export default function VehicleScreen() {
   const [editingReadingStart, setEditingReadingStart] = useState('');
   const [editingReadingEnd, setEditingReadingEnd] = useState('');
   const [editingReadingDriverId, setEditingReadingDriverId] = useState('');
+  const [addingReading, setAddingReading] = useState(false);
+  const [newReadingDate, setNewReadingDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [newReadingStart, setNewReadingStart] = useState('');
+  const [newReadingEnd, setNewReadingEnd] = useState('');
+  const [newReadingDriverId, setNewReadingDriverId] = useState('');
   const [fuelDate, setFuelDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [fuelLiters, setFuelLiters] = useState('');
   const [fuelReceipt, setFuelReceipt] = useState('');
@@ -92,7 +97,7 @@ export default function VehicleScreen() {
     setOverride(saved ? { status: saved.status, fingerprint: saved.fingerprint } : null);
     if (online) {
       const response = await employeeApi<{ tripSheets: ServerTripSheet[] }>('/api/trip-sheets').catch(() => ({ tripSheets: [] }));
-      setVehicleReadings(response.tripSheets.filter((sheet) => sheet.vehicle?.id === vehicleId).sort((a, b) => b.date.localeCompare(a.date)));
+      setVehicleReadings(response.tripSheets.filter((sheet) => sheet.vehicle?.id === vehicleId).sort((a, b) => a.date.localeCompare(b.date)));
     }
   }, [db, faults, fleetVehicles, online, repository]);
 
@@ -141,6 +146,21 @@ export default function VehicleScreen() {
         finally { setBusy(false); }
       })(); } },
     ]);
+  };
+
+  const saveNewReading = async () => {
+    if (busy) return;
+    const start = Number(newReadingStart.replace(',', '.'));
+    const end = Number(newReadingEnd.replace(',', '.'));
+    if (!selectedVehicleId || !/^\d{4}-\d{2}-\d{2}$/.test(newReadingDate)) { setMessage('Įveskite naujos dienos datą YYYY-MM-DD.'); return; }
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) { setMessage('Patikrinkite naujos dienos odometro pradžią ir pabaigą.'); return; }
+    setBusy(true);
+    try {
+      await employeeApi('/api/trip-sheets/day-readings', { method: 'POST', body: JSON.stringify({ vehicleId: selectedVehicleId, date: newReadingDate, startOdometer: start, endOdometer: end, driverId: newReadingDriverId || undefined }) });
+      setAddingReading(false); setNewReadingStart(''); setNewReadingEnd(''); setNewReadingDriverId(''); setMessage('Naujos dienos odometras išsaugotas.');
+      await applyVehicle(selectedVehicleId);
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Naujos dienos išsaugoti nepavyko.'); }
+    finally { setBusy(false); }
   };
 
 
@@ -214,7 +234,7 @@ export default function VehicleScreen() {
       const saved = await new VehicleDepartureOverrideRepository(db).getLatest(preferred.id);
       setOverride(saved ? { status: saved.status, fingerprint: saved.fingerprint } : null);
       const response = await employeeApi<{ tripSheets: ServerTripSheet[] }>('/api/trip-sheets').catch(() => ({ tripSheets: [] }));
-      setVehicleReadings(response.tripSheets.filter((sheet) => sheet.vehicle?.id === preferred.id).sort((a, b) => b.date.localeCompare(a.date)));
+      setVehicleReadings(response.tripSheets.filter((sheet) => sheet.vehicle?.id === preferred.id).sort((a, b) => a.date.localeCompare(b.date)));
       return;
     }
     const vehicle = await repository.getVehicle();
@@ -357,6 +377,13 @@ export default function VehicleScreen() {
         {selectedVehicleId && section === 'odometer' ? <View style={styles.odometerPanel} testID="vehicle-odometer-editor">
           <Text style={styles.sectionTitle}>Dienos odometras</Text>
           <Text style={styles.hint}>Taisykite jau įvestą dieną tiesiog jos eilutėje: pradžią, pabaigą ir kas vairavo.</Text>
+          <Pressable onPress={() => setAddingReading((current) => !current)} style={styles.addDayButton} testID="add-vehicle-odometer-day"><Text style={styles.addDayButtonText}>{addingReading ? 'Uždaryti naujos dienos įvedimą' : '+ Pridėti naują dieną'}</Text></Pressable>
+          {addingReading ? <View style={styles.newDayForm} testID="new-vehicle-odometer-day">
+            <TextInput value={newReadingDate} onChangeText={setNewReadingDate} style={styles.input} placeholder="Data, YYYY-MM-DD" placeholderTextColor={colors.textMuted} />
+            <View style={styles.inlineInputs}><TextInput value={newReadingStart} onChangeText={setNewReadingStart} keyboardType="decimal-pad" style={[styles.input, styles.inlineInput]} placeholder="Pradžia" placeholderTextColor={colors.textMuted} /><TextInput value={newReadingEnd} onChangeText={setNewReadingEnd} keyboardType="decimal-pad" style={[styles.input, styles.inlineInput]} placeholder="Pabaiga" placeholderTextColor={colors.textMuted} /></View>
+            <View style={styles.options}>{drivers.map((driver) => <Pressable key={driver.id} onPress={() => setNewReadingDriverId(driver.id)} style={[styles.option, newReadingDriverId === driver.id && styles.optionSelected]}><Text style={[styles.optionText, newReadingDriverId === driver.id && styles.optionTextSelected]}>{driver.displayName}</Text></Pressable>)}</View>
+            <Pressable disabled={busy || !online} onPress={() => { void saveNewReading(); }} style={[styles.button, (busy || !online) && styles.disabled]}><Text style={styles.buttonText}>Išsaugoti naują dieną</Text></Pressable>
+          </View> : null}
           {vehicleReadings.map((reading) => {
             const editing = editingReadingId === reading.assignmentId;
             return <View key={reading.assignmentId} style={styles.readingCard}>
@@ -426,7 +453,7 @@ export default function VehicleScreen() {
           </Pressable>
         ) : null}
       </View> : null}
-      <View style={styles.card} testID="vehicle-fault-card">
+      {profile.role === 'driver' ? <View style={styles.card} testID="vehicle-fault-card">
         <Text style={styles.sectionTitle}>Neskubūs gedimai</Text>
         <Text style={styles.hint}>Komentaras nestabdo važiavimo. Jis automatiškai perduodamas administracijai.</Text>
         <TextInput
@@ -446,7 +473,7 @@ export default function VehicleScreen() {
             {fault.notifiedAt ? 'Perduota' : 'Laukia perdavimo'} · {fault.comment}
           </Text>
         ))}
-      </View>
+      </View> : null}
       <Pressable disabled={busy || !selectedVehicleId} onPress={() => { void save(); }} style={[styles.button, (busy || !selectedVehicleId) && styles.disabled]} testID="save-vehicle">
         <Text style={styles.buttonText}>{busy ? 'Saugoma…' : 'Išsaugoti automobilį'}</Text>
       </Pressable>
@@ -466,6 +493,9 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   vehicleChoiceMetaSelected: { color: colors.textSecondary },
   selectedVehicle: { ...type.bodyStrong, color: colors.info },
   odometerPanel: { marginTop: spacing.sm, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, gap: spacing.sm },
+  addDayButton: { minHeight: 44, borderRadius: radius.md, borderWidth: 1, borderColor: colors.info, backgroundColor: colors.infoSoft, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
+  addDayButtonText: { ...type.button, color: colors.info },
+  newDayForm: { padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.surfaceMuted, gap: spacing.sm },
   bulkPanel: { marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceMuted, borderWidth: 1, borderColor: colors.borderStrong, gap: spacing.sm },
   inlineInputs: { flexDirection: 'row', gap: spacing.sm },
   inlineInput: { flex: 1, minWidth: 0 },
