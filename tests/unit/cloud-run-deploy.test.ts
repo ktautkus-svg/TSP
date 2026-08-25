@@ -29,6 +29,8 @@ describe('Cloud Run deploy', () => {
     expect(pushWorkflow).toContain('Grant Cloud Run access to secrets');
     expect(pushWorkflow).toContain('roles/secretmanager.secretAccessor');
     expect(pushWorkflow).toContain('compute@developer.gserviceaccount.com');
+    expect(pushWorkflow).toContain('GCP_PROJECT_NUMBER');
+    expect(pushWorkflow).not.toContain('gcloud projects describe "$GCP_PROJECT_ID"');
     expect(pushWorkflow).toContain('prepare-cloud-run-revision.mjs');
     expect(pushWorkflow).toContain('--revision-suffix="n${git_sha}"');
     expect(pushWorkflow).toContain('--no-traffic');

@@ -11,6 +11,7 @@ concurrency:
 
 env:
   GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  GCP_PROJECT_NUMBER: ${{ vars.GCP_PROJECT_NUMBER || '39855768031' }}
   GCP_REGION: ${{ vars.GCP_REGION || 'europe-north1' }}
   CLOUD_RUN_SERVICE: ${{ vars.CLOUD_RUN_SERVICE || 'logistikos-pristatymai' }}
   GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
@@ -120,8 +121,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          project_number="$(gcloud projects describe "$GCP_PROJECT_ID" --format='value(projectNumber)')"
-          runtime_service_account="${project_number}-compute@developer.gserviceaccount.com"
+          if [ -z "$GCP_PROJECT_NUMBER" ]; then
+            echo 'GCP_PROJECT_NUMBER GitHub Variable is required.' >&2
+            exit 1
+          fi
+          runtime_service_account="${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
           for name in GATEWAY_DEVICE_SECRET TSP_INITIAL_ADMIN_PIN GOOGLE_API_KEY GOOGLE_ROUTES_API_KEY GOOGLE_GEOCODING_API_KEY GOOGLE_MAPS_API_KEY GOOGLE_VISION_API_KEY HERE_API_KEY; do
             if gcloud secrets describe "$name" --project="$GCP_PROJECT_ID" >/dev/null 2>&1; then
               gcloud secrets add-iam-policy-binding "$name" \
@@ -180,7 +184,6 @@ jobs:
           WEEKLY_USAGE_UNITS: ${{ vars.GATEWAY_WEEKLY_USAGE_UNITS || '36450' }}
         run: |
           set -euo pipefail
-          project_number="$(gcloud projects describe "$GCP_PROJECT_ID" --format='value(projectNumber)')"
           git_sha="${GITHUB_SHA:0:7}"
           revision="${CLOUD_RUN_SERVICE}-n${git_sha}"
 
@@ -199,7 +202,7 @@ jobs:
             --request PUT \
             --header "Authorization: Bearer ${token}" \
             --header 'Content-Type: application/json' \
-            "https://${GCP_REGION}-run.googleapis.com/apis/serving.knative.dev/v1/namespaces/${project_number}/services/${CLOUD_RUN_SERVICE}" \
+            "https://${GCP_REGION}-run.googleapis.com/apis/serving.knative.dev/v1/namespaces/${GCP_PROJECT_NUMBER}/services/${CLOUD_RUN_SERVICE}" \
             --data-binary @/tmp/cloud-run-service.json)"
           echo "Cloud Run service template reset: HTTP ${http_code}"
           if [ "$http_code" != 200 ] && [ "$http_code" != 201 ]; then
