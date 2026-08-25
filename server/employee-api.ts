@@ -363,6 +363,19 @@ export async function handleEmployeeApi(
       });
       return send(response, 200, { reading }, requestId);
     }
+    if (pathname === '/api/trip-sheets/day-readings/bulk' && request.method === 'POST') {
+      requireRole(profile, ['admin', 'dispatcher', 'quality']);
+      const body = parseObject(await readBody(request, 32_000));
+      const readings = await store.upsertVehicleDayReadingsBulk(profile, {
+        vehicleId: stringField(body, 'vehicleId'),
+        fromDate: stringField(body, 'fromDate'),
+        toDate: stringField(body, 'toDate'),
+        startOdometer: numberField(body, 'startOdometer'),
+        dailyDistanceKm: numberField(body, 'dailyDistanceKm'),
+        driverId: body.driverId === undefined ? undefined : body.driverId === null ? null : stringField(body, 'driverId'),
+      });
+      return send(response, 200, { readings }, requestId);
+    }
     const tripSheetCorrectionMatch = pathname.match(/^\/api\/trip-sheets\/([^/]+)$/);
     if (tripSheetCorrectionMatch && request.method === 'PATCH') {
       requireRole(profile, ['admin', 'dispatcher']);
