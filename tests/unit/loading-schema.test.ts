@@ -268,6 +268,8 @@ describe('loading schema UI wiring', () => {
     expect(loading).toContain('cargoLayoutFromAssignedVehicle(assignment?.vehicle ?? fuelStatus?.vehicle)');
     expect(card).toContain('testID="loading-schema-card"');
     expect(card).toContain('testID="loading-schema-vehicle"');
+    expect(card).toContain('testID="loading-schema-van"');
+    expect(card).toContain('Vaizdas iš viršaus');
     expect(card).toContain('per šoną');
     expect(card).not.toContain('onSideDoorChange');
     expect(loading).toContain('{placement.sideAccess ? \' · per šoną\' : \'\'}');
