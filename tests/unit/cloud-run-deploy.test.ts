@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const workflow = readFileSync(resolve(import.meta.dirname, '../../.github/workflows/cloud-run-deploy.yml'), 'utf8');
+const pushWorkflow = readFileSync(resolve(import.meta.dirname, '../../.github/workflows/cloud-run.yml'), 'utf8');
 const productionServer = readFileSync(resolve(import.meta.dirname, '../../server/production-server.ts'), 'utf8');
 const employeeStore = readFileSync(resolve(import.meta.dirname, '../../server/employee-auth-store.ts'), 'utf8');
 const script = resolve(import.meta.dirname, '../../scripts/prepare-cloud-run-revision.mjs');
@@ -20,6 +21,24 @@ describe('Cloud Run deploy', () => {
     expect(workflow).not.toContain('--clear-revision-suffix');
     expect(workflow).not.toMatch(/gcloud run deploy[\s\S]*--source \./);
     expect(workflow).not.toContain('gcloud run services replace');
+  });
+
+  it('submits Cloud Build asynchronously and polls status instead of streaming logs', () => {
+    expect(pushWorkflow).toContain('--async');
+    expect(pushWorkflow).toContain('--suppress-logs');
+    expect(pushWorkflow).toContain('Grant Cloud Run access to secrets');
+    expect(pushWorkflow).toContain('roles/secretmanager.secretAccessor');
+    expect(pushWorkflow).toContain('compute@developer.gserviceaccount.com');
+    expect(pushWorkflow).toContain('prepare-cloud-run-revision.mjs');
+    expect(pushWorkflow).toContain('--revision-suffix="n${git_sha}"');
+    expect(pushWorkflow).toContain('--no-traffic');
+    expect(pushWorkflow).toContain('gcloud run services update-traffic');
+    expect(pushWorkflow).toContain("gcloud builds describe \"$build_id\"");
+    expect(pushWorkflow).toContain('for _ in $(seq 1 120)');
+    expect(pushWorkflow).toContain('sleep 10');
+    expect(pushWorkflow).toContain('FAILURE|TIMEOUT|CANCELLED|EXPIRED|INTERNAL_ERROR');
+    expect(pushWorkflow).toMatch(/if \[ "\$status" != SUCCESS \]/);
+    expect(pushWorkflow).not.toMatch(/gcloud builds submit --project=.* --tag=.* --timeout=1200s\s*$/m);
   });
 
   it('clears a pinned failed revision name and keeps traffic on the last healthy revision', () => {

@@ -116,37 +116,38 @@ jobs:
           secrets_arg="$(IFS=,; echo "${pairs[*]}")"
           echo "secrets_arg=$secrets_arg" >> "$GITHUB_OUTPUT"
 
+      - name: Grant Cloud Run access to secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          project_number="$(gcloud projects describe "$GCP_PROJECT_ID" --format='value(projectNumber)')"
+          runtime_service_account="${project_number}-compute@developer.gserviceaccount.com"
+          for name in GATEWAY_DEVICE_SECRET TSP_INITIAL_ADMIN_PIN GOOGLE_API_KEY GOOGLE_ROUTES_API_KEY GOOGLE_GEOCODING_API_KEY GOOGLE_MAPS_API_KEY GOOGLE_VISION_API_KEY HERE_API_KEY; do
+            if gcloud secrets describe "$name" --project="$GCP_PROJECT_ID" >/dev/null 2>&1; then
+              gcloud secrets add-iam-policy-binding "$name" \
+                --project="$GCP_PROJECT_ID" \
+                --member="serviceAccount:${runtime_service_account}" \
+                --role='roles/secretmanager.secretAccessor' \
+                --quiet
+            fi
+          done
+
       - name: Build and push image
         id: image
         shell: bash
         run: |
           set -euo pipefail
           image="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/cloud-run-source-deploy/${CLOUD_RUN_SERVICE}:sha-${GITHUB_SHA}"
-<<<<<<< HEAD
-          # Use --async because this SA cannot stream the default Cloud Build
-          # logs bucket (blocked by VPC-SC policy). Poll until the build finishes.
-          BUILD_ID=$(gcloud builds submit \
-=======
+          # The CI service account cannot read the VPC-SC-protected default logs
+          # bucket. Suppress log streaming; the polling loop below reads only
+          # build metadata and remains the source of truth for completion.
           build_id=$(gcloud builds submit \
->>>>>>> 047176c (Automatinis deploy ir kodų stabilizavimas)
             --project="$GCP_PROJECT_ID" \
             --tag="$image" \
             --timeout=1200s \
             --async \
+            --suppress-logs \
             --format='value(id)')
-<<<<<<< HEAD
-          echo "Cloud Build ${BUILD_ID} submitted"
-          STATUS=""
-          for _ in $(seq 1 120); do
-            STATUS=$(gcloud builds describe "$BUILD_ID" \
-              --project="$GCP_PROJECT_ID" \
-              --format='value(status)')
-            echo "$(date -u +%H:%M:%S) Cloud Build status: ${STATUS}"
-            case "$STATUS" in
-              SUCCESS) break ;;
-              FAILURE|TIMEOUT|CANCELLED|EXPIRED|INTERNAL_ERROR)
-                echo "Cloud Build failed with status: ${STATUS}"
-=======
           echo "Cloud Build ${build_id} started for ${image}"
           status=""
           for _ in $(seq 1 120); do
@@ -158,7 +159,6 @@ jobs:
                 ;;
               FAILURE|TIMEOUT|CANCELLED|EXPIRED|INTERNAL_ERROR)
                 echo "Cloud Build failed: ${status}" >&2
->>>>>>> 047176c (Automatinis deploy ir kodų stabilizavimas)
                 exit 1
                 ;;
             esac
@@ -170,7 +170,6 @@ jobs:
 =======
           if [ "$status" != SUCCESS ]; then
             echo "Cloud Build did not finish in time: ${status:-unknown}" >&2
->>>>>>> 047176c (Automatinis deploy ir kodų stabilizavimas)
             exit 1
           fi
           echo "name=$image" >> "$GITHUB_OUTPUT"
@@ -185,12 +184,40 @@ jobs:
           WEEKLY_USAGE_UNITS: ${{ vars.GATEWAY_WEEKLY_USAGE_UNITS || '36450' }}
         run: |
           set -euo pipefail
+          project_number="$(gcloud projects describe "$GCP_PROJECT_ID" --format='value(projectNumber)')"
+          git_sha="${GITHUB_SHA:0:7}"
+          revision="${CLOUD_RUN_SERVICE}-n${git_sha}"
+
+          # An earlier failed revision can leave a generated revision name in
+          # the service template. Clear that name before creating a fresh
+          # revision, otherwise Cloud Run may reject this deploy immediately.
+          gcloud run services describe "$CLOUD_RUN_SERVICE" \
+            --project="$GCP_PROJECT_ID" \
+            --region="$GCP_REGION" \
+            --format=json \
+            | GIT_SHA="$git_sha" IMAGE="${{ steps.image.outputs.name }}" APP_VERSION="$GITHUB_SHA" \
+              node ./scripts/prepare-cloud-run-revision.mjs \
+            > /tmp/cloud-run-service.json
+          token="$(gcloud auth print-access-token)"
+          http_code="$(curl --silent --show-error --output /tmp/cloud-run-put.json --write-out '%{http_code}' \
+            --request PUT \
+            --header "Authorization: Bearer ${token}" \
+            --header 'Content-Type: application/json' \
+            "https://${GCP_REGION}-run.googleapis.com/apis/serving.knative.dev/v1/namespaces/${project_number}/services/${CLOUD_RUN_SERVICE}" \
+            --data-binary @/tmp/cloud-run-service.json)"
+          echo "Cloud Run service template reset: HTTP ${http_code}"
+          if [ "$http_code" != 200 ] && [ "$http_code" != 201 ]; then
+            cat /tmp/cloud-run-put.json
+            exit 1
+          fi
           gcloud run deploy "$CLOUD_RUN_SERVICE" \
             --image="${{ steps.image.outputs.name }}" \
             --project="$GCP_PROJECT_ID" \
             --region="$GCP_REGION" \
             --allow-unauthenticated \
             --max-instances=1 \
+            --no-traffic \
+            --revision-suffix="n${git_sha}" \
             --set-secrets="${{ steps.secrets.outputs.secrets_arg }}" \
             --set-env-vars="GATEWAY_AUTH_MODE=none,GATEWAY_ENV=production,GATEWAY_REAL_PROVIDER_ARMED=${ARMED},GATEWAY_DAILY_BUDGET_CENTS=${DAILY_BUDGET_CENTS},GATEWAY_WEEKLY_BUDGET_CENTS=${WEEKLY_BUDGET_CENTS},GATEWAY_DAILY_USAGE_UNITS=${DAILY_USAGE_UNITS},GATEWAY_WEEKLY_USAGE_UNITS=${WEEKLY_USAGE_UNITS},APP_VERSION=${GITHUB_SHA}" \
             --quiet
@@ -199,6 +226,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          revision="$(gcloud run services describe "$CLOUD_RUN_SERVICE" --project="$GCP_PROJECT_ID" --region="$GCP_REGION" --format='value(status.latestCreatedRevisionName)')"
+          gcloud run services update-traffic "$CLOUD_RUN_SERVICE" --project="$GCP_PROJECT_ID" --region="$GCP_REGION" --to-revisions="${revision}=100" --quiet
           url="$(gcloud run services describe "$CLOUD_RUN_SERVICE" --project="$GCP_PROJECT_ID" --region="$GCP_REGION" --format='value(status.url)')"
           status="$(curl --fail --silent --show-error --max-time 30 "$url/health" | node -e "let s=''; process.stdin.on('data', d => s += d).on('end', () => process.stdout.write(JSON.parse(s).status))")"
           test "$status" = ok
