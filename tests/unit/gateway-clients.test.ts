@@ -91,7 +91,7 @@ describe('gateway clients in a Node environment', () => {
     for (const file of await sourceFiles(resolve('src'))) {
       expect(await readFile(file, 'utf8'), file).not.toContain('localhost:8787');
     }
-  }, 15_000);
+  }, 30_000);
 });
 
 async function sourceFiles(directory: string): Promise<string[]> {

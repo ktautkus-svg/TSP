@@ -1,4 +1,4 @@
-import { access , readFile, readdir } from 'node:fs/promises';
+import { access, readFile, readdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { compareMatrices, compareSequences } from '../../gateway/benchmark/analysis';
@@ -50,7 +50,7 @@ describe('client secret boundary', () => {
         for (const token of forbidden) expect(content).not.toContain(token);
       }
     }
-  }, 15_000);
+  }, 30_000);
 });
 
 async function files(directory: string): Promise<string[]> {

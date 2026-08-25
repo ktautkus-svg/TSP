@@ -11,6 +11,7 @@ import {
     requestExpiredDepartureOverride,
 } from '@/application/operations/departure-readiness';
 import { reportVehicleFault } from '@/application/operations/vehicle-fault-report';
+import { PencilIcon, TrashIcon } from '@/components/app-icons';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { TripSheetRepository } from '@/database/repositories/trip-sheet-repository';
 import { VehicleDepartureOverrideRepository } from '@/database/repositories/vehicle-departure-override-repository';
@@ -19,6 +20,7 @@ import { evaluateDepartureReadiness, type DepartureOverrideInput } from '@/domai
 import { parseVehicleDayAssignmentId } from '@/domain/nll182-odometer-log';
 import type { FuelType, VehicleFault } from '@/domain/vehicle-and-trip';
 import { employeeApi, type EmployeeProfile, type FuelStatus, type ServerFleetVehicle, type ServerFleetVehicleSnapshot, type ServerFuelEntry, type ServerTripSheet } from '@/infrastructure/auth/employee-session';
+import { Alert } from '@/ui/alert';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { radius, spacing, type } from '@/ui/tokens';
@@ -119,6 +121,26 @@ export default function VehicleScreen() {
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Odometro išsaugoti nepavyko.');
     } finally { setBusy(false); }
+  };
+
+  const deleteReading = (reading: ServerTripSheet) => {
+    const vehicleDay = parseVehicleDayAssignmentId(reading.assignmentId);
+    if (!vehicleDay) {
+      setMessage('Tik atskirą dienos odometro įrašą galima ištrinti. Tikras maršrutas saugomas istorijoje.');
+      return;
+    }
+    Alert.alert('Ištrinti dienos įrašą?', `${reading.date} · ${reading.startOdometer ?? '—'} → ${reading.endOdometer ?? '—'} km`, [
+      { text: 'Atšaukti', style: 'cancel' },
+      { text: 'Ištrinti', style: 'destructive', onPress: () => { void (async () => {
+        setBusy(true);
+        try {
+          await employeeApi(`/api/admin/trip-sheets/unassigned-day/${encodeURIComponent(selectedVehicleId)}/${encodeURIComponent(reading.date)}`, { method: 'DELETE' });
+          setMessage('Dienos odometro įrašas ištrintas.');
+          await applyVehicle(selectedVehicleId);
+        } catch (error) { setMessage(error instanceof Error ? error.message : 'Įrašo ištrinti nepavyko.'); }
+        finally { setBusy(false); }
+      })(); } },
+    ]);
   };
 
 
@@ -332,7 +354,7 @@ export default function VehicleScreen() {
           {vehicleReadings.map((reading) => {
             const editing = editingReadingId === reading.assignmentId;
             return <View key={reading.assignmentId} style={styles.readingCard}>
-              <View style={styles.readingHeader}><Text style={styles.readingTitle}>{reading.date}</Text><Text style={styles.hint}>{reading.driverName || 'Nepriskirtas'}</Text></View>
+              <View style={styles.readingHeader}><View style={styles.readingMain}><Text style={styles.readingTitle}>{reading.date}</Text><Text style={styles.hint}>{reading.startOdometer ?? '—'} → {reading.endOdometer ?? '—'} km</Text></View><Text style={styles.hint}>{reading.driverName || 'Nepriskirtas'}</Text></View>
               {editing ? <>
                 <View style={styles.inlineInputs}>
                   <TextInput value={editingReadingStart} onChangeText={setEditingReadingStart} keyboardType="decimal-pad" style={[styles.input, styles.inlineInput]} placeholder="Pradžia" placeholderTextColor={colors.textMuted} />
@@ -340,7 +362,7 @@ export default function VehicleScreen() {
                 </View>
                 <View style={styles.options}>{drivers.map((driver) => <Pressable key={driver.id} onPress={() => setEditingReadingDriverId(driver.id)} style={[styles.option, editingReadingDriverId === driver.id && styles.optionSelected]}><Text style={[styles.optionText, editingReadingDriverId === driver.id && styles.optionTextSelected]}>{driver.displayName}</Text></Pressable>)}</View>
                 <View style={styles.entryActions}><Pressable disabled={busy || !online} onPress={() => { void saveReading(reading); }} style={[styles.buttonSmall, (busy || !online) && styles.disabled]}><Text style={styles.buttonText}>Išsaugoti</Text></Pressable><Pressable onPress={() => setEditingReadingId(null)} style={styles.secondaryButtonSmall}><Text style={styles.secondaryText}>Atšaukti</Text></Pressable></View>
-              </> : <View style={styles.readingRow}><Text style={styles.hint}>{reading.startOdometer ?? '—'} → {reading.endOdometer ?? '—'} km</Text><Pressable onPress={() => editReading(reading)} style={styles.smallButton}><Text style={styles.smallButtonText}>Redaguoti</Text></Pressable></View>}
+              </> : <View style={styles.readingActions}><Pressable accessibilityLabel={`Redaguoti ${reading.date}`} onPress={() => editReading(reading)} style={styles.iconButton}><PencilIcon size={18} color={colors.warning} /></Pressable><Pressable accessibilityLabel={`Ištrinti ${reading.date}`} onPress={() => deleteReading(reading)} style={styles.iconButton}><TrashIcon size={18} color={colors.danger} /></Pressable></View>}
             </View>;
           })}
         </View> : null}
@@ -440,8 +462,11 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   inlineInputs: { flexDirection: 'row', gap: spacing.sm },
   inlineInput: { flex: 1, minWidth: 0 },
   readingRow: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.sm, paddingVertical: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border },
-  readingCard: { paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, gap: spacing.sm },
-  readingHeader: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.sm },
+  readingCard: { minHeight: 54, paddingVertical: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
+  readingHeader: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, minWidth: 0 },
+  readingMain: { minWidth: 0 },
+  readingActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  iconButton: { width: 40, height: 40, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface },
   readingTitle: { ...type.bodyStrong, color: colors.text },
   entryActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   smallButton: { minHeight: 40, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderStrong, paddingHorizontal: spacing.sm, alignItems: 'center', justifyContent: 'center' },
