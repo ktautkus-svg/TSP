@@ -261,10 +261,19 @@ describe('van loading schema', () => {
 });
 
 describe('loading schema UI wiring', () => {
-  it('shows the van diagram on the loading screen', () => {
+  it('shows the van diagram only after loading starts, not on the planned-route screen', () => {
     const loading = readFileSync('src/app/route/[id]/loading.tsx', 'utf8');
     const card = readFileSync('src/components/loading-schema-card.tsx', 'utf8');
-    expect(loading).toContain('<LoadingSchemaCard');
+    const plannedStart = loading.indexOf('title="Suplanuotas maršrutas"');
+    const loadingStart = loading.indexOf('title="Krovimo planas"');
+    const plannedBlock = loading.slice(plannedStart, loadingStart);
+    const loadingBlock = loading.slice(loadingStart);
+    expect(plannedStart).toBeGreaterThan(-1);
+    expect(loadingStart).toBeGreaterThan(plannedStart);
+    expect(plannedBlock).not.toContain('<LoadingSchemaCard');
+    expect(plannedBlock).not.toContain('<CargoLayoutSvg');
+    expect(loadingBlock).toContain('<LoadingSchemaCard');
+    expect(loadingBlock).toContain('<CargoLayoutSvg');
     expect(loading).toContain('cargoLayoutFromAssignedVehicle(assignment?.vehicle ?? fuelStatus?.vehicle)');
     expect(card).toContain('testID="loading-schema-card"');
     expect(card).toContain('testID="loading-schema-vehicle"');

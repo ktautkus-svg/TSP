@@ -542,16 +542,6 @@ export default function LoadingScreen() {
             <Pressable disabled={fuelBusy || !fuelInput.trim()} onPress={() => void submitFuel()} style={[styles.fuelButton, (fuelBusy || !fuelInput.trim()) && styles.disabled]}><Text style={styles.primaryText}>{fuelBusy ? 'Saugoma…' : 'Patvirtinti'}</Text></Pressable>
           </View> : null}
         </View> : null}
-        {stops.length > 0 ? (
-          cargoProfile.assumed ? (
-            <LoadingSchemaCard
-              schema={loadingSchema}
-              cargoLayout={cargoLayout}
-            />
-          ) : (
-            <CargoLayoutSvg layout={palletLayout} />
-          )
-        ) : null}
         <View style={styles.plannedActions}>
         {profile.role === 'driver' ? <Pressable disabled={bulkBusy || Boolean(readiness && !readiness.canBeginLoading)} style={[styles.plannedPrimaryButton, (bulkBusy || Boolean(readiness && !readiness.canBeginLoading)) && styles.disabled]} onPress={beginLoading} testID="begin-loading">
           {bulkBusy ? <ActivityIndicator color="#fff" /> : <>
