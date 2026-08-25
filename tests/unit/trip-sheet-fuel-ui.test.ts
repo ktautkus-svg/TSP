@@ -14,11 +14,11 @@ describe('trip sheet fuel workflow', () => {
     expect(calculateTripFuelEnd(10, 0, 20)).toBe(0);
   });
 
-  it('starts with a compact fuel summary and exposes refill entry inside details', () => {
+  it('shows one visible accounting report with fuel and odometer totals', () => {
     for (const label of ['PASKUTINIS ODOMETRAS', 'KURO LIKUTIS PRADŽIOJE', 'ĮPILTA', 'SUNAUDOTA PAGAL NORMĄ', 'DABARTINIS LIKUTIS']) {
       expect(source).toContain(label);
     }
-    expect(source).toContain('Atidaryti kelionės lapą · ${group.rows.length} d.');
+    expect(source).toContain('trip-sheet-report-table');
     expect(source).toContain('trip-sheet-date-range');
     expect(source).toContain('VISO PASIRINKTU LAIKOTARPIU');
     expect(source).not.toContain('Generuoti kelionės lapą');
@@ -31,8 +31,8 @@ describe('trip sheet fuel workflow', () => {
     expect(source).not.toContain('trip-sheet-odometer-entry');
     expect(source).not.toContain('/api/trip-sheets/day-readings');
     expect(source).not.toContain('ATLYGIS');
-    expect(source).toContain('KURO PAPILDYMAI');
-    expect(source).toContain('NUVAŽIUOTA');
+    expect(source).toContain('Kuro tipas:');
+    expect(source).toContain('Nuvažiuota, km');
     expect(source).toContain('Eksportuoti Excel');
     expect(source).not.toContain('Sustojimo trukmė');
     expect(source).not.toContain('Stovėjimo laikas');

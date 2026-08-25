@@ -1,7 +1,7 @@
 import { Stack, useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { pushCompletedRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
@@ -67,7 +67,6 @@ export default function TripSheetScreen() {
   const db = useSQLiteContext();
   const { profile, online } = useLocalAccess();
   const { colors } = useTheme();
-  const { width } = useWindowDimensions();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const repository = useMemo(() => new TripSheetRepository(db), [db]);
   const [sheets, setSheets] = useState<DisplayTripSheet[]>([]);
@@ -135,6 +134,7 @@ export default function TripSheetScreen() {
     && (!dateFrom || sheet.date >= dateFrom)
     && (!dateTo || sheet.date <= dateTo));
   const monthlyGroups = useMemo(() => buildMonthlyGroups(visible), [visible]);
+  const periodLabel = dateFrom || dateTo ? `${dateFrom || '...'} - ${dateTo || '...'}` : selectedMonth === 'all' ? 'Visas laikotarpis' : formatMonth(selectedMonth);
   const selectFilter = (apply: () => void) => { apply(); };
   const print = () => {
     if (Platform.OS === 'web' && typeof window !== 'undefined') window.print();
@@ -220,21 +220,19 @@ export default function TripSheetScreen() {
         </View> : null}
         {message ? <Text accessibilityRole="alert" style={styles.message}>{message}</Text> : null}
         {!busy && showGroups && monthlyGroups.length === 0 ? <View style={styles.empty}><Text style={styles.cardTitle}>Kelionės lapų nerasta</Text><Text style={styles.meta}>Lapas atsiranda užbaigus maršrutą. Pakeiskite automobilį, vairuotoją arba laikotarpį.</Text></View> : null}
-        {showGroups ? monthlyGroups.map((group) => <MonthlyTripSheet companyProfile={companyProfile} compact={width < 820} group={group} key={group.key} styles={styles} vehicleFuelType={vehicleFuelType} />) : null}
+        {showGroups ? monthlyGroups.map((group) => <MonthlyTripSheet companyProfile={companyProfile} group={group} key={group.key} periodLabel={periodLabel} styles={styles} vehicleFuelType={vehicleFuelType} />) : null}
       </FoundationScreen>
     </>
   );
 }
 
-function MonthlyTripSheet({ group, compact, styles, companyProfile, vehicleFuelType }: {
+function MonthlyTripSheet({ group, periodLabel, styles, companyProfile, vehicleFuelType }: {
   group: MonthlyTripGroup;
-  compact: boolean;
+  periodLabel: string;
   styles: ReturnType<typeof createStyles>;
   companyProfile: CompanyProfile;
   vehicleFuelType: FuelType;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const [expandedDay, setExpandedDay] = useState<string | null>(null);
   const totalDistance = group.rows.reduce((sum, row) => sum + (row.distanceKm ?? 0), 0);
   const totalFuel = group.rows.reduce((sum, row) => sum + (row.fuelConsumed ?? 0), 0);
   const totalFuelAdded = group.rows.reduce((sum, row) => sum + (row.fuelAdded ?? 0), 0);
@@ -262,72 +260,41 @@ function MonthlyTripSheet({ group, compact, styles, companyProfile, vehicleFuelT
       <Metric label="SUNAUDOTA PAGAL NORMĄ" value={`${formatNumber(totalFuel)} l`} styles={styles} />
       <Metric label="DABARTINIS LIKUTIS" value={lastFuel === null ? '—' : `${formatNumber(lastFuel)} l`} styles={styles} />
     </View>
-    <View style={styles.summaryActions}>
-      <Pressable accessibilityRole="button" onPress={() => setExpanded((current) => !current)} style={styles.detailsToggle}>
-        <Text style={styles.detailsToggleText}>{expanded ? 'Suskleisti' : `Atidaryti kelionės lapą · ${group.rows.length} d.`}</Text>
-        <Text style={styles.chevron}>{expanded ? '⌃' : '⌄'}</Text>
-      </Pressable>
+    <ScrollView horizontal showsHorizontalScrollIndicator contentContainerStyle={styles.reportTableScroll}>
+    <View style={styles.reportTable} testID="trip-sheet-report-table">
+      <View style={[styles.reportTableRow, styles.reportTableHeader]}>
+        <Text style={[styles.reportTableCell, styles.reportDateCell]}>Data</Text>
+        <Text style={[styles.reportTableCell, styles.reportRouteCell]}>Kur važiuota</Text>
+        <Text style={[styles.reportTableCell, styles.reportNumberCell]}>Nuvažiuota, km</Text>
+        <Text style={[styles.reportTableCell, styles.reportNumberCell]}>Sunaudota, l</Text>
+        <Text style={[styles.reportTableCell, styles.reportNumberCell]}>Įpilta, l</Text>
+        <Text style={[styles.reportTableCell, styles.reportNumberCell]}>Likutis pradžioje</Text>
+        <Text style={[styles.reportTableCell, styles.reportNumberCell]}>Likutis pabaigoje</Text>
+      </View>
+      {group.rows.map((row) => <View key={row.date} style={styles.reportTableRow}>
+        <Text style={[styles.reportTableCell, styles.reportDateCell]}>{row.date}</Text>
+        <Text style={[styles.reportTableCell, styles.reportRouteCell]}>{tripRouteLabel(row)}</Text>
+        <Text style={[styles.reportTableCell, styles.reportNumberCell]}>{formatNumber(row.distanceKm)}</Text>
+        <Text style={[styles.reportTableCell, styles.reportNumberCell]}>{formatNumber(row.fuelConsumed)}</Text>
+        <Text style={[styles.reportTableCell, styles.reportNumberCell]}>{formatNumber(row.fuelAdded)}</Text>
+        <Text style={[styles.reportTableCell, styles.reportNumberCell]}>{formatNumber(row.fuelStart)}</Text>
+        <Text style={[styles.reportTableCell, styles.reportNumberCell]}>{formatNumber(row.fuelEnd)}</Text>
+      </View>)}
+      <View style={[styles.reportTableRow, styles.reportTableTotal]}>
+        <Text style={[styles.reportTableCell, styles.reportDateCell]} />
+        <Text style={[styles.reportTableCell, styles.reportRouteCell, styles.reportTotalText]}>Iš viso</Text>
+        <Text style={[styles.reportTableCell, styles.reportNumberCell, styles.reportTotalText]}>{formatNumber(totalDistance)}</Text>
+        <Text style={[styles.reportTableCell, styles.reportNumberCell, styles.reportTotalText]}>{formatNumber(totalFuel)}</Text>
+        <Text style={[styles.reportTableCell, styles.reportNumberCell, styles.reportTotalText]}>{formatNumber(totalFuelAdded)}</Text>
+        <Text style={[styles.reportTableCell, styles.reportNumberCell]}>{formatNumber(firstFuel)}</Text>
+        <Text style={[styles.reportTableCell, styles.reportNumberCell]}>{formatNumber(lastFuel)}</Text>
+      </View>
     </View>
-
-    {expanded ? <View style={styles.dayList}>
-      <View style={styles.detailsSummary}>
-        <Text style={styles.detailsSummaryText}>Odometras {formatNumber(firstOdometer)} → {formatNumber(lastOdometer)}</Text>
-        <Text style={styles.detailsSummaryText}>Norma {group.rows[0]?.fuelNorm === null ? '—' : `${formatNumber(group.rows[0]?.fuelNorm ?? null)} l/100 km`}</Text>
-      </View>
-      {group.rows.map((row) => {
-        const open = expandedDay === row.date;
-        return <View key={row.date} style={styles.dayRow}>
-          <Pressable accessibilityRole="button" onPress={() => setExpandedDay(open ? null : row.date)} style={styles.daySummary}>
-            <View style={styles.flex}>
-              <Text style={styles.mobileDayDate}>{compact ? formatDate(row.date) : formatShortDate(row.date)}</Text>
-              <Text style={styles.routeBadgeText}>{row.routeNumbers.join(' · ') || 'Regiono kodas nenurodytas'}</Text>
-            </View>
-            <View style={styles.dayFuelSummary}>
-              <Text style={styles.dayFuelValue}>{row.fuelEnd === null ? '—' : `${formatNumber(row.fuelEnd)} l`}</Text>
-              <Text style={styles.meta}>{row.fuelAdded ? `+${formatNumber(row.fuelAdded)} l įpilta` : 'Nepilta'}</Text>
-            </View>
-            <Text style={styles.chevron}>{open ? '⌃' : '⌄'}</Text>
-          </Pressable>
-          {open ? <View style={styles.dayDetails}>
-            <View style={styles.mobileDayMetrics}>
-              <Metric
-                label={row.distanceSource === 'planned' ? 'NUVAŽIUOTA (PLANUOTA)' : 'NUVAŽIUOTA'}
-                value={`${formatNumber(row.distanceKm)} km`}
-                styles={styles}
-              />
-              <Metric label="KURO PRADŽIOJE" value={row.fuelStart === null ? '—' : `${formatNumber(row.fuelStart)} l`} styles={styles} />
-              <Metric label="ĮPILTA" value={`${formatNumber(row.fuelAdded)} l`} styles={styles} />
-              <Metric
-                label={row.fuelNorm === null ? 'SUNAUDOTA' : `SUNAUDOTA (${formatNumber(row.fuelNorm)} l/100 km)`}
-                value={row.fuelConsumed === null ? '—' : `${formatNumber(row.fuelConsumed)} l`}
-                styles={styles}
-              />
-              <Metric label="LIKO" value={row.fuelEnd === null ? '—' : `${formatNumber(row.fuelEnd)} l`} styles={styles} />
-            </View>
-            {fuelMissingHint(row.fuelMissing) ? (
-              <Text style={styles.meta}>{fuelMissingHint(row.fuelMissing)}</Text>
-            ) : null}
-            {row.fuelEnd !== null && row.fuelEnd < 0 ? (
-              <Text accessibilityRole="alert" style={styles.formError}>
-                Likutis išėjo neigiamas ({formatNumber(row.fuelEnd)} l) — greičiausiai neįvestas kuro papildymas
-                arba netikslus odometro rodmuo.
-              </Text>
-            ) : null}
-            {row.fuelEntries.length > 0 ? <View style={styles.fuelEntries}>
-              <Text style={styles.fuelEntriesTitle}>KURO PAPILDYMAI</Text>
-              {row.fuelEntries.map((entry) => <View key={entry.id} style={styles.fuelEntryRow}>
-                <View style={styles.flex}><Text style={styles.tableStrong}>{formatNumber(entry.liters)} l</Text><Text style={styles.meta}>{formatDate(entry.filledAt)}{entry.receiptNumber ? ` · čekis ${entry.receiptNumber}` : ''}</Text></View>
-              </View>)}
-            </View> : <Text style={styles.meta}>Šią dieną kuro papildymų dar neįvesta.</Text>}
-          </View> : null}
-        </View>;
-      })}
-      <Text style={styles.calculationNote}>Likutis = pradinis likutis + faktiškai įpilta − kilometrai × automobilio norma / 100.</Text>
-      <View style={styles.monthTotal}>
-        <Text style={styles.monthTotalTitle}>VISO PASIRINKTU LAIKOTARPIU</Text>
-        <Text style={styles.monthTotalText}>Nuvaziuota: {formatNumber(totalDistance)} km · Įpilta: {formatNumber(totalFuelAdded)} l · Sunaudota: {formatNumber(totalFuel)} l</Text>
-      </View>
-    </View> : null}
+    </ScrollView>
+    <View style={styles.monthTotal}>
+      <Text style={styles.monthTotalTitle}>VISO PASIRINKTU LAIKOTARPIU</Text>
+      <Text style={styles.monthTotalText}>Nuvaziuota: {formatNumber(totalDistance)} km · Įpilta: {formatNumber(totalFuelAdded)} l · Sunaudota: {formatNumber(totalFuel)} l</Text>
+    </View>
     </View>
 
     <View style={styles.printSheet} testID="trip-sheet-print-view">
@@ -340,7 +307,7 @@ function MonthlyTripSheet({ group, compact, styles, companyProfile, vehicleFuelT
       </View>
       <View style={styles.printMetaRow}>
         <Text style={styles.printMetaText}>Vairuotojas: {group.driverName}</Text>
-        <Text style={styles.printMetaText}>Laikotarpis: {formatMonthPeriod(group.month)}</Text>
+        <Text style={styles.printMetaText}>Laikotarpis: {periodLabel}</Text>
       </View>
 
       <View style={styles.printTable}>
@@ -503,14 +470,6 @@ function buildDailyRows(sheets: DisplayTripSheet[]): DailyTripRow[] {
   }));
 }
 
-/** Says which entry is missing, so an empty balance is not just a bare dash. */
-function fuelMissingHint(missing: FuelLedgerDay['missing']): string | null {
-  if (missing === 'no_odometer') return 'Likutis neskaičiuojamas: neįvesti šios dienos odometro rodmenys.';
-  if (missing === 'no_norm') return 'Likutis neskaičiuojamas: automobiliui nenustatyta kuro norma (l/100 km).';
-  if (missing === 'no_opening') return 'Likutis neskaičiuojamas: nežinomas kuro likutis laikotarpio pradžioje.';
-  return null;
-}
-
 function minimum(values: (number | null)[]): number | null { const present = values.filter((value): value is number => value !== null); return present.length > 0 ? Math.min(...present) : null; }
 function maximum(values: (number | null)[]): number | null { const present = values.filter((value): value is number => value !== null); return present.length > 0 ? Math.max(...present) : null; }
 
@@ -539,8 +498,6 @@ function localSheet(sheet: TripSheetWithRoutes, fuelEntries: TripFuelEntry[] = [
   };
 }
 
-function formatDate(value: string): string { const date = new Date(`${value}T12:00:00`); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('lt-LT', { dateStyle: 'long' }).format(date); }
-function formatShortDate(value: string): string { const date = new Date(`${value}T12:00:00`); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('lt-LT', { month: '2-digit', day: '2-digit' }).format(date); }
 function tripRouteLabel(row: DailyTripRow): string {
   if (row.routeNumbers.length > 0) return row.routeNumbers.join(' · ');
   return '—';
@@ -548,14 +505,6 @@ function tripRouteLabel(row: DailyTripRow): string {
 function formatMonth(value: string): string { const date = new Date(`${value}-15T12:00:00`); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('lt-LT', { year: 'numeric', month: 'long' }).format(date); }
 function formatNumber(value: number | null): string { return value === null ? '—' : new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(value); }
 function formatFuelNorm(value: number | null): string { return value === null ? '—' : `${new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 2 }).format(value)} L/100km`; }
-function formatMonthPeriod(month: string): string {
-  const [year, monthIndex] = month.split('-').map(Number);
-  if (!year || !monthIndex) return month;
-  const pad = (value: number) => String(value).padStart(2, '0');
-  const lastDay = new Date(year, monthIndex, 0).getDate();
-  return `${year}-${pad(monthIndex)}-01 00:00:00 - ${year}-${pad(monthIndex)}-${pad(lastDay)} 23:59:59`;
-}
-
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   headerAction: { minWidth: 120, minHeight: 48, justifyContent: 'center' }, headerText: { ...type.button, color: colors.brandNavy },
   actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }, dateRange: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }, dateInput: { flexGrow: 1, flexBasis: 220, minWidth: 0 },
@@ -595,6 +544,16 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   routeBadge: { borderRadius: radius.sm, backgroundColor: colors.infoSoft, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }, routeBadgeText: { ...type.label, color: colors.info },
   vehicleBar: { padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceMuted, gap: 2 }, vehicleNumber: { ...type.readout, color: colors.text },
   metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }, metric: { flexGrow: 1, minWidth: 115, padding: spacing.sm, borderRadius: radius.sm, backgroundColor: colors.surfaceSubtle, borderWidth: 1, borderColor: colors.borderSubtle, gap: 2 }, metricLabel: { ...type.label, color: colors.textMuted }, metricValue: { ...type.bodyStrong, color: colors.text },
+  reportTable: { borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radius.sm, overflow: 'hidden' },
+  reportTableScroll: { minWidth: '100%' },
+  reportTableRow: { minHeight: 44, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: colors.borderSubtle },
+  reportTableHeader: { backgroundColor: colors.surfaceMuted },
+  reportTableTotal: { backgroundColor: colors.infoSoft, borderBottomWidth: 0 },
+  reportTableCell: { ...type.meta, color: colors.text, paddingHorizontal: spacing.xs, paddingVertical: spacing.xs },
+  reportDateCell: { width: 88 },
+  reportRouteCell: { flex: 1, minWidth: 72 },
+  reportNumberCell: { width: 92, textAlign: 'right' },
+  reportTotalText: { ...type.secondaryStrong },
   compensation: { padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.success, backgroundColor: colors.surfaceSubtle, gap: spacing.sm }, compensationHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm }, compensationEyebrow: { ...type.label, color: colors.success }, compensationTotal: { ...type.readout, color: colors.text, marginTop: 2 }, compensationSource: { ...type.secondary, color: colors.textMuted }, compensationRows: { gap: 3 }, compensationLine: { ...type.secondary, color: colors.textSecondary },
   routeBlock: { borderLeftWidth: 3, borderLeftColor: colors.info, paddingLeft: spacing.sm, gap: 2 }, routeLabel: { ...type.label, color: colors.textMuted }, routeAddress: { ...type.body, color: colors.text }, cardTitle: { ...type.sectionTitle, color: colors.text }, meta: { ...type.secondary, color: colors.textMuted },
   tableHeader: { minHeight: 48, paddingHorizontal: spacing.sm, borderRadius: radius.sm, backgroundColor: colors.surfaceMuted, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
