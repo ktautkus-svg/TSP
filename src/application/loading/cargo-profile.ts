@@ -1,10 +1,11 @@
 import {
+  ASSUMED_SHORT_VAN_PROFILE,
   ASSUMED_VAN_PROFILE,
   BOX_8_PALLET_PROFILE,
   type CargoItemInput,
   type CargoVehicleProfile,
 } from '@/domain/cargo-layout';
-import { resolveVehicleCargo } from '@/domain/fleet-cargo-specs';
+import { fleetCargoSpec, resolveVehicleCargo } from '@/domain/fleet-cargo-specs';
 import type { ServerFleetVehicleSnapshot } from '@/infrastructure/auth/employee-session';
 
 export type CargoProfileResolution = {
@@ -45,6 +46,10 @@ export function resolveCargoProfile(
         ? { startMm, endMm, intrusionMm }
         : null,
       maximumPayloadKg: positive(vehicle.maximumPayloadKg),
+      hasSideDoor: vehicle.hasSideDoor === true
+        || (vehicle.hasSideDoor !== false
+          && (fleetCargoSpec(vehicle.registrationNumber)?.hasSideDoor === true
+            || resolveVehicleCargo(vehicle).hasSideDoor)),
     },
     assumed: false,
   };
@@ -82,11 +87,18 @@ function typicalProfile(
   vehicle: ServerFleetVehicleSnapshot | null | undefined,
 ): CargoVehicleProfile {
   const cargo = resolveVehicleCargo(vehicle);
-  const base = cargo.palletCapacity === 8 ? BOX_8_PALLET_PROFILE : ASSUMED_VAN_PROFILE;
+  const base = vehicle?.cargoBodyKind === 'van_short'
+    ? ASSUMED_SHORT_VAN_PROFILE
+    : cargo.palletCapacity === 8
+      ? BOX_8_PALLET_PROFILE
+      : ASSUMED_VAN_PROFILE;
   const payload = positive(vehicle?.maximumPayloadKg);
+  const knownDoor = fleetCargoSpec(vehicle?.registrationNumber)?.hasSideDoor;
   return {
     ...base,
     maximumPayloadKg: payload ?? base.maximumPayloadKg ?? null,
+    hasSideDoor: vehicle?.hasSideDoor === true
+      || (vehicle?.hasSideDoor !== false && (knownDoor ?? (cargo.hasSideDoor || base.hasSideDoor === true))),
   };
 }
 

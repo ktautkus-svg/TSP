@@ -289,6 +289,8 @@ describe('loading schema UI wiring', () => {
     expect(source).toContain('Liko vietos');
     expect(source).toContain('testID="cargo-layout-dashboard"');
     expect(source).toContain('testID="cargo-layout-remaining"');
+    expect(source).toContain('Kaip krauti');
+    expect(source).toContain('ŠONINĖS DURYS');
   });
 
   it('keeps server-compiled loading schema free of unresolved path aliases', () => {

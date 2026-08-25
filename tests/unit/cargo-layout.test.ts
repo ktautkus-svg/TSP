@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ASSUMED_VAN_PROFILE,
   BOX_8_PALLET_PROFILE,
+  ASSUMED_SHORT_VAN_PROFILE,
   EURO_PALLET_LONG_MM,
   EURO_PALLET_SHORT_MM,
   SAVANA_LONG_PROFILE,
@@ -138,6 +139,44 @@ describe('krovinio išdėstymas', () => {
     expect(first.slot.yMm).toBeGreaterThan(last.slot.yMm);
   });
 
+  it('du padėklai 5 PLL furgone skirstomi: pirmas prie durų, antras prie kabinos', () => {
+    const layout = planCargoLayout(ASSUMED_VAN_PROFILE, [item(1, 1_000, 1), item(2, 956, 1)]);
+    const first = layout.placed.find((pallet) => pallet.deliveryOrder === 1)!;
+    const last = layout.placed.find((pallet) => pallet.deliveryOrder === 2)!;
+    const doorY = Math.max(...layout.slots.map((slot) => slot.yMm));
+    const cabinY = Math.min(...layout.slots.map((slot) => slot.yMm));
+    expect(first.slot.yMm).toBe(doorY);
+    expect(last.slot.yMm).toBe(cabinY);
+    expect(last.sideAccess).toBe(true);
+    expect(first.sideAccess).toBe(false);
+    expect(Math.abs(first.slot.yMm - last.slot.yMm)).toBeGreaterThan(1_000);
+  });
+
+  it('sunkų vidurio tašką su šoninėmis durimis deda prie šono, ne tarp kaimynų', () => {
+    const items = Array.from({ length: 8 }, (_, index) => item(index + 1, index + 1 === 7 ? 400 : 40, 1));
+    const layout = planCargoLayout(ASSUMED_VAN_PROFILE, items);
+    const heavy = layout.placed.find((pallet) => pallet.deliveryOrder === 7)!;
+    const six = layout.placed.find((pallet) => pallet.deliveryOrder === 6)!;
+    const eight = layout.placed.find((pallet) => pallet.deliveryOrder === 8)!;
+    expect(heavy.sideAccess).toBe(true);
+    expect(six.slot.index).not.toBe(heavy.slot.index);
+    expect(eight.slot.index).not.toBe(heavy.slot.index);
+    expect(heavy.advice).toContain('šoninių durų');
+  });
+
+  it('be šoninių durų sunkaus vidurio nekelia prie kabinos kaip šoninio iškrovimo', () => {
+    const van = { ...ASSUMED_VAN_PROFILE, hasSideDoor: false };
+    const items = Array.from({ length: 8 }, (_, index) => item(index + 1, index + 1 === 7 ? 400 : 40, 1));
+    const layout = planCargoLayout(van, items);
+    const heavy = layout.placed.find((pallet) => pallet.deliveryOrder === 7)!;
+    expect(heavy.sideAccess).toBe(false);
+    expect(heavy.advice).not.toContain('pro šonines duris');
+  });
+
+  it('trumpas furgonas duoda 4 PLL vietas', () => {
+    expect(buildSlots(ASSUMED_SHORT_VAN_PROFILE)).toHaveLength(4);
+  });
+
   it('vienas pristatymas gali užimti kelias vietas', () => {
     const layout = planCargoLayout(BOX_8_PALLET_PROFILE, [item(1, 600, 3)]);
     expect(layout.placed).toHaveLength(3);
@@ -146,10 +185,10 @@ describe('krovinio išdėstymas', () => {
   });
 
   it('netelpantys padėklai atskiriami ir apie juos pranešama', () => {
-    const items = Array.from({ length: 10 }, (_, index) => item(index + 1, 100, 1));
+    const items = Array.from({ length: 8 * 6 + 1 }, (_, index) => item(index + 1, 40, 1));
     const layout = planCargoLayout(BOX_8_PALLET_PROFILE, items);
-    expect(layout.placed).toHaveLength(8);
-    expect(layout.unplaced).toHaveLength(2);
+    expect(layout.placed).toHaveLength(48);
+    expect(layout.unplaced).toHaveLength(1);
     expect(layout.warnings.some((warning) => warning.code === 'PALLETS_DO_NOT_FIT')).toBe(true);
     expect(layout.usedSlotPercent).toBe(100);
   });

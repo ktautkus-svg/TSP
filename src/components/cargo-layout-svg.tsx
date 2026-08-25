@@ -84,6 +84,26 @@ export function CargoLayoutSvg({
         Vaizdas iš viršaus. Kabina priekyje, galinės durys apačioje. Skaičius — pristatymo eilė (1 išeina pirmas).
       </Text>
 
+      {layout.placed.length > 0 ? (
+        <View style={styles.plan} testID="cargo-layout-plan">
+          <Text style={styles.planTitle}>Kaip krauti</Text>
+          {[...layout.placed].sort((left, right) => left.deliveryOrder - right.deliveryOrder).map((pallet) => (
+            <Text key={`${pallet.itemId}-${pallet.palletOfItem}`} style={styles.planLine}>
+              {pallet.deliveryOrder}{pallet.palletsForItem > 1 ? `·${pallet.palletOfItem}` : ''}
+              {' · '}
+              {pallet.weightKg === null ? '— kg' : `${Math.round(pallet.weightKg)} kg`}
+              {' — '}
+              {loadAdvice(pallet)}
+            </Text>
+          ))}
+          {layout.placed.length >= 2 && layout.placed.length <= layout.slots.length ? (
+            <Text style={styles.planNote}>Svoris paskirstytas pagal šį kėbulą ({layout.slots.length} PLL{layout.vehicle.hasSideDoor ? ', su šoninėmis durimis' : ', be šoninių durų'}).</Text>
+          ) : layout.placed.length > layout.slots.length ? (
+            <Text style={styles.planNote}>Keli kroviniai dalijasi vietą — viršuje tas, kuris išeina anksčiau.</Text>
+          ) : null}
+        </View>
+      ) : null}
+
       <Svg
         width="100%"
         height={renderedWidthPx * (viewHeight / viewWidth)}
@@ -115,14 +135,19 @@ export function CargoLayoutSvg({
             />
           ) : null}
 
+          {bodyType === 'van' && layout.vehicle.hasSideDoor ? (
+            <SideDoor widthMm={widthMm} colors={colors} />
+          ) : null}
+
           {layout.slots.filter((slot) => !occupied.has(slot.index)).map((slot) => (
             <EmptySlot key={`empty-${slot.index}`} slot={slot} colors={colors} />
           ))}
 
-          {layout.placed.map((pallet) => (
+          {Array.from(groupPlacedBySlot(layout.placed), ([slotIndex, stack]) => (
             <OccupiedSlot
-              key={`${pallet.itemId}-${pallet.palletOfItem}`}
-              pallet={pallet}
+              key={`slot-${slotIndex}`}
+              pallet={[...stack].sort((left, right) => left.deliveryOrder - right.deliveryOrder)[0]!}
+              stack={stack}
               firstOrder={firstOrder}
               lastOrder={lastOrder}
             />
@@ -291,10 +316,12 @@ function EmptySlot({ slot, colors }: { slot: CargoSlot; colors: ColorPalette }) 
 
 function OccupiedSlot({
   pallet,
+  stack = [pallet],
   firstOrder,
   lastOrder,
 }: {
   pallet: PlacedPallet;
+  stack?: PlacedPallet[];
   firstOrder: number;
   lastOrder: number;
 }) {
@@ -307,37 +334,108 @@ function OccupiedSlot({
   const progress = lastOrder === firstOrder
     ? 0
     : (pallet.deliveryOrder - firstOrder) / (lastOrder - firstOrder);
-  const fill = unloadColor(progress);
-  const text = progress > 0.62 ? '#FFFFFF' : '#171A2B';
+  const edge = unloadColor(progress);
+  const alongX = slot.orientation === 'crosswise';
+  const longSide = alongX ? width : depth;
+  const boardCount = 5;
+  const boardThickness = longSide * 0.12;
+  const gap = (longSide - boardCount * boardThickness) / (boardCount - 1);
+  const band = Math.max(90, Math.min(depth * 0.28, 220));
+  const orderSize = Math.max(140, Math.min(220, Math.min(width, depth) * 0.28));
+  const metaSize = Math.max(80, Math.min(120, Math.min(width, depth) * 0.14));
   const weight = pallet.estimated ? '≈' : '';
   const kg = pallet.weightKg === null ? '— kg' : `${Math.round(pallet.weightKg)} kg`;
-  const alongShort = Math.min(width, depth);
-  const orderSize = Math.max(170, Math.min(260, alongShort * 0.36));
-  const metaSize = Math.max(95, Math.min(140, alongShort * 0.18));
+  const stackOrders = [...stack].sort((left, right) => left.deliveryOrder - right.deliveryOrder)
+    .map((item) => item.deliveryOrder)
+    .join(', ');
 
   return (
     <G>
-      <Rect x={x} y={y} width={width} height={depth} rx={28} fill={fill} />
+      <Rect x={x} y={y} width={width} height={depth} rx={20} fill="#C9A227" />
+      {Array.from({ length: boardCount }, (_, index) => {
+        const offset = index * (boardThickness + gap);
+        const fill = index === 0 || index === boardCount - 1 || index === 2 ? '#D4B03A' : '#B89520';
+        return alongX ? (
+          <Rect key={index} x={x + offset} y={y} width={boardThickness} height={depth} fill={fill} />
+        ) : (
+          <Rect key={index} x={x} y={y + offset} width={width} height={boardThickness} fill={fill} />
+        );
+      })}
+      <Rect x={x} y={y} width={width} height={band} rx={20} fill={edge} />
+      <Rect x={x} y={y} width={width} height={depth} rx={20} fill="none" stroke={edge} strokeWidth={36} />
       <SvgText
         x={x + width / 2}
-        y={y + depth * 0.42}
+        y={y + band * 0.72}
         fontSize={orderSize}
         fontWeight="700"
-        fill={text}
+        fill="#FFFFFF"
         textAnchor="middle">
-        {pallet.deliveryOrder}
-        {pallet.palletsForItem > 1 ? `·${pallet.palletOfItem}` : ''}
+        {stack.length > 1
+          ? stackOrders
+          : `${pallet.deliveryOrder}${pallet.palletsForItem > 1 ? `·${pallet.palletOfItem}` : ''}`}
       </SvgText>
       <SvgText
         x={x + width / 2}
-        y={y + depth * 0.72}
+        y={y + depth * 0.78}
         fontSize={metaSize}
-        fill={text}
+        fontWeight="600"
+        fill="#1A1206"
         textAnchor="middle">
         {weight}{kg}
       </SvgText>
+      {pallet.sideAccess ? (
+        <SvgText
+          x={x + width / 2}
+          y={y + depth * 0.92}
+          fontSize={Math.max(70, metaSize * 0.7)}
+          fill="#1A1206"
+          textAnchor="middle">
+          ŠONINĖS DURYS
+        </SvgText>
+      ) : null}
     </G>
   );
+}
+
+function SideDoor({ widthMm, colors }: { widthMm: number; colors: ColorPalette }) {
+  const y = 280;
+  const height = 1_100;
+  return (
+    <G>
+      <Rect
+        x={widthMm - 28}
+        y={y}
+        width={56}
+        height={height}
+        fill={colors.info}
+        stroke={colors.text}
+        strokeWidth={10}
+      />
+      <SvgText
+        x={widthMm + 90}
+        y={y + height / 2}
+        fontSize={95}
+        fill={colors.info}
+        textAnchor="middle"
+        transform={`rotate(90 ${widthMm + 90} ${y + height / 2})`}>
+        ŠONINĖS DURYS
+      </SvgText>
+    </G>
+  );
+}
+
+function loadAdvice(pallet: PlacedPallet): string {
+  return pallet.advice;
+}
+
+function groupPlacedBySlot(placed: PlacedPallet[]): Map<number, PlacedPallet[]> {
+  const grouped = new Map<number, PlacedPallet[]>();
+  for (const pallet of placed) {
+    const list = grouped.get(pallet.slot.index) ?? [];
+    list.push(pallet);
+    grouped.set(pallet.slot.index, list);
+  }
+  return grouped;
 }
 
 function WheelArches({
@@ -510,6 +608,18 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   },
   trackFill: { height: 6, borderRadius: 3, backgroundColor: colors.primary },
   hint: { ...type.secondary, color: colors.textMuted },
+  plan: {
+    gap: spacing.xs,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.infoSoft,
+    borderWidth: 1,
+    borderColor: colors.info,
+  },
+  planTitle: { ...type.label, color: colors.info },
+  planLine: { ...type.secondaryStrong, color: colors.text },
+  planNote: { ...type.meta, color: colors.textSecondary },
   assumedHint: { ...type.secondary, color: colors.textMuted },
   legend: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },

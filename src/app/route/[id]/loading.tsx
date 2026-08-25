@@ -785,11 +785,12 @@ function floorSlotHint(pallets: PlacedPallet[], slots: CargoSlot[]): string {
   const cabinY = Math.min(...slots.map((slot) => slot.yMm));
   return pallets.map((pallet) => {
     const parts = [`Vieta ${pallet.slot.index}`];
-    if (pallet.slot.orientation === 'lengthwise') parts.push('išilgai prie kabinos');
+    if (pallet.sideAccess) parts.push('prie kabinos · pro šonines duris');
+    else if (pallet.slot.orientation === 'lengthwise') parts.push('išilgai prie kabinos');
     else if (pallet.slot.yMm === doorY) parts.push('skersai prie durų');
     else parts.push('skersai');
     if (pallet.slot.yMm === doorY) parts.push('pirmas iškrauti');
-    else if (pallet.slot.yMm === cabinY) parts.push('paskutinis iškrauti');
+    else if (pallet.slot.yMm === cabinY && !pallet.sideAccess) parts.push('paskutinis iškrauti');
     return parts.join(' · ');
   }).join('; ');
 }

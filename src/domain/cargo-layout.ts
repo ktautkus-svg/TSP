@@ -38,6 +38,8 @@ export type CargoVehicleProfile = {
   /** Ignored for a box body, whose floor is flat end to end. */
   wheelArch?: WheelArchProfile | null;
   maximumPayloadKg?: number | null;
+  /** Sliding door on the curb side, used to unload the cabin-end pallets. */
+  hasSideDoor?: boolean;
 };
 
 /**
@@ -51,6 +53,7 @@ export const ASSUMED_VAN_PROFILE: CargoVehicleProfile = {
   bodyType: 'van',
   wheelArch: { startMm: 2_400, endMm: 3_700, intrusionMm: 250 },
   maximumPayloadKg: 1_500,
+  hasSideDoor: true,
 };
 
 /**
@@ -88,6 +91,17 @@ export const BOX_8_PALLET_PROFILE: CargoVehicleProfile = {
   bodyType: 'box',
   wheelArch: null,
   maximumPayloadKg: 1_500,
+  hasSideDoor: true,
+};
+
+/** Compact 4 PLL van — shorter floor, same euro-pallet rules as the 5 PLL. */
+export const ASSUMED_SHORT_VAN_PROFILE: CargoVehicleProfile = {
+  lengthMm: 3_200,
+  widthMm: 2_100,
+  bodyType: 'van',
+  wheelArch: { startMm: 1_800, endMm: 3_100, intrusionMm: 250 },
+  maximumPayloadKg: 1_200,
+  hasSideDoor: true,
 };
 
 /** Same body at the wider end of the usual range. */
@@ -140,6 +154,10 @@ export type PlacedPallet = {
   /** True when the pallet count came from weight rather than being stated. */
   estimated: boolean;
   slot: CargoSlot;
+  /** Cabin-end pallet that can come out through the side door. */
+  sideAccess: boolean;
+  /** One-line instruction for the driver. */
+  advice: string;
 };
 
 export type CargoLayoutWarning = {
@@ -276,6 +294,9 @@ export function derivePalletCount(
   };
 }
 
+/** How many deliveries may share one euro-pallet footprint before we give up. */
+const MAX_STACK_PER_SLOT = 6;
+
 export function planCargoLayout(
   vehicle: CargoVehicleProfile,
   items: readonly CargoItemInput[],
@@ -286,40 +307,24 @@ export function planCargoLayout(
     ? vehicle.maximumPayloadKg / slots.length
     : null;
 
-  // First delivery goes nearest the doors, so slots are filled from the rear.
-  const rearFirst = [...slots].sort((left, right) => right.yMm - left.yMm || left.xMm - right.xMm);
   const ordered = [...items].sort((left, right) => left.deliveryOrder - right.deliveryOrder);
-
-  const placed: PlacedPallet[] = [];
-  const unplaced: PlacedPallet[] = [];
-  let cursor = 0;
+  const jobs: PalletJob[] = [];
   let estimatedItems = 0;
-
   for (const item of ordered) {
     const { count, estimated } = derivePalletCount(item, averagePalletWeightKg);
     if (estimated) estimatedItems += 1;
     for (let pallet = 1; pallet <= count; pallet += 1) {
-      const slot = rearFirst[cursor];
-      const entry: PlacedPallet = {
-        itemId: item.id,
-        label: item.label,
-        deliveryOrder: item.deliveryOrder,
+      jobs.push({
+        item,
         palletOfItem: pallet,
         palletsForItem: count,
-        // Weight is split evenly across the pallets of one delivery.
-        weightKg: item.weightKg === null ? null : item.weightKg / count,
         estimated,
-        slot: slot ?? placeholderSlot(cursor),
-      };
-      if (slot) {
-        placed.push(entry);
-        cursor += 1;
-      } else {
-        unplaced.push(entry);
-      }
+        weightKg: item.weightKg === null ? null : item.weightKg / count,
+      });
     }
   }
 
+  const { placed, unplaced } = assignJobsToVehicle(vehicle, slots, jobs);
   const totalWeightKg = items.reduce((sum, item) => sum + (item.weightKg ?? 0), 0);
   return {
     vehicle,
@@ -328,7 +333,9 @@ export function planCargoLayout(
     placed,
     unplaced,
     totalWeightKg,
-    usedSlotPercent: slots.length === 0 ? 0 : Math.round((placed.length / slots.length) * 100),
+    usedSlotPercent: slots.length === 0
+      ? 0
+      : Math.round((new Set(placed.map((pallet) => pallet.slot.index)).size / slots.length) * 100),
     averagePalletWeightKg,
     warnings: collectWarnings({
       slots,
@@ -339,6 +346,192 @@ export function planCargoLayout(
       assumedVehicle: options.assumedVehicle === true,
     }),
   };
+}
+
+type PalletJob = {
+  item: CargoItemInput;
+  palletOfItem: number;
+  palletsForItem: number;
+  estimated: boolean;
+  weightKg: number | null;
+};
+
+type SlotKind = 'rear' | 'side' | 'cabin' | 'interior';
+
+/**
+ * Place each pallet on this vehicle's floor.
+ *
+ * The floor geometry already decided how many places exist (4, 5, 8…). This
+ * step decides who sits where, and it is different for every load:
+ *
+ * - rear doors: earliest deliveries, opened from the back;
+ * - side door (only if the vehicle has one): a heavy stop in the middle of the
+ *   route, so the driver is not digging it out from between its neighbours;
+ * - cabin: last deliveries, or the leftover side-door place;
+ * - without a side door there is only a rear-door stack — the heavy mid-route
+ *   stop stays in sequence and the advice says so.
+ */
+function assignJobsToVehicle(
+  vehicle: CargoVehicleProfile,
+  slots: CargoSlot[],
+  jobs: PalletJob[],
+): { placed: PlacedPallet[]; unplaced: PlacedPallet[] } {
+  const placed: PlacedPallet[] = [];
+  const unplaced: PlacedPallet[] = [];
+  if (slots.length === 0) {
+    for (const job of jobs) unplaced.push(toPlaced(job, placeholderSlot(unplaced.length), false, 'Nėra vietos ant grindų.'));
+    return { placed, unplaced };
+  }
+
+  const doorY = Math.max(...slots.map((slot) => slot.yMm));
+  const cabinY = Math.min(...slots.map((slot) => slot.yMm));
+  const hasSideDoor = vehicle.hasSideDoor === true;
+  const kindOf = (slot: CargoSlot): SlotKind => {
+    if (slot.yMm === doorY) return 'rear';
+    if (slot.yMm === cabinY) return hasSideDoor ? 'side' : 'cabin';
+    return 'interior';
+  };
+
+  const stacks: PalletJob[][] = slots.map(() => []);
+  const orders = jobs.map((job) => job.item.deliveryOrder);
+  const minOrder = Math.min(...orders);
+  const maxOrder = Math.max(...orders);
+  const span = Math.max(1, maxOrder - minOrder);
+  const weights = jobs.map((job) => job.weightKg).filter((weight): weight is number => weight !== null && weight > 0);
+  const median = medianOf(weights);
+  const heavyCut = Math.max((median ?? 0) * 1.35, 80);
+
+  const scored = jobs.map((job) => {
+    const progress = (job.item.deliveryOrder - minOrder) / span;
+    const heavy = job.weightKg !== null && job.weightKg >= heavyCut;
+    const midRoute = jobs.length > 2 && progress > 0.12 && progress < 0.92
+      && job.item.deliveryOrder !== minOrder && job.item.deliveryOrder !== maxOrder;
+    return {
+      job,
+      progress,
+      heavy,
+      midRoute,
+      wantsRear: job.item.deliveryOrder === minOrder || progress <= 0.2,
+      wantsSide: hasSideDoor && heavy && midRoute,
+      wantsCabin: job.item.deliveryOrder === maxOrder || progress >= 0.8,
+    };
+  });
+
+  const rank = (row: (typeof scored)[number]) => {
+    if (row.wantsSide) return 0;
+    if (row.wantsRear) return 1;
+    if (row.wantsCabin) return 2;
+    return 3;
+  };
+  scored.sort((left, right) => rank(left) - rank(right)
+    || (left.wantsRear ? left.job.item.deliveryOrder - right.job.item.deliveryOrder : 0)
+    || (right.job.weightKg ?? 0) - (left.job.weightKg ?? 0)
+    || left.job.item.deliveryOrder - right.job.item.deliveryOrder);
+
+  for (const row of scored) {
+    const slotIndex = pickSlotIndex(row, slots, stacks, kindOf);
+    if (slotIndex === null) {
+      unplaced.push(toPlaced(row.job, placeholderSlot(placed.length + unplaced.length), false, 'Netelpa ant šio kėbulo.'));
+      continue;
+    }
+    stacks[slotIndex]!.push(row.job);
+    const slot = slots[slotIndex]!;
+    const kind = kindOf(slot);
+    const sideAccess = kind === 'side';
+    placed.push(toPlaced(row.job, slot, sideAccess, adviceFor(row, kind, hasSideDoor, slots.length)));
+  }
+
+  return { placed, unplaced };
+}
+
+function pickSlotIndex(
+  row: { job: PalletJob; wantsRear: boolean; wantsSide: boolean; wantsCabin: boolean; heavy: boolean; midRoute: boolean },
+  slots: CargoSlot[],
+  stacks: PalletJob[][],
+  kindOf: (slot: CargoSlot) => SlotKind,
+): number | null {
+  let best: { index: number; score: number } | null = null;
+  for (let index = 0; index < slots.length; index += 1) {
+    if (stacks[index]!.length >= MAX_STACK_PER_SLOT) continue;
+    const slot = slots[index]!;
+    const kind = kindOf(slot);
+    const depth = stacks[index]!.length;
+    const sideHoldsHeavyMid = stacks[index]!.some((job) => {
+      // Occupied by a job we already placed that wanted the side door.
+      return kind === 'side' && (job.weightKg ?? 0) >= 80;
+    });
+    let score = -depth * 45;
+    if (row.wantsSide) {
+      score += kind === 'side' ? 120 : kind === 'cabin' ? 30 : -40;
+    } else if (row.wantsRear) {
+      score += kind === 'rear' ? 120 : kind === 'interior' ? 25 : -20;
+    } else if (row.wantsCabin) {
+      score += kind === 'side' || kind === 'cabin' ? 90 : 15;
+      if (kind === 'side' && sideHoldsHeavyMid) score -= 50;
+    } else {
+      score += kind === 'interior' ? 55 : kind === 'rear' ? 20 : 10;
+      if (kind === 'side' && sideHoldsHeavyMid) score -= 90;
+    }
+    if (row.wantsRear) score += slot.yMm / 2000;
+    if (row.wantsSide) score += slot.xMm / 2000;
+    const sibling = stacks[index]!.find((job) => job.item.id === row.job.item.id);
+    if (sibling) {
+      score += row.job.palletsForItem > 1 ? -250 : 40;
+    }
+    if (row.job.palletsForItem > 1) score -= depth * 80;
+    if (best === null || score > best.score) best = { index, score };
+  }
+  return best?.index ?? null;
+}
+
+function adviceFor(
+  row: { job: PalletJob; wantsRear: boolean; wantsSide: boolean; wantsCabin: boolean; heavy: boolean; midRoute: boolean },
+  kind: SlotKind,
+  hasSideDoor: boolean,
+  slotCount: number,
+): string {
+  const pll = `${slotCount} PLL`;
+  if (kind === 'rear' || row.wantsRear && kind === 'interior') {
+    return `prie galinių durų — pirmas iškrauti (${pll})`;
+  }
+  if (row.wantsSide && kind === 'side') {
+    return `prie šoninių durų — sunkus vidurio taškas, kad nereikėtų rauti tarp kaimynų (${pll})`;
+  }
+  if (kind === 'side') {
+    return `prie kabinos, iškrauti pro šonines duris (${pll})`;
+  }
+  if (kind === 'cabin') {
+    if (row.heavy && row.midRoute && !hasSideDoor) {
+      return `prie kabinos — šoninių durų nėra, sunkų vidurio tašką reikės traukti iš eilės (${pll})`;
+    }
+    return `prie kabinos — paskutinis iškrauti (${pll})`;
+  }
+  if (row.heavy && row.midRoute && !hasSideDoor) {
+    return `viduryje kėbulo — šoninių durų nėra, kaimynus reikės pasitraukti (${pll})`;
+  }
+  return `viduryje kėbulo — pagal pristatymo eilę (${pll})`;
+}
+
+function toPlaced(job: PalletJob, slot: CargoSlot, sideAccess: boolean, advice: string): PlacedPallet {
+  return {
+    itemId: job.item.id,
+    label: job.item.label,
+    deliveryOrder: job.item.deliveryOrder,
+    palletOfItem: job.palletOfItem,
+    palletsForItem: job.palletsForItem,
+    weightKg: job.weightKg,
+    estimated: job.estimated,
+    slot,
+    sideAccess,
+    advice,
+  };
+}
+
+function medianOf(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((left, right) => left - right);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1]! + sorted[mid]!) / 2 : sorted[mid]!;
 }
 
 function collectWarnings(input: {

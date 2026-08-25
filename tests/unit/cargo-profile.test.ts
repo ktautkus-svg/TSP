@@ -21,6 +21,9 @@ describe('kėbulo profilio parinkimas', () => {
     expect(eight.assumed).toBe(true);
     expect(buildSlots(eight.profile)).toHaveLength(8);
     expect(resolveCargoProfile(vehicle({ maximumPayloadKg: 1_200 })).profile.maximumPayloadKg).toBe(1_200);
+    expect(buildSlots(resolveCargoProfile(vehicle({ cargoBodyKind: 'van_short' })).profile)).toHaveLength(4);
+    expect(resolveCargoProfile(vehicle()).profile.hasSideDoor).toBe(true);
+    expect(resolveCargoProfile(vehicle({ registrationNumber: 'LRI741', palletCapacity: 8, hasSideDoor: false })).profile.hasSideDoor).toBe(false);
   });
 
   it('su ilgiu ir pločiu naudoja tikrus matmenis', () => {
