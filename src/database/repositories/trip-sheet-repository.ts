@@ -9,6 +9,7 @@ export type VehicleSaveInput = {
   fuelType: FuelType;
   technicalInspectionDueOn?: string | null;
   roadTaxDueOn?: string | null;
+  insuranceDueOn?: string | null;
   nextServiceDueOn?: string | null;
   nextServiceOdometer?: number | null;
 };
@@ -29,6 +30,7 @@ type VehicleRow = {
   warehouse_location_json: string | null;
   technical_inspection_due_on: string | null;
   road_tax_due_on: string | null;
+  insurance_due_on: string | null;
   next_service_due_on: string | null;
   next_service_odometer: number | null;
   created_at: string;
@@ -138,6 +140,7 @@ function mapVehicle(row: VehicleRow): Vehicle {
     warehouseLocation: parseSavedLocation(row.warehouse_location_json),
     technicalInspectionDueOn: row.technical_inspection_due_on ?? null,
     roadTaxDueOn: row.road_tax_due_on ?? null,
+    insuranceDueOn: row.insurance_due_on ?? null,
     nextServiceDueOn: row.next_service_due_on ?? null,
     nextServiceOdometer: row.next_service_odometer ?? null,
     createdAt: row.created_at,
@@ -214,6 +217,7 @@ export class TripSheetRepository {
     const id = input.id ?? existing?.id ?? 'vehicle-primary';
     const columns = await this.db.getAllAsync<{ name: string }>('PRAGMA table_info(vehicles)');
     const hasCompliance = columns.some((column) => column.name === 'technical_inspection_due_on');
+    const hasInsurance = columns.some((column) => column.name === 'insurance_due_on');
     const name = input.name.trim() || 'Darbinis automobilis';
     const registrationNumber = input.registrationNumber.trim().toUpperCase() || 'NENURODYTA';
     if (!hasCompliance) {
@@ -234,18 +238,48 @@ export class TripSheetRepository {
       );
       return (await this.getVehicle())!;
     }
+    if (!hasInsurance) {
+      await this.db.runAsync(
+        `INSERT INTO vehicles (
+           id, name, registration_number, fuel_type,
+           technical_inspection_due_on, road_tax_due_on, next_service_due_on, next_service_odometer,
+           created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           name = excluded.name,
+           registration_number = excluded.registration_number,
+           fuel_type = excluded.fuel_type,
+           technical_inspection_due_on = excluded.technical_inspection_due_on,
+           road_tax_due_on = excluded.road_tax_due_on,
+           next_service_due_on = excluded.next_service_due_on,
+           next_service_odometer = excluded.next_service_odometer,
+           updated_at = excluded.updated_at`,
+        id,
+        name,
+        registrationNumber,
+        input.fuelType,
+        optionalDate(input.technicalInspectionDueOn, existing?.technicalInspectionDueOn ?? null),
+        optionalDate(input.roadTaxDueOn, existing?.roadTaxDueOn ?? null),
+        optionalDate(input.nextServiceDueOn, existing?.nextServiceDueOn ?? null),
+        input.nextServiceOdometer === undefined ? existing?.nextServiceOdometer ?? null : input.nextServiceOdometer,
+        existing?.createdAt ?? now,
+        now,
+      );
+      return (await this.getVehicle())!;
+    }
     await this.db.runAsync(
       `INSERT INTO vehicles (
          id, name, registration_number, fuel_type,
-         technical_inspection_due_on, road_tax_due_on, next_service_due_on, next_service_odometer,
+         technical_inspection_due_on, road_tax_due_on, insurance_due_on, next_service_due_on, next_service_odometer,
          created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          name = excluded.name,
          registration_number = excluded.registration_number,
          fuel_type = excluded.fuel_type,
          technical_inspection_due_on = excluded.technical_inspection_due_on,
          road_tax_due_on = excluded.road_tax_due_on,
+         insurance_due_on = excluded.insurance_due_on,
          next_service_due_on = excluded.next_service_due_on,
          next_service_odometer = excluded.next_service_odometer,
          updated_at = excluded.updated_at`,
@@ -255,6 +289,7 @@ export class TripSheetRepository {
       input.fuelType,
       optionalDate(input.technicalInspectionDueOn, existing?.technicalInspectionDueOn ?? null),
       optionalDate(input.roadTaxDueOn, existing?.roadTaxDueOn ?? null),
+      optionalDate(input.insuranceDueOn, existing?.insuranceDueOn ?? null),
       optionalDate(input.nextServiceDueOn, existing?.nextServiceDueOn ?? null),
       input.nextServiceOdometer === undefined ? existing?.nextServiceOdometer ?? null : input.nextServiceOdometer,
       existing?.createdAt ?? now,

@@ -1,3 +1,4 @@
+import { useLocalSearchParams } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -33,6 +34,7 @@ const fuelOptions: { value: FuelType; label: string }[] = [
 export default function VehicleScreen() {
   const db = useSQLiteContext();
   const { profile, online } = useLocalAccess();
+  const { section = 'terms' } = useLocalSearchParams<{ section?: 'terms' | 'odometer' | 'fuel' }>();
   const repository = useMemo(() => new TripSheetRepository(db), [db]);
   const faults = useMemo(() => new VehicleFaultRepository(db), [db]);
   const { colors } = useTheme();
@@ -42,6 +44,7 @@ export default function VehicleScreen() {
   const [fuelType, setFuelType] = useState<FuelType>('diesel');
   const [inspectionDueOn, setInspectionDueOn] = useState('');
   const [roadTaxDueOn, setRoadTaxDueOn] = useState('');
+  const [insuranceDueOn, setInsuranceDueOn] = useState('');
   const [serviceDueOn, setServiceDueOn] = useState('');
   const [serviceOdometer, setServiceOdometer] = useState('');
   const [faultComment, setFaultComment] = useState('');
@@ -78,6 +81,7 @@ export default function VehicleScreen() {
     setFuelType(local?.fuelType ?? 'diesel');
     setInspectionDueOn(local?.technicalInspectionDueOn ?? '');
     setRoadTaxDueOn(local?.roadTaxDueOn ?? '');
+    setInsuranceDueOn(local?.insuranceDueOn ?? '');
     setServiceDueOn(local?.nextServiceDueOn ?? '');
     setServiceOdometer(local?.nextServiceOdometer === null || local?.nextServiceOdometer === undefined ? '' : String(local.nextServiceOdometer));
     setOpenFaults(await faults.listOpen(vehicleId));
@@ -159,6 +163,7 @@ export default function VehicleScreen() {
       setFuelType(local?.fuelType ?? 'diesel');
       setInspectionDueOn(local?.technicalInspectionDueOn ?? '');
       setRoadTaxDueOn(local?.roadTaxDueOn ?? '');
+      setInsuranceDueOn(local?.insuranceDueOn ?? '');
       setServiceDueOn(local?.nextServiceDueOn ?? '');
       setServiceOdometer(local?.nextServiceOdometer === null || local?.nextServiceOdometer === undefined ? '' : String(local.nextServiceOdometer));
       setOpenFaults(await faults.listOpen(preferred.id));
@@ -176,6 +181,7 @@ export default function VehicleScreen() {
     setFuelType(vehicle.fuelType);
     setInspectionDueOn(vehicle.technicalInspectionDueOn ?? '');
     setRoadTaxDueOn(vehicle.roadTaxDueOn ?? '');
+    setInsuranceDueOn(vehicle.insuranceDueOn ?? '');
     setServiceDueOn(vehicle.nextServiceDueOn ?? '');
     setServiceOdometer(vehicle.nextServiceOdometer === null ? '' : String(vehicle.nextServiceOdometer));
     setOpenFaults(await faults.listOpen(vehicle.id));
@@ -218,6 +224,7 @@ export default function VehicleScreen() {
         fuelType,
         technicalInspectionDueOn: inspectionDueOn,
         roadTaxDueOn,
+        insuranceDueOn,
         nextServiceDueOn: serviceDueOn,
         nextServiceOdometer: odometer,
       });
@@ -303,7 +310,7 @@ export default function VehicleScreen() {
           </Pressable>)}
         </View>
         {selectedVehicleId ? <Text style={styles.selectedVehicle}>Pasirinkta: {registrationNumber} · {name}</Text> : null}
-        {selectedVehicleId ? <View style={styles.odometerPanel} testID="vehicle-odometer-editor">
+        {selectedVehicleId && section === 'odometer' ? <View style={styles.odometerPanel} testID="vehicle-odometer-editor">
           <Text style={styles.sectionTitle}>Dienos odometras</Text>
           <Text style={styles.hint}>Pasirinkite datą. Įveskite pradžią ir pabaigą arba tik dienos kilometrus.</Text>
           <TextInput value={readingDate} onChangeText={setReadingDate} style={styles.input} placeholder="Data, YYYY-MM-DD" placeholderTextColor={colors.textMuted} />
@@ -318,7 +325,7 @@ export default function VehicleScreen() {
           <Pressable disabled={busy || !online} onPress={() => { void saveReading(); }} style={[styles.button, (busy || !online) && styles.disabled]} testID="save-vehicle-odometer"><Text style={styles.buttonText}>{busy ? 'Saugoma…' : 'Išsaugoti dieną'}</Text></Pressable>
           {vehicleReadings.slice(0, 5).map((reading) => <View key={reading.assignmentId} style={styles.readingRow}><Text style={styles.readingTitle}>{reading.date}</Text><Text style={styles.hint}>{reading.startOdometer ?? '—'} → {reading.endOdometer ?? '—'} km</Text></View>)}
         </View> : null}
-        {selectedVehicleId ? <View style={styles.odometerPanel} testID="vehicle-fuel-editor">
+        {selectedVehicleId && section === 'fuel' ? <View style={styles.odometerPanel} testID="vehicle-fuel-editor">
           <Text style={styles.sectionTitle}>Kuras ir papildymai</Text>
           <TextInput value={fuelDate} onChangeText={setFuelDate} style={styles.input} placeholder="Data, YYYY-MM-DD" placeholderTextColor={colors.textMuted} />
           <View style={styles.inlineInputs}>
@@ -328,23 +335,25 @@ export default function VehicleScreen() {
           <Pressable disabled={busy || !online} onPress={() => { void saveFuel(); }} style={[styles.button, (busy || !online) && styles.disabled]}><Text style={styles.buttonText}>{editingFuelId ? 'Išsaugoti kuro pakeitimą' : 'Įrašyti papildymą'}</Text></Pressable>
           {vehicleFuelEntries.slice(0, 8).map((entry) => <View key={entry.id} style={styles.readingRow}><View><Text style={styles.readingTitle}>{new Date(entry.filledAt).toLocaleDateString('lt-LT')}</Text><Text style={styles.hint}>{entry.liters} l{entry.receiptNumber ? ` · čekis ${entry.receiptNumber}` : ''}</Text></View><View style={styles.entryActions}><Pressable onPress={() => { setEditingFuelId(entry.id); setFuelDate(entry.filledAt.slice(0, 10)); setFuelLiters(String(entry.liters)); setFuelReceipt(entry.receiptNumber ?? ''); }} style={styles.smallButton}><Text style={styles.smallButtonText}>Redaguoti</Text></Pressable><Pressable disabled={busy} onPress={() => { void deleteFuel(entry); }} style={styles.deleteFuelButton}><Text style={styles.deleteFuelText}>Trinti</Text></Pressable></View></View>)}
         </View> : null}
-        <Text style={styles.label}>Kuro rūšis</Text>
-        <View style={styles.options}>
+        {section === 'terms' ? <Text style={styles.label}>Kuro rūšis</Text> : null}
+        {section === 'terms' ? <View style={styles.options}>
           {fuelOptions.map((option) => (
             <Pressable key={option.value} onPress={() => setFuelType(option.value)} style={[styles.option, fuelType === option.value && styles.optionSelected]}>
               <Text style={[styles.optionText, fuelType === option.value && styles.optionTextSelected]}>{option.label}</Text>
             </Pressable>
           ))}
-        </View>
+        </View> : null}
       </View>
-      <View style={styles.card} testID="vehicle-compliance-card">
+      {section === 'terms' ? <View style={styles.card} testID="vehicle-compliance-card">
         <Text style={styles.sectionTitle}>Priežiūros terminai</Text>
         <Text style={styles.hint}>Datos formatu YYYY-MM-DD. Tuščia data nestoja darbo. Suvedus ir pasibaigus – važiuoti neleis, kol administratorius nepatvirtins.</Text>
         <Text style={styles.label}>Techninė apžiūra iki</Text>
         <TextInput value={inspectionDueOn} onChangeText={setInspectionDueOn} autoCapitalize="none" keyboardType="numbers-and-punctuation" style={styles.input} placeholder="YYYY-MM-DD" placeholderTextColor={colors.textMuted} testID="vehicle-inspection-due" />
         <Text style={styles.label}>Kelių mokestis iki</Text>
         <TextInput value={roadTaxDueOn} onChangeText={setRoadTaxDueOn} autoCapitalize="none" keyboardType="numbers-and-punctuation" style={styles.input} placeholder="YYYY-MM-DD" placeholderTextColor={colors.textMuted} testID="vehicle-road-tax-due" />
-        <Text style={styles.label}>Kita priežiūra iki</Text>
+        <Text style={styles.label}>Draudimas iki</Text>
+        <TextInput value={insuranceDueOn} onChangeText={setInsuranceDueOn} autoCapitalize="none" keyboardType="numbers-and-punctuation" style={styles.input} placeholder="YYYY-MM-DD" placeholderTextColor={colors.textMuted} testID="vehicle-insurance-due" />
+        <Text style={styles.label}>Tepalai / servisas iki</Text>
         <TextInput value={serviceDueOn} onChangeText={setServiceDueOn} autoCapitalize="none" keyboardType="numbers-and-punctuation" style={styles.input} placeholder="YYYY-MM-DD" placeholderTextColor={colors.textMuted} testID="vehicle-service-due" />
         <Text style={styles.label}>Priežiūros odometras (nebūtina)</Text>
         <TextInput value={serviceOdometer} onChangeText={setServiceOdometer} keyboardType="decimal-pad" style={styles.input} placeholder="Pvz. 185000" placeholderTextColor={colors.textMuted} />
@@ -367,7 +376,7 @@ export default function VehicleScreen() {
             <Text style={styles.secondaryText}>{busy ? 'Siunčiama…' : 'Prašyti administratoriaus leidimo važiuoti'}</Text>
           </Pressable>
         ) : null}
-      </View>
+      </View> : null}
       <View style={styles.card} testID="vehicle-fault-card">
         <Text style={styles.sectionTitle}>Neskubūs gedimai</Text>
         <Text style={styles.hint}>Komentaras nestabdo važiavimo. Jis automatiškai perduodamas administracijai.</Text>

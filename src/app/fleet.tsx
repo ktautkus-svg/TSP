@@ -30,7 +30,7 @@ export default function FleetScreen() {
         <FleetCard
           description="TA, kelių mokestis, servisas — datos ir neskubūs gedimai kiekvienam automobiliui."
           icon="service"
-          onPress={() => open({ pathname: '/vehicle', params: { returnTo: 'fleet' } } as Href)}
+          onPress={() => open({ pathname: '/vehicle', params: { section: 'terms', returnTo: 'fleet' } } as Href)}
           styles={styles}
           testID="fleet-open-terminai"
           title="Terminai" />
@@ -42,9 +42,16 @@ export default function FleetScreen() {
           testID="fleet-open-technical"
           title="Techniniai duomenys" />
         <FleetCard
+          description="Kiekvienos dienos pradžia, pabaiga arba automatiškai apskaičiuojami dienos kilometrai."
+          icon="statistics"
+          onPress={() => open({ pathname: '/vehicle', params: { section: 'odometer', returnTo: 'fleet' } } as Href)}
+          styles={styles}
+          testID="fleet-open-odometer"
+          title="Odometras" />
+        <FleetCard
           description="Kuro likutis ir papildymų redagavimas pasirinktam automobiliui."
           icon="trip-sheet"
-          onPress={() => open({ pathname: '/vehicle', params: { returnTo: 'fleet' } } as Href)}
+          onPress={() => open({ pathname: '/vehicle', params: { section: 'fuel', returnTo: 'fleet' } } as Href)}
           styles={styles}
           testID="fleet-open-fuel"
           title="Kuras" />

@@ -45,20 +45,20 @@ import { BrandHeader } from '@/components/brand-header';
 import { ClockIcon, DeliveredIcon, DistanceIcon, FailedIcon, NavigateIcon } from '@/components/dashboard-icons';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { GroupedMenuRow, GroupedMenuSection } from '@/components/grouped-menu';
-import { MenuArtwork } from '@/components/menu-artwork';
 import { InstrumentGauge } from '@/components/instrument-gauge';
+import { MenuArtwork } from '@/components/menu-artwork';
 import { RoadProgressBar } from '@/components/road-progress-bar';
 import { RouteBottomTabs } from '@/components/route-bottom-tabs';
 import { SwipeActionCard } from '@/components/swipe-action-card';
-import { RouteRepository } from '@/database/repositories/route-repository';
 import { OperationalContactRepository } from '@/database/repositories/operational-contact-repository';
+import { RouteRepository } from '@/database/repositories/route-repository';
 import { DELIVERY_FAILURE_REASONS, deliveryMatchesFilter, type DeliveryFailureReason } from '@/domain/delivery-failure';
-import type { DeliveryFilter, DeliveryStop, Route, RouteEndpoint } from '@/domain/route';
 import { isUsablePhone } from '@/domain/phone';
+import type { DeliveryFilter, DeliveryStop, Route, RouteEndpoint } from '@/domain/route';
 import type { OperationalContact } from '@/domain/vehicle-and-trip';
 import { useForegroundInterval } from '@/hooks/use-foreground-interval';
-import { GatewayGeocodingProvider } from '@/infrastructure/routing/providers/gateway-geocoding-provider';
 import { employeeApi, type EmployeeProfile } from '@/infrastructure/auth/employee-session';
+import { GatewayGeocodingProvider } from '@/infrastructure/routing/providers/gateway-geocoding-provider';
 import { Alert } from '@/ui/alert';
 import { devWarn } from '@/ui/dev-log';
 import { formatWeightKg } from '@/ui/format-weight';
@@ -107,6 +107,9 @@ export default function DeliveryScreen() {
   const [recalculation, setRecalculation] = useState<RouteRecalculationProposal | null>(null);
   const [startOdometer, setStartOdometer] = useState('');
   const [endOdometer, setEndOdometer] = useState('');
+  const [fuelLiters, setFuelLiters] = useState('');
+  const [fuelReceiptNumber, setFuelReceiptNumber] = useState('');
+  const [fuelEntrySaved, setFuelEntrySaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [expandedStopId, setExpandedStopId] = useState<string | null>(null);
@@ -496,6 +499,34 @@ export default function DeliveryScreen() {
     }
   };
 
+  const saveRouteFuel = async () => {
+    if (busy || !online) return;
+    const liters = Number(fuelLiters.replace(',', '.'));
+    if (!Number.isFinite(liters) || liters <= 0) {
+      Alert.alert('Kuro įrašas', 'Įveskite įpiltų litrų kiekį.');
+      return;
+    }
+    setBusy(true);
+    try {
+      await employeeApi(`/api/routes/${encodeURIComponent(routeId)}/fuel-entries`, {
+        method: 'POST',
+        body: JSON.stringify({
+          filledAt: new Date().toISOString(),
+          liters,
+          receiptNumber: fuelReceiptNumber.trim() || null,
+        }),
+      });
+      setFuelLiters('');
+      setFuelReceiptNumber('');
+      setFuelEntrySaved(true);
+      Alert.alert('Kuras išsaugotas', `Įrašyta ${liters} l.`);
+    } catch (reason) {
+      Alert.alert('Kuro įrašo išsaugoti nepavyko', reason instanceof Error ? reason.message : 'Patikrinkite ryšį ir bandykite dar kartą.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const finish = async (confirmUnfinished = false, confirmLargeDifference = false) => {
     if (busy) return;
     setBusy(true);
@@ -847,6 +878,19 @@ export default function DeliveryScreen() {
                   <Text style={styles.heading}>Trūksta pradinio odometro</Text>
                   <TextInput value={startOdometer} onChangeText={setStartOdometer} keyboardType="decimal-pad" placeholder="Pvz. 125430,5" style={styles.input} />
                   <Pressable style={styles.secondaryButton} onPress={saveLateStartOdometer}><Text style={styles.secondaryText}>Įvesti dabar</Text></Pressable>
+                </View>
+              ) : null}
+              {profile.role === 'driver' && online ? (
+                <View style={styles.reminder} testID="route-fuel-entry-card">
+                  <Text style={styles.heading}>Užsipylėte kuro?</Text>
+                  <Text style={styles.meta}>Įrašykite pylimą iškart. Jis bus įtrauktas į šio reiso kuro suvestinę.</Text>
+                  <View style={styles.fuelRow}>
+                    <TextInput value={fuelLiters} onChangeText={(value) => setFuelLiters(value.replace(/[^\d.,]/g, '').slice(0, 7))} keyboardType="decimal-pad" placeholder="Įpilta, l" style={[styles.input, styles.fuelInput]} />
+                    <TextInput value={fuelReceiptNumber} onChangeText={setFuelReceiptNumber} placeholder="Čekio Nr. (nebūtina)" style={[styles.input, styles.fuelInput]} />
+                  </View>
+                  <Pressable disabled={busy || !fuelLiters.trim()} onPress={() => { void saveRouteFuel(); }} style={[styles.secondaryButton, (busy || !fuelLiters.trim()) && styles.disabled]}>
+                    <Text style={styles.secondaryText}>{fuelEntrySaved ? 'Įrašyti dar vieną pylimą' : 'Išsaugoti pylimą'}</Text>
+                  </Pressable>
                 </View>
               ) : null}
               </View>
@@ -1300,6 +1344,8 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   heroActionLightText: { color: colors.textInverse, fontFamily: fonts.heading, fontSize: 11 },
   heroActionDangerText: { color: colors.danger, fontFamily: fonts.heading, fontSize: 10 },
   reminder: { padding: spacing.md, borderWidth: 1, borderRadius: radius.md, borderColor: colors.warning, backgroundColor: colors.warningSoft, gap: spacing.sm },
+  fuelRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  fuelInput: { flexGrow: 1, flexBasis: 180, minWidth: 0 },
   stopsProgress: { borderRadius: radius.lg, padding: spacing.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, gap: 9 },
   stopsProgressHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   stopsProgressLabel: { ...type.label, color: colors.textMuted },

@@ -24,6 +24,7 @@ export type Vehicle = {
   warehouseLocation: SavedLocation | null;
   technicalInspectionDueOn: string | null;
   roadTaxDueOn: string | null;
+  insuranceDueOn: string | null;
   nextServiceDueOn: string | null;
   nextServiceOdometer: number | null;
   createdAt: string;

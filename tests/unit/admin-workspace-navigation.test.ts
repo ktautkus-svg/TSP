@@ -37,7 +37,7 @@ describe('administrator workspace navigation', () => {
     expect(settings).toContain('testID="open-employee-management"');
     expect(settings).toContain('testID="open-vehicle-management"');
     expect(admin).toContain("requestedSection === 'employees' || requestedSection === 'fleet'");
-    expect(admin).toContain("if (focus) setExpandedSection(focus)");
+    expect(admin).toContain("if (focus) setExpandedSection(focus === 'employees' ? 'employee-create' : focus === 'fleet' ? 'vehicle-create' : focus)");
     expect(appLayout).toContain('headerLeft: () => <StackBackButton />');
   });
 

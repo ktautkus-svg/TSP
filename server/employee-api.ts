@@ -395,6 +395,24 @@ export async function handleEmployeeApi(
       });
       return send(response, 201, { entry }, requestId);
     }
+    const routeFuelMatch = pathname.match(/^\/api\/routes\/([^/]+)\/fuel-entries$/);
+    if (routeFuelMatch && request.method === 'POST') {
+      requireRole(profile, ['driver', 'admin', 'dispatcher']);
+      const body = parseObject(await readBody(request, 32_000));
+      const routeId = decodeURIComponent(routeFuelMatch[1]);
+      const assignment = (await store.listAssignments(profile)).find((item) => item.routeId === routeId && item.status !== 'cancelled');
+      if (!assignment) throw new EmployeeApiError('ROUTE_ASSIGNMENT_NOT_FOUND', 'Aktyvaus maršruto priskyrimas nerastas.', 404);
+      const entry = await store.addFuelEntry(profile, assignment.id, {
+        filledAt: stringField(body, 'filledAt'),
+        odometer: typeof body.odometer === 'number' ? body.odometer : undefined,
+        liters: numberField(body, 'liters'),
+        pricePerLiter: typeof body.pricePerLiter === 'number' ? body.pricePerLiter : undefined,
+        station: optionalString(body, 'station'),
+        receiptNumber: optionalString(body, 'receiptNumber'),
+        notes: optionalString(body, 'notes'),
+      });
+      return send(response, 201, { entry }, requestId);
+    }
     const fuelEntryMatch = pathname.match(/^\/api\/fuel-entries\/([^/]+)$/);
     if (fuelEntryMatch && request.method === 'PATCH') {
       requireRole(profile, ['admin', 'dispatcher', 'driver', 'quality']);

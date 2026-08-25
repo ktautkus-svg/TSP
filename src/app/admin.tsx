@@ -185,7 +185,7 @@ export default function AdminScreen() {
 
   useEffect(() => { void load().catch((reason) => setMessage(reason instanceof Error ? reason.message : 'Duomenų nuskaityti nepavyko.')); }, [load]);
   useEffect(() => {
-    if (focus) setExpandedSection(focus);
+    if (focus) setExpandedSection(focus === 'employees' ? 'employee-create' : focus === 'fleet' ? 'vehicle-create' : focus);
   }, [focus]);
 
   const run = async (action: () => Promise<void>) => {
