@@ -272,16 +272,23 @@ describe('loading schema UI wiring', () => {
     expect(loadingStart).toBeGreaterThan(plannedStart);
     expect(plannedBlock).not.toContain('<LoadingSchemaCard');
     expect(plannedBlock).not.toContain('<CargoLayoutSvg');
-    expect(loadingBlock).toContain('<LoadingSchemaCard');
+    expect(loadingBlock).not.toContain('<LoadingSchemaCard');
     expect(loadingBlock).toContain('<CargoLayoutSvg');
-    expect(loading).toContain('cargoLayoutFromAssignedVehicle(assignment?.vehicle ?? fuelStatus?.vehicle)');
+    expect(loading).toContain('planCargoLayout');
     expect(card).toContain('testID="loading-schema-card"');
     expect(card).toContain('testID="loading-schema-vehicle"');
     expect(card).toContain('testID="loading-schema-van"');
     expect(card).toContain('Vaizdas iš viršaus');
     expect(card).toContain('per šoną');
     expect(card).not.toContain('onSideDoorChange');
-    expect(loading).toContain('{placement.sideAccess ? \' · per šoną\' : \'\'}');
+  });
+
+  it('loading scheme dashboard shows total weight and remaining floor space', () => {
+    const source = readFileSync('src/components/cargo-layout-svg.tsx', 'utf8');
+    expect(source).toContain('Bendras svoris');
+    expect(source).toContain('Liko vietos');
+    expect(source).toContain('testID="cargo-layout-dashboard"');
+    expect(source).toContain('testID="cargo-layout-remaining"');
   });
 
   it('keeps server-compiled loading schema free of unresolved path aliases', () => {

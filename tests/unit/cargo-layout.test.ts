@@ -21,6 +21,19 @@ function item(deliveryOrder: number, weightKg: number | null, palletCount?: numb
 }
 
 describe('padėklų geometrija', () => {
+  it('5 PLL furgonas: du išilgai prie kabinos, trys skersai link durų', () => {
+    const slots = buildSlots(ASSUMED_VAN_PROFILE);
+    expect(slots).toHaveLength(5);
+    const pair = slots.filter((slot) => slot.yMm === 0);
+    expect(pair).toHaveLength(2);
+    expect(pair.every((slot) => slot.orientation === 'lengthwise')).toBe(true);
+    expect(pair.map((slot) => slot.widthMm)).toEqual([800, 800]);
+    const column = slots.filter((slot) => slot.yMm > 0);
+    expect(column).toHaveLength(3);
+    expect(column.every((slot) => slot.orientation === 'crosswise')).toBe(true);
+    expect(column.map((slot) => slot.yMm)).toEqual([1_200, 2_000, 2_800]);
+  });
+
   it('būda 4100 x 2100 talpina 8 europadėklus mišria orientacija', () => {
     const slots = buildSlots(BOX_8_PALLET_PROFILE);
     expect(slots).toHaveLength(8);

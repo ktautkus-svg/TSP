@@ -11,11 +11,16 @@ function vehicle(extra: Partial<ServerFleetVehicleSnapshot> = {}): ServerFleetVe
 }
 
 describe('kėbulo profilio parinkimas', () => {
-  it('be matmenų grąžina spėjimą, kad liktų senoji schema', () => {
+  it('be matmenų piešia tipinį kėbulą pagal PLL', () => {
     expect(resolveCargoProfile(null).assumed).toBe(true);
+    expect(buildSlots(resolveCargoProfile(null).profile)).toHaveLength(5);
     expect(resolveCargoProfile(vehicle()).assumed).toBe(true);
     expect(resolveCargoProfile(vehicle({ cargoLengthMm: 4_100 })).assumed).toBe(true);
     expect(resolveCargoProfile(vehicle({ cargoWidthMm: 2_100 })).assumed).toBe(true);
+    const eight = resolveCargoProfile(vehicle({ registrationNumber: 'NLL182', palletCapacity: 8 }));
+    expect(eight.assumed).toBe(true);
+    expect(buildSlots(eight.profile)).toHaveLength(8);
+    expect(resolveCargoProfile(vehicle({ maximumPayloadKg: 1_200 })).profile.maximumPayloadKg).toBe(1_200);
   });
 
   it('su ilgiu ir pločiu naudoja tikrus matmenis', () => {
@@ -69,5 +74,9 @@ describe('taškų vertimas kroviniais', () => {
       stop('b', 2, 100, { deliveryStatus: 'failed' }),
     ]);
     expect(items.map((item) => item.id)).toEqual(['a']);
+  });
+
+  it('kiekvienas taškas yra vienas padėklas, svoris neprisigalvoja papildomų', () => {
+    expect(toCargoItems([stop('a', 1, 956)])[0]).toMatchObject({ palletCount: 1, weightKg: 956 });
   });
 });

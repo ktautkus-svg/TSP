@@ -32,18 +32,12 @@ import {
 import { CheckIcon, CrossIcon, PencilIcon, TruckIcon } from '@/components/app-icons';
 import { DepartureGateCard } from '@/components/departure-gate-card';
 import { FoundationScreen } from '@/components/foundation-screen';
-import { LoadingSchemaCard } from '@/components/loading-schema-card';
 import { CargoLayoutSvg } from '@/components/cargo-layout-svg';
-import { planCargoLayout } from '@/domain/cargo-layout';
+import { planCargoLayout, type CargoSlot, type PlacedPallet } from '@/domain/cargo-layout';
 import { resolveCargoProfile, toCargoItems } from '@/application/loading/cargo-profile';
 import { SwipeActionCard } from '@/components/swipe-action-card';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import { LOADING_FAILURE_REASONS, type LoadingFailureReason } from '@/domain/loading-failure';
-import {
-    cargoLayoutFromAssignedVehicle,
-    recommendLoadingSchema,
-    toLoadingSchemaStops,
-} from '@/domain/loading-schema';
 import type { DeliveryStop, Route } from '@/domain/route';
 import type { DepartureReadiness } from '@/domain/departure-readiness';
 import { employeeApi, type FuelStatus, type ServerRouteAssignment } from '@/infrastructure/auth/employee-session';
@@ -190,25 +184,6 @@ export default function LoadingScreen() {
     if (syncRevision > 0) void load();
   }, [load, syncRevision]);
 
-  const cargoLayout = useMemo(
-    () => cargoLayoutFromAssignedVehicle(assignment?.vehicle ?? fuelStatus?.vehicle),
-    [assignment?.vehicle, fuelStatus?.vehicle],
-  );
-  const loadingSchema = useMemo(
-    () => recommendLoadingSchema(toLoadingSchemaStops(stops), {
-      bodyKind: cargoLayout.bodyKind,
-      hasSideDoor: cargoLayout.hasSideDoor,
-      maximumPayloadKg: cargoLayout.maximumPayloadKg,
-    }),
-    [cargoLayout.bodyKind, cargoLayout.hasSideDoor, cargoLayout.maximumPayloadKg, stops],
-  );
-  const placementById = useMemo(
-    () => new Map(loadingSchema.placements.map((item) => [item.stopId, item])),
-    [loadingSchema],
-  );
-  // The pallet drawing needs a real measured floor. Without one the older bay
-  // diagram is still the honest answer, so both live side by side rather than
-  // one guessing at the other's job.
   const cargoProfile = useMemo(
     () => resolveCargoProfile(assignment?.vehicle ?? fuelStatus?.vehicle),
     [assignment?.vehicle, fuelStatus?.vehicle],
@@ -606,16 +581,7 @@ export default function LoadingScreen() {
           </View>
         </View>
       ) : null}
-      {progress && stops.length > 0 ? (
-        cargoProfile.assumed ? (
-          <LoadingSchemaCard
-            schema={loadingSchema}
-            cargoLayout={cargoLayout}
-          />
-        ) : (
-          <CargoLayoutSvg layout={palletLayout} />
-        )
-      ) : null}
+      {progress && stops.length > 0 ? <CargoLayoutSvg layout={palletLayout} /> : null}
       {progress && progress.totalStops > 0 ? (
         route?.status === 'loaded' ? (
           <View style={styles.allLoadedState} testID="all-stops-loaded-state">
@@ -667,7 +633,8 @@ export default function LoadingScreen() {
       ) : null}
       {stops.map((stop, index) => {
         const deliveryOrder = stop.activeOrder ?? stop.optimizedOrder ?? stop.originalOrder;
-        const placement = placementById.get(stop.id);
+        const floorPallets = palletLayout.placed.filter((pallet) => pallet.itemId === stop.id);
+        const floorUnplaced = palletLayout.unplaced.some((pallet) => pallet.itemId === stop.id);
         const expanded = expandedStopId === stop.id;
         const markedNotLoaded = stop.loadingStatus === 'pending' && stop.deliveryStatus === 'failed';
         const statusTone = stop.loadingStatus === 'loaded'
@@ -714,12 +681,12 @@ export default function LoadingScreen() {
               <View style={styles.cardHeaderText}>
                 <Text style={styles.address}>{stop.normalizedAddress ?? stop.originalAddress}{stop.priorityFirst ? ' ⭐' : ''}</Text>
                 <Text style={styles.loadingSequenceLabel}>KROVIMO EILĖ {index + 1} · PRISTATYMO TAŠKAS {deliveryOrder}</Text>
-                {placement ? (
+                {floorPallets.length > 0 ? (
                   <Text style={styles.schemaHint}>
-                    Schema: {placement.bayLabel} · {placement.stackLabel}
-                    {placement.usePallet ? ' · PLL' : ''}
-                    {placement.sideAccess ? ' · per šoną' : ''}
+                    {floorSlotHint(floorPallets, palletLayout.slots)}
                   </Text>
+                ) : floorUnplaced ? (
+                  <Text style={styles.schemaHint}>Netelpa ant grindų — kitas automobilis arba antras reisas</Text>
                 ) : null}
                 <Text style={styles.statusCaption}>
                   {statusTone === 'loaded' ? 'Pakrauta' : statusTone === 'notLoaded' ? 'Nepakrauta' : 'Laukia pakrovimo'}
@@ -811,6 +778,20 @@ export default function LoadingScreen() {
       </Modal>
     </FoundationScreen>
   );
+}
+
+function floorSlotHint(pallets: PlacedPallet[], slots: CargoSlot[]): string {
+  const doorY = Math.max(...slots.map((slot) => slot.yMm));
+  const cabinY = Math.min(...slots.map((slot) => slot.yMm));
+  return pallets.map((pallet) => {
+    const parts = [`Vieta ${pallet.slot.index}`];
+    if (pallet.slot.orientation === 'lengthwise') parts.push('išilgai prie kabinos');
+    else if (pallet.slot.yMm === doorY) parts.push('skersai prie durų');
+    else parts.push('skersai');
+    if (pallet.slot.yMm === doorY) parts.push('pirmas iškrauti');
+    else if (pallet.slot.yMm === cabinY) parts.push('paskutinis iškrauti');
+    return parts.join(' · ');
+  }).join('; ');
 }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({

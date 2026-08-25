@@ -1,15 +1,16 @@
 /**
  * Where each pallet physically sits on the van floor.
  *
- * Positions are never hardcoded. The floor is cut into bands along its length,
- * each band is measured, and the orientation that fits more pallets wins. The
- * classic 5-pallet Renault Master layout falls out of that rule rather than
- * being written down:
+ * 5 PLL van, cabin at y = 0, rear doors at y = length:
  *
- *   4000 x 2100 van, wheel arches from 2400 mm
- *     band 0-2400,    full 2100 mm   -> crosswise,  1 x 3 = 3 pallets
- *     band 2400-3700, 1600 mm usable -> lengthwise, 2 x 1 = 2 pallets
- *     band 3700-4000, 300 mm         -> nothing fits
+ *   two euro pallets lengthwise, side by side, immediately behind the cabin;
+ *   then three euro pallets crosswise, one behind another, toward the doors.
+ *
+ *   4000 x 2100, arches 2400-3700 (250 mm each side)
+ *     y 0-1200:    2 × lengthwise 800 x 1200
+ *     y 1200-3600: 3 × crosswise  1200 x 800  (the last sit between the arches)
+ *
+ * An 8 PLL box body is packed separately: mixed strips across a flat floor.
  *
  * Coordinates are millimetres: x across the width (0 = left wall), y along the
  * length (0 = cabin, L = rear doors).
@@ -205,8 +206,8 @@ export type CargoStrip = {
 };
 
 /**
- * Fill a band's width with vertical strips, choosing each strip's orientation
- * on its own.
+ * Fill a box-body band's width with vertical strips, choosing each strip's
+ * orientation on its own.
  *
  * One orientation for a whole band is not enough. A 4100 x 2100 box body takes
  * eight euro pallets, and only in a mixed layout: a 1200 mm strip holding five
@@ -353,7 +354,7 @@ function collectWarnings(input: {
     warnings.push({
       code: 'ASSUMED_VEHICLE',
       severity: 'warning',
-      message: 'Naudojami tipiniai furgono matmenys — suveskite tikruosius automobilio kortelėje.',
+      message: `Rodomas tipinis ${input.slots.length} PLL kėbulas. Jei grindys kitokios, suveskite matmenis automobilio kortelėje.`,
     });
   }
   if (input.slots.length === 0) {
@@ -378,7 +379,7 @@ function collectWarnings(input: {
     warnings.push({
       code: 'PAYLOAD_EXCEEDED',
       severity: 'critical',
-      message: `Krovinys ${Math.round(input.totalWeightKg)} kg viršija keliamąją galią ${Math.round(input.maximumPayloadKg)} kg.`,
+      message: `Krovinys ${Math.round(input.totalWeightKg)} kg viršija keliamąją galią ${Math.round(input.maximumPayloadKg)} kg — šiuo automobiliu šio reiso vežti negalima.`,
     });
   }
   if (input.estimatedItems > 0) {
@@ -408,17 +409,66 @@ function clamp(value: number, minimum: number, maximum: number): number {
 }
 
 export function buildSlots(vehicle: CargoVehicleProfile): CargoSlot[] {
-  const slots: CargoSlot[] = [];
+  const slots = vehicle.bodyType === 'van' ? buildVanSlots(vehicle) : buildBoxSlots(vehicle);
+  // Numbered cabin first, so slot 1 is loaded first and delivered last.
+  return slots
+    .sort((left, right) => left.yMm - right.yMm || left.xMm - right.xMm)
+    .map((slot, index) => ({ ...slot, index: index + 1 }));
+}
+
+/**
+ * 5 PLL van: a lengthwise pair behind the cabin, then a centred crosswise
+ * column toward the rear doors. A pallet that overlaps the wheel-arch band
+ * uses the narrowed width, so it sits between the arches rather than on them.
+ */
+function buildVanSlots(vehicle: CargoVehicleProfile): Omit<CargoSlot, 'index'>[] {
+  const slots: Omit<CargoSlot, 'index'>[] = [];
+  let yMm = 0;
+  const pairWidth = EURO_PALLET_SHORT_MM * 2;
+  const pairDepth = EURO_PALLET_LONG_MM;
+  const pairFloor = floorUsable(vehicle, 0, pairDepth);
+  if (pairFloor && pairFloor.usableWidthMm >= pairWidth && vehicle.lengthMm >= pairDepth) {
+    const xMm = pairFloor.usableStartXMm + (pairFloor.usableWidthMm - pairWidth) / 2;
+    for (let column = 0; column < 2; column += 1) {
+      slots.push({
+        xMm: xMm + column * EURO_PALLET_SHORT_MM,
+        yMm: 0,
+        widthMm: EURO_PALLET_SHORT_MM,
+        depthMm: pairDepth,
+        orientation: 'lengthwise',
+        inWheelArchBand: overlapsWheelArch(vehicle, 0, pairDepth),
+      });
+    }
+    yMm = pairDepth;
+  }
+
+  while (yMm + EURO_PALLET_SHORT_MM <= vehicle.lengthMm) {
+    const depthMm = EURO_PALLET_SHORT_MM;
+    const usable = floorUsable(vehicle, yMm, yMm + depthMm);
+    if (!usable || usable.usableWidthMm < EURO_PALLET_LONG_MM) break;
+    slots.push({
+      xMm: usable.usableStartXMm + (usable.usableWidthMm - EURO_PALLET_LONG_MM) / 2,
+      yMm,
+      widthMm: EURO_PALLET_LONG_MM,
+      depthMm,
+      orientation: 'crosswise',
+      inWheelArchBand: overlapsWheelArch(vehicle, yMm, yMm + depthMm),
+    });
+    yMm += depthMm;
+  }
+  return slots;
+}
+
+function buildBoxSlots(vehicle: CargoVehicleProfile): Omit<CargoSlot, 'index'>[] {
+  const slots: Omit<CargoSlot, 'index'>[] = [];
   for (const band of buildBands(vehicle)) {
     const strips = packBand(band);
     if (strips.length === 0) continue;
     const usedWidth = strips.reduce((sum, strip) => sum + strip.widthMm, 0);
-    // The packed block is centred: a pallet cannot sit on a wheel arch.
     let cursorX = band.usableStartXMm + (band.usableWidthMm - usedWidth) / 2;
     for (const strip of strips) {
       for (let row = 0; row < strip.rows; row += 1) {
         slots.push({
-          index: 0,
           xMm: cursorX,
           yMm: band.startMm + row * strip.depthMm,
           widthMm: strip.widthMm,
@@ -430,9 +480,27 @@ export function buildSlots(vehicle: CargoVehicleProfile): CargoSlot[] {
       cursorX += strip.widthMm;
     }
   }
-  // Numbered cabin first, so slot 1 is loaded first and delivered last.
-  return slots
-    .sort((left, right) => left.yMm - right.yMm || left.xMm - right.xMm)
-    .map((slot, index) => ({ ...slot, index: index + 1 }));
+  return slots;
+}
+
+function floorUsable(
+  vehicle: CargoVehicleProfile,
+  startMm: number,
+  endMm: number,
+): { usableWidthMm: number; usableStartXMm: number } | null {
+  if (endMm <= startMm) return null;
+  if (!overlapsWheelArch(vehicle, startMm, endMm)) {
+    return { usableWidthMm: vehicle.widthMm, usableStartXMm: 0 };
+  }
+  const arch = vehicle.wheelArch!;
+  return {
+    usableWidthMm: Math.max(0, vehicle.widthMm - arch.intrusionMm * 2),
+    usableStartXMm: arch.intrusionMm,
+  };
+}
+
+function overlapsWheelArch(vehicle: CargoVehicleProfile, startMm: number, endMm: number): boolean {
+  const arch = vehicle.bodyType === 'van' ? vehicle.wheelArch : null;
+  return Boolean(arch && arch.intrusionMm > 0 && startMm < arch.endMm && endMm > arch.startMm);
 }
 

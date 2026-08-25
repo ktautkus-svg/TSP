@@ -4,20 +4,17 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { normalizeEmployeePermissions } from '@/application/auth/employee-permissions';
 import { useLocalAccess } from '@/application/auth/local-access-context';
+import { resolveCargoProfile } from '@/application/loading/cargo-profile';
 import { roleHomePath } from '@/application/navigation/role-home';
+import { CargoLayoutSvg } from '@/components/cargo-layout-svg';
 import { FoundationScreen } from '@/components/foundation-screen';
-import { LoadingSchemaCard } from '@/components/loading-schema-card';
-import {
-  cargoLayoutFromAssignedVehicle,
-  recommendLoadingSchema,
-  type LoadingSchemaStopInput,
-} from '@/domain/loading-schema';
+import { planCargoLayout } from '@/domain/cargo-layout';
 import { employeeApi, type ServerFleetVehicle } from '@/infrastructure/auth/employee-session';
 import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 
-const STOP_COUNTS = [4, 6, 8, 10, 13] as const;
+const STOP_COUNTS = [2, 5, 8] as const;
 
 export default function LoadingSchemaPreviewScreen() {
   const router = useRouter();
@@ -29,7 +26,7 @@ export default function LoadingSchemaPreviewScreen() {
 
   const [vehicles, setVehicles] = useState<ServerFleetVehicle[]>([]);
   const [vehicleId, setVehicleId] = useState<string | null>(null);
-  const [stopCount, setStopCount] = useState<number>(8);
+  const [stopCount, setStopCount] = useState<number>(5);
   const [heavyEveryOther, setHeavyEveryOther] = useState(true);
 
   useEffect(() => {
@@ -44,22 +41,20 @@ export default function LoadingSchemaPreviewScreen() {
   }, [allowed, online, profile.role, router]);
 
   const vehicle = vehicles.find((item) => item.id === vehicleId) ?? null;
-  const cargoLayout = useMemo(() => cargoLayoutFromAssignedVehicle(vehicle), [vehicle]);
-  const stops = useMemo<LoadingSchemaStopInput[]>(() => Array.from({ length: stopCount }, (_, index) => ({
+  const cargoProfile = useMemo(() => resolveCargoProfile(vehicle), [vehicle]);
+  const stops = useMemo(() => Array.from({ length: stopCount }, (_, index) => ({
     id: `preview-stop-${index + 1}`,
-    loadingSequence: stopCount - index,
     deliveryOrder: index + 1,
-    weightKg: heavyEveryOther && index % 2 === 0 ? 60 : 8,
+    weightKg: heavyEveryOther && index % 2 === 0 ? 450 : 80,
     recipient: `Gavėjas ${index + 1}`,
-    address: `Bandomasis adresas ${index + 1}`,
   })), [heavyEveryOther, stopCount]);
-  const schema = useMemo(
-    () => recommendLoadingSchema(stops, {
-      bodyKind: cargoLayout.bodyKind,
-      hasSideDoor: cargoLayout.hasSideDoor,
-      maximumPayloadKg: cargoLayout.maximumPayloadKg,
-    }),
-    [cargoLayout.bodyKind, cargoLayout.hasSideDoor, cargoLayout.maximumPayloadKg, stops],
+  const palletLayout = useMemo(
+    () => planCargoLayout(
+      cargoProfile.profile,
+      stops.map((stop) => ({ ...stop, label: stop.recipient, palletCount: 1 })),
+      { assumedVehicle: cargoProfile.assumed },
+    ),
+    [cargoProfile, stops],
   );
 
   if (!allowed) return null;
@@ -69,7 +64,7 @@ export default function LoadingSchemaPreviewScreen() {
       <Stack.Screen options={{ title: 'Krovimo schema (peržiūra)' }} />
       <FoundationScreen
         contentMaxWidth={900}
-        description="Bandomieji taškai — ne realus maršrutas. Skirta pasitikrinti, kaip schema atrodo kiekvienam automobiliui, neinant į konkretų reisą."
+        description="Bandomieji taškai — ne realus maršrutas. Skirta pasitikrinti padėklų išdėstymą kiekvienam automobiliui, neinant į konkretų reisą."
         showFoundationNotice={false}
         title="Krovimo schema (peržiūra)">
 
@@ -111,7 +106,7 @@ export default function LoadingSchemaPreviewScreen() {
           </Pressable>
         </View>
 
-        {vehicle ? <LoadingSchemaCard schema={schema} cargoLayout={cargoLayout} /> : <Text style={styles.meta}>Pasirinkite automobilį.</Text>}
+        {vehicle ? <CargoLayoutSvg layout={palletLayout} /> : <Text style={styles.meta}>Pasirinkite automobilį.</Text>}
       </FoundationScreen>
     </>
   );

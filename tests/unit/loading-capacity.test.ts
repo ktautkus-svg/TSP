@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  MAX_BAY_WEIGHT_KG,
   MAX_ITEMS_PER_BAY,
   cargoLayoutFromAssignedVehicle,
   recommendLoadingSchema,
@@ -63,11 +62,16 @@ describe('talpos įspėjimai', () => {
     expect(stacked[0]!.bayId).toBeDefined();
   });
 
-  it('perspėja, kai vienoje zonoje per didelis svoris', () => {
-    const schema = recommendLoadingSchema(stops(5, MAX_BAY_WEIGHT_KG + 1), { bodyKind: 'van_long' });
+  it('vienas sunkus padėklas zonoje nereiškia skirstyti svorio', () => {
+    const schema = recommendLoadingSchema(stops(2, 1_000), { bodyKind: 'van_long' });
+    expect(schema.warnings.some((item) => item.code === 'BAY_WEIGHT_EXCEEDED')).toBe(false);
+  });
+
+  it('perspėja, kai keli kroviniai vienoje zonoje viršija svorį', () => {
+    const schema = recommendLoadingSchema(stops(10, 300), { bodyKind: 'van_short' });
     const heavy = schema.warnings.filter((item) => item.code === 'BAY_WEIGHT_EXCEEDED');
     expect(heavy.length).toBeGreaterThan(0);
-    expect(heavy[0]!.message).toContain('kg vienoje vietoje');
+    expect(heavy[0]!.message).toContain('kg');
   });
 
   it('praneša apie viršytą automobilio keliamąją galią', () => {

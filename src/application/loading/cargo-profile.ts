@@ -1,8 +1,10 @@
 import {
   ASSUMED_VAN_PROFILE,
+  BOX_8_PALLET_PROFILE,
   type CargoItemInput,
   type CargoVehicleProfile,
 } from '@/domain/cargo-layout';
+import { resolveVehicleCargo } from '@/domain/fleet-cargo-specs';
 import type { ServerFleetVehicleSnapshot } from '@/infrastructure/auth/employee-session';
 
 export type CargoProfileResolution = {
@@ -14,10 +16,9 @@ export type CargoProfileResolution = {
 /**
  * The cargo floor to draw for an assigned vehicle.
  *
- * Both length and width have to be recorded before a pallet drawing means
- * anything; with either missing there is nothing honest to scale against, so
- * the caller is told the figures are assumed and can fall back to the older bay
- * diagram instead.
+ * Measured length and width are used when both exist. Otherwise the typical
+ * 5 PLL van or 8 PLL box floor for that vehicle is drawn, so the driver still
+ * sees pallet places rather than an empty bay diagram.
  */
 export function resolveCargoProfile(
   vehicle: ServerFleetVehicleSnapshot | null | undefined,
@@ -25,7 +26,7 @@ export function resolveCargoProfile(
   const lengthMm = positive(vehicle?.cargoLengthMm);
   const widthMm = positive(vehicle?.cargoWidthMm);
   if (!vehicle || lengthMm === null || widthMm === null) {
-    return { profile: ASSUMED_VAN_PROFILE, assumed: true };
+    return { profile: typicalProfile(vehicle), assumed: true };
   }
 
   const bodyType = vehicle.cargoBodyType === 'box' ? 'box' : 'van';
@@ -71,7 +72,22 @@ export function toCargoItems(
       deliveryOrder: stop.activeOrder ?? stop.optimizedOrder ?? stop.originalOrder,
       weightKg: stop.weightKg,
       label: stop.recipient || stop.normalizedAddress || stop.originalAddress || stop.id,
+      // One floor place per stop. Weight does not invent extra pallets — a 956 kg
+      // PLL is still one euro pallet, placed in one slot, not four guessed ones.
+      palletCount: 1,
     }));
+}
+
+function typicalProfile(
+  vehicle: ServerFleetVehicleSnapshot | null | undefined,
+): CargoVehicleProfile {
+  const cargo = resolveVehicleCargo(vehicle);
+  const base = cargo.palletCapacity === 8 ? BOX_8_PALLET_PROFILE : ASSUMED_VAN_PROFILE;
+  const payload = positive(vehicle?.maximumPayloadKg);
+  return {
+    ...base,
+    maximumPayloadKg: payload ?? base.maximumPayloadKg ?? null,
+  };
 }
 
 function positive(value: number | null | undefined): number | null {

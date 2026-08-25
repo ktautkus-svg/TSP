@@ -484,12 +484,14 @@ function collectWarnings(input: {
       });
     }
     const bayWeight = bay.placements.reduce((sum, item) => sum + (item.weightKg ?? 0), 0);
-    if (bayWeight > MAX_BAY_WEIGHT_KG) {
+    // A single heavy pallet cannot be split across the floor. Only stacked
+    // items in one place are something the driver can actually rearrange.
+    if (bay.placements.length > 1 && bayWeight > MAX_BAY_WEIGHT_KG) {
       warnings.push({
         code: 'BAY_WEIGHT_EXCEEDED',
         severity: 'warning',
         bayId: bay.id,
-        message: `${bay.label}: ${Math.round(bayWeight)} kg vienoje vietoje. Sunkį geriau paskirstyti per kėbulą.`,
+        message: `${bay.label}: ${Math.round(bayWeight)} kg ${bay.placements.length} vnt. Paskirstykite padėklus per kėbulą, ne į vieną krūvą.`,
       });
     }
   }
@@ -499,7 +501,7 @@ function collectWarnings(input: {
     warnings.push({
       code: 'VEHICLE_PAYLOAD_EXCEEDED',
       severity: 'critical',
-      message: `Krovinys ${Math.round(input.totalWeightKg)} kg viršija automobilio keliamąją galią ${Math.round(input.maximumPayloadKg)} kg.`,
+      message: `Krovinys ${Math.round(input.totalWeightKg)} kg viršija automobilio keliamąją galią ${Math.round(input.maximumPayloadKg)} kg — šiuo automobiliu šio reiso vežti negalima.`,
     });
   }
 
