@@ -171,6 +171,12 @@ export default function VehicleScreen() {
     catch (error) { setMessage(error instanceof Error ? error.message : 'Kuro įrašo ištrinti nepavyko.'); }
     finally { setBusy(false); }
   };
+  const confirmDeleteFuel = (entry: ServerFuelEntry) => {
+    Alert.alert('Ištrinti kuro pylimą?', `${new Date(entry.filledAt).toLocaleDateString('lt-LT')} · ${entry.liters} l`, [
+      { text: 'Atšaukti', style: 'cancel' },
+      { text: 'Ištrinti', style: 'destructive', onPress: () => { void deleteFuel(entry); } },
+    ]);
+  };
 
   const load = useCallback(async () => {
     let available: (ServerFleetVehicle | ServerFleetVehicleSnapshot)[] = [];
@@ -374,7 +380,7 @@ export default function VehicleScreen() {
             <TextInput value={fuelReceipt} onChangeText={setFuelReceipt} style={[styles.input, styles.inlineInput]} placeholder="Čekio Nr. (nebūtina)" placeholderTextColor={colors.textMuted} />
           </View>
           <Pressable disabled={busy || !online} onPress={() => { void saveFuel(); }} style={[styles.button, (busy || !online) && styles.disabled]}><Text style={styles.buttonText}>{editingFuelId ? 'Išsaugoti kuro pakeitimą' : 'Įrašyti papildymą'}</Text></Pressable>
-          {vehicleFuelEntries.slice(0, 8).map((entry) => <View key={entry.id} style={styles.readingRow}><View><Text style={styles.readingTitle}>{new Date(entry.filledAt).toLocaleDateString('lt-LT')}</Text><Text style={styles.hint}>{entry.liters} l{entry.receiptNumber ? ` · čekis ${entry.receiptNumber}` : ''}</Text></View><View style={styles.entryActions}><Pressable onPress={() => { setEditingFuelId(entry.id); setFuelDate(entry.filledAt.slice(0, 10)); setFuelLiters(String(entry.liters)); setFuelReceipt(entry.receiptNumber ?? ''); }} style={styles.smallButton}><Text style={styles.smallButtonText}>Redaguoti</Text></Pressable><Pressable disabled={busy} onPress={() => { void deleteFuel(entry); }} style={styles.deleteFuelButton}><Text style={styles.deleteFuelText}>Trinti</Text></Pressable></View></View>)}
+          {vehicleFuelEntries.slice(0, 8).map((entry) => <View key={entry.id} style={styles.fuelReadingRow}><View style={styles.fuelReadingMain}><Text style={styles.readingTitle}>{new Date(entry.filledAt).toLocaleDateString('lt-LT')}</Text><Text style={styles.hint}>{entry.liters} l{entry.receiptNumber ? ` · čekis ${entry.receiptNumber}` : ''}</Text></View><View style={styles.readingActions}><Pressable accessibilityLabel={`Redaguoti kuro pylimą ${entry.id}`} onPress={() => { setEditingFuelId(entry.id); setFuelDate(entry.filledAt.slice(0, 10)); setFuelLiters(String(entry.liters)); setFuelReceipt(entry.receiptNumber ?? ''); }} style={styles.iconButton}><PencilIcon size={18} color={colors.warning} /></Pressable><Pressable accessibilityLabel={`Ištrinti kuro pylimą ${entry.id}`} disabled={busy} onPress={() => confirmDeleteFuel(entry)} style={styles.iconButton}><TrashIcon size={18} color={colors.danger} /></Pressable></View></View>)}
         </View> : null}
         {section === 'terms' ? <Text style={styles.label}>Kuro rūšis</Text> : null}
         {section === 'terms' ? <View style={styles.options}>
@@ -465,6 +471,8 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   readingCard: { minHeight: 54, paddingVertical: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   readingHeader: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, minWidth: 0 },
   readingMain: { minWidth: 0 },
+  fuelReadingRow: { minHeight: 54, paddingVertical: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
+  fuelReadingMain: { flex: 1, minWidth: 0 },
   readingActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   iconButton: { width: 40, height: 40, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface },
   readingTitle: { ...type.bodyStrong, color: colors.text },
