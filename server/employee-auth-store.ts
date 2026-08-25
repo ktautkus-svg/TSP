@@ -1713,42 +1713,6 @@ export class EmployeeAuthStore {
     return reading;
   }
 
-  async upsertVehicleDayReadingsBulk(profile: EmployeeProfile, input: {
-    vehicleId: string;
-    fromDate: string;
-    toDate: string;
-    startOdometer: number;
-    dailyDistanceKm: number;
-    driverId?: string | null;
-  }): Promise<VehicleDayReading[]> {
-    const fromDate = validateRouteDate(input.fromDate);
-    const toDate = validateRouteDate(input.toDate);
-    const start = validateDayOdometer(input.startOdometer);
-    if (!Number.isFinite(input.dailyDistanceKm) || input.dailyDistanceKm < 0 || input.dailyDistanceKm > 10_000_000) {
-      throw new EmployeeApiError('INVALID_ODOMETER', 'Dienos kilometrai turi būti neneigiami.', 400);
-    }
-    const distance = Math.round(input.dailyDistanceKm * 10) / 10;
-    const first = new Date(`${fromDate}T12:00:00Z`);
-    const last = new Date(`${toDate}T12:00:00Z`);
-    if (last < first) throw new EmployeeApiError('INVALID_ROUTE_DATE', 'Laikotarpio pabaiga negali būti ankstesnė už pradžią.', 400);
-    const readings: VehicleDayReading[] = [];
-    let current = start;
-    for (const date = new Date(first); date <= last; date.setUTCDate(date.getUTCDate() + 1)) {
-      const dateValue = date.toISOString().slice(0, 10);
-      const reading = await this.upsertVehicleDayReading(profile, {
-        vehicleId: input.vehicleId,
-        date: dateValue,
-        startOdometer: current,
-        endOdometer: current + distance,
-        driverId: input.driverId,
-      });
-      readings.push(reading);
-      current += distance;
-      if (readings.length > 366) throw new EmployeeApiError('INVALID_ROUTE_DATE', 'Laikotarpis negali būti ilgesnis nei vieneri metai.', 400);
-    }
-    return readings;
-  }
-
   /**
    * Removes a synthetic trip-sheet day that was never a real assigned route —
    * an odometer/fuel log entry with no resolvable driver (shown as

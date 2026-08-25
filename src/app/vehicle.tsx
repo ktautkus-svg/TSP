@@ -16,6 +16,7 @@ import { TripSheetRepository } from '@/database/repositories/trip-sheet-reposito
 import { VehicleDepartureOverrideRepository } from '@/database/repositories/vehicle-departure-override-repository';
 import { VehicleFaultRepository } from '@/database/repositories/vehicle-fault-repository';
 import { evaluateDepartureReadiness, type DepartureOverrideInput } from '@/domain/departure-readiness';
+import { parseVehicleDayAssignmentId } from '@/domain/nll182-odometer-log';
 import type { FuelType, VehicleFault } from '@/domain/vehicle-and-trip';
 import { employeeApi, type EmployeeProfile, type FuelStatus, type ServerFleetVehicle, type ServerFleetVehicleSnapshot, type ServerFuelEntry, type ServerTripSheet } from '@/infrastructure/auth/employee-session';
 import { useTheme } from '@/ui/theme';
@@ -55,17 +56,11 @@ export default function VehicleScreen() {
   const [fleetVehicles, setFleetVehicles] = useState<(ServerFleetVehicle | ServerFleetVehicleSnapshot)[]>([]);
   const [selectedVehicleId, setSelectedVehicleId] = useState('');
   const [vehicleReadings, setVehicleReadings] = useState<ServerTripSheet[]>([]);
-  const [readingDate, setReadingDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [readingStart, setReadingStart] = useState('');
-  const [readingEnd, setReadingEnd] = useState('');
-  const [readingDistance, setReadingDistance] = useState('');
-  const [readingMode, setReadingMode] = useState<'range' | 'distance'>('range');
   const [drivers, setDrivers] = useState<EmployeeProfile[]>([]);
-  const [readingDriverId, setReadingDriverId] = useState('');
-  const [bulkFromDate, setBulkFromDate] = useState('');
-  const [bulkToDate, setBulkToDate] = useState('');
-  const [bulkStartOdometer, setBulkStartOdometer] = useState('');
-  const [bulkDailyDistance, setBulkDailyDistance] = useState('');
+  const [editingReadingId, setEditingReadingId] = useState<string | null>(null);
+  const [editingReadingStart, setEditingReadingStart] = useState('');
+  const [editingReadingEnd, setEditingReadingEnd] = useState('');
+  const [editingReadingDriverId, setEditingReadingDriverId] = useState('');
   const [fuelDate, setFuelDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [fuelLiters, setFuelLiters] = useState('');
   const [fuelReceipt, setFuelReceipt] = useState('');
@@ -99,37 +94,33 @@ export default function VehicleScreen() {
     }
   }, [db, faults, fleetVehicles, online, repository]);
 
-  const saveReading = async () => {
+  const editReading = (reading: ServerTripSheet) => {
+    setEditingReadingId(reading.assignmentId);
+    setEditingReadingStart(reading.startOdometer == null ? '' : String(reading.startOdometer));
+    setEditingReadingEnd(reading.endOdometer == null ? '' : String(reading.endOdometer));
+    setEditingReadingDriverId(reading.driverId || 'none');
+  };
+
+  const saveReading = async (reading: ServerTripSheet) => {
     if (busy) return;
     setBusy(true);
     try {
-      if (!selectedVehicleId || !/^\d{4}-\d{2}-\d{2}$/.test(readingDate)) throw new Error('Pasirinkite automobilį ir įveskite datą YYYY-MM-DD.');
-      const start = Number(readingStart.replace(',', '.'));
-      const distance = readingMode === 'distance' ? Number(readingDistance.replace(',', '.')) : null;
-      const end = readingMode === 'distance' ? start + (distance ?? NaN) : Number(readingEnd.replace(',', '.'));
+      const start = Number(editingReadingStart.replace(',', '.'));
+      const end = Number(editingReadingEnd.replace(',', '.'));
       if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) throw new Error('Patikrinkite odometro pradžią ir pabaigą.');
-      await employeeApi('/api/trip-sheets/day-readings', { method: 'POST', body: JSON.stringify({ vehicleId: selectedVehicleId, date: readingDate, startOdometer: start, endOdometer: end, driverId: readingDriverId || undefined }) });
-      setReadingEnd(''); setReadingDistance(''); setMessage('Dienos odometras išsaugotas.');
+      const driverId = editingReadingDriverId === 'none' ? null : editingReadingDriverId || undefined;
+      if (parseVehicleDayAssignmentId(reading.assignmentId)) {
+        await employeeApi('/api/trip-sheets/day-readings', { method: 'POST', body: JSON.stringify({ vehicleId: selectedVehicleId, date: reading.date, startOdometer: start, endOdometer: end, driverId }) });
+      } else {
+        await employeeApi(`/api/trip-sheets/${encodeURIComponent(reading.assignmentId)}`, { method: 'PATCH', body: JSON.stringify({ startOdometer: start, endOdometer: end, driverId: driverId ?? undefined }) });
+      }
+      setEditingReadingId(null); setMessage('Dienos odometras ir vairuotojas išsaugoti.');
       await applyVehicle(selectedVehicleId);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Odometro išsaugoti nepavyko.');
     } finally { setBusy(false); }
   };
 
-  const saveBulkReadings = async () => {
-    if (busy) return;
-    const startOdometer = Number(bulkStartOdometer.replace(',', '.'));
-    const dailyDistanceKm = Number(bulkDailyDistance.replace(',', '.'));
-    if (!selectedVehicleId || !/^\d{4}-\d{2}-\d{2}$/.test(bulkFromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(bulkToDate)) { setMessage('Įveskite laikotarpį formatu YYYY-MM-DD.'); return; }
-    if (!Number.isFinite(startOdometer) || !Number.isFinite(dailyDistanceKm) || dailyDistanceKm < 0) { setMessage('Įveskite pradžios odometrą ir dienos kilometrus.'); return; }
-    setBusy(true);
-    try {
-      await employeeApi('/api/trip-sheets/day-readings/bulk', { method: 'POST', body: JSON.stringify({ vehicleId: selectedVehicleId, fromDate: bulkFromDate, toDate: bulkToDate, startOdometer, dailyDistanceKm, driverId: readingDriverId || undefined }) });
-      setMessage('Dienų odometrai ir vairuotojas išsaugoti.');
-      await applyVehicle(selectedVehicleId);
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'Dienų odometrų išsaugoti nepavyko.'); }
-    finally { setBusy(false); }
-  };
 
   const vehicleFuelEntries = vehicleReadings.flatMap((reading) => reading.fuelEntries ?? []).filter((entry) => entry.vehicleId === selectedVehicleId);
   const saveFuel = async () => {
@@ -337,30 +328,21 @@ export default function VehicleScreen() {
         {selectedVehicleId ? <Text style={styles.selectedVehicle}>Pasirinkta: {registrationNumber} · {name}</Text> : null}
         {selectedVehicleId && section === 'odometer' ? <View style={styles.odometerPanel} testID="vehicle-odometer-editor">
           <Text style={styles.sectionTitle}>Dienos odometras</Text>
-          <Text style={styles.hint}>Pasirinkite datą. Įveskite pradžią ir pabaigą arba tik dienos kilometrus.</Text>
-          <TextInput value={readingDate} onChangeText={setReadingDate} style={styles.input} placeholder="Data, YYYY-MM-DD" placeholderTextColor={colors.textMuted} />
-          <View style={styles.options}>
-            <Pressable onPress={() => setReadingMode('range')} style={[styles.option, readingMode === 'range' && styles.optionSelected]}><Text style={[styles.optionText, readingMode === 'range' && styles.optionTextSelected]}>Pradžia ir pabaiga</Text></Pressable>
-            <Pressable onPress={() => setReadingMode('distance')} style={[styles.option, readingMode === 'distance' && styles.optionSelected]}><Text style={[styles.optionText, readingMode === 'distance' && styles.optionTextSelected]}>Tik dienos km</Text></Pressable>
-          </View>
-          <View style={styles.inlineInputs}>
-            <TextInput value={readingStart} onChangeText={setReadingStart} keyboardType="decimal-pad" style={[styles.input, styles.inlineInput]} placeholder="Pradžia" placeholderTextColor={colors.textMuted} />
-            {readingMode === 'range' ? <TextInput value={readingEnd} onChangeText={setReadingEnd} keyboardType="decimal-pad" style={[styles.input, styles.inlineInput]} placeholder="Pabaiga" placeholderTextColor={colors.textMuted} /> : <TextInput value={readingDistance} onChangeText={setReadingDistance} keyboardType="decimal-pad" style={[styles.input, styles.inlineInput]} placeholder="Dienos km" placeholderTextColor={colors.textMuted} />}
-          </View>
-          <Text style={styles.hint}>Kas vairavo šios dienos kilometrus?</Text>
-          <View style={styles.options}>
-            <Pressable onPress={() => setReadingDriverId('')} style={[styles.option, readingDriverId === '' && styles.optionSelected]}><Text style={[styles.optionText, readingDriverId === '' && styles.optionTextSelected]}>Automatiškai priskirtas</Text></Pressable>
-            {drivers.map((driver) => <Pressable key={driver.id} onPress={() => setReadingDriverId(driver.id)} style={[styles.option, readingDriverId === driver.id && styles.optionSelected]}><Text style={[styles.optionText, readingDriverId === driver.id && styles.optionTextSelected]}>{driver.displayName}</Text></Pressable>)}
-          </View>
-          <Pressable disabled={busy || !online} onPress={() => { void saveReading(); }} style={[styles.button, (busy || !online) && styles.disabled]} testID="save-vehicle-odometer"><Text style={styles.buttonText}>{busy ? 'Saugoma…' : 'Išsaugoti dieną'}</Text></Pressable>
-          <View style={styles.bulkPanel} testID="vehicle-odometer-bulk-editor">
-            <Text style={styles.sectionTitle}>Kelių dienų korekcija</Text>
-            <Text style={styles.hint}>Nurodykite laikotarpį ir dienos kilometrus. Pabaiga kiekvienai dienai apskaičiuojama automatiškai.</Text>
-            <View style={styles.inlineInputs}><TextInput value={bulkFromDate} onChangeText={setBulkFromDate} style={[styles.input, styles.inlineInput]} placeholder="Nuo, YYYY-MM-DD" placeholderTextColor={colors.textMuted} /><TextInput value={bulkToDate} onChangeText={setBulkToDate} style={[styles.input, styles.inlineInput]} placeholder="Iki, YYYY-MM-DD" placeholderTextColor={colors.textMuted} /></View>
-            <View style={styles.inlineInputs}><TextInput value={bulkStartOdometer} onChangeText={setBulkStartOdometer} keyboardType="decimal-pad" style={[styles.input, styles.inlineInput]} placeholder="Pradinis odometras" placeholderTextColor={colors.textMuted} /><TextInput value={bulkDailyDistance} onChangeText={setBulkDailyDistance} keyboardType="decimal-pad" style={[styles.input, styles.inlineInput]} placeholder="Dienos km" placeholderTextColor={colors.textMuted} /></View>
-            <Pressable disabled={busy || !online} onPress={() => { void saveBulkReadings(); }} style={[styles.secondaryButton, (busy || !online) && styles.disabled]}><Text style={styles.secondaryText}>Išsaugoti visą laikotarpį</Text></Pressable>
-          </View>
-          {vehicleReadings.slice(0, 5).map((reading) => <View key={reading.assignmentId} style={styles.readingRow}><View><Text style={styles.readingTitle}>{reading.date}</Text><Text style={styles.hint}>{reading.startOdometer ?? '—'} → {reading.endOdometer ?? '—'} km</Text></View><Text style={styles.hint}>{reading.driverName || 'Nepriskirtas'}</Text></View>)}
+          <Text style={styles.hint}>Taisykite jau įvestą dieną tiesiog jos eilutėje: pradžią, pabaigą ir kas vairavo.</Text>
+          {vehicleReadings.map((reading) => {
+            const editing = editingReadingId === reading.assignmentId;
+            return <View key={reading.assignmentId} style={styles.readingCard}>
+              <View style={styles.readingHeader}><Text style={styles.readingTitle}>{reading.date}</Text><Text style={styles.hint}>{reading.driverName || 'Nepriskirtas'}</Text></View>
+              {editing ? <>
+                <View style={styles.inlineInputs}>
+                  <TextInput value={editingReadingStart} onChangeText={setEditingReadingStart} keyboardType="decimal-pad" style={[styles.input, styles.inlineInput]} placeholder="Pradžia" placeholderTextColor={colors.textMuted} />
+                  <TextInput value={editingReadingEnd} onChangeText={setEditingReadingEnd} keyboardType="decimal-pad" style={[styles.input, styles.inlineInput]} placeholder="Pabaiga" placeholderTextColor={colors.textMuted} />
+                </View>
+                <View style={styles.options}>{drivers.map((driver) => <Pressable key={driver.id} onPress={() => setEditingReadingDriverId(driver.id)} style={[styles.option, editingReadingDriverId === driver.id && styles.optionSelected]}><Text style={[styles.optionText, editingReadingDriverId === driver.id && styles.optionTextSelected]}>{driver.displayName}</Text></Pressable>)}</View>
+                <View style={styles.entryActions}><Pressable disabled={busy || !online} onPress={() => { void saveReading(reading); }} style={[styles.buttonSmall, (busy || !online) && styles.disabled]}><Text style={styles.buttonText}>Išsaugoti</Text></Pressable><Pressable onPress={() => setEditingReadingId(null)} style={styles.secondaryButtonSmall}><Text style={styles.secondaryText}>Atšaukti</Text></Pressable></View>
+              </> : <View style={styles.readingRow}><Text style={styles.hint}>{reading.startOdometer ?? '—'} → {reading.endOdometer ?? '—'} km</Text><Pressable onPress={() => editReading(reading)} style={styles.smallButton}><Text style={styles.smallButtonText}>Redaguoti</Text></Pressable></View>}
+            </View>;
+          })}
         </View> : null}
         {selectedVehicleId && section === 'fuel' ? <View style={styles.odometerPanel} testID="vehicle-fuel-editor">
           <Text style={styles.sectionTitle}>Kuras ir papildymai</Text>
@@ -458,12 +440,16 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   inlineInputs: { flexDirection: 'row', gap: spacing.sm },
   inlineInput: { flex: 1, minWidth: 0 },
   readingRow: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.sm, paddingVertical: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border },
+  readingCard: { paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, gap: spacing.sm },
+  readingHeader: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.sm },
   readingTitle: { ...type.bodyStrong, color: colors.text },
   entryActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   smallButton: { minHeight: 40, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderStrong, paddingHorizontal: spacing.sm, alignItems: 'center', justifyContent: 'center' },
   smallButtonText: { ...type.label, color: colors.info },
   deleteFuelButton: { minHeight: 40, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.danger, paddingHorizontal: spacing.sm, alignItems: 'center', justifyContent: 'center' },
   deleteFuelText: { ...type.label, color: colors.danger },
+  buttonSmall: { minHeight: 44, flex: 1, borderRadius: radius.md, backgroundColor: colors.actionPrimary, alignItems: 'center', justifyContent: 'center' },
+  secondaryButtonSmall: { minHeight: 44, flex: 1, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
   sectionTitle: { ...type.cardTitle, color: colors.text },
   label: { ...type.cardTitle, color: colors.text },
   hint: { ...type.secondary, color: colors.textMuted },

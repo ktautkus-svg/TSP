@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { calculateTripFuelEnd } from '../../src/application/trip-sheet/fuel-balance';
 
 const source = readFileSync(resolve(import.meta.dirname, '../../src/app/trip-sheet.tsx'), 'utf8');
+const vehicleSource = readFileSync(resolve(import.meta.dirname, '../../src/app/vehicle.tsx'), 'utf8');
 
 describe('trip sheet fuel workflow', () => {
   it('calculates the remaining fuel from start, real refills and normative consumption', () => {
@@ -38,5 +39,14 @@ describe('trip sheet fuel workflow', () => {
     expect(source).not.toContain('Kaina už litrą');
     expect(source).not.toContain('Degalinė');
     expect(source).not.toContain('timeStyle:');
+  });
+
+  it('edits existing daily odometer rows and assigns their driver explicitly', () => {
+    expect(vehicleSource).toContain('editingReadingStart');
+    expect(vehicleSource).toContain('editingReadingEnd');
+    expect(vehicleSource).toContain('editingReadingDriverId');
+    expect(vehicleSource).toContain('saveReading(reading)');
+    expect(vehicleSource).not.toContain('Kelių dienų korekcija');
+    expect(vehicleSource).not.toContain('vehicle-odometer-bulk-editor');
   });
 });
