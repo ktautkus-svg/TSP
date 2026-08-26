@@ -1225,7 +1225,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     maxWidth: 430,
     overflow: 'hidden',
     gap: 0,
-    flexDirection: 'column-reverse',
+    flexDirection: 'column',
     backgroundColor: colors.surface,
   },
   dashboardWide: { maxWidth: 1120, flexDirection: 'row', alignItems: 'flex-start', gap: spacing.lg, backgroundColor: colors.background },
