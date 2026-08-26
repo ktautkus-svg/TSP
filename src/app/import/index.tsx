@@ -1601,10 +1601,34 @@ function UnresolvedRowFixer({
         setError('Adresas neaiškus (keli variantai) — patikrinkite jį planavimo ekrane prieš skaičiuojant maršrutą.');
       }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Geokodavimas nepavyko.');
+      setError(sessionErrorMessage(reason) ?? (reason instanceof Error ? reason.message : 'Geokodavimas nepavyko.'));
     } finally {
       setBusy(false);
     }
+  };
+
+  // Google Maps' "copy coordinates" puts both numbers on one line
+  // ("55.741800, 24.361800"). Recognise that shape in either box so a
+  // straight paste fills both fields instead of forcing the driver to split
+  // the text themselves.
+  const COORDINATE_PAIR = /^\s*(-?\d+(?:[.,]\d+)?)\s*[,;]\s*(-?\d+(?:[.,]\d+)?)\s*$/;
+  const handleManualLatChange = (value: string) => {
+    const pair = value.match(COORDINATE_PAIR);
+    if (pair) {
+      setManualLat(pair[1]!.replace(',', '.'));
+      setManualLng(pair[2]!.replace(',', '.'));
+      return;
+    }
+    setManualLat(value);
+  };
+  const handleManualLngChange = (value: string) => {
+    const pair = value.match(COORDINATE_PAIR);
+    if (pair) {
+      setManualLat(pair[1]!.replace(',', '.'));
+      setManualLng(pair[2]!.replace(',', '.'));
+      return;
+    }
+    setManualLng(value);
   };
 
   const applyManualCoords = () => {
@@ -1656,8 +1680,9 @@ function UnresolvedRowFixer({
       </Pressable>
       {showManualCoords ? (
         <View style={styles.fieldGroup}>
-          <TextInput value={manualLat} onChangeText={setManualLat} keyboardType="decimal-pad" placeholder="Platuma, pvz. 55.7418" placeholderTextColor={colors.textMuted} style={styles.input} />
-          <TextInput value={manualLng} onChangeText={setManualLng} keyboardType="decimal-pad" placeholder="Ilguma, pvz. 24.3618" placeholderTextColor={colors.textMuted} style={styles.input} />
+          <Text style={styles.fieldCaption}>Galite įklijuoti abu skaičius iš karto (kaip nukopijuota iš Google Maps).</Text>
+          <TextInput value={manualLat} onChangeText={handleManualLatChange} keyboardType="decimal-pad" placeholder="Platuma, pvz. 55.7418 (arba abu iš karto)" placeholderTextColor={colors.textMuted} style={styles.input} />
+          <TextInput value={manualLng} onChangeText={handleManualLngChange} keyboardType="decimal-pad" placeholder="Ilguma, pvz. 24.3618" placeholderTextColor={colors.textMuted} style={styles.input} />
           <Pressable style={styles.secondaryButton} onPress={applyManualCoords}><Text style={styles.secondaryText}>Naudoti šias koordinates</Text></Pressable>
         </View>
       ) : null}
@@ -1692,6 +1717,22 @@ function makeDocument(
     pageCount: Math.max(1, pageUris.length),
     createdAt: new Date().toISOString(),
   };
+}
+
+/**
+ * The gateway proxy requires a valid employee session even for geocoding, so
+ * a stale session surfaces mid-import as a raw "[SESSION_INVALID] ..." error.
+ * Give a plain explanation instead — re-logging in here would drop this
+ * unsaved import, so tell them to do it in another tab and come back.
+ */
+function sessionErrorMessage(reason: unknown): string | null {
+  const code = (reason as { code?: unknown } | undefined)?.code;
+  const message = reason instanceof Error ? reason.message : '';
+  if (code === 'SESSION_INVALID' || code === 'SESSION_EXPIRED' || code === 'SESSION_REQUIRED'
+    || message.includes('SESSION_INVALID') || message.includes('SESSION_EXPIRED') || message.includes('SESSION_REQUIRED')) {
+    return 'Jūsų prisijungimo sesija baigėsi. Šis importas neprarandamas — atidarykite naują naršyklės skirtuką, prisijunkite iš naujo, tada grįžkite čia ir bandykite dar kartą.';
+  }
+  return null;
 }
 
 function nullableNumber(value: string): number | null {
