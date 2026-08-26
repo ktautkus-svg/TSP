@@ -253,7 +253,7 @@ const createStyles = (cockpit: CockpitPalette) => StyleSheet.create({
   windshieldShell: {
     width: '100%',
     maxWidth: 720,
-    aspectRatio: 2.2,
+    aspectRatio: 1.95,
     position: 'relative',
     overflow: 'hidden',
     borderTopLeftRadius: 12,
@@ -270,13 +270,16 @@ const createStyles = (cockpit: CockpitPalette) => StyleSheet.create({
     height: undefined,
   },
   sceneImage: { width: '100%', height: '100%' },
+  // Some generated scene images carry a faint HUD/dashboard sliver right at
+  // their own top edge (an artifact of the source art, not our layout) —
+  // this needs to fully hide it, not just tint it, whatever the crop.
   windshieldTopShade: {
     position: 'absolute',
     top: 0,
     right: 0,
     left: 0,
-    height: 8,
-    backgroundColor: 'rgba(8, 13, 18, 0.38)',
+    height: 18,
+    backgroundColor: 'rgba(8, 13, 18, 0.92)',
   },
   windshieldPillarLeft: {
     position: 'absolute',

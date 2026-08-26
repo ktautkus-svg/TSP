@@ -648,7 +648,7 @@ export default function DeliveryScreen() {
   const nextStop = stops.find((stop) => stop.deliveryStatus === 'pending') ?? null;
   const nextStopWindow = arrivalWindowStatus(nextStop, route?.date);
   const wideLayout = viewportWidth >= 720;
-  const gaugeSize = wideLayout ? 140 : Math.min(128, Math.max(92, (Math.min(viewportWidth, 430) - 132) / 2));
+  const gaugeSize = wideLayout ? 140 : Math.min(128, Math.max(92, (Math.min(viewportWidth, 430) - 140) / 2));
   const compositeProgress = progress ? calculateCompositeRouteProgress({
     completedStops: progress.totalStops - progress.remainingStops,
     totalStops: progress.totalStops,
@@ -720,10 +720,10 @@ export default function DeliveryScreen() {
                   />
                   <View style={styles.gaugeCenterStats}>
                     <Text style={styles.gaugeCenterLabel}>LAIKAS</Text>
-                    <Text numberOfLines={1} style={styles.gaugeCenterValue}>{elapsedLabel(route?.startedAt ?? null, route?.returnArrivedAt ?? null)}</Text>
+                    <Text adjustsFontSizeToFit minimumFontScale={0.7} numberOfLines={1} style={styles.gaugeCenterValue}>{elapsedLabel(route?.startedAt ?? null, route?.returnArrivedAt ?? null)}</Text>
                     <View style={styles.gaugeCenterDivider} />
                     <Text style={styles.gaugeCenterLabel}>RIDA</Text>
-                    <Text numberOfLines={1} style={styles.gaugeCenterValue}>{formatMetric(progress.completedPlannedDistanceKm)} km</Text>
+                    <Text adjustsFontSizeToFit minimumFontScale={0.7} numberOfLines={1} style={styles.gaugeCenterValue}>{formatMetric(progress.completedPlannedDistanceKm)} km</Text>
                   </View>
                   <InstrumentGauge
                     maximum={progress.totalStops}
@@ -1249,7 +1249,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     gap: 14,
   },
   gaugeCenterStats: {
-    width: 76,
+    width: 84,
     flexShrink: 0,
     minHeight: 88,
     alignSelf: 'center',
