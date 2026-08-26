@@ -880,19 +880,6 @@ export default function DeliveryScreen() {
                   <Pressable style={styles.secondaryButton} onPress={saveLateStartOdometer}><Text style={styles.secondaryText}>Įvesti dabar</Text></Pressable>
                 </View>
               ) : null}
-              {profile.role === 'driver' && online ? (
-                <View style={styles.reminder} testID="route-fuel-entry-card">
-                  <Text style={styles.heading}>Užsipylėte kuro?</Text>
-                  <Text style={styles.meta}>Įrašykite pylimą iškart. Jis bus įtrauktas į šio reiso kuro suvestinę.</Text>
-                  <View style={styles.fuelRow}>
-                    <TextInput value={fuelLiters} onChangeText={(value) => setFuelLiters(value.replace(/[^\d.,]/g, '').slice(0, 7))} keyboardType="decimal-pad" placeholder="Įpilta, l" style={[styles.input, styles.fuelInput]} />
-                    <TextInput value={fuelReceiptNumber} onChangeText={setFuelReceiptNumber} placeholder="Čekio Nr. (nebūtina)" style={[styles.input, styles.fuelInput]} />
-                  </View>
-                  <Pressable disabled={busy || !fuelLiters.trim()} onPress={() => { void saveRouteFuel(); }} style={[styles.secondaryButton, (busy || !fuelLiters.trim()) && styles.disabled]}>
-                    <Text style={styles.secondaryText}>{fuelEntrySaved ? 'Įrašyti dar vieną pylimą' : 'Išsaugoti pylimą'}</Text>
-                  </Pressable>
-                </View>
-              ) : null}
               </View>
             </View>
           ) : null}
@@ -1026,6 +1013,19 @@ export default function DeliveryScreen() {
             <Text style={styles.meta}>Pradinis odometras: {route?.startOdometer ?? 'neįvestas'}</Text>
             <Text style={styles.meta}>Planuoti kilometrai: {route?.estimatedDistanceKm?.toFixed(1) ?? '—'}</Text>
             <TextInput value={endOdometer} onChangeText={(value) => { setEndOdometer(value); persistCompletionDraft(value); }} keyboardType="decimal-pad" placeholder="Galutinis odometras" style={styles.input} />
+            {profile.role === 'driver' && online ? (
+              <View style={styles.reminder} testID="route-fuel-entry-card">
+                <Text style={styles.heading}>Užsipylėte kuro?</Text>
+                <Text style={styles.meta}>Įrašykite pylimą iškart. Jis bus įtrauktas į šio reiso kuro suvestinę.</Text>
+                <View style={styles.fuelRow}>
+                  <TextInput value={fuelLiters} onChangeText={(value) => setFuelLiters(value.replace(/[^\d.,]/g, '').slice(0, 7))} keyboardType="decimal-pad" placeholder="Įpilta, l" style={[styles.input, styles.fuelInput]} />
+                  <TextInput value={fuelReceiptNumber} onChangeText={setFuelReceiptNumber} placeholder="Čekio Nr. (nebūtina)" style={[styles.input, styles.fuelInput]} />
+                </View>
+                <Pressable disabled={busy || !fuelLiters.trim()} onPress={() => { void saveRouteFuel(); }} style={[styles.secondaryButton, (busy || !fuelLiters.trim()) && styles.disabled]}>
+                  <Text style={styles.secondaryText}>{fuelEntrySaved ? 'Įrašyti dar vieną pylimą' : 'Išsaugoti pylimą'}</Text>
+                </Pressable>
+              </View>
+            ) : null}
             <Pressable disabled={busy} style={[styles.finishButton, busy && styles.disabled]} onPress={() => void finish(false, false)}><Text style={styles.buttonText}>Patvirtinti užbaigimą</Text></Pressable>
             <Pressable disabled={busy} style={styles.cancelButton} onPress={leaveFinish}><Text style={styles.secondaryText}>Grįžti</Text></Pressable>
           </View>

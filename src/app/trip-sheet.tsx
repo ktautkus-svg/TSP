@@ -435,12 +435,16 @@ function buildMonthlyGroups(sheets: DisplayTripSheet[]): MonthlyTripGroup[] {
     current.sheets.push(sheet);
     groups.set(key, current);
   }
-  return [...groups.entries()].map(([key, group]) => ({
-    key,
-    month: group.month,
-    vehicle: group.vehicle,
-    rows: buildDailyRows(group.sheets),
-  })).sort((left, right) => right.month.localeCompare(left.month) || (left.vehicle?.registrationNumber ?? '').localeCompare(right.vehicle?.registrationNumber ?? '', 'lt'));
+  return [...groups.entries()]
+    // A trip sheet without a vehicle has nothing meaningful to report — skip it
+    // rather than rendering an all-zero "Automobilis nepriskirtas" card.
+    .filter(([, group]) => group.vehicle)
+    .map(([key, group]) => ({
+      key,
+      month: group.month,
+      vehicle: group.vehicle,
+      rows: buildDailyRows(group.sheets),
+    })).sort((left, right) => right.month.localeCompare(left.month) || (left.vehicle?.registrationNumber ?? '').localeCompare(right.vehicle?.registrationNumber ?? '', 'lt'));
 }
 
 function buildDailyRows(sheets: DisplayTripSheet[]): DailyTripRow[] {
