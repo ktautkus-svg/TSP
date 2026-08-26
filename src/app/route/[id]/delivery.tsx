@@ -43,6 +43,7 @@ import { NavigationPreference } from '@/application/settings/navigation-preferen
 import { fallbackRouteWeatherScene, loadRouteWeatherScene, type RouteWeatherScene } from '@/application/weather/route-weather';
 import { BrandHeader } from '@/components/brand-header';
 import { ClockIcon, DeliveredIcon, DistanceIcon, FailedIcon, NavigateIcon } from '@/components/dashboard-icons';
+import { DateInput } from '@/components/date-input';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { GroupedMenuRow, GroupedMenuSection } from '@/components/grouped-menu';
 import { InstrumentGauge } from '@/components/instrument-gauge';
@@ -50,6 +51,7 @@ import { MenuArtwork } from '@/components/menu-artwork';
 import { RoadProgressBar } from '@/components/road-progress-bar';
 import { RouteBottomTabs } from '@/components/route-bottom-tabs';
 import { SwipeActionCard } from '@/components/swipe-action-card';
+import { TimeInput } from '@/components/time-input';
 import { OperationalContactRepository } from '@/database/repositories/operational-contact-repository';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import { DELIVERY_FAILURE_REASONS, deliveryMatchesFilter, type DeliveryFailureReason } from '@/domain/delivery-failure';
@@ -107,6 +109,8 @@ export default function DeliveryScreen() {
   const [recalculation, setRecalculation] = useState<RouteRecalculationProposal | null>(null);
   const [startOdometer, setStartOdometer] = useState('');
   const [endOdometer, setEndOdometer] = useState('');
+  const [finishDate, setFinishDate] = useState('');
+  const [finishTime, setFinishTime] = useState('');
   const [fuelLiters, setFuelLiters] = useState('');
   const [fuelReceiptNumber, setFuelReceiptNumber] = useState('');
   const [fuelEntrySaved, setFuelEntrySaved] = useState(false);
@@ -532,10 +536,14 @@ export default function DeliveryScreen() {
     setBusy(true);
     try {
       await draftSaveQueue.current;
+      const actualFinishedAt = finishDate && finishTime
+        ? new Date(`${finishDate}T${finishTime}:00`).toISOString()
+        : undefined;
       const result = await new CompleteRoute(db).execute(routeId, {
         endOdometer: parseOdometer(endOdometer),
         confirmUnfinished,
         confirmLargeDifference,
+        actualFinishedAt,
       });
       await pushRouteAssignmentProgress(db, routeId).catch((reason) => {
         devWarn('TRIP_SHEET_SYNC_FAILED', reason);
@@ -591,6 +599,9 @@ export default function DeliveryScreen() {
       }
       await new BeginRouteCompletion(db).execute(routeId);
       completionDismissed.current = false;
+      const now = new Date();
+      setFinishDate(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`);
+      setFinishTime(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`);
       setShowFinish(true);
       await load();
       void requestSync('mutation');
@@ -1012,13 +1023,12 @@ export default function DeliveryScreen() {
               <Text style={styles.meta}>Nepristatytas žinomas svoris: {formatWeightKg(progress?.remainingKnownWeightKg ?? 0)} kg</Text>
               <Text style={styles.meta}>Pradinis odometras: {route?.startOdometer ?? 'neįvestas'}</Text>
               <Text style={styles.meta}>Planuoti kilometrai: {route?.estimatedDistanceKm?.toFixed(1) ?? '—'}</Text>
-              <TextInput value={endOdometer} onChangeText={(value) => { setEndOdometer(value); persistCompletionDraft(value); }} keyboardType="decimal-pad" placeholder="Galutinis odometras" style={styles.input} />
               {profile.role === 'driver' && online ? (
                 <View style={styles.reminder} testID="route-fuel-entry-card">
                   <Text style={styles.heading}>Užsipylėte kuro?</Text>
-                  <Text style={styles.meta}>Įrašykite pylimą iškart. Jis bus įtrauktas į šio reiso kuro suvestinę.</Text>
+                  <Text style={styles.meta}>Jei nepylėte, palikite 0. Įrašas bus įtrauktas į šio reiso kuro suvestinę.</Text>
                   <View style={styles.fuelRow}>
-                    <TextInput value={fuelLiters} onChangeText={(value) => setFuelLiters(value.replace(/[^\d.,]/g, '').slice(0, 7))} keyboardType="decimal-pad" placeholder="Įpilta, l" style={[styles.input, styles.fuelInput]} />
+                    <TextInput value={fuelLiters} onChangeText={(value) => setFuelLiters(value.replace(/[^\d.,]/g, '').slice(0, 7))} keyboardType="decimal-pad" placeholder="Įpilta, l (0, jei nepylėte)" style={[styles.input, styles.fuelInput]} />
                     <TextInput value={fuelReceiptNumber} onChangeText={setFuelReceiptNumber} placeholder="Čekio Nr. (nebūtina)" style={[styles.input, styles.fuelInput]} />
                   </View>
                   <Pressable disabled={busy || !fuelLiters.trim()} onPress={() => { void saveRouteFuel(); }} style={[styles.secondaryButton, (busy || !fuelLiters.trim()) && styles.disabled]}>
@@ -1026,6 +1036,25 @@ export default function DeliveryScreen() {
                   </Pressable>
                 </View>
               ) : null}
+              <View style={styles.reminder} testID="route-finish-time-card">
+                <Text style={styles.heading}>Kada iš tikrųjų baigėte?</Text>
+                <Text style={styles.meta}>Jei uždarote maršrutą vėliau, patikslinkite laiką — kitaip statistika parodys neteisingą trukmę.</Text>
+                <View style={styles.fuelRow}>
+                  <DateInput
+                    onChangeText={setFinishDate}
+                    style={[styles.input, styles.fuelInput]}
+                    testID="finish-time-date"
+                    value={finishDate}
+                  />
+                  <TimeInput
+                    onChangeText={setFinishTime}
+                    style={[styles.input, styles.fuelInput]}
+                    testID="finish-time-clock"
+                    value={finishTime}
+                  />
+                </View>
+              </View>
+              <TextInput value={endOdometer} onChangeText={(value) => { setEndOdometer(value); persistCompletionDraft(value); }} keyboardType="decimal-pad" placeholder="Galutinis odometras" style={styles.input} />
             </ScrollView>
             <Pressable disabled={busy} style={[styles.finishButton, busy && styles.disabled]} onPress={() => void finish(false, false)}><Text style={styles.buttonText}>Patvirtinti užbaigimą</Text></Pressable>
             <Pressable disabled={busy} style={styles.cancelButton} onPress={leaveFinish}><Text style={styles.secondaryText}>Grįžti</Text></Pressable>

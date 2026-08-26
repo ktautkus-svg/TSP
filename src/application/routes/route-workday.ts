@@ -830,7 +830,18 @@ export class GetRouteProgress extends WorkdayCommand {
 export class CompleteRoute extends WorkdayCommand {
   async execute(
     routeId: string,
-    input: { endOdometer: number; confirmUnfinished?: boolean; confirmLargeDifference?: boolean },
+    input: {
+      endOdometer: number;
+      confirmUnfinished?: boolean;
+      confirmLargeDifference?: boolean;
+      /**
+       * When the driver actually finished, if different from whenever they
+       * happen to be tapping "confirm" — closing out the next morning must
+       * not inflate the trip's duration to nearly 24h in the statistics.
+       * ISO string; defaults to returnArrivedAt (or now) when omitted.
+       */
+      actualFinishedAt?: string;
+    },
   ): Promise<{ idempotent: boolean; summary: RouteCompletionSummary }> {
     validateOdometer(input.endOdometer);
     const route = await this.route(routeId);
@@ -873,8 +884,22 @@ export class CompleteRoute extends WorkdayCommand {
       if (punctuality === 'late') lateStops += 1;
     }
     const now = this.clock();
+    let actualFinishedAt: string | null = null;
+    if (input.actualFinishedAt !== undefined) {
+      const parsed = Date.parse(input.actualFinishedAt);
+      if (Number.isNaN(parsed)) {
+        throw new RouteCommandError('INVALID_ROUTE_STATE', 'Neteisingas užbaigimo laikas.');
+      }
+      if (route.startedAt && parsed < Date.parse(route.startedAt)) {
+        throw new RouteCommandError('INVALID_ROUTE_STATE', 'Užbaigimo laikas negali būti ankstesnis už maršruto pradžią.');
+      }
+      if (parsed > Date.parse(now) + 5 * 60_000) {
+        throw new RouteCommandError('INVALID_ROUTE_STATE', 'Užbaigimo laikas negali būti ateityje.');
+      }
+      actualFinishedAt = new Date(parsed).toISOString();
+    }
     const plannedDurationMinutes = route.estimatedDurationMinutes;
-    const routeEndedAt = route.returnArrivedAt ?? now;
+    const routeEndedAt = actualFinishedAt ?? route.returnArrivedAt ?? now;
     const actualDurationMinutes = route.startedAt
       ? Math.round((Date.parse(routeEndedAt) - Date.parse(route.startedAt)) / 60_000)
       : null;

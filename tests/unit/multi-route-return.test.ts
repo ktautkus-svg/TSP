@@ -113,4 +113,41 @@ describe('several planned routes and durable return stage', () => {
 
     expect(completed.summary).toMatchObject({ actualDurationMinutes: 80, actualDistanceKm: 42 });
   });
+
+  it('lets the driver correct the finish time when closing out late, instead of inflating the duration', async () => {
+    const { db } = database();
+    await new CreateDraftRoute(db).execute({ id: 'route-late-close', startLocation: endpoint, endLocation: endpoint });
+    await db.runAsync(
+      "UPDATE routes SET status = 'in_progress', remaining_stops = 0, started_at = ?, start_odometer = 100 WHERE id = 'route-late-close'",
+      '2026-08-11T17:00:00.000Z',
+    );
+    // The driver forgot to confirm return arrival before going home, and only
+    // opens the app the next morning — return_arrived_at ends up nearly 24h
+    // after the true finish, so it must not be used blindly for duration.
+    await new StartRouteReturn(db, () => '2026-08-11T18:00:00.000Z').execute('route-late-close', 'home', endpoint);
+    await new ConfirmRouteReturnArrival(db, () => '2026-08-12T09:00:00.000Z').execute('route-late-close');
+
+    const completed = await new CompleteRoute(db, () => '2026-08-12T09:05:00.000Z').execute('route-late-close', {
+      endOdometer: 142,
+      actualFinishedAt: '2026-08-11T18:20:00.000Z',
+    });
+
+    expect(completed.summary).toMatchObject({ actualDurationMinutes: 80, actualDistanceKm: 42 });
+  });
+
+  it('rejects a corrected finish time before the route even started', async () => {
+    const { db } = database();
+    await new CreateDraftRoute(db).execute({ id: 'route-bad-close', startLocation: endpoint, endLocation: endpoint });
+    await db.runAsync(
+      "UPDATE routes SET status = 'in_progress', remaining_stops = 0, started_at = ?, start_odometer = 100 WHERE id = 'route-bad-close'",
+      '2026-08-11T17:00:00.000Z',
+    );
+    await new StartRouteReturn(db, () => '2026-08-11T18:00:00.000Z').execute('route-bad-close', 'home', endpoint);
+    await new ConfirmRouteReturnArrival(db, () => '2026-08-11T18:20:00.000Z').execute('route-bad-close');
+
+    await expect(new CompleteRoute(db, () => '2026-08-11T18:30:00.000Z').execute('route-bad-close', {
+      endOdometer: 142,
+      actualFinishedAt: '2026-08-11T16:00:00.000Z',
+    })).rejects.toMatchObject({ code: 'INVALID_ROUTE_STATE' });
+  });
 });
