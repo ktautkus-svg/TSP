@@ -45,6 +45,23 @@ export function CargoLayoutSvg({
   const payloadExceeded = layout.warnings.some((warning) => warning.code === 'PAYLOAD_EXCEEDED');
   const floorFull = remainingPercent === 0 && layout.slots.length > 0;
 
+  const balance = useMemo(() => {
+    const centerXMm = widthMm / 2;
+    const tolerance = widthMm * 0.08;
+    let leftKg = 0;
+    let rightKg = 0;
+    for (const pallet of layout.placed) {
+      if (pallet.weightKg === null) continue;
+      const slotCenter = pallet.slot.xMm + pallet.slot.widthMm / 2;
+      if (slotCenter < centerXMm - tolerance) leftKg += pallet.weightKg;
+      else if (slotCenter > centerXMm + tolerance) rightKg += pallet.weightKg;
+    }
+    const totalKg = leftKg + rightKg;
+    return { leftKg, rightKg, leftPercent: totalKg > 0 ? Math.round((leftKg / totalKg) * 100) : 50 };
+  }, [layout.placed, widthMm]);
+  const balanceUneven = balance.leftKg + balance.rightKg > 0
+    && Math.abs(balance.leftKg - balance.rightKg) > (balance.leftKg + balance.rightKg) * 0.25;
+
   return (
     <View style={styles.card} testID="cargo-layout">
       <Text style={styles.sectionTitle}>Krovimo schema</Text>
@@ -80,6 +97,21 @@ export function CargoLayoutSvg({
           </View>
         </View>
       </View>
+      {balance.leftKg + balance.rightKg > 0 ? (
+        <View style={styles.balance} testID="cargo-layout-balance">
+          <View style={styles.balanceHeader}>
+            <Text style={styles.dashLabel}>Svorio balansas kairė / dešinė</Text>
+            <Text style={[styles.balanceValue, balanceUneven && styles.dashValueWarn]}>
+              {formatWeightKg(balance.leftKg)} kg / {formatWeightKg(balance.rightKg)} kg
+            </Text>
+          </View>
+          <View style={styles.balanceTrack}>
+            <View style={[styles.balanceFillLeft, { width: `${balance.leftPercent}%` }]} />
+            <View style={[styles.balanceFillRight, { width: `${100 - balance.leftPercent}%` }]} />
+          </View>
+          {balanceUneven ? <Text style={styles.balanceWarn}>Krovinys pasviręs į vieną pusę — pabandykite kitą reisą arba sukeiskite padėklus.</Text> : null}
+        </View>
+      ) : null}
       <Text style={styles.hint}>
         Vaizdas iš viršaus. Kabina priekyje, galinės durys apačioje. Skaičius — pristatymo eilė (1 išeina pirmas).
       </Text>
@@ -383,16 +415,15 @@ function OccupiedSlot({
         textAnchor="middle">
         {weight}{kg}
       </SvgText>
-      {pallet.sideAccess ? (
-        <SvgText
-          x={x + width / 2}
-          y={y + depth * 0.92}
-          fontSize={Math.max(70, metaSize * 0.7)}
-          fill="#1A1206"
-          textAnchor="middle">
-          ŠONINĖS DURYS
-        </SvgText>
-      ) : null}
+      <SvgText
+        x={x + width / 2}
+        y={y + depth * 0.92}
+        fontSize={Math.max(70, metaSize * 0.65)}
+        fontWeight="600"
+        fill="#1A1206"
+        textAnchor="middle">
+        {pallet.sideAccess ? 'ŠONINĖS DURYS' : pallet.zoneLabel}
+      </SvgText>
     </G>
   );
 }
@@ -607,6 +638,27 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     marginTop: 4,
   },
   trackFill: { height: 6, borderRadius: 3, backgroundColor: colors.primary },
+  balance: {
+    gap: spacing.xs,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  balanceHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
+  balanceValue: { ...type.secondaryStrong, color: colors.text },
+  balanceTrack: {
+    flexDirection: 'row',
+    height: 10,
+    borderRadius: 5,
+    overflow: 'hidden',
+    backgroundColor: colors.border,
+  },
+  balanceFillLeft: { backgroundColor: colors.info },
+  balanceFillRight: { backgroundColor: colors.accent },
+  balanceWarn: { ...type.meta, color: colors.warning },
   hint: { ...type.secondary, color: colors.textMuted },
   plan: {
     gap: spacing.xs,

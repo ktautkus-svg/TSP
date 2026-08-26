@@ -208,4 +208,31 @@ describe('krovinio išdėstymas', () => {
     const layout = planCargoLayout(BOX_8_PALLET_PROFILE, [item(1, 100, 1), item(2, 100, 1)]);
     expect(layout.warnings).toEqual([]);
   });
+
+  it('kiekvienam padėklui pažymima aiški zona, kodėl jis ten', () => {
+    const layout = planCargoLayout(BOX_8_PALLET_PROFILE, [item(1, 100, 1), item(2, 100, 1)]);
+    expect(layout.placed.every((pallet) => pallet.zoneLabel.length > 0)).toBe(true);
+  });
+
+  it('kelis sunkius vidurio taškus paskirsto abipus kėbulo, ne vien į vieną pusę', () => {
+    const van = { ...BOX_8_PALLET_PROFILE, hasSideDoor: false };
+    // Deliveries 4-7 are heavy, mid-route stops that all want the same
+    // "interior" kind of slot; without left/right balancing they used to pile
+    // onto whichever strip scored marginally higher, tipping the load.
+    const items = Array.from({ length: 10 }, (_, index) => {
+      const order = index + 1;
+      return item(order, order >= 4 && order <= 7 ? 300 : 40, 1);
+    });
+    const layout = planCargoLayout(van, items);
+    const centerXMm = van.widthMm / 2;
+    const tolerance = van.widthMm * 0.08;
+    let leftKg = 0;
+    let rightKg = 0;
+    for (const pallet of layout.placed) {
+      const slotCenter = pallet.slot.xMm + pallet.slot.widthMm / 2;
+      if (slotCenter < centerXMm - tolerance) leftKg += pallet.weightKg ?? 0;
+      else if (slotCenter > centerXMm + tolerance) rightKg += pallet.weightKg ?? 0;
+    }
+    expect(Math.abs(leftKg - rightKg)).toBeLessThanOrEqual(300);
+  });
 });

@@ -158,6 +158,8 @@ export type PlacedPallet = {
   sideAccess: boolean;
   /** One-line instruction for the driver. */
   advice: string;
+  /** Short tag for "why here" — shown right on the drawing, not only in the list. */
+  zoneLabel: string;
 };
 
 export type CargoLayoutWarning = {
@@ -379,7 +381,7 @@ function assignJobsToVehicle(
   const placed: PlacedPallet[] = [];
   const unplaced: PlacedPallet[] = [];
   if (slots.length === 0) {
-    for (const job of jobs) unplaced.push(toPlaced(job, placeholderSlot(unplaced.length), false, 'Nėra vietos ant grindų.'));
+    for (const job of jobs) unplaced.push(toPlaced(job, placeholderSlot(unplaced.length), false, 'Nėra vietos ant grindų.', 'NETELPA'));
     return { placed, unplaced };
   }
 
@@ -423,22 +425,47 @@ function assignJobsToVehicle(
     if (row.wantsCabin) return 2;
     return 3;
   };
-  scored.sort((left, right) => rank(left) - rank(right)
-    || (left.wantsRear ? left.job.item.deliveryOrder - right.job.item.deliveryOrder : 0)
-    || (right.job.weightKg ?? 0) - (left.job.weightKg ?? 0)
-    || left.job.item.deliveryOrder - right.job.item.deliveryOrder);
+  scored.sort((left, right) => {
+    const rankDiff = rank(left) - rank(right);
+    if (rankDiff !== 0) return rankDiff;
+    // Within the rear group, the earliest delivery is processed first so it
+    // claims the slot closest to the doors — it will be unloaded first.
+    if (left.wantsRear) return left.job.item.deliveryOrder - right.job.item.deliveryOrder;
+    // Within the cabin group, the latest delivery is processed first so it
+    // claims the slot deepest toward the cabin — it goes in first, comes out
+    // last. Sorting this group by weight instead (as before) could hand the
+    // deepest spot to a merely-heavy item, not the truly last delivery.
+    if (left.wantsCabin) return right.job.item.deliveryOrder - left.job.item.deliveryOrder;
+    return (right.job.weightKg ?? 0) - (left.job.weightKg ?? 0)
+      || left.job.item.deliveryOrder - right.job.item.deliveryOrder;
+  });
+
+  // Left/right balance, tracked as the load is built up, so a heavy pallet is
+  // nudged toward whichever side is currently lighter instead of everything
+  // heavy ending up on one flank of the floor.
+  const centerXMm = vehicle.widthMm / 2;
+  const sideWeightKg = { left: 0, right: 0 };
+  const sideOf = (slot: CargoSlot): 'left' | 'right' | 'center' => {
+    const slotCenter = slot.xMm + slot.widthMm / 2;
+    const tolerance = vehicle.widthMm * 0.08;
+    if (slotCenter < centerXMm - tolerance) return 'left';
+    if (slotCenter > centerXMm + tolerance) return 'right';
+    return 'center';
+  };
 
   for (const row of scored) {
-    const slotIndex = pickSlotIndex(row, slots, stacks, kindOf);
+    const slotIndex = pickSlotIndex(row, slots, stacks, kindOf, sideOf, sideWeightKg);
     if (slotIndex === null) {
-      unplaced.push(toPlaced(row.job, placeholderSlot(placed.length + unplaced.length), false, 'Netelpa ant šio kėbulo.'));
+      unplaced.push(toPlaced(row.job, placeholderSlot(placed.length + unplaced.length), false, 'Netelpa ant šio kėbulo.', 'NETELPA'));
       continue;
     }
     stacks[slotIndex]!.push(row.job);
     const slot = slots[slotIndex]!;
     const kind = kindOf(slot);
     const sideAccess = kind === 'side';
-    placed.push(toPlaced(row.job, slot, sideAccess, adviceFor(row, kind, hasSideDoor, slots.length)));
+    const side = sideOf(slot);
+    if (side !== 'center') sideWeightKg[side] += row.job.weightKg ?? 0;
+    placed.push(toPlaced(row.job, slot, sideAccess, adviceFor(row, kind, hasSideDoor, slots.length), zoneLabelFor(kind)));
   }
 
   return { placed, unplaced };
@@ -449,6 +476,8 @@ function pickSlotIndex(
   slots: CargoSlot[],
   stacks: PalletJob[][],
   kindOf: (slot: CargoSlot) => SlotKind,
+  sideOf: (slot: CargoSlot) => 'left' | 'right' | 'center',
+  sideWeightKg: { left: number; right: number },
 ): number | null {
   let best: { index: number; score: number } | null = null;
   for (let index = 0; index < slots.length; index += 1) {
@@ -473,15 +502,32 @@ function pickSlotIndex(
       if (kind === 'side' && sideHoldsHeavyMid) score -= 90;
     }
     if (row.wantsRear) score += slot.yMm / 2000;
+    if (row.wantsCabin) score -= slot.yMm / 2000;
     if (row.wantsSide) score += slot.xMm / 2000;
     const sibling = stacks[index]!.find((job) => job.item.id === row.job.item.id);
     if (sibling) {
       score += row.job.palletsForItem > 1 ? -250 : 40;
     }
     if (row.job.palletsForItem > 1) score -= depth * 80;
+    // Pull a heavy item toward whichever side currently carries less weight,
+    // so the load balances across the axle instead of piling onto one flank.
+    const side = sideOf(slot);
+    const jobWeightKg = row.job.weightKg ?? 0;
+    if (side !== 'center' && jobWeightKg > 0) {
+      const otherSide = side === 'left' ? 'right' : 'left';
+      const imbalanceKg = sideWeightKg[side] - sideWeightKg[otherSide];
+      score -= Math.max(0, imbalanceKg) * 0.06;
+    }
     if (best === null || score > best.score) best = { index, score };
   }
   return best?.index ?? null;
+}
+
+function zoneLabelFor(kind: SlotKind): string {
+  if (kind === 'rear') return 'GALAS';
+  if (kind === 'side') return 'ŠONAS';
+  if (kind === 'cabin') return 'KABINA';
+  return 'VIDURYS';
 }
 
 function adviceFor(
@@ -512,7 +558,7 @@ function adviceFor(
   return `viduryje kėbulo — pagal pristatymo eilę (${pll})`;
 }
 
-function toPlaced(job: PalletJob, slot: CargoSlot, sideAccess: boolean, advice: string): PlacedPallet {
+function toPlaced(job: PalletJob, slot: CargoSlot, sideAccess: boolean, advice: string, zoneLabel: string): PlacedPallet {
   return {
     itemId: job.item.id,
     label: job.item.label,
@@ -524,6 +570,7 @@ function toPlaced(job: PalletJob, slot: CargoSlot, sideAccess: boolean, advice: 
     slot,
     sideAccess,
     advice,
+    zoneLabel,
   };
 }
 
