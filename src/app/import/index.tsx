@@ -892,6 +892,27 @@ export default function ImportScreen() {
     }
   };
 
+  const removeExcelFile = (file: { fileHash: string; fileName: string; sheets: ExcelSheetSession[] }) => {
+    Alert.alert(
+      'Pašalinti šį Excel failą?',
+      `Bus pašalinti visi „${file.fileName}" lapai (${file.sheets.length}).`,
+      [
+        { text: 'Ne', style: 'cancel' },
+        {
+          text: 'Taip, pašalinti',
+          style: 'destructive',
+          onPress: () => { void (async () => {
+            for (const sheet of file.sheets) await excelRepository.abandonSession(sheet.id);
+            const remainingHashes = excelBatchHashes.filter((hash) => hash !== file.fileHash);
+            setExcelBatchHashes(remainingHashes);
+            await excelRepository.saveActiveBatchFileHashes(remainingHashes);
+            setExcelSheetBatch(await excelRepository.listSheetSessions(remainingHashes));
+          })(); },
+        },
+      ],
+    );
+  };
+
   return (
     <>
     <Stack.Screen options={{
@@ -925,6 +946,9 @@ export default function ImportScreen() {
                 <View style={styles.sheetFileHeader}>
                   <View style={styles.sourceIconBadge}><ExcelIcon size={22} /></View>
                   <Text numberOfLines={1} style={styles.fileText}>{file.fileName}</Text>
+                  <Pressable accessibilityLabel={`Pašalinti failą ${file.fileName}`} onPress={() => removeExcelFile(file)} style={styles.sheetDeleteButton} testID={`delete-excel-file-${file.fileHash}`}>
+                    <Text style={styles.sheetDeleteText}>×</Text>
+                  </Pressable>
                 </View>
                 <View style={styles.sheetList}>
                   {file.sheets.map((sheet) => {
@@ -1999,7 +2023,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   secondaryButton: { minHeight: 48, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
   secondaryText: { ...type.button, color: colors.textSecondary },
   disabled: { opacity: 0.45 },
-  fileText: { ...type.bodyStrong, color: colors.text },
+  fileText: { ...type.bodyStrong, color: colors.text, flex: 1, minWidth: 0 },
   message: { ...type.body, color: colors.textMuted },
   helper: { ...type.body, color: colors.textMuted, marginTop: spacing.xs },
   fieldGroup: { gap: 5 },
