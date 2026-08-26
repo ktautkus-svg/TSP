@@ -1,13 +1,14 @@
 import { Stack, useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { pushCompletedRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
 import { CompanyProfileSettings, type CompanyProfile } from '@/application/settings/company-profile';
 import { buildTripSheetWorkbook, MIME_XLSX } from '@/application/trip-sheet/export-xlsx';
 import { buildFuelLedger, type FuelLedgerDay } from '@/application/trip-sheet/fuel-balance';
+import { DateInput } from '@/components/date-input';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { TripSheetRepository, type TripSheetWithRoutes } from '@/database/repositories/trip-sheet-repository';
 import type { FuelType } from '@/domain/vehicle-and-trip';
@@ -203,8 +204,8 @@ export default function TripSheetScreen() {
         </View>
         {!online ? <Pressable style={styles.secondaryButton} disabled={busy} onPress={() => { void syncLocal(); }} testID="sync-trip-sheets"><Text style={styles.secondaryText}>Atnaujinti iš įrenginio maršrutų</Text></Pressable> : null}
         {profile.role !== 'driver' ? <View style={styles.dateRange} testID="trip-sheet-date-range">
-          <TextInput value={dateFrom} onChangeText={setDateFrom} style={[styles.input, styles.dateInput]} placeholder="Nuo, YYYY-MM-DD" placeholderTextColor={colors.textMuted} />
-          <TextInput value={dateTo} onChangeText={setDateTo} style={[styles.input, styles.dateInput]} placeholder="Iki, YYYY-MM-DD" placeholderTextColor={colors.textMuted} />
+          <DateInput accessibilityLabel="Nuo" value={dateFrom} onChangeText={setDateFrom} style={[styles.input, styles.dateInput]} placeholderTextColor={colors.textMuted} />
+          <DateInput accessibilityLabel="Iki" value={dateTo} onChangeText={setDateTo} style={[styles.input, styles.dateInput]} placeholderTextColor={colors.textMuted} />
         </View> : null}
         {vehicles.length > 1 ? <View style={styles.filters} testID="trip-sheet-vehicle-filter">
           <Filter label="Visi automobiliai" active={selectedVehicleId === 'all'} onPress={() => selectFilter(() => setSelectedVehicleId('all'))} styles={styles} />

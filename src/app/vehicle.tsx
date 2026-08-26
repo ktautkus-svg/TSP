@@ -12,6 +12,7 @@ import {
 } from '@/application/operations/departure-readiness';
 import { reportVehicleFault } from '@/application/operations/vehicle-fault-report';
 import { PencilIcon, TrashIcon } from '@/components/app-icons';
+import { DateInput } from '@/components/date-input';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { TripSheetRepository } from '@/database/repositories/trip-sheet-repository';
 import { VehicleDepartureOverrideRepository } from '@/database/repositories/vehicle-departure-override-repository';
@@ -72,6 +73,9 @@ export default function VehicleScreen() {
   const [fuelLiters, setFuelLiters] = useState('');
   const [fuelReceipt, setFuelReceipt] = useState('');
   const [editingFuelId, setEditingFuelId] = useState<string | null>(null);
+  const [openingBalanceDate, setOpeningBalanceDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [openingBalanceLiters, setOpeningBalanceLiters] = useState('');
+  const [openingBalanceNote, setOpeningBalanceNote] = useState('');
   const canApprove = canApproveExpiredDeparture(profile);
 
   const applyVehicle = useCallback(async (vehicleId: string) => {
@@ -196,6 +200,21 @@ export default function VehicleScreen() {
       { text: 'Atšaukti', style: 'cancel' },
       { text: 'Ištrinti', style: 'destructive', onPress: () => { void deleteFuel(entry); } },
     ]);
+  };
+
+  const saveOpeningBalance = async () => {
+    if (busy) return;
+    const liters = Number(openingBalanceLiters.replace(',', '.'));
+    if (!selectedVehicleId) { setMessage('Pasirinkite automobilį.'); return; }
+    if (!Number.isFinite(liters) || liters < 0) { setMessage('Įveskite pradinį likutį litrais.'); return; }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(openingBalanceDate)) { setMessage('Pasirinkite pradinio likučio datą.'); return; }
+    setBusy(true);
+    try {
+      await employeeApi('/api/admin/fuel-corrections', { method: 'POST', body: JSON.stringify({ vehicleId: selectedVehicleId, liters, effectiveAt: openingBalanceDate, note: openingBalanceNote.trim() || null }) });
+      setOpeningBalanceLiters(''); setOpeningBalanceNote(''); setMessage('Pradinis kuro likutis išsaugotas.');
+      await applyVehicle(selectedVehicleId);
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Pradinio likučio išsaugoti nepavyko.'); }
+    finally { setBusy(false); }
   };
 
   const load = useCallback(async () => {
@@ -379,7 +398,7 @@ export default function VehicleScreen() {
           <Text style={styles.hint}>Taisykite jau įvestą dieną tiesiog jos eilutėje: pradžią, pabaigą ir kas vairavo.</Text>
           <Pressable onPress={() => setAddingReading((current) => !current)} style={styles.addDayButton} testID="add-vehicle-odometer-day"><Text style={styles.addDayButtonText}>{addingReading ? 'Uždaryti naujos dienos įvedimą' : '+ Pridėti naują dieną'}</Text></Pressable>
           {addingReading ? <View style={styles.newDayForm} testID="new-vehicle-odometer-day">
-            <TextInput value={newReadingDate} onChangeText={setNewReadingDate} style={styles.input} placeholder="Data, YYYY-MM-DD" placeholderTextColor={colors.textMuted} />
+            <DateInput accessibilityLabel="Naujos dienos data" value={newReadingDate} onChangeText={setNewReadingDate} style={styles.input} placeholderTextColor={colors.textMuted} />
             <View style={styles.inlineInputs}><TextInput value={newReadingStart} onChangeText={setNewReadingStart} keyboardType="decimal-pad" style={[styles.input, styles.inlineInput]} placeholder="Pradžia" placeholderTextColor={colors.textMuted} /><TextInput value={newReadingEnd} onChangeText={setNewReadingEnd} keyboardType="decimal-pad" style={[styles.input, styles.inlineInput]} placeholder="Pabaiga" placeholderTextColor={colors.textMuted} /></View>
             <View style={styles.options}>{drivers.map((driver) => <Pressable key={driver.id} onPress={() => setNewReadingDriverId(driver.id)} style={[styles.option, newReadingDriverId === driver.id && styles.optionSelected]}><Text style={[styles.optionText, newReadingDriverId === driver.id && styles.optionTextSelected]}>{driver.displayName}</Text></Pressable>)}</View>
             <Pressable disabled={busy || !online} onPress={() => { void saveNewReading(); }} style={[styles.button, (busy || !online) && styles.disabled]}><Text style={styles.buttonText}>Išsaugoti naują dieną</Text></Pressable>
@@ -403,13 +422,21 @@ export default function VehicleScreen() {
         </View> : null}
         {selectedVehicleId && section === 'fuel' ? <View style={styles.odometerPanel} testID="vehicle-fuel-editor">
           <Text style={styles.sectionTitle}>Kuras ir papildymai</Text>
-          <TextInput value={fuelDate} onChangeText={setFuelDate} style={styles.input} placeholder="Data, YYYY-MM-DD" placeholderTextColor={colors.textMuted} />
+          <DateInput accessibilityLabel="Kuro pylimo data" value={fuelDate} onChangeText={setFuelDate} style={styles.input} placeholderTextColor={colors.textMuted} />
           <View style={styles.inlineInputs}>
             <TextInput value={fuelLiters} onChangeText={setFuelLiters} keyboardType="decimal-pad" style={[styles.input, styles.inlineInput]} placeholder="Įpilta, l" placeholderTextColor={colors.textMuted} />
             <TextInput value={fuelReceipt} onChangeText={setFuelReceipt} style={[styles.input, styles.inlineInput]} placeholder="Čekio Nr. (nebūtina)" placeholderTextColor={colors.textMuted} />
           </View>
           <Pressable disabled={busy || !online} onPress={() => { void saveFuel(); }} style={[styles.button, (busy || !online) && styles.disabled]}><Text style={styles.buttonText}>{editingFuelId ? 'Išsaugoti kuro pakeitimą' : 'Įrašyti papildymą'}</Text></Pressable>
           {vehicleFuelEntries.slice(0, 8).map((entry) => <View key={entry.id} style={styles.fuelReadingRow}><View style={styles.fuelReadingMain}><Text style={styles.readingTitle}>{new Date(entry.filledAt).toLocaleDateString('lt-LT')}</Text><Text style={styles.hint}>{entry.liters} l{entry.receiptNumber ? ` · čekis ${entry.receiptNumber}` : ''}</Text></View><View style={styles.readingActions}><Pressable accessibilityLabel={`Redaguoti kuro pylimą ${entry.id}`} onPress={() => { setEditingFuelId(entry.id); setFuelDate(entry.filledAt.slice(0, 10)); setFuelLiters(String(entry.liters)); setFuelReceipt(entry.receiptNumber ?? ''); }} style={styles.iconButton}><PencilIcon size={18} color={colors.warning} /></Pressable><Pressable accessibilityLabel={`Ištrinti kuro pylimą ${entry.id}`} disabled={busy} onPress={() => confirmDeleteFuel(entry)} style={styles.iconButton}><TrashIcon size={18} color={colors.danger} /></Pressable></View></View>)}
+          {profile.role === 'admin' ? <View style={styles.newDayForm} testID="vehicle-opening-fuel-balance">
+            <Text style={styles.sectionTitle}>Pradinis kuro likutis</Text>
+            <Text style={styles.hint}>Nurodykite, kiek litrų bake buvo nuo pasirinktos dienos. Naudokite, kai pradedate skaičiuoti nuo tam tikros datos.</Text>
+            <DateInput accessibilityLabel="Pradinio likučio data" value={openingBalanceDate} onChangeText={setOpeningBalanceDate} style={styles.input} placeholderTextColor={colors.textMuted} />
+            <TextInput value={openingBalanceLiters} onChangeText={setOpeningBalanceLiters} keyboardType="decimal-pad" style={styles.input} placeholder="Likutis, l" placeholderTextColor={colors.textMuted} />
+            <TextInput value={openingBalanceNote} onChangeText={setOpeningBalanceNote} style={styles.input} placeholder="Priežastis (nebūtina)" placeholderTextColor={colors.textMuted} />
+            <Pressable disabled={busy || !online} onPress={() => { void saveOpeningBalance(); }} style={[styles.button, (busy || !online) && styles.disabled]}><Text style={styles.buttonText}>Išsaugoti pradinį likutį</Text></Pressable>
+          </View> : null}
         </View> : null}
         {section === 'terms' ? <Text style={styles.label}>Kuro rūšis</Text> : null}
         {section === 'terms' ? <View style={styles.options}>
@@ -424,13 +451,13 @@ export default function VehicleScreen() {
         <Text style={styles.sectionTitle}>Priežiūros terminai</Text>
         <Text style={styles.hint}>Datos formatu YYYY-MM-DD. Tuščia data nestoja darbo. Suvedus ir pasibaigus – važiuoti neleis, kol administratorius nepatvirtins.</Text>
         <Text style={styles.label}>Techninė apžiūra iki</Text>
-        <TextInput value={inspectionDueOn} onChangeText={setInspectionDueOn} autoCapitalize="none" keyboardType="numbers-and-punctuation" style={styles.input} placeholder="YYYY-MM-DD" placeholderTextColor={colors.textMuted} testID="vehicle-inspection-due" />
+        <DateInput accessibilityLabel="Techninė apžiūra iki" value={inspectionDueOn} onChangeText={setInspectionDueOn} style={styles.input} placeholderTextColor={colors.textMuted} testID="vehicle-inspection-due" />
         <Text style={styles.label}>Kelių mokestis iki</Text>
-        <TextInput value={roadTaxDueOn} onChangeText={setRoadTaxDueOn} autoCapitalize="none" keyboardType="numbers-and-punctuation" style={styles.input} placeholder="YYYY-MM-DD" placeholderTextColor={colors.textMuted} testID="vehicle-road-tax-due" />
+        <DateInput accessibilityLabel="Kelių mokestis iki" value={roadTaxDueOn} onChangeText={setRoadTaxDueOn} style={styles.input} placeholderTextColor={colors.textMuted} testID="vehicle-road-tax-due" />
         <Text style={styles.label}>Draudimas iki</Text>
-        <TextInput value={insuranceDueOn} onChangeText={setInsuranceDueOn} autoCapitalize="none" keyboardType="numbers-and-punctuation" style={styles.input} placeholder="YYYY-MM-DD" placeholderTextColor={colors.textMuted} testID="vehicle-insurance-due" />
+        <DateInput accessibilityLabel="Draudimas iki" value={insuranceDueOn} onChangeText={setInsuranceDueOn} style={styles.input} placeholderTextColor={colors.textMuted} testID="vehicle-insurance-due" />
         <Text style={styles.label}>Tepalai / servisas iki</Text>
-        <TextInput value={serviceDueOn} onChangeText={setServiceDueOn} autoCapitalize="none" keyboardType="numbers-and-punctuation" style={styles.input} placeholder="YYYY-MM-DD" placeholderTextColor={colors.textMuted} testID="vehicle-service-due" />
+        <DateInput accessibilityLabel="Tepalai / servisas iki" value={serviceDueOn} onChangeText={setServiceDueOn} style={styles.input} placeholderTextColor={colors.textMuted} testID="vehicle-service-due" />
         <Text style={styles.label}>Priežiūros odometras (nebūtina)</Text>
         <TextInput value={serviceOdometer} onChangeText={setServiceOdometer} keyboardType="decimal-pad" style={styles.input} placeholder="Pvz. 185000" placeholderTextColor={colors.textMuted} />
         {preview.blockers.map((issue) => (
