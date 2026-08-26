@@ -1635,21 +1635,20 @@ function UnresolvedRowFixer({
   // ("55.741800, 24.361800"). Recognise that shape in either box so a
   // straight paste fills both fields instead of forcing the driver to split
   // the text themselves.
-  const COORDINATE_PAIR = /^\s*(-?\d+(?:[.,]\d+)?)\s*[,;]\s*(-?\d+(?:[.,]\d+)?)\s*$/;
   const handleManualLatChange = (value: string) => {
-    const pair = value.match(COORDINATE_PAIR);
+    const pair = matchCoordinatePairText(value);
     if (pair) {
-      setManualLat(pair[1]!.replace(',', '.'));
-      setManualLng(pair[2]!.replace(',', '.'));
+      setManualLat(pair[0]);
+      setManualLng(pair[1]);
       return;
     }
     setManualLat(value);
   };
   const handleManualLngChange = (value: string) => {
-    const pair = value.match(COORDINATE_PAIR);
+    const pair = matchCoordinatePairText(value);
     if (pair) {
-      setManualLat(pair[1]!.replace(',', '.'));
-      setManualLng(pair[2]!.replace(',', '.'));
+      setManualLat(pair[0]);
+      setManualLng(pair[1]);
       return;
     }
     setManualLng(value);
@@ -1757,6 +1756,19 @@ function sessionErrorMessage(reason: unknown): string | null {
     return 'Jūsų prisijungimo sesija baigėsi. Šis importas neprarandamas — atidarykite naują naršyklės skirtuką, prisijunkite iš naujo, tada grįžkite čia ir bandykite dar kartą.';
   }
   return null;
+}
+
+/**
+ * Recognises a pasted "lat, lng" (or "lat lng") pair, as copied straight out
+ * of Google Maps or typed by hand, so a single paste can fill both
+ * latitude/longitude boxes. Returns ["55.7418", "24.3618"] or null.
+ */
+const COORDINATE_PAIR_COMMA = /^\s*(-?\d+(?:[.,]\d+)?)\s*[,;]\s*(-?\d+(?:[.,]\d+)?)\s*$/;
+const COORDINATE_PAIR_SPACED = /^\s*(-?\d+\.\d+)\s+(-?\d+\.\d+)\s*$/;
+function matchCoordinatePairText(value: string): [string, string] | null {
+  const pair = value.match(COORDINATE_PAIR_COMMA) ?? value.match(COORDINATE_PAIR_SPACED);
+  if (!pair) return null;
+  return [pair[1]!.replace(',', '.'), pair[2]!.replace(',', '.')];
 }
 
 function nullableNumber(value: string): number | null {
