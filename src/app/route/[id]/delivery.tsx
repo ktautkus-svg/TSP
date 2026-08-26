@@ -648,7 +648,7 @@ export default function DeliveryScreen() {
   const nextStop = stops.find((stop) => stop.deliveryStatus === 'pending') ?? null;
   const nextStopWindow = arrivalWindowStatus(nextStop, route?.date);
   const wideLayout = viewportWidth >= 720;
-  const gaugeSize = wideLayout ? 160 : Math.min(152, Math.max(104, (Math.min(viewportWidth, 430) - 124) / 2));
+  const gaugeSize = wideLayout ? 140 : Math.min(128, Math.max(92, (Math.min(viewportWidth, 430) - 132) / 2));
   const compositeProgress = progress ? calculateCompositeRouteProgress({
     completedStops: progress.totalStops - progress.remainingStops,
     totalStops: progress.totalStops,
@@ -722,9 +722,8 @@ export default function DeliveryScreen() {
                     <Text style={styles.gaugeCenterLabel}>LAIKAS</Text>
                     <Text numberOfLines={1} style={styles.gaugeCenterValue}>{elapsedLabel(route?.startedAt ?? null, route?.returnArrivedAt ?? null)}</Text>
                     <View style={styles.gaugeCenterDivider} />
-                    <Text style={styles.gaugeCenterLabel}>NUVAŽIUOTA</Text>
-                    <Text numberOfLines={1} style={styles.gaugeCenterValue}>{formatMetric(progress.completedPlannedDistanceKm)}</Text>
-                    <Text style={styles.gaugeCenterUnit}>km</Text>
+                    <Text style={styles.gaugeCenterLabel}>RIDA</Text>
+                    <Text numberOfLines={1} style={styles.gaugeCenterValue}>{formatMetric(progress.completedPlannedDistanceKm)} km</Text>
                   </View>
                   <InstrumentGauge
                     maximum={progress.totalStops}
@@ -1250,11 +1249,11 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     gap: 14,
   },
   gaugeCenterStats: {
-    width: 68,
+    width: 76,
     flexShrink: 0,
-    minHeight: 108,
+    minHeight: 88,
     alignSelf: 'center',
-    paddingVertical: 9,
+    paddingVertical: 7,
     paddingHorizontal: 5,
     borderRadius: 10,
     borderWidth: 1,
@@ -1264,15 +1263,14 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     justifyContent: 'center',
     gap: 2,
   },
-  gaugeCenterLabel: { ...type.label, color: colors.textSecondary, textAlign: 'center' },
-  gaugeCenterValue: { color: colors.text, fontFamily: fonts.headingExtraBold, fontSize: 17, lineHeight: 21, textAlign: 'center' },
-  gaugeCenterUnit: { ...type.label, color: colors.textSecondary, textAlign: 'center' },
-  gaugeCenterDivider: { width: '100%', height: 1, marginVertical: 5, backgroundColor: colors.border },
+  gaugeCenterLabel: { ...type.label, fontSize: 9, color: colors.textSecondary, textAlign: 'center' },
+  gaugeCenterValue: { color: colors.text, fontFamily: fonts.headingExtraBold, fontSize: 15, lineHeight: 18, textAlign: 'center' },
+  gaugeCenterDivider: { width: '100%', height: 1, marginVertical: 4, backgroundColor: colors.border },
   routeMetrics: { flexDirection: 'row', paddingHorizontal: 14, borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
   routeMetricCard: {
     flex: 1,
     minWidth: 0,
-    minHeight: 60,
+    minHeight: 50,
     paddingHorizontal: 6,
     backgroundColor: colors.surface,
     flexDirection: 'row',
@@ -1287,10 +1285,10 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   nextStopCard: {
     minHeight: 0,
     paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 14,
+    paddingTop: 10,
+    paddingBottom: 12,
     backgroundColor: colors.surface,
-    gap: 12,
+    gap: 10,
   },
   dashboardCardLabel: { ...type.label, color: colors.textMuted },
   nextStopHeading: { flexDirection: 'row', alignItems: 'center', gap: 14 },
@@ -1298,7 +1296,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   stopNumber: { color: colors.textInverse, fontFamily: fonts.headingExtraBold, fontSize: 18 },
   nextStopAddress: { flex: 1, minWidth: 0, ...type.cardTitle, color: colors.text },
   nextStopChevron: { color: colors.textMuted, fontSize: 20, lineHeight: 24 },
-  arrivalWindowPanel: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  arrivalWindowPanel: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   arrivalWindowLabel: { ...type.label, color: colors.textMuted },
   arrivalWindowValue: { ...type.sectionTitle, color: colors.text, marginTop: 4 },
   arrivalWindowResult: { flex: 1, minWidth: 0, alignItems: 'flex-end', gap: 4 },
@@ -1310,7 +1308,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   dashboardActionButton: {
     flex: 1,
     minWidth: 0,
-    height: 68,
+    height: 58,
     borderRadius: radius.md,
     paddingHorizontal: 4,
     alignItems: 'center',

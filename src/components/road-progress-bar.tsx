@@ -253,7 +253,7 @@ const createStyles = (cockpit: CockpitPalette) => StyleSheet.create({
   windshieldShell: {
     width: '100%',
     maxWidth: 720,
-    aspectRatio: 1.65,
+    aspectRatio: 2.2,
     position: 'relative',
     overflow: 'hidden',
     borderTopLeftRadius: 12,
