@@ -2,6 +2,7 @@ import { strToU8, zipSync } from 'fflate';
 
 export type TripSheetExportRow = {
   date: string;
+  driverName: string;
   route: string;
   distanceKm: number | null;
   fuelStartLiters: number | null;
@@ -15,6 +16,7 @@ export type TripSheetExportRow = {
 
 export type TripSheetExportGroup = {
   month: string;
+  /** Summary line for the header (e.g. joined names) — each row also carries its own driverName. */
   driverName: string;
   registrationNumber: string;
   vehicleModel: string;
@@ -80,6 +82,7 @@ function worksheetXml(group: TripSheetExportGroup, input: TripSheetWorkbookInput
         numberCell(`H${rowNumber}`, item.fuelEndLiters, 6),
         numberCell(`I${rowNumber}`, item.startOdometer, 6),
         numberCell(`J${rowNumber}`, item.endOdometer, 6),
+        textCell(`K${rowNumber}`, item.driverName, 5),
       ]);
     }),
     rowXml(totalRow, [
@@ -93,14 +96,15 @@ function worksheetXml(group: TripSheetExportGroup, input: TripSheetWorkbookInput
       numberCell(`H${totalRow}`, group.rows.at(-1)?.fuelEndLiters ?? null, 8),
       numberCell(`I${totalRow}`, group.rows.find((row) => row.startOdometer !== null)?.startOdometer ?? null, 8),
       numberCell(`J${totalRow}`, [...group.rows].reverse().find((row) => row.endOdometer !== null)?.endOdometer ?? null, 8),
+      textCell(`K${totalRow}`, '', 7),
     ]),
   ].join('');
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:J${totalRow}"/><sheetViews><sheetView workbookViewId="0"><pane ySplit="6" topLeftCell="A7" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/><cols>${COL_WIDTHS.map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`).join('')}</cols><sheetData>${rows}</sheetData><mergeCells count="4"><mergeCell ref="A1:J1"/><mergeCell ref="A2:J2"/><mergeCell ref="E4:J4"/><mergeCell ref="A${totalRow}:B${totalRow}"/></mergeCells><autoFilter ref="A6:J${Math.max(6, lastDataRow)}"/><pageMargins left="0.25" right="0.25" top="0.45" bottom="0.45" header="0.2" footer="0.2"/><pageSetup orientation="landscape" paperSize="9" fitToWidth="1" fitToHeight="0"/><headerFooter><oddFooter>&amp;L${escapeXml(sheetName)}&amp;R&amp;P / &amp;N</oddFooter></headerFooter></worksheet>`;
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:K${totalRow}"/><sheetViews><sheetView workbookViewId="0"><pane ySplit="6" topLeftCell="A7" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/><cols>${COL_WIDTHS.map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`).join('')}</cols><sheetData>${rows}</sheetData><mergeCells count="4"><mergeCell ref="A1:K1"/><mergeCell ref="A2:K2"/><mergeCell ref="E4:J4"/><mergeCell ref="A${totalRow}:B${totalRow}"/></mergeCells><autoFilter ref="A6:K${Math.max(6, lastDataRow)}"/><pageMargins left="0.25" right="0.25" top="0.45" bottom="0.45" header="0.2" footer="0.2"/><pageSetup orientation="landscape" paperSize="9" fitToWidth="1" fitToHeight="0"/><headerFooter><oddFooter>&amp;L${escapeXml(sheetName)}&amp;R&amp;P / &amp;N</oddFooter></headerFooter></worksheet>`;
 }
 
-const HEADERS = ['Data', 'Važiavimo maršrutas', 'Nuvažiuota, km', 'Kuro kiekis dienos pradžioje, L', 'Įpilta kuro, L', 'Kasos čekio Nr.', 'Sunaudota pagal normą, L', 'Kuro likutis, L', 'Odometras pradžioje', 'Odometras pabaigoje'];
-const COL_WIDTHS = [12, 32, 14, 18, 14, 18, 20, 16, 18, 18];
+const HEADERS = ['Data', 'Važiavimo maršrutas', 'Nuvažiuota, km', 'Kuro kiekis dienos pradžioje, L', 'Įpilta kuro, L', 'Kasos čekio Nr.', 'Sunaudota pagal normą, L', 'Kuro likutis, L', 'Odometras pradžioje', 'Odometras pabaigoje', 'Vairuotojas'];
+const COL_WIDTHS = [12, 32, 14, 18, 14, 18, 20, 16, 18, 18, 22];
 
 function rowXml(index: number, cells: string[]): string { return `<row r="${index}">${cells.join('')}</row>`; }
 function textCell(ref: string, value: string, style: number): string { return `<c r="${ref}" t="inlineStr" s="${style}"><is><t xml:space="preserve">${escapeXml(value)}</t></is></c>`; }

@@ -34,6 +34,7 @@ type TripFuelEntry = Pick<ServerFuelEntry, 'id' | 'filledAt' | 'odometer' | 'lit
 type DisplayTripSheet = Omit<ServerTripSheet, 'fuelEntries'> & { source: 'server' | 'local'; fuelEntries: TripFuelEntry[] };
 type DailyTripRow = {
   date: string;
+  driverName: string;
   routeNumbers: string[];
   startAddress: string;
   endAddress: string;
@@ -59,7 +60,6 @@ type DailyTripRow = {
 type MonthlyTripGroup = {
   key: string;
   month: string;
-  driverName: string;
   vehicle: ServerTripSheet['vehicle'];
   rows: DailyTripRow[];
 };
@@ -78,6 +78,11 @@ export default function TripSheetScreen() {
   const [dateTo, setDateTo] = useState('');
   const [busy, setBusy] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
+  // Hides the shared navigation header for the duration of printing — the
+  // header lives outside this screen's own tree (rendered by Stack.Screen),
+  // so CSS alone can't reach it. Restored on the browser's 'afterprint' event
+  // so it comes back even if the user cancels the print dialog.
+  const [printMode, setPrintMode] = useState(false);
   const [companyProfile, setCompanyProfile] = useState<CompanyProfile>({ name: '', address: '' });
   const [vehicleFuelType, setVehicleFuelType] = useState<FuelType>('diesel');
 
@@ -137,9 +142,21 @@ export default function TripSheetScreen() {
   const monthlyGroups = useMemo(() => buildMonthlyGroups(visible), [visible]);
   const periodLabel = dateFrom || dateTo ? `${dateFrom || '...'} - ${dateTo || '...'}` : selectedMonth === 'all' ? 'Visas laikotarpis' : formatMonth(selectedMonth);
   const selectFilter = (apply: () => void) => { apply(); };
+  const setDateRange = (from: string, to: string) => { setDateFrom(from); setDateTo(to); };
   const print = () => {
-    if (Platform.OS === 'web' && typeof window !== 'undefined') window.print();
-    else setMessage('PDF arba spausdinimą atidarykite interneto naršyklėje.');
+    if (Platform.OS !== 'web' || typeof window === 'undefined') {
+      setMessage('PDF arba spausdinimą atidarykite interneto naršyklėje.');
+      return;
+    }
+    setPrintMode(true);
+    // Let the header actually unmount (headerShown: false) before the print
+    // dialog captures the page — a same-tick window.print() would still
+    // catch it mid-render.
+    requestAnimationFrame(() => {
+      window.print();
+    });
+    const restore = () => { setPrintMode(false); window.removeEventListener('afterprint', restore); };
+    window.addEventListener('afterprint', restore);
   };
   const exportExcel = () => {
     if (Platform.OS !== 'web' || typeof window === 'undefined') {
@@ -152,13 +169,14 @@ export default function TripSheetScreen() {
         companyAddress: companyProfile.address,
         groups: monthlyGroups.map((group) => ({
           month: group.month,
-          driverName: group.driverName,
+          driverName: [...new Set(group.rows.map((row) => row.driverName))].join(', '),
           registrationNumber: group.vehicle?.registrationNumber ?? 'be-numerio',
           vehicleModel: group.vehicle?.model ?? 'Automobilis nepriskirtas',
           fuelNormLitersPer100Km: group.rows[0]?.fuelNorm ?? null,
           fuelType: FUEL_TYPE_LABELS[vehicleFuelType],
           rows: group.rows.map((row) => ({
             date: row.date,
+            driverName: row.driverName,
             route: tripRouteLabel(row),
             distanceKm: row.distanceKm,
             fuelStartLiters: row.fuelStart,
@@ -191,35 +209,46 @@ export default function TripSheetScreen() {
   const showGroups = true;
   return (
     <>
-      <Stack.Screen options={{ gestureEnabled: false, title: 'Kelionės lapai' }} />
-      <FoundationScreen showFoundationNotice={false} title="Kelionės lapai" description={profile.role === 'driver'
-        ? 'Jūsų užbaigtų maršrutų faktiniai darbo duomenys.'
-        : 'Pasirinkite automobilį, vairuotoją ir laikotarpį. Ataskaita atnaujinama iškart.'}>
-        <View style={styles.actionRow} testID="trip-sheet-controls">
-          <Pressable style={styles.primaryButton} disabled={busy} onPress={() => { void load(); }} testID="refresh-trip-sheets">
-            {busy ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.primaryText}>Atnaujinti</Text>}
-          </Pressable>
-          <Pressable style={styles.secondaryButton} onPress={print} testID="print-trip-sheets"><Text style={styles.secondaryText}>Spausdinti / PDF</Text></Pressable>
-          <Pressable style={styles.secondaryButton} onPress={exportExcel} testID="export-trip-sheets-xlsx"><Text style={styles.secondaryText}>Eksportuoti Excel</Text></Pressable>
+      <Stack.Screen options={{ gestureEnabled: false, headerShown: !printMode, title: 'Kelionės lapai' }} />
+      <FoundationScreen showFoundationNotice={false} showHeading={false} title="Kelionės lapai" description="">
+        {/* Everything except the report itself — hidden as one block when
+            printing (see +html.tsx), so a new control added here never needs
+            a matching print-CSS update to stay off the printed page. */}
+        <View style={styles.toolbar} testID="trip-sheet-toolbar">
+          <Text style={styles.screenTitle}>Kelionės lapai</Text>
+          <Text style={styles.screenDescription}>{profile.role === 'driver'
+            ? 'Jūsų užbaigtų maršrutų faktiniai darbo duomenys.'
+            : 'Pasirinkite automobilį, vairuotoją ir laikotarpį. Ataskaita atnaujinama iškart.'}</Text>
+          <View style={styles.actionRow} testID="trip-sheet-controls">
+            <Pressable style={styles.primaryButton} disabled={busy} onPress={() => { void load(); }} testID="refresh-trip-sheets">
+              {busy ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.primaryText}>Atnaujinti</Text>}
+            </Pressable>
+            <Pressable style={styles.secondaryButton} onPress={print} testID="print-trip-sheets"><Text style={styles.secondaryText}>Spausdinti / PDF</Text></Pressable>
+            <Pressable style={styles.secondaryButton} onPress={exportExcel} testID="export-trip-sheets-xlsx"><Text style={styles.secondaryText}>Eksportuoti Excel</Text></Pressable>
+          </View>
+          {!online ? <Pressable style={styles.secondaryButton} disabled={busy} onPress={() => { void syncLocal(); }} testID="sync-trip-sheets"><Text style={styles.secondaryText}>Atnaujinti iš įrenginio maršrutų</Text></Pressable> : null}
+          {profile.role !== 'driver' ? <View style={styles.dateRange} testID="trip-sheet-date-range">
+            <DateInput accessibilityLabel="Nuo" value={dateFrom} onChangeText={setDateFrom} style={[styles.input, styles.dateInput]} placeholderTextColor={colors.textMuted} />
+            <DateInput accessibilityLabel="Iki" value={dateTo} onChangeText={setDateTo} style={[styles.input, styles.dateInput]} placeholderTextColor={colors.textMuted} />
+          </View> : null}
+          {profile.role !== 'driver' ? <View style={styles.filters} testID="trip-sheet-date-presets">
+            {DATE_PRESETS.map((preset) => <Filter key={preset.kind} label={preset.label} active={false} onPress={() => { const [from, to] = datePresetRange(preset.kind); setDateRange(from, to); }} styles={styles} />)}
+            {dateFrom || dateTo ? <Filter label="Išvalyti" active={false} onPress={() => setDateRange('', '')} styles={styles} /> : null}
+          </View> : null}
+          {vehicles.length > 1 ? <View style={styles.filters} testID="trip-sheet-vehicle-filter">
+            <Filter label="Visi automobiliai" active={selectedVehicleId === 'all'} onPress={() => selectFilter(() => setSelectedVehicleId('all'))} styles={styles} />
+            {vehicles.map(([id, registrationNumber]) => <Filter key={id} label={registrationNumber} active={selectedVehicleId === id} onPress={() => selectFilter(() => setSelectedVehicleId(id))} styles={styles} />)}
+          </View> : null}
+          {drivers.length > 1 ? <View style={styles.filters} testID="trip-sheet-driver-filter">
+            <Filter label="Visi vairuotojai" active={selectedDriverId === 'all'} onPress={() => selectFilter(() => setSelectedDriverId('all'))} styles={styles} />
+            {drivers.map(([id, name]) => <Filter key={id} label={name} active={selectedDriverId === id} onPress={() => selectFilter(() => setSelectedDriverId(id))} styles={styles} />)}
+          </View> : null}
+          {months.length > 1 ? <View style={styles.filters} testID="trip-sheet-month-filter">
+            <Filter label="Visi mėnesiai" active={selectedMonth === 'all'} onPress={() => selectFilter(() => setSelectedMonth('all'))} styles={styles} />
+            {months.map((month) => <Filter key={month} label={formatMonth(month)} active={selectedMonth === month} onPress={() => selectFilter(() => setSelectedMonth(month))} styles={styles} />)}
+          </View> : null}
+          {message ? <Text accessibilityRole="alert" style={styles.message}>{message}</Text> : null}
         </View>
-        {!online ? <Pressable style={styles.secondaryButton} disabled={busy} onPress={() => { void syncLocal(); }} testID="sync-trip-sheets"><Text style={styles.secondaryText}>Atnaujinti iš įrenginio maršrutų</Text></Pressable> : null}
-        {profile.role !== 'driver' ? <View style={styles.dateRange} testID="trip-sheet-date-range">
-          <DateInput accessibilityLabel="Nuo" value={dateFrom} onChangeText={setDateFrom} style={[styles.input, styles.dateInput]} placeholderTextColor={colors.textMuted} />
-          <DateInput accessibilityLabel="Iki" value={dateTo} onChangeText={setDateTo} style={[styles.input, styles.dateInput]} placeholderTextColor={colors.textMuted} />
-        </View> : null}
-        {vehicles.length > 1 ? <View style={styles.filters} testID="trip-sheet-vehicle-filter">
-          <Filter label="Visi automobiliai" active={selectedVehicleId === 'all'} onPress={() => selectFilter(() => setSelectedVehicleId('all'))} styles={styles} />
-          {vehicles.map(([id, registrationNumber]) => <Filter key={id} label={registrationNumber} active={selectedVehicleId === id} onPress={() => selectFilter(() => setSelectedVehicleId(id))} styles={styles} />)}
-        </View> : null}
-        {drivers.length > 1 ? <View style={styles.filters} testID="trip-sheet-driver-filter">
-          <Filter label="Visi vairuotojai" active={selectedDriverId === 'all'} onPress={() => selectFilter(() => setSelectedDriverId('all'))} styles={styles} />
-          {drivers.map(([id, name]) => <Filter key={id} label={name} active={selectedDriverId === id} onPress={() => selectFilter(() => setSelectedDriverId(id))} styles={styles} />)}
-        </View> : null}
-        {months.length > 1 ? <View style={styles.filters} testID="trip-sheet-month-filter">
-          <Filter label="Visi mėnesiai" active={selectedMonth === 'all'} onPress={() => selectFilter(() => setSelectedMonth('all'))} styles={styles} />
-          {months.map((month) => <Filter key={month} label={formatMonth(month)} active={selectedMonth === month} onPress={() => selectFilter(() => setSelectedMonth(month))} styles={styles} />)}
-        </View> : null}
-        {message ? <Text accessibilityRole="alert" style={styles.message}>{message}</Text> : null}
         {!busy && showGroups && monthlyGroups.length === 0 ? <View style={styles.empty}><Text style={styles.cardTitle}>Kelionės lapų nerasta</Text><Text style={styles.meta}>Lapas atsiranda užbaigus maršrutą. Pakeiskite automobilį, vairuotoją arba laikotarpį.</Text></View> : null}
         {showGroups ? monthlyGroups.map((group) => <MonthlyTripSheet companyProfile={companyProfile} group={group} key={group.key} periodLabel={periodLabel} styles={styles} vehicleFuelType={vehicleFuelType} />) : null}
       </FoundationScreen>
@@ -241,12 +270,13 @@ function MonthlyTripSheet({ group, periodLabel, styles, companyProfile, vehicleF
   const lastOdometer = [...group.rows].reverse().find((row) => row.endOdometer !== null)?.endOdometer ?? null;
   const firstFuel = group.rows.find((row) => row.fuelStart !== null)?.fuelStart ?? null;
   const lastFuel = [...group.rows].reverse().find((row) => row.fuelEnd !== null)?.fuelEnd ?? null;
+  const driverNames = [...new Set(group.rows.map((row) => row.driverName))].join(', ');
   return <View style={styles.sheet} testID={`monthly-trip-sheet-${group.key}`}>
     <View style={styles.screenView} testID="trip-sheet-screen-view">
     <View style={styles.sheetHeader}>
       <View style={styles.flex}>
         <Text style={styles.date}>{formatMonth(group.month)}</Text>
-        <Text style={styles.driver}>{group.driverName}</Text>
+        <Text style={styles.driver}>{driverNames}</Text>
       </View>
       <View style={styles.vehicleIdentity}>
         <Text style={styles.vehicleNumber}>{group.vehicle?.registrationNumber ?? 'Automobilis nepriskirtas'}</Text>
@@ -265,7 +295,10 @@ function MonthlyTripSheet({ group, periodLabel, styles, companyProfile, vehicleF
     <View style={styles.reportTable} testID="trip-sheet-report-table">
       <View style={[styles.reportTableRow, styles.reportTableHeader]}>
         <Text style={[styles.reportTableCell, styles.reportDateCell]}>Data</Text>
+        <Text style={[styles.reportTableCell, styles.reportDriverCell]}>Vairuotojas</Text>
         <Text style={[styles.reportTableCell, styles.reportRouteCell]}>Kur važiuota</Text>
+        <Text style={[styles.reportTableCell, styles.reportNumberCell]}>Odometras pradžioje</Text>
+        <Text style={[styles.reportTableCell, styles.reportNumberCell]}>Odometras pabaigoje</Text>
         <Text style={[styles.reportTableCell, styles.reportNumberCell]}>Nuvažiuota, km</Text>
         <Text style={[styles.reportTableCell, styles.reportNumberCell]}>Sunaudota, l</Text>
         <Text style={[styles.reportTableCell, styles.reportNumberCell]}>Įpilta, l</Text>
@@ -274,7 +307,10 @@ function MonthlyTripSheet({ group, periodLabel, styles, companyProfile, vehicleF
       </View>
       {group.rows.map((row) => <View key={row.date} style={styles.reportTableRow}>
         <Text style={[styles.reportTableCell, styles.reportDateCell]}>{row.date}</Text>
+        <Text style={[styles.reportTableCell, styles.reportDriverCell]}>{row.driverName}</Text>
         <Text style={[styles.reportTableCell, styles.reportRouteCell]}>{tripRouteLabel(row)}</Text>
+        <Text style={[styles.reportTableCell, styles.reportNumberCell]}>{formatNumber(row.startOdometer)}</Text>
+        <Text style={[styles.reportTableCell, styles.reportNumberCell]}>{formatNumber(row.endOdometer)}</Text>
         <Text style={[styles.reportTableCell, styles.reportNumberCell]}>{formatNumber(row.distanceKm)}</Text>
         <Text style={[styles.reportTableCell, styles.reportNumberCell]}>{formatNumber(row.fuelConsumed)}</Text>
         <Text style={[styles.reportTableCell, styles.reportNumberCell]}>{formatNumber(row.fuelAdded)}</Text>
@@ -283,7 +319,10 @@ function MonthlyTripSheet({ group, periodLabel, styles, companyProfile, vehicleF
       </View>)}
       <View style={[styles.reportTableRow, styles.reportTableTotal]}>
         <Text style={[styles.reportTableCell, styles.reportDateCell]} />
+        <Text style={[styles.reportTableCell, styles.reportDriverCell]} />
         <Text style={[styles.reportTableCell, styles.reportRouteCell, styles.reportTotalText]}>Iš viso</Text>
+        <Text style={[styles.reportTableCell, styles.reportNumberCell, styles.reportTotalText]}>{formatNumber(firstOdometer)}</Text>
+        <Text style={[styles.reportTableCell, styles.reportNumberCell, styles.reportTotalText]}>{formatNumber(lastOdometer)}</Text>
         <Text style={[styles.reportTableCell, styles.reportNumberCell, styles.reportTotalText]}>{formatNumber(totalDistance)}</Text>
         <Text style={[styles.reportTableCell, styles.reportNumberCell, styles.reportTotalText]}>{formatNumber(totalFuel)}</Text>
         <Text style={[styles.reportTableCell, styles.reportNumberCell, styles.reportTotalText]}>{formatNumber(totalFuelAdded)}</Text>
@@ -307,48 +346,51 @@ function MonthlyTripSheet({ group, periodLabel, styles, companyProfile, vehicleF
         <Text style={styles.printMetaText}>Kuro tipas: {FUEL_TYPE_LABELS[vehicleFuelType]}</Text>
       </View>
       <View style={styles.printMetaRow}>
-        <Text style={styles.printMetaText}>Vairuotojas: {group.driverName}</Text>
+        <Text style={styles.printMetaText}>Vairuotojas(-ai): {driverNames}</Text>
         <Text style={styles.printMetaText}>Laikotarpis: {periodLabel}</Text>
       </View>
 
       <View style={styles.printTable}>
         <View style={[styles.printRow, styles.printHeadRow]}>
           <Text style={[styles.printCell, styles.printCellDate, styles.printHeadText]}>Data</Text>
+          <Text style={[styles.printCell, styles.printCellDriver, styles.printHeadText]}>Vairuotojas</Text>
           <Text style={[styles.printCell, styles.printCellRoute, styles.printHeadText]}>Maršrutas</Text>
+          <Text style={[styles.printCell, styles.printCellOdometer, styles.printHeadText]}>Odometras pradžioje</Text>
+          <Text style={[styles.printCell, styles.printCellOdometer, styles.printHeadText]}>Odometras pabaigoje</Text>
           <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>Atstumas, km</Text>
           <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>Kuras dienos pradžioje, L</Text>
           <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>Įpilta kuro, L</Text>
           <Text style={[styles.printCell, styles.printCellReceipt, styles.printHeadText]}>Kasos čekio Nr.</Text>
           <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>Degalų sąnaudos pagal normą, L</Text>
           <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>Kuro likutis, L</Text>
-          <Text style={[styles.printCell, styles.printCellOdometer, styles.printHeadText]}>Odometras pradžioje</Text>
-          <Text style={[styles.printCell, styles.printCellOdometer, styles.printHeadText]}>Odometras pabaigoje</Text>
         </View>
         {group.rows.map((row) => (
           <View key={row.date} style={styles.printRow}>
             <Text style={[styles.printCell, styles.printCellDate]}>{row.date}</Text>
+            <Text style={[styles.printCell, styles.printCellDriver]}>{row.driverName}</Text>
             <Text style={[styles.printCell, styles.printCellRoute]}>{tripRouteLabel(row)}</Text>
+            <Text style={[styles.printCell, styles.printCellOdometer]}>{formatNumber(row.startOdometer)}</Text>
+            <Text style={[styles.printCell, styles.printCellOdometer]}>{formatNumber(row.endOdometer)}</Text>
             <Text style={[styles.printCell, styles.printCellNum]}>{formatNumber(row.distanceKm)}</Text>
             <Text style={[styles.printCell, styles.printCellNum]}>{row.fuelStart === null ? '—' : formatNumber(row.fuelStart)}</Text>
             <Text style={[styles.printCell, styles.printCellNum]}>{formatNumber(row.fuelAdded)}</Text>
             <Text style={[styles.printCell, styles.printCellReceipt]}>{row.fuelEntries.map((entry) => entry.receiptNumber).filter(Boolean).join(' / ') || '—'}</Text>
             <Text style={[styles.printCell, styles.printCellNum]}>{row.fuelConsumed === null ? '0,00' : formatNumber(row.fuelConsumed)}</Text>
             <Text style={[styles.printCell, styles.printCellNum]}>{row.fuelEnd === null ? '—' : formatNumber(row.fuelEnd)}</Text>
-            <Text style={[styles.printCell, styles.printCellOdometer]}>{formatNumber(row.startOdometer)}</Text>
-            <Text style={[styles.printCell, styles.printCellOdometer]}>{formatNumber(row.endOdometer)}</Text>
           </View>
         ))}
         <View style={[styles.printRow, styles.printTotalRow]}>
           <Text style={[styles.printCell, styles.printCellDate]} />
+          <Text style={[styles.printCell, styles.printCellDriver]} />
           <Text style={[styles.printCell, styles.printCellRoute, styles.printHeadText]}>Iš viso:</Text>
+          <Text style={[styles.printCell, styles.printCellOdometer, styles.printHeadText]}>{formatNumber(firstOdometer)}</Text>
+          <Text style={[styles.printCell, styles.printCellOdometer, styles.printHeadText]}>{formatNumber(lastOdometer)}</Text>
           <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>{formatNumber(totalDistance)}</Text>
           <Text style={[styles.printCell, styles.printCellNum]} />
           <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>{formatNumber(totalFuelAdded)}</Text>
           <Text style={[styles.printCell, styles.printCellReceipt]} />
           <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>{formatNumber(totalFuel)}</Text>
           <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>{lastFuel === null ? '—' : formatNumber(lastFuel)}</Text>
-          <Text style={[styles.printCell, styles.printCellOdometer, styles.printHeadText]}>{formatNumber(firstOdometer)}</Text>
-          <Text style={[styles.printCell, styles.printCellOdometer, styles.printHeadText]}>{formatNumber(lastOdometer)}</Text>
         </View>
       </View>
 
@@ -379,22 +421,26 @@ function MonthlyTripSheet({ group, periodLabel, styles, companyProfile, vehicleF
 }
 
 function buildMonthlyGroups(sheets: DisplayTripSheet[]): MonthlyTripGroup[] {
-  const groups = new Map<string, { month: string; driverName: string; vehicle: ServerTripSheet['vehicle']; sheets: DisplayTripSheet[] }>();
+  // Grouped by vehicle+month only — not by driver — so one vehicle's trip
+  // sheet stays a single continuous report covering every driver who used it
+  // that period, with each day showing its own driver. Selecting a specific
+  // driver filter narrows `sheets` before this runs, so the sheet then only
+  // contains that driver's days, still as one report.
+  const groups = new Map<string, { month: string; vehicle: ServerTripSheet['vehicle']; sheets: DisplayTripSheet[] }>();
   for (const sheet of sheets) {
     const month = sheet.date.slice(0, 7);
     const vehicleKey = sheet.vehicle?.id ?? 'no-vehicle';
-    const key = `${month}:${sheet.driverId}:${vehicleKey}`;
-    const current = groups.get(key) ?? { month, driverName: sheet.driverName, vehicle: sheet.vehicle, sheets: [] };
+    const key = `${month}:${vehicleKey}`;
+    const current = groups.get(key) ?? { month, vehicle: sheet.vehicle, sheets: [] };
     current.sheets.push(sheet);
     groups.set(key, current);
   }
   return [...groups.entries()].map(([key, group]) => ({
     key,
     month: group.month,
-    driverName: group.driverName,
     vehicle: group.vehicle,
     rows: buildDailyRows(group.sheets),
-  })).sort((left, right) => right.month.localeCompare(left.month) || left.driverName.localeCompare(right.driverName, 'lt'));
+  })).sort((left, right) => right.month.localeCompare(left.month) || (left.vehicle?.registrationNumber ?? '').localeCompare(right.vehicle?.registrationNumber ?? '', 'lt'));
 }
 
 function buildDailyRows(sheets: DisplayTripSheet[]): DailyTripRow[] {
@@ -419,6 +465,7 @@ function buildDailyRows(sheets: DisplayTripSheet[]): DailyTripRow[] {
     const targetSheet = daySheets[daySheets.length - 1]!;
     return {
       date,
+      driverName: targetSheet.driverName,
       routeNumbers: [...new Set(daySheets.flatMap((sheet) => sheet.routeNumbers))],
       startAddress: daySheets[0]?.startAddress ?? 'Pradžia nenurodyta',
       endAddress: daySheets[daySheets.length - 1]?.endAddress ?? 'Pabaiga nenurodyta',
@@ -499,15 +546,42 @@ function localSheet(sheet: TripSheetWithRoutes, fuelEntries: TripFuelEntry[] = [
   };
 }
 
+type DatePresetKind = 'today' | 'yesterday' | 'thisWeek' | 'lastWeek' | 'thisMonth' | 'lastMonth';
+const DATE_PRESETS: { kind: DatePresetKind; label: string }[] = [
+  { kind: 'today', label: 'Šiandien' },
+  { kind: 'yesterday', label: 'Vakar' },
+  { kind: 'thisWeek', label: 'Ši savaitė' },
+  { kind: 'lastWeek', label: 'Praėjusi savaitė' },
+  { kind: 'thisMonth', label: 'Šis mėnuo' },
+  { kind: 'lastMonth', label: 'Praėjęs mėnuo' },
+];
+function datePresetRange(kind: DatePresetKind): [string, string] {
+  const iso = (date: Date) => date.toISOString().slice(0, 10);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (kind === 'today') return [iso(today), iso(today)];
+  if (kind === 'yesterday') { const day = new Date(today); day.setDate(day.getDate() - 1); return [iso(day), iso(day)]; }
+  // Monday-based week, matching the rest of the app's LT convention.
+  const mondayOffset = (today.getDay() + 6) % 7;
+  if (kind === 'thisWeek') { const start = new Date(today); start.setDate(start.getDate() - mondayOffset); const end = new Date(start); end.setDate(end.getDate() + 6); return [iso(start), iso(end)]; }
+  if (kind === 'lastWeek') { const start = new Date(today); start.setDate(start.getDate() - mondayOffset - 7); const end = new Date(start); end.setDate(end.getDate() + 6); return [iso(start), iso(end)]; }
+  if (kind === 'thisMonth') { const start = new Date(today.getFullYear(), today.getMonth(), 1); const end = new Date(today.getFullYear(), today.getMonth() + 1, 0); return [iso(start), iso(end)]; }
+  const start = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  const end = new Date(today.getFullYear(), today.getMonth(), 0);
+  return [iso(start), iso(end)];
+}
 function tripRouteLabel(row: DailyTripRow): string {
   if (row.routeNumbers.length > 0) return row.routeNumbers.join(' · ');
-  return '—';
+  if (row.startAddress === row.endAddress) return row.startAddress;
+  return `${row.startAddress} - ${row.endAddress}`;
 }
 function formatMonth(value: string): string { const date = new Date(`${value}-15T12:00:00`); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('lt-LT', { year: 'numeric', month: 'long' }).format(date); }
 function formatNumber(value: number | null): string { return value === null ? '—' : new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(value); }
 function formatFuelNorm(value: number | null): string { return value === null ? '—' : `${new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 2 }).format(value)} L/100km`; }
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   headerAction: { minWidth: 120, minHeight: 48, justifyContent: 'center' }, headerText: { ...type.button, color: colors.brandNavy },
+  toolbar: { gap: spacing.md, marginBottom: spacing.lg },
+  screenTitle: { ...type.pageTitle, color: colors.text, letterSpacing: -0.3 }, screenDescription: { ...type.body, color: colors.textMuted },
   actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }, dateRange: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }, dateInput: { flexGrow: 1, flexBasis: 220, minWidth: 0 },
   primaryButton: { flexGrow: 1, minWidth: 150, minHeight: 52, borderRadius: radius.md, backgroundColor: colors.actionPrimary, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md }, primaryText: { ...type.button, color: colors.textInverse },
   secondaryButton: { flexGrow: 1, minWidth: 150, minHeight: 52, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md }, secondaryText: { ...type.button, color: colors.textSecondary },
@@ -529,11 +603,12 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   printTotalRow: { backgroundColor: '#F3F3F3' },
   printCell: { fontSize: 8, color: '#000000', paddingHorizontal: 3, paddingVertical: 2, borderRightWidth: 1, borderBottomWidth: 1, borderColor: '#000000' },
   printHeadText: { fontWeight: '700' },
-  printCellDate: { flexBasis: '8%' },
-  printCellRoute: { flexBasis: '18%' },
-  printCellNum: { flexBasis: '9%', textAlign: 'right' as const },
-  printCellReceipt: { flexBasis: '10%' },
-  printCellOdometer: { flexBasis: '10%', textAlign: 'right' as const },
+  printCellDate: { flexBasis: '7%' },
+  printCellDriver: { flexBasis: '12%' },
+  printCellRoute: { flexBasis: '14%' },
+  printCellNum: { flexBasis: '8%', textAlign: 'right' as const },
+  printCellReceipt: { flexBasis: '9%' },
+  printCellOdometer: { flexBasis: '9%', textAlign: 'right' as const },
   printSignatures: { marginTop: 8, gap: 6 },
   printSignatureLine: { fontSize: 9, color: '#000000' },
   printSummaryTable: { marginTop: 6, borderWidth: 1, borderColor: '#000000' },
@@ -552,6 +627,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   reportTableTotal: { backgroundColor: colors.infoSoft, borderBottomWidth: 0 },
   reportTableCell: { ...type.meta, color: colors.text, paddingHorizontal: spacing.xs, paddingVertical: spacing.xs },
   reportDateCell: { width: 88 },
+  reportDriverCell: { width: 140 },
   reportRouteCell: { flex: 1, minWidth: 72 },
   reportNumberCell: { width: 92, textAlign: 'right' },
   reportTotalText: { ...type.secondaryStrong },

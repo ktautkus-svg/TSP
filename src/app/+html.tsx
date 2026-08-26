@@ -44,11 +44,7 @@ export default function RootHtml({ children }: PropsWithChildren) {
           @media print {
             @page { size: A4 landscape; margin: 10mm; }
             html, body, #root { background: #FFFFFF !important; overflow: visible !important; }
-            [data-testid="trip-sheet-controls"],
-            [data-testid="trip-sheet-vehicle-filter"],
-            [data-testid="trip-sheet-driver-filter"],
-            [data-testid="trip-sheet-month-filter"],
-            [data-testid="generate-trip-sheet"],
+            [data-testid="trip-sheet-toolbar"],
             [data-testid="trip-sheet-screen-view"] { display: none !important; }
             [data-testid="trip-sheet-print-view"] { display: flex !important; }
             [data-testid^="monthly-trip-sheet-"] { break-after: page; page-break-after: always; }

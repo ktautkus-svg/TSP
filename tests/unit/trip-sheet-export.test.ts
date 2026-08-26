@@ -12,7 +12,7 @@ describe('trip sheet Excel export', () => {
         month: '2026-08', driverName: 'Karolis Tautkus', registrationNumber: 'MET630', vehicleModel: 'Renault Master',
         fuelNormLitersPer100Km: 14.5, fuelType: 'Dyzelinas',
         rows: [{
-          date: '2026-08-17', route: 'R11 · R15', distanceKm: 474, fuelStartLiters: 90, fuelAddedLiters: 49,
+          date: '2026-08-17', driverName: 'Karolis Tautkus', route: 'R11 · R15', distanceKm: 474, fuelStartLiters: 90, fuelAddedLiters: 49,
           receiptNumbers: ['565638'], fuelConsumedLiters: 68.7, fuelEndLiters: 70.3,
           startOdometer: 675154, endOdometer: 675628,
         }],
@@ -26,6 +26,8 @@ describe('trip sheet Excel export', () => {
     expect(sheet).toContain('Kasos čekio Nr.');
     expect(sheet).toContain('Odometras pradžioje');
     expect(sheet).toContain('Odometras pabaigoje');
+    expect(sheet).toContain('Vairuotojas');
+    expect(sheet).toContain('Karolis Tautkus');
     expect(sheet).toContain('565638');
     expect(sheet).toContain('675154');
     expect(sheet).toContain('675628');
