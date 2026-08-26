@@ -184,12 +184,15 @@ export default function LoadingScreen() {
     if (syncRevision > 0) void load();
   }, [load, syncRevision]);
 
+  const showCargoScheme = profile.role === 'admin';
   const cargoProfile = useMemo(
-    () => resolveCargoProfile(assignment?.vehicle ?? fuelStatus?.vehicle),
-    [assignment?.vehicle, fuelStatus?.vehicle],
+    () => showCargoScheme ? resolveCargoProfile(assignment?.vehicle ?? fuelStatus?.vehicle) : null,
+    [assignment?.vehicle, fuelStatus?.vehicle, showCargoScheme],
   );
   const palletLayout = useMemo(
-    () => planCargoLayout(cargoProfile.profile, toCargoItems(stops), { assumedVehicle: cargoProfile.assumed }),
+    () => cargoProfile
+      ? planCargoLayout(cargoProfile.profile, toCargoItems(stops), { assumedVehicle: cargoProfile.assumed })
+      : null,
     [cargoProfile, stops],
   );
 
@@ -581,7 +584,7 @@ export default function LoadingScreen() {
           </View>
         </View>
       ) : null}
-      {progress && stops.length > 0 ? <CargoLayoutSvg layout={palletLayout} /> : null}
+      {showCargoScheme && progress && stops.length > 0 && palletLayout ? <CargoLayoutSvg layout={palletLayout} /> : null}
       {progress && progress.totalStops > 0 ? (
         route?.status === 'loaded' ? (
           <View style={styles.allLoadedState} testID="all-stops-loaded-state">
@@ -633,8 +636,8 @@ export default function LoadingScreen() {
       ) : null}
       {stops.map((stop, index) => {
         const deliveryOrder = stop.activeOrder ?? stop.optimizedOrder ?? stop.originalOrder;
-        const floorPallets = palletLayout.placed.filter((pallet) => pallet.itemId === stop.id);
-        const floorUnplaced = palletLayout.unplaced.some((pallet) => pallet.itemId === stop.id);
+        const floorPallets = palletLayout?.placed.filter((pallet) => pallet.itemId === stop.id) ?? [];
+        const floorUnplaced = palletLayout?.unplaced.some((pallet) => pallet.itemId === stop.id) ?? false;
         const expanded = expandedStopId === stop.id;
         const markedNotLoaded = stop.loadingStatus === 'pending' && stop.deliveryStatus === 'failed';
         const statusTone = stop.loadingStatus === 'loaded'
@@ -681,11 +684,11 @@ export default function LoadingScreen() {
               <View style={styles.cardHeaderText}>
                 <Text style={styles.address}>{stop.normalizedAddress ?? stop.originalAddress}{stop.priorityFirst ? ' ⭐' : ''}</Text>
                 <Text style={styles.loadingSequenceLabel}>KROVIMO EILĖ {index + 1} · PRISTATYMO TAŠKAS {deliveryOrder}</Text>
-                {floorPallets.length > 0 ? (
+                {showCargoScheme && palletLayout && floorPallets.length > 0 ? (
                   <Text style={styles.schemaHint}>
                     {floorSlotHint(floorPallets, palletLayout.slots)}
                   </Text>
-                ) : floorUnplaced ? (
+                ) : showCargoScheme && floorUnplaced ? (
                   <Text style={styles.schemaHint}>Netelpa ant grindų — kitas automobilis arba antras reisas</Text>
                 ) : null}
                 <Text style={styles.statusCaption}>

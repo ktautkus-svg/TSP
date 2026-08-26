@@ -261,8 +261,11 @@ describe('van loading schema', () => {
 });
 
 describe('loading schema UI wiring', () => {
-  it('shows the van diagram only after loading starts, not on the planned-route screen', () => {
+  it('hides the van diagram from drivers; only admin can open the preview or see it on a route', () => {
     const loading = readFileSync('src/app/route/[id]/loading.tsx', 'utf8');
+    const preview = readFileSync('src/app/loading-schema-preview.tsx', 'utf8');
+    const layout = readFileSync('src/app/_layout.tsx', 'utf8');
+    const admin = readFileSync('src/app/admin.tsx', 'utf8');
     const card = readFileSync('src/components/loading-schema-card.tsx', 'utf8');
     const plannedStart = loading.indexOf('title="Suplanuotas maršrutas"');
     const loadingStart = loading.indexOf('title="Krovimo planas"');
@@ -273,8 +276,13 @@ describe('loading schema UI wiring', () => {
     expect(plannedBlock).not.toContain('<LoadingSchemaCard');
     expect(plannedBlock).not.toContain('<CargoLayoutSvg');
     expect(loadingBlock).not.toContain('<LoadingSchemaCard');
-    expect(loadingBlock).toContain('<CargoLayoutSvg');
-    expect(loading).toContain('planCargoLayout');
+    expect(loading).toContain("const showCargoScheme = profile.role === 'admin'");
+    expect(loadingBlock).toContain('showCargoScheme && progress && stops.length > 0 && palletLayout');
+    expect(preview).toContain("const allowed = profile.role === 'admin'");
+    expect(preview).not.toContain('dispatcher');
+    expect(layout).toContain("loadingSchemePreview && profile.role !== 'admin'");
+    expect(admin).toContain("profile.role === 'admin'");
+    expect(admin).toContain('open-loading-schema-preview');
     expect(card).toContain('testID="loading-schema-card"');
     expect(card).toContain('testID="loading-schema-vehicle"');
     expect(card).toContain('testID="loading-schema-van"');

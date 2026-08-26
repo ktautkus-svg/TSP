@@ -2,7 +2,6 @@ import { Stack, useRouter, type Href } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { normalizeEmployeePermissions } from '@/application/auth/employee-permissions';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { resolveCargoProfile } from '@/application/loading/cargo-profile';
 import { roleHomePath } from '@/application/navigation/role-home';
@@ -21,8 +20,7 @@ export default function LoadingSchemaPreviewScreen() {
   const { profile, online } = useLocalAccess();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const permissions = normalizeEmployeePermissions(profile.permissions);
-  const allowed = profile.role === 'admin' || (profile.role === 'dispatcher' && permissions.canManageVehicles);
+  const allowed = profile.role === 'admin';
 
   const [vehicles, setVehicles] = useState<ServerFleetVehicle[]>([]);
   const [vehicleId, setVehicleId] = useState<string | null>(null);

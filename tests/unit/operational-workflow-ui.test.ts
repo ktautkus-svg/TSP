@@ -16,6 +16,7 @@ describe('driver operational UI', () => {
     expect(read('src/data/driver-ui.ts')).toContain('Artimiausi sustojimai');
     expect(layout).toContain('RoleAccessBoundary');
     expect(layout).toContain("profile.role === 'driver' && (adminOnly || (routePlanning && !driverCanPlan))");
+    expect(layout).toContain("loadingSchemePreview && profile.role !== 'admin'");
   });
 
   it('shows the return choice before final odometer and keeps both actions distinct', () => {
