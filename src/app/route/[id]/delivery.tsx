@@ -5,7 +5,7 @@ import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BackHandler, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import { BackHandler, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { navigationUrlForProvider, openWebNavigationInSameContext } from '@/application/navigation/navigation-launcher';
@@ -1007,25 +1007,27 @@ export default function DeliveryScreen() {
           <View style={[styles.finishSheet, { paddingBottom: Math.max(insets.bottom, spacing.md) }]} testID="route-finish-summary">
             <View style={styles.sheetHandle} />
             <Text style={styles.heading}>Maršruto santrauka</Text>
-            <Text style={styles.meta}>Taškai: {progress?.totalStops ?? 0} · sėkmingi {progress?.deliveredStops ?? 0} · nepavykę {progress?.failedStops ?? 0} · liko {progress?.remainingStops ?? 0}</Text>
-            <Text style={styles.meta}>Pristatytas žinomas svoris: {formatWeightKg((progress?.totalKnownWeightKg ?? 0) - (progress?.remainingKnownWeightKg ?? 0))} kg</Text>
-            <Text style={styles.meta}>Nepristatytas žinomas svoris: {formatWeightKg(progress?.remainingKnownWeightKg ?? 0)} kg</Text>
-            <Text style={styles.meta}>Pradinis odometras: {route?.startOdometer ?? 'neįvestas'}</Text>
-            <Text style={styles.meta}>Planuoti kilometrai: {route?.estimatedDistanceKm?.toFixed(1) ?? '—'}</Text>
-            <TextInput value={endOdometer} onChangeText={(value) => { setEndOdometer(value); persistCompletionDraft(value); }} keyboardType="decimal-pad" placeholder="Galutinis odometras" style={styles.input} />
-            {profile.role === 'driver' && online ? (
-              <View style={styles.reminder} testID="route-fuel-entry-card">
-                <Text style={styles.heading}>Užsipylėte kuro?</Text>
-                <Text style={styles.meta}>Įrašykite pylimą iškart. Jis bus įtrauktas į šio reiso kuro suvestinę.</Text>
-                <View style={styles.fuelRow}>
-                  <TextInput value={fuelLiters} onChangeText={(value) => setFuelLiters(value.replace(/[^\d.,]/g, '').slice(0, 7))} keyboardType="decimal-pad" placeholder="Įpilta, l" style={[styles.input, styles.fuelInput]} />
-                  <TextInput value={fuelReceiptNumber} onChangeText={setFuelReceiptNumber} placeholder="Čekio Nr. (nebūtina)" style={[styles.input, styles.fuelInput]} />
+            <ScrollView showsVerticalScrollIndicator={false} style={styles.finishSheetScroll}>
+              <Text style={styles.meta}>Taškai: {progress?.totalStops ?? 0} · sėkmingi {progress?.deliveredStops ?? 0} · nepavykę {progress?.failedStops ?? 0} · liko {progress?.remainingStops ?? 0}</Text>
+              <Text style={styles.meta}>Pristatytas žinomas svoris: {formatWeightKg((progress?.totalKnownWeightKg ?? 0) - (progress?.remainingKnownWeightKg ?? 0))} kg</Text>
+              <Text style={styles.meta}>Nepristatytas žinomas svoris: {formatWeightKg(progress?.remainingKnownWeightKg ?? 0)} kg</Text>
+              <Text style={styles.meta}>Pradinis odometras: {route?.startOdometer ?? 'neįvestas'}</Text>
+              <Text style={styles.meta}>Planuoti kilometrai: {route?.estimatedDistanceKm?.toFixed(1) ?? '—'}</Text>
+              <TextInput value={endOdometer} onChangeText={(value) => { setEndOdometer(value); persistCompletionDraft(value); }} keyboardType="decimal-pad" placeholder="Galutinis odometras" style={styles.input} />
+              {profile.role === 'driver' && online ? (
+                <View style={styles.reminder} testID="route-fuel-entry-card">
+                  <Text style={styles.heading}>Užsipylėte kuro?</Text>
+                  <Text style={styles.meta}>Įrašykite pylimą iškart. Jis bus įtrauktas į šio reiso kuro suvestinę.</Text>
+                  <View style={styles.fuelRow}>
+                    <TextInput value={fuelLiters} onChangeText={(value) => setFuelLiters(value.replace(/[^\d.,]/g, '').slice(0, 7))} keyboardType="decimal-pad" placeholder="Įpilta, l" style={[styles.input, styles.fuelInput]} />
+                    <TextInput value={fuelReceiptNumber} onChangeText={setFuelReceiptNumber} placeholder="Čekio Nr. (nebūtina)" style={[styles.input, styles.fuelInput]} />
+                  </View>
+                  <Pressable disabled={busy || !fuelLiters.trim()} onPress={() => { void saveRouteFuel(); }} style={[styles.secondaryButton, (busy || !fuelLiters.trim()) && styles.disabled]}>
+                    <Text style={styles.secondaryText}>{fuelEntrySaved ? 'Įrašyti dar vieną pylimą' : 'Išsaugoti pylimą'}</Text>
+                  </Pressable>
                 </View>
-                <Pressable disabled={busy || !fuelLiters.trim()} onPress={() => { void saveRouteFuel(); }} style={[styles.secondaryButton, (busy || !fuelLiters.trim()) && styles.disabled]}>
-                  <Text style={styles.secondaryText}>{fuelEntrySaved ? 'Įrašyti dar vieną pylimą' : 'Išsaugoti pylimą'}</Text>
-                </Pressable>
-              </View>
-            ) : null}
+              ) : null}
+            </ScrollView>
             <Pressable disabled={busy} style={[styles.finishButton, busy && styles.disabled]} onPress={() => void finish(false, false)}><Text style={styles.buttonText}>Patvirtinti užbaigimą</Text></Pressable>
             <Pressable disabled={busy} style={styles.cancelButton} onPress={leaveFinish}><Text style={styles.secondaryText}>Grįžti</Text></Pressable>
           </View>
@@ -1390,6 +1392,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   addStopDialog: { width: '100%', maxWidth: 420, padding: spacing.lg, borderWidth: 1, borderRadius: radius.lg, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
   failureSheet: { maxHeight: '92%', paddingTop: spacing.sm, paddingHorizontal: spacing.lg, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, backgroundColor: colors.surface, gap: spacing.md },
   finishSheet: { maxHeight: '92%', paddingTop: spacing.sm, paddingHorizontal: spacing.lg, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, backgroundColor: colors.surface, gap: spacing.sm },
+  finishSheetScroll: { flexGrow: 1, flexShrink: 1 },
   sheetHandle: { alignSelf: 'center', width: 44, height: 5, borderRadius: radius.pill, backgroundColor: colors.borderStrong },
   reasonGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   reason: { padding: spacing.sm, borderWidth: 1, borderRadius: radius.md, borderColor: colors.border, color: colors.text, overflow: 'hidden' },
