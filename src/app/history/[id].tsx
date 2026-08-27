@@ -171,7 +171,7 @@ export default function RouteHistoryDetailScreen() {
       <Pressable style={styles.historyButton} onPress={goHistory}><Text style={styles.historyText}>← Maršrutai</Text></Pressable>
       <Pressable style={styles.homeButton} onPress={goHome}><Text style={styles.homeText}>Į pradžią</Text></Pressable>
     </FoundationScreen>
-    <RouteBottomTabs active="routes" onDashboard={goActiveDashboard} onStops={goActiveStops} onRoutes={goHistory} />
+    <RouteBottomTabs active="dashboard" onContacts={() => router.push('/contacts' as Href)} onDashboard={goActiveDashboard} onStops={goActiveStops} />
     </View>
     </>
   );

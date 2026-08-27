@@ -44,7 +44,7 @@ describe('stage 2.2 deterministic navigation', () => {
     expect(history).toContain('Maršrutų dar nėra');
     expect(history).toContain('gestureEnabled: false');
     expect(history).not.toContain('router.back(');
-    expect(history).toContain('<DriverAppTabs active="routes"');
+    expect(history).toContain('<DriverAppTabs active={null}');
   });
 
   it('keeps technical audit data collapsed by default', () => {
@@ -68,11 +68,11 @@ describe('stage 2.2 deterministic navigation', () => {
     const tabs = source('src/components/driver-app-tabs.tsx');
     expect(tabs).toContain("label: 'Dabar'");
     expect(tabs).toContain("href: '/'");
-    expect(tabs).toContain("label: 'Maršrutai'");
+    expect(tabs).toContain("label: 'Tęsti'");
     expect(tabs).toContain("label: 'Statistika'");
     expect(tabs).toContain("label: 'Nustatymai'");
     expect(source('src/app/index.tsx')).toContain('<DriverAppTabs active="now"');
-    expect(source('src/app/history.tsx')).toContain('<DriverAppTabs active="routes"');
+    expect(source('src/app/history.tsx')).toContain('<DriverAppTabs active={null}');
     expect(source('src/app/statistics.tsx')).toContain('<DriverAppTabs active="statistics"');
     expect(source('src/app/settings/index.tsx')).toContain('<DriverAppTabs active="settings"');
   });

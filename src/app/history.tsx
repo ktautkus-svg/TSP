@@ -176,7 +176,7 @@ export default function RoutesScreen() {
 
           {profile.role !== 'driver' ? <Pressable accessibilityLabel="Grįžti į skydelį" accessibilityRole="button" style={styles.homeButton} onPress={goHome}><Text style={styles.homeText}>Į skydelį</Text></Pressable> : null}
         </FoundationScreen>
-        {profile.role === 'driver' ? <DriverAppTabs active="routes" /> : null}
+        {profile.role === 'driver' ? <DriverAppTabs active={null} /> : null}
       </View>
     </>
   );

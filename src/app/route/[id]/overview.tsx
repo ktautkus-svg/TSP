@@ -268,7 +268,7 @@ export default function RouteOverviewScreen() {
         </View>) : null}
       </> : null}
     </FoundationScreen>
-    {profile.role === 'driver' ? <DriverAppTabs active="routes" /> : null}
+    {profile.role === 'driver' ? <DriverAppTabs active={null} /> : null}
   </View>;
 }
 

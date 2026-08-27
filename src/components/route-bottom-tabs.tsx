@@ -3,13 +3,13 @@ import Svg, { Circle, Path } from 'react-native-svg';
 
 import { colors, fonts } from '@/ui/tokens';
 
-export type RouteBottomTab = 'dashboard' | 'stops' | 'routes';
+export type RouteBottomTab = 'dashboard' | 'stops' | 'contacts';
 
 export interface RouteBottomTabsProps {
   readonly active: RouteBottomTab;
   readonly onDashboard: () => void;
   readonly onStops: () => void;
-  readonly onRoutes: () => void;
+  readonly onContacts: () => void;
 }
 
 export function RouteBottomTabs(props: RouteBottomTabsProps) {
@@ -18,7 +18,7 @@ export function RouteBottomTabs(props: RouteBottomTabsProps) {
   const tabs = [
     { key: 'dashboard', label: 'Skydelis', onPress: props.onDashboard },
     { key: 'stops', label: 'Stotelės', onPress: props.onStops },
-    { key: 'routes', label: 'Maršrutai', onPress: props.onRoutes },
+    { key: 'contacts', label: 'Kontaktai', onPress: props.onContacts },
   ] as const;
 
   return (
@@ -42,10 +42,14 @@ export function RouteBottomTabs(props: RouteBottomTabsProps) {
                   <Circle cx={12} cy={9} fill={active ? colors.primary : colors.textMuted} r={2.2} />
                 </>
               ) : (
-                <>
-                  <Circle cx={12} cy={12} fill="none" r={8} stroke={active ? colors.primary : colors.textMuted} strokeWidth={1.8} />
-                  <Path d="M12 7v5l-3 2M4 6v4h4" fill="none" stroke={active ? colors.primary : colors.textMuted} strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} />
-                </>
+                <Path
+                  d="M6.6 10.8c1.2 2.4 3.2 4.4 5.6 5.6l1.9-1.9c.3-.3.7-.4 1.1-.2 1.1.4 2.3.6 3.6.6.6 0 1.1.5 1.1 1.1v3.4c0 .6-.5 1.1-1.1 1.1C9.7 20.5 3.5 14.3 3.5 6.3c0-.6.5-1.1 1.1-1.1H8c.6 0 1.1.5 1.1 1.1 0 1.3.2 2.5.6 3.6.1.4 0 .8-.2 1.1L6.6 10.8Z"
+                  fill="none"
+                  stroke={active ? colors.primary : colors.textMuted}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1.5}
+                />
               )}
             </Svg>
             <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{tab.label}</Text>

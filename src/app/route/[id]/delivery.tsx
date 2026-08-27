@@ -1001,8 +1001,8 @@ export default function DeliveryScreen() {
       </View>
       <RouteBottomTabs
         active={activeView}
+        onContacts={() => router.push('/contacts' as Href)}
         onDashboard={() => setActiveView('dashboard')}
-        onRoutes={() => router.push('/history' as Href)}
         onStops={() => setActiveView('stops')}
       />
     </View>
