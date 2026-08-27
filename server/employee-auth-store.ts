@@ -2077,9 +2077,22 @@ export class EmployeeAuthStore {
     const currentVehicles = new Map(
       vehicles.filter((vehicle) => vehicle.assignedDriverId).map((vehicle) => [vehicle.assignedDriverId!, vehicleSnapshot(vehicle)]),
     );
+    // assignment.driverName is a snapshot taken when the route was assigned —
+    // renaming the driver afterwards never touches old assignments, so this
+    // screen kept showing whatever placeholder name was current back then.
+    // Resolve the live display name where the driver still exists.
+    const currentDriverNames = new Map(
+      (await this.users.get()).docs.map((document) => {
+        const user = document.data() as StoredUser;
+        return [user.id, user.displayName] as const;
+      }),
+    );
     return assignments
       .filter((assignment) => assignment.status !== 'cancelled')
-      .map((assignment) => buildQualityRouteMonitor(assignment, assignment.vehicle ?? currentVehicles.get(assignment.driverId) ?? null))
+      .map((assignment) => buildQualityRouteMonitor(
+        { ...assignment, driverName: currentDriverNames.get(assignment.driverId) ?? assignment.driverName },
+        assignment.vehicle ?? currentVehicles.get(assignment.driverId) ?? null,
+      ))
       .sort((left, right) => qualityStatusRank(left.status) - qualityStatusRank(right.status) || right.updatedAt.localeCompare(left.updatedAt));
   }
 
