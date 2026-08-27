@@ -2751,13 +2751,16 @@ export function buildQualityRouteMonitor(assignment: RouteAssignment, vehicle: F
   return {
     id: assignment.id,
     routeId: assignment.routeId,
-    // route.date is set once at creation and should always be present, but if
-    // it is ever missing, the date the ROUTE WAS DRIVEN (completed/started) is
-    // the honest fallback — assignedAt is when a dispatcher clicked "assign",
-    // which can be a different day than when the driver actually ran it.
-    date: optionalText(route.date)
-      ?? optionalText(route.completed_at)?.slice(0, 10)
+    // route.date defaults to the day the draft was CREATED when nobody set an
+    // explicit delivery date (see insertDraftRoute), which can be a different
+    // calendar day than when it was actually driven — a route planned the
+    // evening before, or left in a draft over a date boundary, then reported
+    // under the wrong day here. Once a route has actually run, the real
+    // completed/started timestamp is the honest "when did this happen" for
+    // quality-control; route.date (the plan) only matters before that.
+    date: optionalText(route.completed_at)?.slice(0, 10)
       ?? optionalText(route.started_at)?.slice(0, 10)
+      ?? optionalText(route.date)
       ?? assignment.assignedAt.slice(0, 10),
     routeNumbers,
     status: assignment.status,

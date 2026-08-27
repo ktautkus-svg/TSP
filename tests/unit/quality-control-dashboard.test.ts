@@ -53,6 +53,27 @@ describe('quality control dashboard', () => {
     expect(route.stops[0]).toMatchObject({ sequence: 1, status: 'delivered', deliveredAt: '2026-08-12T08:05:00.000Z' });
   });
 
+  it('reports the day the route actually completed, not the day the draft happened to be created on', () => {
+    // route.date defaults to the creation day when nobody sets an explicit
+    // delivery date — a route drafted the evening before and driven the next
+    // day must still land in quality-control under the day it was actually
+    // worked, not the day it was drafted.
+    const late = assignment();
+    late.routeSnapshot.route.date = '2026-08-11';
+    late.routeSnapshot.route.started_at = '2026-08-12T05:30:00.000Z';
+    late.routeSnapshot.route.completed_at = '2026-08-12T09:00:00.000Z';
+    const route = buildQualityRouteMonitor(late, late.vehicle);
+    expect(route.date).toBe('2026-08-12');
+  });
+
+  it('falls back to the planned date for a route that has not started yet', () => {
+    const notStarted = assignment();
+    notStarted.routeSnapshot.route.date = '2026-08-15';
+    notStarted.routeSnapshot.route.started_at = null;
+    const route = buildQualityRouteMonitor(notStarted, notStarted.vehicle);
+    expect(route.date).toBe('2026-08-15');
+  });
+
   it('recovers a missing mapped region from the preserved Excel row and still ignores S codes', () => {
     const legacy = assignment();
     legacy.routeSnapshot.shipmentLines = legacy.routeSnapshot.shipmentLines.map((line) => ({
