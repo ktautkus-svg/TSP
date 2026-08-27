@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-export const SCHEMA_VERSION = 26;
+export const SCHEMA_VERSION = 27;
 
 const migrationV1 = `
 PRAGMA journal_mode = WAL;
@@ -1217,6 +1217,22 @@ PRAGMA user_version = 26;
 COMMIT;
 `;
 
+// v27 remembers a recipient's phone number the first time anyone types it in
+// for a delivery address, so re-importing the same address later fills the
+// phone in automatically instead of asking every driver to type it again.
+const migrationV27 = `
+BEGIN IMMEDIATE;
+
+CREATE TABLE contact_phone_memory (
+  address_key TEXT PRIMARY KEY NOT NULL,
+  phone TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+PRAGMA user_version = 27;
+COMMIT;
+`;
+
 async function ensureRouteReturnColumns(db: SQLiteDatabase): Promise<void> {
   const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(routes)');
   const names = new Set(columns.map((column) => column.name));
@@ -1380,5 +1396,10 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
 
   if (currentVersion < 26) {
     await db.execAsync(migrationV26);
+    currentVersion = 26;
+  }
+
+  if (currentVersion < 27) {
+    await db.execAsync(migrationV27);
   }
 }

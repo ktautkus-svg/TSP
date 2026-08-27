@@ -35,14 +35,19 @@ class ExpoLikeDatabase {
   }
 }
 
-function createDb(): { adapter: ExpoLikeDatabase; db: SQLiteDatabase } {
-  const adapter = new ExpoLikeDatabase();
-  const source = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../src/database/migrations.ts'), 'utf8');
-  for (let version = 1; version <= 10; version += 1) {
-    const match = source.match(new RegExp(`const migrationV${version} = \`([\\s\\S]*?)\`;`));
+const migrationSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../src/database/migrations.ts'), 'utf8');
+
+function applyMigrations(adapter: ExpoLikeDatabase, through: number): void {
+  for (let version = 1; version <= through; version += 1) {
+    const match = migrationSource.match(new RegExp(`const migrationV${version} = \`([\\s\\S]*?)\`;`));
     if (!match) throw new Error(`Missing migrationV${version}`);
     adapter.raw.exec(match[1]);
   }
+}
+
+function createDb(): { adapter: ExpoLikeDatabase; db: SQLiteDatabase } {
+  const adapter = new ExpoLikeDatabase();
+  applyMigrations(adapter, 27);
   return { adapter, db: adapter as unknown as SQLiteDatabase };
 }
 
@@ -234,7 +239,8 @@ describe('persisted DeliveryStop identity and atomic route creation', () => {
   });
 
   it('exposes the current schema required by the SDK 54 physical pilot', () => {
-    const { adapter } = createDb();
+    const adapter = new ExpoLikeDatabase();
+    applyMigrations(adapter, 10);
     expect(adapter.raw.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 10 });
     const columns = adapter.raw.prepare('PRAGMA table_info(delivery_stops)').all();
     expect(columns).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'source_stop_id' })]));

@@ -16,6 +16,7 @@ import type { CandidateLeg, CandidateStopSchedule } from '@/domain/routing/model
 import { persistCandidateEtas } from './route-eta';
 import { firstBlockerMessage, loadDepartureReadiness } from '@/application/operations/departure-readiness';
 import { isUsablePhone, normalizePhone } from '@/domain/phone';
+import { addressMemoryKey } from '@/database/repositories/address-resolution-memory-repository';
 
 export type RouteCommandErrorCode =
   | 'ACTIVE_ROUTE_EXISTS'
@@ -424,10 +425,11 @@ export class UpdateStopPhone extends RouteCommandBase {
     }
     const current = (await this.routes.getStops(routeId)).find((stop) => stop.id === stopId);
     if (!current) throw new RouteCommandError('STOP_NOT_FOUND', 'Pristatymo taškas nerastas.', { stopId });
-    const phone = normalizePhone(phoneInput);
-    if (!isUsablePhone(phone)) {
+    const normalized = normalizePhone(phoneInput);
+    if (!isUsablePhone(normalized)) {
       throw new RouteCommandError('INVALID_STOP', 'Įveskite veikiantį kliento telefono numerį.');
     }
+    const phone = normalized!;
     const now = this.clock();
     await this.db.withTransactionAsync(async () => {
       await this.db.runAsync(
@@ -438,6 +440,7 @@ export class UpdateStopPhone extends RouteCommandBase {
         routeId,
       );
       await this.audit(routeId, 'stop_phone_updated', { phone: current.phone }, { phone }, stopId);
+      await rememberContactPhone(this.db, current.normalizedAddress ?? current.originalAddress, phone, now);
     });
   }
 }
@@ -736,6 +739,31 @@ export class CancelDraftRoute extends RouteCommandBase {
   }
 }
 
+async function rememberedContactPhone(db: SQLiteDatabase, address: string): Promise<string | null> {
+  const key = addressMemoryKey(address);
+  if (!key) return null;
+  const row = await db.getFirstAsync<{ phone: string }>(
+    'SELECT phone FROM contact_phone_memory WHERE address_key = ?',
+    key,
+  );
+  return row?.phone ?? null;
+}
+
+/** Whoever enters a phone for an address first — Excel import or a manual
+ * edit — saves it here, so the next import of the same address fills it in. */
+async function rememberContactPhone(db: SQLiteDatabase, address: string, phone: string, now: string): Promise<void> {
+  const key = addressMemoryKey(address);
+  if (!key) return;
+  await db.runAsync(
+    `INSERT INTO contact_phone_memory (address_key, phone, updated_at)
+     VALUES (?, ?, ?)
+     ON CONFLICT(address_key) DO UPDATE SET phone = excluded.phone, updated_at = excluded.updated_at`,
+    key,
+    phone,
+    now,
+  );
+}
+
 async function insertStop(
   db: SQLiteDatabase,
   routeId: string,
@@ -744,6 +772,9 @@ async function insertStop(
   now: string,
   idFactory: IdFactory,
 ): Promise<void> {
+  const importAddress = stop.normalizedAddress ?? stop.originalAddress;
+  const phone = stop.phone ?? await rememberedContactPhone(db, importAddress);
+  if (stop.phone) await rememberContactPhone(db, importAddress, stop.phone, now);
   await db.runAsync(
     `INSERT INTO delivery_stops (
       id, source_stop_id, route_id, original_order, active_order, order_number, recipient,
@@ -773,7 +804,7 @@ async function insertStop(
     stop.deliveryTimeTo,
     stop.requiredTimeWindow ? 1 : 0,
     stop.weightKg,
-    stop.phone,
+    phone,
     stop.notes,
     serviceMinutesForWeight(stop.weightKg),
     now,

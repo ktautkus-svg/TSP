@@ -62,7 +62,7 @@ function migration(name: string): string {
   return match[1];
 }
 
-function createDb(through = 12): { adapter: ExpoLikeDatabase; db: SQLiteDatabase } {
+function createDb(through = 27): { adapter: ExpoLikeDatabase; db: SQLiteDatabase } {
   const adapter = new ExpoLikeDatabase();
   for (let version = 1; version <= through; version += 1) adapter.raw.exec(migration(`migrationV${version}`));
   return { adapter, db: adapter as unknown as SQLiteDatabase };
@@ -391,7 +391,7 @@ describe('driver workday persistence', () => {
   });
 
   it('completes transactionally, rejects negative distance and ignores double completion', async () => {
-    const { adapter, db } = createDb(21);
+    const { adapter, db } = createDb(27);
     await startedRoute(db);
     await new MarkStopDelivered(db).execute('route-1', 'stop-1');
     await new MarkStopDelivered(db).execute('route-1', 'stop-2');
@@ -456,7 +456,7 @@ describe('driver workday persistence', () => {
     expect(report).toMatchObject({
       exportType: 'pilot_route_diagnostic',
       applicationVersion: '1.0.0',
-      schemaVersion: 12,
+      schemaVersion: 27,
       route: { id: 'route-1', status: 'in_progress', startOdometer: 1000.5 },
     });
     expect(report.stops).toHaveLength(2);
@@ -503,7 +503,7 @@ describe('driver workday persistence', () => {
   });
 
   it('persists an interrupted completion and its odometer draft across process restart', async () => {
-    const { db } = createDb(21);
+    const { db } = createDb(27);
     await startedRoute(db);
     await new MarkStopFailed(db).execute('route-1', 'stop-1', {
       reason: 'Kita',
@@ -531,7 +531,7 @@ describe('driver workday persistence', () => {
   });
 
   it('clears only the completion odometer draft after the same route is completed', async () => {
-    const { db } = createDb(21);
+    const { db } = createDb(27);
     await startedRoute(db);
     await new MarkStopDelivered(db).execute('route-1', 'stop-1');
     await new MarkStopDelivered(db).execute('route-1', 'stop-2');
@@ -707,7 +707,7 @@ describe('active route next stop', () => {
 
 describe('stop priority', () => {
   it('numbers priorities by click order and compacts ranks after deselection', async () => {
-    const { db } = createDb(21);
+    const { db } = createDb(27);
     await new CreateDraftRoute(db).execute({ id: 'route-p', startLocation: endpoint, endLocation: endpoint });
     let stopNumber = 0;
     await new ReplaceDraftStops(db, undefined, (prefix) => prefix === 'stop' ? `stop-${++stopNumber}` : `${prefix}-${Math.random()}`)
@@ -732,7 +732,7 @@ describe('stop priority', () => {
   });
 
   it('orders multiple priority stops along the way without hard-locking the first slot', async () => {
-    const { db } = createDb(21);
+    const { db } = createDb(27);
     await new CreateDraftRoute(db).execute({ id: 'route-p2', startLocation: endpoint, endLocation: endpoint });
     let stopNumber = 0;
     await new ReplaceDraftStops(db, undefined, (prefix) => prefix === 'stop' ? `stop-${++stopNumber}` : `${prefix}-${Math.random()}`)
