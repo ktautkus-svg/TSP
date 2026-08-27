@@ -3,6 +3,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { AdminCompleteRoute } from '@/application/routes/route-workday';
 import {
   employeeApi,
+  getEmployeeSession,
   type EmployeeProfile,
   type RouteSnapshot,
   type ServerRouteAssignment,
@@ -137,11 +138,51 @@ export async function pullAssignedRoutes(db: SQLiteDatabase, profile: EmployeePr
   return { imported, skipped };
 }
 
+/**
+ * A route worked without ever going through the dispatcher-assignment flow
+ * (the same person creating and driving it, e.g. an admin/owner) has no
+ * route_sync_state row and so never reaches the server — which made it
+ * invisible in quality-control, not just unsynced. Self-assigning it (only
+ * possible for admin/dispatcher, since /api/admin/assignments requires that
+ * role) gives it the same server-side assignment record a dispatcher-pushed
+ * route already has, before anything else here needs it to exist.
+ */
+async function ensureSelfAssignment(db: SQLiteDatabase, routeId: string): Promise<boolean> {
+  const session = await getEmployeeSession();
+  const profile = session?.profile;
+  if (!profile || (profile.role !== 'admin' && profile.role !== 'dispatcher')) return false;
+  try {
+    const routeSnapshot = await exportRouteSnapshot(db, routeId);
+    const response = await employeeApi<{ assignment: ServerRouteAssignment }>('/api/admin/assignments', {
+      method: 'POST',
+      body: JSON.stringify({ driverId: profile.id, routeSnapshot }),
+    });
+    const now = new Date().toISOString();
+    await db.runAsync(
+      `INSERT INTO route_sync_state
+       (assignment_id, route_id, employee_id, server_revision, sync_status, last_synced_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'synced', ?, ?, ?)
+       ON CONFLICT(assignment_id) DO NOTHING`,
+      response.assignment.id, routeId, profile.id, response.assignment.updatedAt, now, now, now,
+    );
+    await db.runAsync('UPDATE routes SET owner_employee_id = COALESCE(owner_employee_id, ?) WHERE id = ?', profile.id, routeId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function pushRouteAssignmentProgress(db: SQLiteDatabase, routeId: string): Promise<boolean> {
-  const sync = await db.getFirstAsync<{ assignment_id: string }>(
+  let sync = await db.getFirstAsync<{ assignment_id: string }>(
     'SELECT assignment_id FROM route_sync_state WHERE route_id = ?', routeId,
   );
-  if (!sync) return false;
+  if (!sync) {
+    if (!await ensureSelfAssignment(db, routeId)) return false;
+    sync = await db.getFirstAsync<{ assignment_id: string }>(
+      'SELECT assignment_id FROM route_sync_state WHERE route_id = ?', routeId,
+    );
+    if (!sync) return false;
+  }
   const routeSnapshot = await exportRouteSnapshot(db, routeId);
   await employeeApi(`/api/assignments/${encodeURIComponent(sync.assignment_id)}/progress`, {
     method: 'PUT',
