@@ -20,6 +20,7 @@ import { ScreenContainer } from '@/components/screen-container';
 import { AppButton, AppCard } from '@/components/ui-primitives';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import type { DeliveryStop, Route } from '@/domain/route';
+import { employeeApi, type EmployeeProfile } from '@/infrastructure/auth/employee-session';
 import { Alert } from '@/ui/alert';
 import { devWarn } from '@/ui/dev-log';
 import { formatWeightKg } from '@/ui/format-weight';
@@ -31,7 +32,7 @@ import { fonts, radius, spacing, type } from '@/ui/tokens';
 export default function HomeScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
-  const { profile, online } = useLocalAccess();
+  const { profile, online, actingDriver, setActingDriver } = useLocalAccess();
   const { requestSync, revision: syncRevision } = useRouteCloudSync();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -43,6 +44,23 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [availableDrivers, setAvailableDrivers] = useState<EmployeeProfile[]>([]);
+  // An admin who switched this device into "driving as" a chosen driver sees
+  // exactly what that driver would see, without logging out of the admin
+  // account — only admin can do this; dispatchers already work primarily
+  // through the dispatcher screen.
+  const drivingAsProxy = profile.role === 'admin' && actingDriver !== null;
+  const showDriverDashboard = profile.role === 'driver' || drivingAsProxy;
+  const effectiveDriverId = profile.role === 'driver' ? profile.id : actingDriver?.id ?? null;
+
+  useEffect(() => {
+    if (profile.role !== 'admin' || !online) return;
+    let mounted = true;
+    void employeeApi<{ users: EmployeeProfile[] }>('/api/admin/users')
+      .then((response) => { if (mounted) setAvailableDrivers(response.users.filter((user) => user.role === 'driver' && !user.disabled)); })
+      .catch((reason) => devWarn('ADMIN_DRIVER_LIST_FAILED', reason));
+    return () => { mounted = false; };
+  }, [online, profile.role]);
 
   const exportActiveDiagnostic = async () => {
     if (!active || !active.id || exporting) return;
@@ -77,9 +95,9 @@ export default function HomeScreen() {
           await pushCompletedRouteAssignmentProgress(db);
         }
         await requestSync('home-focus');
-        const operational = profile.role === 'admin'
-          ? []
-          : await repository.listOperational(profile.role === 'driver' ? profile.id : null);
+        const operational = showDriverDashboard
+          ? await repository.listOperational(effectiveDriverId)
+          : [];
         const route = operational[0] ?? null;
         const nextProgress = route ? await new GetRouteProgress(db).execute(route.id) : null;
         const nextStops = route ? await repository.getStops(route.id) : [];
@@ -100,16 +118,16 @@ export default function HomeScreen() {
       }
     })();
     return () => { mounted = false; };
-  }, [db, online, profile, repository, requestSync, router]));
+  }, [db, effectiveDriverId, online, profile, repository, requestSync, router, showDriverDashboard]));
 
   useEffect(() => {
     if (syncRevision === 0) return;
     let mounted = true;
     void (async () => {
       if (online && profile.role === 'driver') await pushCompletedRouteAssignmentProgress(db);
-      const operational = profile.role === 'admin'
-        ? []
-        : await repository.listOperational(profile.role === 'driver' ? profile.id : null);
+      const operational = showDriverDashboard
+        ? await repository.listOperational(effectiveDriverId)
+        : [];
       const route = operational[0] ?? null;
       const nextProgress = route ? await new GetRouteProgress(db).execute(route.id) : null;
       const nextStops = route ? await repository.getStops(route.id) : [];
@@ -127,23 +145,49 @@ export default function HomeScreen() {
       devWarn('ACTIVE_ROUTE_SYNC_REFRESH_FAILED', reason);
     });
     return () => { mounted = false; };
-  }, [db, online, profile.id, profile.role, repository, syncRevision]);
+  }, [db, effectiveDriverId, online, profile.id, profile.role, repository, showDriverDashboard, syncRevision]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      {profile.role === 'driver'
+      {showDriverDashboard
         ? <BrandHeader showNotifications={false} showSyncStatus={false} variant="driver" />
         : <BrandHeader onMenuPress={() => setAccountMenuOpen(true)} />}
+      {drivingAsProxy ? (
+        <View style={styles.actingBanner} testID="acting-driver-banner">
+          <Text style={styles.actingBannerText}>Vairuojate kaip {actingDriver?.displayName}</Text>
+          <Pressable accessibilityRole="button" onPress={() => void setActingDriver(null)} style={styles.actingBannerButton}>
+            <Text style={styles.actingBannerButtonText}>Grįžti į administratorių</Text>
+          </Pressable>
+        </View>
+      ) : null}
       <AccountMenuSheet visible={accountMenuOpen} onClose={() => setAccountMenuOpen(false)} />
       <ScreenContainer>
-        <ScrollView contentContainerStyle={[styles.content, profile.role === 'driver' && styles.driverContent]}>
-          {profile.role === 'admin' ? (
+        <ScrollView contentContainerStyle={[styles.content, showDriverDashboard && styles.driverContent]}>
+          {!showDriverDashboard && profile.role === 'admin' ? (
             <View style={styles.adminMenu} testID="admin-home-menu">
               <View style={styles.adminMenuHeading}>
                 <Text style={styles.adminMenuEyebrow}>ADMINISTRATORIAUS MENIU</Text>
                 <Text style={styles.adminMenuTitle}>TSP valdymo centras</Text>
                 <Text style={styles.adminMenuText}>{profile.displayName}</Text>
               </View>
+              {availableDrivers.length > 0 ? (
+                <View style={styles.actingDriverSection} testID="acting-driver-picker">
+                  <Text style={styles.actingDriverLabel}>VAIRUOTI KAIP</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.actingDriverRow}>
+                    {availableDrivers.map((driver) => (
+                      <Pressable
+                        key={driver.id}
+                        accessibilityRole="button"
+                        onPress={() => void setActingDriver({ id: driver.id, displayName: driver.displayName })}
+                        style={styles.actingDriverChip}
+                        testID={`acting-driver-${driver.id}`}
+                      >
+                        <Text style={styles.actingDriverChipText}>{driver.displayName}</Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                </View>
+              ) : null}
               <View style={styles.adminMenuFeatured}><GroupedMenuSection label="SKUBŪS DARBAI">
                 <GroupedMenuRow description="Kurti, redaguoti, vykdyti ir stebėti maršrutus." icon={<MenuArtwork kind="dispatch" />} onPress={() => router.push('/dispatcher' as Href)} title="Dispečerio skydelis" tone="success" />
               </GroupedMenuSection></View>
@@ -163,7 +207,7 @@ export default function HomeScreen() {
                 </GroupedMenuSection></View>
               </View>
             </View>
-          ) : profile.role === 'driver' ? loading ? (
+          ) : showDriverDashboard ? loading ? (
             <View style={styles.loadingState} testID="home-loading-state"><ActivityIndicator color={colors.primary} size="large" /></View>
           ) : active && progress ? (
             <DriverNowDashboard
@@ -266,7 +310,7 @@ export default function HomeScreen() {
           </View> : null}
         </ScrollView>
       </ScreenContainer>
-      {profile.role === 'driver' ? <DriverAppTabs active="now" /> : null}
+      {showDriverDashboard ? <DriverAppTabs active="now" /> : null}
     </SafeAreaView>
   );
 }
@@ -327,6 +371,15 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   adminMenuEyebrow: { ...type.label, color: colors.textMuted },
   adminMenuTitle: { ...type.pageTitle, color: colors.text, fontSize: 32, lineHeight: 38 },
   adminMenuText: { ...type.bodyStrong, color: colors.info },
+  actingBanner: { minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, paddingHorizontal: spacing.lg, paddingVertical: spacing.xs, backgroundColor: colors.primary },
+  actingBannerText: { ...type.secondaryStrong, color: colors.textInverse },
+  actingBannerButton: { minHeight: 32, paddingHorizontal: spacing.sm, borderRadius: radius.sm, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+  actingBannerButtonText: { ...type.meta, fontFamily: fonts.headingSemiBold, color: colors.primary },
+  actingDriverSection: { gap: spacing.xs, paddingHorizontal: spacing.xs },
+  actingDriverLabel: { ...type.label, color: colors.textMuted },
+  actingDriverRow: { flexDirection: 'row', gap: spacing.sm, paddingVertical: 2 },
+  actingDriverChip: { minHeight: 44, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+  actingDriverChipText: { ...type.bodyStrong, color: colors.text },
   adminMenuFeatured: { marginBottom: spacing.md },
   adminMenuSections: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: spacing.md },
   adminMenuGroup: { flexGrow: 1, flexBasis: 320, minWidth: 0 },

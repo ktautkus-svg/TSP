@@ -1,5 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
+import { LocalAccessService } from '@/application/auth/local-access';
 import { AdminCompleteRoute } from '@/application/routes/route-workday';
 import {
   employeeApi,
@@ -146,16 +147,24 @@ export async function pullAssignedRoutes(db: SQLiteDatabase, profile: EmployeePr
  * possible for admin/dispatcher, since /api/admin/assignments requires that
  * role) gives it the same server-side assignment record a dispatcher-pushed
  * route already has, before anything else here needs it to exist.
+ *
+ * An admin/dispatcher who has switched this device into "acting as driver X"
+ * mode (LocalAccessService.getActingDriver) self-assigns to that driver
+ * instead of their own account, so the route is attributed and visible in
+ * quality-control under the driver actually being represented, without
+ * logging out of the admin session.
  */
 async function ensureSelfAssignment(db: SQLiteDatabase, routeId: string): Promise<boolean> {
   const session = await getEmployeeSession();
   const profile = session?.profile;
   if (!profile || (profile.role !== 'admin' && profile.role !== 'dispatcher')) return false;
+  const actingDriver = await new LocalAccessService(db).getActingDriver();
+  const driverId = actingDriver?.id ?? profile.id;
   try {
     const routeSnapshot = await exportRouteSnapshot(db, routeId);
     const response = await employeeApi<{ assignment: ServerRouteAssignment }>('/api/admin/assignments', {
       method: 'POST',
-      body: JSON.stringify({ driverId: profile.id, routeSnapshot }),
+      body: JSON.stringify({ driverId, routeSnapshot }),
     });
     const now = new Date().toISOString();
     await db.runAsync(
@@ -163,9 +172,9 @@ async function ensureSelfAssignment(db: SQLiteDatabase, routeId: string): Promis
        (assignment_id, route_id, employee_id, server_revision, sync_status, last_synced_at, created_at, updated_at)
        VALUES (?, ?, ?, ?, 'synced', ?, ?, ?)
        ON CONFLICT(assignment_id) DO NOTHING`,
-      response.assignment.id, routeId, profile.id, response.assignment.updatedAt, now, now, now,
+      response.assignment.id, routeId, driverId, response.assignment.updatedAt, now, now, now,
     );
-    await db.runAsync('UPDATE routes SET owner_employee_id = COALESCE(owner_employee_id, ?) WHERE id = ?', profile.id, routeId);
+    await db.runAsync('UPDATE routes SET owner_employee_id = COALESCE(owner_employee_id, ?) WHERE id = ?', driverId, routeId);
     return true;
   } catch {
     return false;

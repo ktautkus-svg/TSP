@@ -9,6 +9,7 @@ class ExpoLikeDatabase {
   constructor() { this.raw.exec('CREATE TABLE app_preferences (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)'); }
   async runAsync(sql: string, ...params: unknown[]) { return this.raw.prepare(sql).run(...params as never[]); }
   async getAllAsync<T>(sql: string, ...params: unknown[]): Promise<T[]> { return this.raw.prepare(sql).all(...params as never[]) as T[]; }
+  async getFirstAsync<T>(sql: string, ...params: unknown[]): Promise<T | null> { return (this.raw.prepare(sql).get(...params as never[]) as T | undefined) ?? null; }
   async withTransactionAsync(operation: () => Promise<void>) {
     this.raw.exec('BEGIN IMMEDIATE');
     try { await operation(); this.raw.exec('COMMIT'); } catch (error) { this.raw.exec('ROLLBACK'); throw error; }
@@ -47,5 +48,25 @@ describe('local owner access', () => {
     await service.syncServerCredentials('naujas-vairuotojas', '654321');
     expect(await service.verify('senas-vartotojas', '258025')).toBe(false);
     expect(await service.verify('naujas-vairuotojas', '654321')).toBe(true);
+  });
+
+  it('records the PIN unlock timestamp, starting the grace period', async () => {
+    const adapter = new ExpoLikeDatabase();
+    const service = new LocalAccessService(adapter as unknown as SQLiteDatabase);
+    expect(await service.getLastUnlockedAt()).toBeNull();
+    await service.markUnlocked();
+    const recorded = await service.getLastUnlockedAt();
+    expect(recorded).not.toBeNull();
+    expect(Date.now() - Date.parse(recorded!)).toBeLessThan(5000);
+  });
+
+  it('remembers and clears the driver an admin device is set to operate as', async () => {
+    const adapter = new ExpoLikeDatabase();
+    const service = new LocalAccessService(adapter as unknown as SQLiteDatabase);
+    expect(await service.getActingDriver()).toBeNull();
+    await service.setActingDriver({ id: 'driver-karka', displayName: 'Karolis Tautkus' });
+    expect(await service.getActingDriver()).toEqual({ id: 'driver-karka', displayName: 'Karolis Tautkus' });
+    await service.setActingDriver(null);
+    expect(await service.getActingDriver()).toBeNull();
   });
 });

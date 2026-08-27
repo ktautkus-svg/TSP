@@ -27,7 +27,19 @@ describe('administrator workspace navigation', () => {
     expect(home).toContain('title="Automobiliai"');
     expect(home).toContain('title="Vairuotojai"');
     expect(home).toContain('title="Finansai"');
-    expect(home).toMatch(/profile\.role === ['"]admin['"]\s*\?\s*\[\]/);
+    // The admin menu itself only renders when not driving as a chosen driver
+    // (see the "VAIRUOTI KAIP" picker test below) — an admin with no acting
+    // driver selected still sees an empty operational list.
+    expect(home).toMatch(/showDriverDashboard\s*\?\s*await repository\.listOperational\(effectiveDriverId\)\s*:\s*\[\]/);
+  });
+
+  it('lets an admin switch this device into driving as a chosen driver', () => {
+    expect(home).toContain('testID="acting-driver-picker"');
+    expect(home).toContain('VAIRUOTI KAIP');
+    expect(home).toContain("void setActingDriver({ id: driver.id, displayName: driver.displayName })");
+    expect(home).toContain('testID="acting-driver-banner"');
+    expect(home).toContain('Vairuojate kaip');
+    expect(home).toContain('void setActingDriver(null)');
   });
 
   it('opens focused employee and vehicle editors from visible settings shortcuts', () => {

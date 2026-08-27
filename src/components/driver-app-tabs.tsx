@@ -23,7 +23,9 @@ export interface DriverAppTabsProps {
 export function DriverAppTabs({ active }: DriverAppTabsProps) {
   const router = useRouter();
   const db = useSQLiteContext();
-  const { profile } = useLocalAccess();
+  const { profile, actingDriver } = useLocalAccess();
+  // An admin "driving as" a chosen driver sees that driver's route here too.
+  const effectiveDriverId = profile.role === 'driver' ? profile.id : actingDriver?.id ?? profile.id;
   const repository = useMemo(() => new RouteRepository(db), [db]);
   const { scheme } = useTheme();
   const palette = stitchColorsFor(scheme).driverNow;
@@ -36,7 +38,7 @@ export function DriverAppTabs({ active }: DriverAppTabsProps) {
 
   useFocusEffect(useCallback(() => {
     let mounted = true;
-    void repository.listOperational(profile.id).then((routes) => {
+    void repository.listOperational(effectiveDriverId).then((routes) => {
       if (!mounted) return;
       const current = routes[0] ?? null;
       if (!current) { setContinueHref(null); return; }
@@ -44,7 +46,7 @@ export function DriverAppTabs({ active }: DriverAppTabsProps) {
       setContinueHref({ pathname: destination.pathname, params: destination.params } as Href);
     }).catch(() => { if (mounted) setContinueHref(null); });
     return () => { mounted = false; };
-  }, [profile.id, repository]));
+  }, [effectiveDriverId, repository]));
 
   const tabs: readonly { key: DriverAppTab; label: string; href: Href | null }[] = [
     { key: 'now', label: 'Dabar', href: '/' },
