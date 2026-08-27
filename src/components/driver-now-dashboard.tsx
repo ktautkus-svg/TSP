@@ -26,7 +26,12 @@ export function DriverNowDashboard({ route, routeLabel, progress, stops, onConti
   const palette = stitchColorsFor(scheme).driverNow;
   const styles = useMemo(() => createStyles(palette), [palette]);
   const elapsed = useElapsedRouteTime({ startedAt: route.startedAt });
-  const nearbyStops = stops.filter((stop) => stop.deliveryStatus === 'pending').slice(0, 3);
+  // Before loading starts there is nothing to preview yet — no cargo is on
+  // board, so a "nearest stops" list is just noise pushing the primary
+  // action off screen. Reviewing the map and pressing to start loading is
+  // the whole job at this stage.
+  const beforeLoading = route.status === 'planned';
+  const nearbyStops = beforeLoading ? [] : stops.filter((stop) => stop.deliveryStatus === 'pending').slice(0, 3);
   const map = routeMap(route, stops);
   const deliveryPercent = Math.max(0, Math.min(100, progress.deliveryPercent));
 
@@ -37,7 +42,7 @@ export function DriverNowDashboard({ route, routeLabel, progress, stops, onConti
           <Text style={styles.routeNumber}>{routeLabel}</Text>
           <Text style={styles.routeDate}>{formatRouteDate(route.date)}</Text>
         </View>
-        <Text style={styles.status}>VYKDOMAS</Text>
+        <Text style={styles.status}>{statusLabel(route.status)}</Text>
       </View>
       <View style={styles.progressTrack}>
         <View style={[styles.progressFill, { width: `${deliveryPercent}%` }]} />
@@ -55,13 +60,15 @@ export function DriverNowDashboard({ route, routeLabel, progress, stops, onConti
       <View style={styles.mapAction}><Text style={styles.mapActionText}>{driverNowCopy.mapAction}</Text><Text style={styles.chevron}>›</Text></View>
     </Pressable>
 
-    <View style={styles.stopsSection}>
-      <Text style={styles.sectionTitle}>{driverNowCopy.nearbyStops}</Text>
-      {nearbyStops.map((stop) => <StopPreview key={stop.id} palette={palette} styles={styles} stop={stop} />)}
-    </View>
+    {beforeLoading ? null : (
+      <View style={styles.stopsSection}>
+        <Text style={styles.sectionTitle}>{driverNowCopy.nearbyStops}</Text>
+        {nearbyStops.map((stop) => <StopPreview key={stop.id} palette={palette} styles={styles} stop={stop} />)}
+      </View>
+    )}
 
-    <Pressable accessibilityLabel={driverNowCopy.continueRoute} accessibilityRole="button" onPress={onContinue} style={({ pressed }) => [styles.continueButton, pressed && styles.continuePressed]}>
-      <Text style={styles.continueText}>{driverNowCopy.continueRoute}</Text>
+    <Pressable accessibilityLabel={continueLabel(route.status)} accessibilityRole="button" onPress={onContinue} style={({ pressed }) => [styles.continueButton, pressed && styles.continuePressed]}>
+      <Text style={styles.continueText}>{continueLabel(route.status)}</Text>
       <NavigationIcon palette={palette} />
     </Pressable>
   </View>;
@@ -144,6 +151,19 @@ function shortTime(value: string | null): string {
 function formatMetric(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return '—';
   return new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(value);
+}
+
+function statusLabel(status: Route['status']): string {
+  if (status === 'planned') return 'SUPLANUOTAS';
+  if (status === 'loading') return 'KRAUNAMA';
+  if (status === 'loaded') return 'PAKROVIMAS BAIGTAS';
+  if (status === 'in_progress') return 'VYKDOMAS';
+  return status.toUpperCase();
+}
+
+function continueLabel(status: Route['status']): string {
+  if (status === 'planned') return 'PERŽIŪRĖTI IR PRADĖTI PAKROVIMĄ';
+  return driverNowCopy.continueRoute;
 }
 
 function formatRouteDate(value: string): string {
