@@ -56,13 +56,19 @@ const PERIODS = PERIOD_OPTIONS;
 
 export default function QualityControlScreen() {
   const router = useRouter();
-  const { profile, online } = useLocalAccess();
+  const { profile } = useLocalAccess();
   const { width } = useWindowDimensions();
   // `colors` is the fixed quality-control palette imported at module scope, not
   // a themed value, so it is intentionally not a dependency here.
   const styles = useMemo(() => createStyles(colors), []);
   const [routes, setRoutes] = useState<QualityRouteMonitor[]>([]);
   const [lastRefreshedAt, setLastRefreshedAt] = useState<string | null>(null);
+  // Whether the last actual request to the server succeeded — not the
+  // login-time connectivity snapshot from LocalAccessGate, which never
+  // updates again for the rest of the session (e.g. a deploy rollover at
+  // login time would otherwise leave this screen "offline" forever even
+  // once the server is back and the device has a perfectly good signal).
+  const [connected, setConnected] = useState(true);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
@@ -80,23 +86,20 @@ export default function QualityControlScreen() {
   const mobile = width < 720;
 
   const load = useCallback(async (showSpinner = false) => {
-    if (!online) {
-      setError('Nėra ryšio su serveriu. Rodomi paskutiniai gauti duomenys.');
-      setBusy(false);
-      return;
-    }
     if (showSpinner) setBusy(true);
     try {
       const response = await employeeApi<{ routes: QualityRouteMonitor[]; serverTime: string }>('/api/quality/routes');
       setRoutes(response.routes);
       setLastRefreshedAt(response.serverTime);
+      setConnected(true);
       setError(null);
     } catch (reason) {
+      setConnected(false);
       setError(reason instanceof Error ? reason.message : 'Maršrutų būsenos gauti nepavyko.');
     } finally {
       setBusy(false);
     }
-  }, [online]);
+  }, []);
 
   const allowed = ['quality', 'admin', 'dispatcher'].includes(profile.role);
   const parentTarget = profile.role === 'dispatcher' ? '/dispatcher' as Href : '/' as Href;
@@ -239,9 +242,9 @@ export default function QualityControlScreen() {
             <Text style={styles.subtitle}>{driverId === 'all' ? 'Visi vairuotojai' : drivers.find((driver) => driver.id === driverId)?.name} · {formatVehicleCount(vehicleCount)} · {visible.length} {visible.length === 1 ? 'maršrutas' : 'maršrutai'}</Text>
           </View>
           <View style={styles.connection}>
-            <View style={[styles.liveDot, !online && styles.liveDotOffline]} />
+            <View style={[styles.liveDot, !connected && styles.liveDotOffline]} />
             <View style={styles.flex}>
-              <Text style={styles.liveLabel}>{online ? 'RYŠYS GERAS' : 'RYŠIO NĖRA'}</Text>
+              <Text style={styles.liveLabel}>{connected ? 'RYŠYS GERAS' : 'RYŠIO NĖRA'}</Text>
               <Text style={styles.refreshTime}>Atnaujinta {formatClock(lastRefreshedAt)}</Text>
             </View>
             <Pressable disabled={busy} onPress={() => void load(true)} style={({ pressed }) => [styles.refreshButton, pressed && styles.refreshPressed, busy && styles.disabled]} testID="quality-refresh">
