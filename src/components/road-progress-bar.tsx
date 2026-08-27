@@ -131,9 +131,6 @@ export function RoadProgressBar({
               style={styles.sceneImage}
             />
           </Animated.View>
-          <View pointerEvents="none" style={styles.windshieldTopShade} />
-          <View pointerEvents="none" style={styles.windshieldPillarLeft} />
-          <View pointerEvents="none" style={styles.windshieldPillarRight} />
           <View pointerEvents="none" style={styles.sceneBadge}>
             <Text style={styles.sceneBadgeText}>{sceneLabel(weatherScene, displayedSceneKey)}</Text>
           </View>
@@ -270,35 +267,6 @@ const createStyles = (cockpit: CockpitPalette) => StyleSheet.create({
     height: undefined,
   },
   sceneImage: { width: '100%', height: '100%' },
-  // Some generated scene images carry a faint HUD/dashboard sliver right at
-  // their own top edge (an artifact of the source art, not our layout) —
-  // this needs to fully hide it, not just tint it, whatever the crop.
-  windshieldTopShade: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    left: 0,
-    height: 18,
-    backgroundColor: 'rgba(8, 13, 18, 0.92)',
-  },
-  windshieldPillarLeft: {
-    position: 'absolute',
-    top: 0,
-    bottom: 30,
-    left: -18,
-    width: 24,
-    backgroundColor: 'rgba(8, 13, 18, 0.78)',
-    transform: [{ rotate: '-5deg' }],
-  },
-  windshieldPillarRight: {
-    position: 'absolute',
-    top: 0,
-    right: -18,
-    bottom: 30,
-    width: 24,
-    backgroundColor: 'rgba(8, 13, 18, 0.78)',
-    transform: [{ rotate: '5deg' }],
-  },
   cockpitCowl: {
     position: 'absolute',
     right: 0,

@@ -2,7 +2,7 @@ import Constants from 'expo-constants';
 import { Link, useFocusEffect, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, SafeAreaView, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, SafeAreaView, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { pullAssignedRoutes, pushCompletedRouteAssignmentProgress, pushRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
@@ -40,6 +40,7 @@ export default function HomeScreen() {
   const [activeStops, setActiveStops] = useState<DeliveryStop[]>([]);
   const [routeCodes, setRouteCodes] = useState<Record<string, string>>({});
   const [progress, setProgress] = useState<RouteProgress | null>(null);
+  const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
 
@@ -94,6 +95,8 @@ export default function HomeScreen() {
         setActiveStops(nextStops);
       } catch (error) {
         devWarn('ACTIVE_ROUTE_RESTORE_FAILED', error);
+      } finally {
+        if (mounted) setLoading(false);
       }
     })();
     return () => { mounted = false; };
@@ -160,7 +163,9 @@ export default function HomeScreen() {
                 </GroupedMenuSection></View>
               </View>
             </View>
-          ) : profile.role === 'driver' ? active && progress ? (
+          ) : profile.role === 'driver' ? loading ? (
+            <View style={styles.loadingState} testID="home-loading-state"><ActivityIndicator color={colors.primary} size="large" /></View>
+          ) : active && progress ? (
             <DriverNowDashboard
               onContinue={() => {
                 const destination = resolveRoute(active);
@@ -180,6 +185,8 @@ export default function HomeScreen() {
               <Text style={styles.activeTitle}>Maršrutas dar nepriskirtas</Text>
               <Text style={styles.activeText}>Kai administratorius priskirs maršrutą, jis automatiškai atsiras šiame įrenginyje.</Text>
             </AppCard>
+          ) : loading ? (
+            <View style={styles.loadingState} testID="home-loading-state"><ActivityIndicator color={colors.primary} size="large" /></View>
           ) : active ? (
             <AppCard style={styles.activeCard} testID="active-route-card">
               <View style={styles.activeHeader}>
@@ -296,6 +303,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   // enough separation against a light grey page.
   activeCard: { gap: spacing.md },
   emptyCard: { gap: spacing.sm },
+  loadingState: { paddingVertical: spacing.xl, alignItems: 'center', justifyContent: 'center' },
   activeHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing.md },
   activeHeaderText: { flex: 1, minWidth: 0, gap: 2 },
   activeTitle: { ...type.sectionTitle, fontSize: 19, lineHeight: 24, color: colors.text },

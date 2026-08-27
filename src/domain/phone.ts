@@ -11,6 +11,10 @@ export function normalizePhone(value: string | null | undefined): string | null 
   if (digits.startsWith('00370')) return `+370${digits.slice(5)}`;
   if (digits.startsWith('370')) return `+${digits}`;
   if (digits.startsWith('8')) return `+370${digits.slice(1)}`;
+  // Typed with a leading trunk "0" instead of "8" (e.g. "0612345678") — strip
+  // it rather than literally prefixing "+0...", which passes length checks
+  // but is not a real number.
+  if (digits.startsWith('0') && digits.length === LOCAL_PHONE_DIGITS + 1) return `+370${digits.slice(1)}`;
   if (digits.length === LOCAL_PHONE_DIGITS) return `+370${digits}`;
   if (trimmed.startsWith('+')) return `+${digits}`;
   return `+${digits}`;

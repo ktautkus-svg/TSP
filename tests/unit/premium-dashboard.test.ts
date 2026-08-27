@@ -64,8 +64,6 @@ describe('premium route dashboard', () => {
     expect(road).toContain('setSceneClock(Date.now())');
     expect(road).toContain('testID="route-front-windshield"');
     expect(road).toContain('styles.windshieldShell');
-    expect(road).toContain('styles.windshieldPillarLeft');
-    expect(road).toContain('styles.windshieldPillarRight');
     expect(road).toContain('styles.cockpitCowl');
     expect(road).toContain('M 0 96 Q 215 30 430 96');
     expect(road).not.toContain('<G transform="translate(215 98)">');
