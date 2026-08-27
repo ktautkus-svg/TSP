@@ -69,7 +69,7 @@ describe('premium route dashboard', () => {
     expect(road).not.toContain('<G transform="translate(215 98)">');
     expect(road).toContain('styles.progressReadout');
     expect(road).not.toContain('styles.instrumentBridge');
-    expect(road).toContain('28_000');
+    expect(road).toContain('SCENE_ROTATION_INTERVAL_MS');
     expect(road).toContain('setDisplayedSceneKey(selectedSceneKey)');
     expect(road).toContain("if (scene?.condition === 'storm') return ['storm', 'rain']");
     expect(road).not.toContain("scene?.condition === 'storm' || scene?.condition === 'cloudy'");

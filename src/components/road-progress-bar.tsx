@@ -17,6 +17,7 @@ import { fonts } from '@/ui/tokens';
 
 type CockpitPalette = ReturnType<typeof cockpitColorsFor>;
 const ARC_LENGTH = 470;
+const SCENE_ROTATION_INTERVAL_MS = 30 * 60 * 1000;
 
 const sceneAssets = {
   sunrise: require('../../assets/images/route-scenes/stitch-windshield-01.png'),
@@ -84,10 +85,12 @@ export function RoadProgressBar({
   }, [animatedProgress, clamped, reduceMotion]);
 
   useEffect(() => {
+    // Matches the weather refresh cadence (route-weather.ts's 30-minute cache
+    // TTL) so the photo doesn't cycle faster than the conditions it reflects.
     const timer = setInterval(() => {
       setSceneClock(Date.now());
       setSceneIndex((current) => current + 1);
-    }, 28_000);
+    }, SCENE_ROTATION_INTERVAL_MS);
     return () => clearInterval(timer);
   }, []);
 
