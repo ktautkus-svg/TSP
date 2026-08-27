@@ -128,6 +128,7 @@ export default function SettingsScreen() {
   async function saveCompanyProfile() {
     await companyProfileSettings.save({ name: companyName, address: companyAddress });
     setCompanySaved(true);
+    setMessage('Įmonės duomenys išsaugoti.');
   }
 
   async function changeDefaultNavigation(value: NavigationProvider) {
