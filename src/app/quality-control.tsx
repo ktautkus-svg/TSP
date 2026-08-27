@@ -115,12 +115,23 @@ export default function QualityControlScreen() {
   );
 
   const period = useMemo(() => periodRange(periodMode, anchorDate, customFrom, customTo), [anchorDate, customFrom, customTo, periodMode]);
+  // "On the road right now" is a live state, independent of whatever date
+  // range happens to be selected — an active driver/vehicle stays first and
+  // highlighted even while looking at last week's history.
+  const activeDriverIds = useMemo(() => new Set(routes.filter((route) => route.status === 'in_progress').map((route) => route.driverId)), [routes]);
+  const activeVehicleIds = useMemo(() => new Set(routes.filter((route) => route.status === 'in_progress' && route.vehicle).map((route) => route.vehicle!.id)), [routes]);
   const drivers = useMemo(() => [...new Map(routes.map((route) => [route.driverId, route.driverName])).entries()]
     .map(([id, name]) => ({ id, name }))
-    .sort((left, right) => left.name.localeCompare(right.name, 'lt-LT')), [routes]);
+    .sort((left, right) => {
+      const activeDiff = Number(activeDriverIds.has(right.id)) - Number(activeDriverIds.has(left.id));
+      return activeDiff !== 0 ? activeDiff : left.name.localeCompare(right.name, 'lt-LT');
+    }), [routes, activeDriverIds]);
   const vehicles = useMemo(() => [...new Map(routes.map((route) => route.vehicle).filter((vehicle): vehicle is NonNullable<typeof vehicle> => Boolean(vehicle)).map((vehicle) => [vehicle.id, vehicle.registrationNumber])).entries()]
     .map(([id, registrationNumber]) => ({ id, registrationNumber }))
-    .sort((left, right) => left.registrationNumber.localeCompare(right.registrationNumber, 'lt-LT')), [routes]);
+    .sort((left, right) => {
+      const activeDiff = Number(activeVehicleIds.has(right.id)) - Number(activeVehicleIds.has(left.id));
+      return activeDiff !== 0 ? activeDiff : left.registrationNumber.localeCompare(right.registrationNumber, 'lt-LT');
+    }), [routes, activeVehicleIds]);
   const visible = routes.filter((route) => route.date >= period.from && route.date <= period.to
     && (driverId === 'all' || route.driverId === driverId)
     && (vehicleId === 'all' || route.vehicle?.id === vehicleId));
@@ -300,7 +311,7 @@ export default function QualityControlScreen() {
           <Text style={styles.fieldLabel}>VAIRUOTOJAS</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.driverChoices}>
             <DriverChoice active={driverId === 'all'} label="Visi vairuotojai" onPress={() => setDriverId('all')} styles={styles} />
-            {drivers.map((driver) => <DriverChoice key={driver.id} active={driverId === driver.id} label={driver.name} onPress={() => setDriverId(driver.id)} styles={styles} />)}
+            {drivers.map((driver) => <DriverChoice key={driver.id} active={driverId === driver.id} label={driver.name} live={activeDriverIds.has(driver.id)} onPress={() => setDriverId(driver.id)} styles={styles} />)}
           </ScrollView>
         </View>
 
@@ -308,7 +319,7 @@ export default function QualityControlScreen() {
           <Text style={styles.fieldLabel}>AUTOMOBILIS</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.driverChoices}>
             <DriverChoice active={vehicleId === 'all'} label="Visi automobiliai" onPress={() => setVehicleId('all')} styles={styles} />
-            {vehicles.map((vehicle) => <DriverChoice key={vehicle.id} active={vehicleId === vehicle.id} label={vehicle.registrationNumber} onPress={() => setVehicleId(vehicle.id)} styles={styles} />)}
+            {vehicles.map((vehicle) => <DriverChoice key={vehicle.id} active={vehicleId === vehicle.id} label={vehicle.registrationNumber} live={activeVehicleIds.has(vehicle.id)} onPress={() => setVehicleId(vehicle.id)} styles={styles} />)}
           </ScrollView>
         </View>
       </View>
@@ -520,10 +531,10 @@ function DateField({ label, value, onChange, styles }: { label: string; value: s
   </View>;
 }
 
-function DriverChoice({ active, label, onPress, styles }: { active: boolean; label: string; onPress: () => void; styles: ReturnType<typeof createStyles> }) {
-  return <Pressable accessibilityRole="button" accessibilityState={{ selected: active }} onPress={onPress} style={({ pressed }) => [styles.driverChoice, active && styles.driverChoiceActive, pressed && styles.filterPressed]}>
-    <View style={[styles.driverChoiceDot, active && styles.driverChoiceDotActive]} />
-    <Text numberOfLines={1} style={[styles.driverChoiceText, active && styles.driverChoiceTextActive]}>{label}</Text>
+function DriverChoice({ active, label, live = false, onPress, styles }: { active: boolean; label: string; live?: boolean; onPress: () => void; styles: ReturnType<typeof createStyles> }) {
+  return <Pressable accessibilityRole="button" accessibilityState={{ selected: active }} onPress={onPress} style={({ pressed }) => [styles.driverChoice, active && styles.driverChoiceActive, live && styles.driverChoiceLive, pressed && styles.filterPressed]}>
+    <View style={[styles.driverChoiceDot, active && styles.driverChoiceDotActive, live && styles.driverChoiceDotLive]} />
+    <Text numberOfLines={1} style={[styles.driverChoiceText, active && styles.driverChoiceTextActive, live && styles.driverChoiceTextLive]}>{label}</Text>
   </Pressable>;
 }
 function filterTitle(filter: RouteFilter): string { return ({ all: 'Visi maršrutai', in_progress: 'Kelyje', completed: 'Įvykdyti maršrutai', not_started: 'Nepradėti maršrutai' })[filter]; }
@@ -564,7 +575,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   periodHeading: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing.lg }, periodTitle: { ...type.sectionTitle, color: colors.text }, periodSummary: { ...type.bodyStrong, color: colors.info, textAlign: 'right' },
   periodTabs: { flexDirection: 'row', gap: spacing.sm }, periodTabsMobile: { flexWrap: 'wrap' }, periodTab: { flex: 1, minWidth: 120, minHeight: 46, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceSubtle }, periodTabMobile: { minWidth: '46%' }, periodTabActive: { borderColor: colors.info, backgroundColor: colors.info }, periodTabText: { ...type.button, color: colors.textSecondary }, periodTabTextActive: { color: colors.textInverse },
   dateFields: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.md }, dateFieldsMobile: { flexDirection: 'column', alignItems: 'stretch' }, dateField: { flex: 1, gap: spacing.xs }, fieldLabel: { ...type.label, color: colors.textMuted }, dateInput: { minHeight: 48, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, ...type.bodyStrong, color: colors.text },
-  driverFilter: { gap: spacing.xs }, driverChoices: { gap: spacing.sm, paddingVertical: 2 }, driverChoice: { minHeight: 44, maxWidth: 240, flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceSubtle }, driverChoiceActive: { borderColor: colors.info, backgroundColor: colors.infoSoft }, driverChoiceDot: { width: 8, height: 8, borderRadius: radius.pill, backgroundColor: colors.borderStrong }, driverChoiceDotActive: { backgroundColor: colors.info }, driverChoiceText: { ...type.bodyStrong, color: colors.textSecondary }, driverChoiceTextActive: { color: colors.info },
+  driverFilter: { gap: spacing.xs }, driverChoices: { gap: spacing.sm, paddingVertical: 2 }, driverChoice: { minHeight: 44, maxWidth: 240, flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceSubtle }, driverChoiceActive: { borderColor: colors.info, backgroundColor: colors.infoSoft }, driverChoiceDot: { width: 8, height: 8, borderRadius: radius.pill, backgroundColor: colors.borderStrong }, driverChoiceDotActive: { backgroundColor: colors.info }, driverChoiceText: { ...type.bodyStrong, color: colors.textSecondary }, driverChoiceTextActive: { color: colors.info }, driverChoiceLive: { borderColor: colors.success }, driverChoiceDotLive: { backgroundColor: colors.success }, driverChoiceTextLive: { color: colors.success },
   empty: { padding: spacing.xl, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }, emptyTitle: { ...type.sectionTitle, color: colors.text }, muted: { ...type.secondary, color: colors.textMuted },
   section: { gap: spacing.md }, sectionHeading: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm }, sectionTitle: { ...type.sectionTitle, color: colors.text, fontSize: 20, lineHeight: 26 }, count: { minWidth: 30, textAlign: 'center', paddingVertical: 4, borderRadius: radius.pill, overflow: 'hidden', backgroundColor: colors.infoSoft, ...type.secondaryStrong, color: colors.info },
   stopList: { gap: spacing.sm }, stopRow: { minHeight: 76, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderLeftWidth: 4, borderRadius: radius.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }, stopVehicleDriver: { ...type.label, color: colors.info, marginBottom: 2 },
