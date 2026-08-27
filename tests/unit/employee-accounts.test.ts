@@ -67,8 +67,9 @@ describe('employee server session', () => {
     expect(employeeStoreSource).toContain('transaction.delete(legacyUsernameRef)');
   });
 
-  it('restores a saved session automatically and keeps logout explicit', () => {
-    expect(accessGateSource).toContain('setUnlocked(Boolean(cachedSession))');
+  it('requires the PIN on every launch even when a session is cached, and keeps logout explicit', () => {
+    expect(accessGateSource).toContain('setUsername(cachedSession?.profile.username ?? configuration.username ?? \'\')');
+    expect(accessGateSource).not.toContain('setUnlocked(Boolean(cachedSession))');
     expect(accessGateSource).toContain('await logoutEmployee()');
     expect(settingsSource).toContain('testID="logout-button"');
   });

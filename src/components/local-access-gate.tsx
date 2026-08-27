@@ -67,20 +67,16 @@ export function LocalAccessGate({ children }: LocalAccessGateProps) {
     setConfigured(configuration.configured);
     setUsername(cachedSession?.profile.username ?? configuration.username ?? '');
     setDisplayName(cachedSession?.profile.displayName ?? '');
-    setProfile(cachedSession?.profile ?? null);
-    setUnlocked(Boolean(cachedSession));
+    // A cached session is only ever a fast path for the PIN check inside submit()
+    // (see the offline fallback there). It must never unlock the app by itself,
+    // or reopening the app skips the PIN entirely for the next 30 days.
     setOnline(Boolean(cachedSession && initialized !== null));
     setMode(initialized === false && !cachedSession ? 'bootstrap' : 'login');
     if (initialized === null && !configuration.configured) {
       setError('Pirmam prisijungimui reikia interneto ryšio.');
     }
     setLoading(false);
-    if (cachedSession) {
-      void pullAssignedRoutes(db, cachedSession.profile).catch((reason) => {
-        devWarn('ASSIGNMENT_PULL_FAILED', reason);
-      });
-    }
-  }, [db, service]);
+  }, [service]);
 
   useEffect(() => { void refresh().catch((reason) => {
     setError(reason instanceof Error ? reason.message : 'Prisijungimo būsenos atkurti nepavyko.');
