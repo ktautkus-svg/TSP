@@ -87,6 +87,46 @@ describe('pushRouteAssignmentProgress self-assignment', () => {
     expect(syncRow?.assignment_id).toBe('assignment-self-1');
   });
 
+  it('adopts an already-existing server assignment instead of failing forever when self-assign hits ROUTE_ALREADY_ASSIGNED', async () => {
+    const { db } = database();
+    const { routeId } = await new CreateDraftRouteWithStops(db).execute({
+      commandId: 'cmd-reuse-1', startLocation: endpoint, endLocation: endpoint,
+      importSource: { type: 'pasted_text', originalText: 'x', imageReference: null },
+      stops: [{
+        originalOrder: 1, orderNumber: null, recipient: 'Klientas', originalAddress: 'Gedimino pr. 9, Vilnius',
+        geocodingQuery: 'Gedimino pr. 9, Vilnius', normalizedAddress: 'Gedimino pr. 9, Vilnius', addressValidationState: 'auto_confirmed',
+        latitude: 54.68, longitude: 25.28, deliveryTimeFrom: null, deliveryTimeTo: null, requiredTimeWindow: false,
+        weightKg: 10, phone: null, notes: null,
+      }],
+    });
+    await saveEmployeeSession({ profile: adminProfile, expiresAt: '2099-01-01T00:00:00.000Z' });
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/api/admin/assignments') && init?.method === 'POST') {
+        return new Response(JSON.stringify({ error: { code: 'ROUTE_ALREADY_ASSIGNED', message: 'Šis maršrutas jau priskirtas vairuotojui.' } }), { status: 409 });
+      }
+      if (url.includes('/api/admin/assignments')) {
+        return new Response(JSON.stringify({
+          assignments: [{
+            id: 'assignment-existing-1', routeId, driverId: adminProfile.id, driverName: adminProfile.displayName,
+            status: 'assigned', routeSnapshot: {}, progress: null,
+            assignedAt: '2026-08-27T08:00:00.000Z', updatedAt: '2026-08-27T08:00:00.000Z',
+          }],
+        }), { status: 200 });
+      }
+      if (url.includes('/progress')) return new Response(null, { status: 204 });
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const pushed = await pushRouteAssignmentProgress(db, routeId);
+
+    expect(pushed).toBe(true);
+    const syncRow = await db.getFirstAsync<{ assignment_id: string }>('SELECT assignment_id FROM route_sync_state WHERE route_id = ?', routeId);
+    expect(syncRow?.assignment_id).toBe('assignment-existing-1');
+  });
+
   it('self-assigns to the driver the admin device is set to operate as, not the admin itself', async () => {
     const { db } = database();
     const { routeId } = await new CreateDraftRouteWithStops(db).execute({

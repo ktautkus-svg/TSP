@@ -3,6 +3,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { LocalAccessService } from '@/application/auth/local-access';
 import { AdminCompleteRoute } from '@/application/routes/route-workday';
 import {
+  EmployeeClientError,
   employeeApi,
   getEmployeeSession,
   type EmployeeProfile,
@@ -183,6 +184,15 @@ async function reconcileAndImportAssignments(
  * instead of their own account, so the route is attributed and visible in
  * quality-control under the driver actually being represented, without
  * logging out of the admin session.
+ *
+ * The server refuses a second assignment for a route that already has a
+ * live one (ROUTE_ALREADY_ASSIGNED) — e.g. this same self-assign ran once
+ * before but the device never recorded the resulting route_sync_state row
+ * (a dropped response, an interrupted app restart). Retrying blindly then
+ * failed forever, since every retry hit the same conflict: the route looked
+ * "never assigned" locally but was actually already assigned on the server.
+ * On that conflict, look up the existing assignment and adopt it instead of
+ * giving up.
  */
 async function ensureSelfAssignment(db: SQLiteDatabase, routeId: string): Promise<boolean> {
   const session = await getEmployeeSession();
@@ -192,19 +202,29 @@ async function ensureSelfAssignment(db: SQLiteDatabase, routeId: string): Promis
   const driverId = actingDriver?.id ?? profile.id;
   try {
     const routeSnapshot = await exportRouteSnapshot(db, routeId);
-    const response = await employeeApi<{ assignment: ServerRouteAssignment }>('/api/admin/assignments', {
-      method: 'POST',
-      body: JSON.stringify({ driverId, routeSnapshot }),
-    });
+    let assignment: ServerRouteAssignment;
+    try {
+      const response = await employeeApi<{ assignment: ServerRouteAssignment }>('/api/admin/assignments', {
+        method: 'POST',
+        body: JSON.stringify({ driverId, routeSnapshot }),
+      });
+      assignment = response.assignment;
+    } catch (reason) {
+      if (!(reason instanceof EmployeeClientError) || reason.code !== 'ROUTE_ALREADY_ASSIGNED') throw reason;
+      const existing = await employeeApi<{ assignments: ServerRouteAssignment[] }>('/api/admin/assignments');
+      const found = existing.assignments.find((item) => item.routeId === routeId && !['completed', 'cancelled'].includes(item.status));
+      if (!found) throw reason;
+      assignment = found;
+    }
     const now = new Date().toISOString();
     await db.runAsync(
       `INSERT INTO route_sync_state
        (assignment_id, route_id, employee_id, server_revision, sync_status, last_synced_at, created_at, updated_at)
        VALUES (?, ?, ?, ?, 'synced', ?, ?, ?)
        ON CONFLICT(assignment_id) DO NOTHING`,
-      response.assignment.id, routeId, driverId, response.assignment.updatedAt, now, now, now,
+      assignment.id, routeId, assignment.driverId, assignment.updatedAt, now, now, now,
     );
-    await db.runAsync('UPDATE routes SET owner_employee_id = COALESCE(owner_employee_id, ?) WHERE id = ?', driverId, routeId);
+    await db.runAsync('UPDATE routes SET owner_employee_id = COALESCE(owner_employee_id, ?) WHERE id = ?', assignment.driverId, routeId);
     return true;
   } catch {
     return false;
