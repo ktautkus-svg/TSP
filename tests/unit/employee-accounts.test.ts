@@ -166,8 +166,8 @@ describe('employee server session', () => {
     expect(employeeRouteSyncStoreSource).toContain('async seedAssignment(employeeId: string, routeSnapshot: RouteSnapshot)');
     expect(employeeApiSource).toContain('await routeSyncStore.seedAssignment(assignment.driverId, assignment.routeSnapshot)');
     expect(assignmentSyncSource).toContain("assignment.updatedAt > String(existingSync.server_revision ?? '')");
-    expect(assignmentSyncSource).toContain('await applyRouteSnapshot(db, assignment.routeSnapshot, assignment.updatedAt, profile.id)');
-    expect(assignmentSyncSource).toContain("response.assignments.filter((item) => item.status !== 'cancelled')");
+    expect(assignmentSyncSource).toContain('await applyRouteSnapshot(db, assignment.routeSnapshot, assignment.updatedAt, employeeId)');
+    expect(assignmentSyncSource).toContain("assignments.filter((item) => item.status !== 'cancelled')");
     expect(assignmentSyncSource).toContain('pushRouteAssignmentRevision');
     expect(deliverySource).toContain('pullAssignedRoutes(db, profile)');
   });

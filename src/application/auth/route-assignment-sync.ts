@@ -108,13 +108,43 @@ export async function applyRouteSnapshot(
 export async function pullAssignedRoutes(db: SQLiteDatabase, profile: EmployeeProfile): Promise<{ imported: number; skipped: number }> {
   if (profile.role !== 'driver') return { imported: 0, skipped: 0 };
   const response = await employeeApi<{ assignments: ServerRouteAssignment[] }>('/api/assignments');
-  await reconcileAssignedRouteCopies(db, profile.id, response.assignments);
+  return reconcileAndImportAssignments(db, profile.id, response.assignments, (assignmentId) =>
+    employeeApi<void>(`/api/assignments/${encodeURIComponent(assignmentId)}/downloaded`, { method: 'POST' }));
+}
+
+/**
+ * Same pull as pullAssignedRoutes, for an admin/dispatcher device switched
+ * into "driving as" a chosen driver (LocalAccessService.getActingDriver).
+ * /api/assignments is driver-role-only, so this sources from
+ * /api/admin/assignments (which admin/dispatcher can call) and filters to
+ * the acting driver — without this, a route created or assigned from a
+ * different device (e.g. the dispatcher desktop screen) never reaches this
+ * device's local copy, and the "driving as" dashboard keeps showing whatever
+ * route was already there locally.
+ */
+export async function pullAssignedRoutesForActingDriver(db: SQLiteDatabase, driverId: string): Promise<{ imported: number; skipped: number }> {
+  const response = await employeeApi<{ assignments: ServerRouteAssignment[] }>('/api/admin/assignments');
+  const assignments = response.assignments.filter((assignment) => assignment.driverId === driverId);
+  // /api/assignments/:id/downloaded is driver-role-only too; skipping it only
+  // leaves the assignment's status at "assigned" instead of advancing to
+  // "downloaded" for dispatcher visibility — cosmetic, not functional.
+  return reconcileAndImportAssignments(db, driverId, assignments, async () => undefined);
+}
+
+// Completed assignments must also be applied here, not just cancelled ones
+// skipped. Otherwise a second tab/device can keep an old in_progress copy
+// forever even though the server already holds the final route and all
+// delivery results.
+async function reconcileAndImportAssignments(
+  db: SQLiteDatabase,
+  employeeId: string,
+  assignments: readonly ServerRouteAssignment[],
+  markDownloaded: (assignmentId: string) => Promise<void>,
+): Promise<{ imported: number; skipped: number }> {
+  await reconcileAssignedRouteCopies(db, employeeId, assignments);
   let imported = 0;
   let skipped = 0;
-  // Completed assignments must also be applied. Otherwise a second tab/device
-  // can keep an old in_progress copy forever even though the server already
-  // holds the final route and all delivery results.
-  for (const assignment of response.assignments.filter((item) => item.status !== 'cancelled')) {
+  for (const assignment of assignments.filter((item) => item.status !== 'cancelled')) {
     const existingSync = await db.getFirstAsync<{ route_id: string; server_revision: string | null }>(
       'SELECT route_id, server_revision FROM route_sync_state WHERE assignment_id = ?', assignment.id,
     );
@@ -122,7 +152,7 @@ export async function pullAssignedRoutes(db: SQLiteDatabase, profile: EmployeePr
       const local = await db.getFirstAsync<{ updated_at: string }>('SELECT updated_at FROM routes WHERE id = ?', existingSync.route_id);
       const incomingUpdatedAt = String(assignment.routeSnapshot.route.updated_at ?? '');
       if (assignment.updatedAt > String(existingSync.server_revision ?? '') && (!local || incomingUpdatedAt > local.updated_at)) {
-        await applyRouteSnapshot(db, assignment.routeSnapshot, assignment.updatedAt, profile.id);
+        await applyRouteSnapshot(db, assignment.routeSnapshot, assignment.updatedAt, employeeId);
       }
       await db.runAsync(
         `UPDATE route_sync_state SET server_revision = ?, last_synced_at = ?, updated_at = ?
@@ -132,8 +162,8 @@ export async function pullAssignedRoutes(db: SQLiteDatabase, profile: EmployeePr
       skipped += 1;
       continue;
     }
-    await importAssignmentSnapshot(db, assignment, profile.id);
-    await employeeApi<void>(`/api/assignments/${encodeURIComponent(assignment.id)}/downloaded`, { method: 'POST' });
+    await importAssignmentSnapshot(db, assignment, employeeId);
+    await markDownloaded(assignment.id);
     imported += 1;
   }
   return { imported, skipped };

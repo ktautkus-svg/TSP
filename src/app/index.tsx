@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, SafeAreaView, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
-import { pullAssignedRoutes, pushCompletedRouteAssignmentProgress, pushRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
+import { pullAssignedRoutes, pullAssignedRoutesForActingDriver, pushCompletedRouteAssignmentProgress, pushRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
 import { ExportPilotRouteDiagnostic } from '@/application/routes/pilot-route-export';
 import { resolveRoute } from '@/application/routes/route-navigation';
 import { GetRouteProgress, type RouteProgress } from '@/application/routes/route-workday';
@@ -93,6 +93,12 @@ export default function HomeScreen() {
         if (online && profile.role === 'driver') {
           await pullAssignedRoutes(db, profile);
           await pushCompletedRouteAssignmentProgress(db);
+        } else if (online && drivingAsProxy && actingDriver) {
+          // /api/assignments (used by pullAssignedRoutes) is driver-only, so a
+          // route assigned to the acting driver from a different device would
+          // otherwise never reach this device's local copy.
+          await pullAssignedRoutesForActingDriver(db, actingDriver.id);
+          await pushCompletedRouteAssignmentProgress(db);
         }
         await requestSync('home-focus');
         const operational = showDriverDashboard
@@ -118,7 +124,7 @@ export default function HomeScreen() {
       }
     })();
     return () => { mounted = false; };
-  }, [db, effectiveDriverId, online, profile, repository, requestSync, router, showDriverDashboard]));
+  }, [actingDriver, db, drivingAsProxy, effectiveDriverId, online, profile, repository, requestSync, router, showDriverDashboard]));
 
   useEffect(() => {
     if (syncRevision === 0) return;
