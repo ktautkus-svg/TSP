@@ -10,6 +10,10 @@ export type RouteWeatherScene = {
   observedAt: string;
   latitude: number;
   longitude: number;
+  /** null when never fetched from the real provider (offline fallback). */
+  temperatureC: number | null;
+  windSpeedKmh: number | null;
+  precipitationProbabilityPercent: number | null;
 };
 
 type OpenMeteoCurrent = {
@@ -18,6 +22,13 @@ type OpenMeteoCurrent = {
   rain?: number;
   showers?: number;
   snowfall?: number;
+  temperature_2m?: number;
+  wind_speed_10m?: number;
+};
+
+type OpenMeteoHourly = {
+  time?: string[];
+  precipitation_probability?: number[];
 };
 
 const CACHE_KEY = 'route_weather_snapshot_v1';
@@ -52,7 +63,22 @@ export function fallbackRouteWeatherScene(
     observedAt: now.toISOString(),
     latitude,
     longitude,
+    temperatureC: null,
+    windSpeedKmh: null,
+    precipitationProbabilityPercent: null,
   };
+}
+
+function currentHourPrecipitationProbability(hourly: OpenMeteoHourly, now: Date): number | null {
+  const times = hourly.time ?? [];
+  const values = hourly.precipitation_probability ?? [];
+  // Open-Meteo's hourly timestamps are local (timezone=auto) and truncated to
+  // the hour, e.g. "2026-08-27T14:00" — match on that, not exact equality.
+  const hourKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}T${String(now.getHours()).padStart(2, '0')}:00`;
+  const index = times.indexOf(hourKey);
+  if (index < 0) return null;
+  const value = values[index];
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 export async function loadRouteWeatherScene(
@@ -77,14 +103,16 @@ export async function loadRouteWeatherScene(
     const query = new URLSearchParams({
       latitude: String(latitude),
       longitude: String(longitude),
-      current: 'weather_code,is_day,rain,showers,snowfall',
+      current: 'weather_code,is_day,rain,showers,snowfall,temperature_2m,wind_speed_10m',
+      hourly: 'precipitation_probability',
+      forecast_days: '1',
       timezone: 'auto',
     });
     const response = await fetch(`https://api.open-meteo.com/v1/forecast?${query.toString()}`, {
       headers: { Accept: 'application/json' },
     });
     if (!response.ok) throw new Error(`WEATHER_HTTP_${response.status}`);
-    const payload = await response.json() as { current?: OpenMeteoCurrent };
+    const payload = await response.json() as { current?: OpenMeteoCurrent; hourly?: OpenMeteoHourly };
     const current = payload.current ?? {};
     const scene: RouteWeatherScene = {
       condition: routeWeatherCondition(current),
@@ -92,6 +120,9 @@ export async function loadRouteWeatherScene(
       observedAt: now.toISOString(),
       latitude,
       longitude,
+      temperatureC: typeof current.temperature_2m === 'number' ? Math.round(current.temperature_2m) : null,
+      windSpeedKmh: typeof current.wind_speed_10m === 'number' ? Math.round(current.wind_speed_10m) : null,
+      precipitationProbabilityPercent: currentHourPrecipitationProbability(payload.hourly ?? {}, now),
     };
     await db.runAsync(
       `INSERT INTO app_preferences (key, value, updated_at)

@@ -134,6 +134,11 @@ export function RoadProgressBar({
           <View pointerEvents="none" style={styles.sceneBadge}>
             <Text style={styles.sceneBadgeText}>{sceneLabel(weatherScene, displayedSceneKey)}</Text>
           </View>
+          {weatherScene && (weatherScene.temperatureC !== null || weatherScene.windSpeedKmh !== null || weatherScene.precipitationProbabilityPercent !== null) ? (
+            <View pointerEvents="none" style={styles.weatherBadge} testID="route-weather-readout">
+              <Text style={styles.sceneBadgeText}>{weatherReadoutLabel(weatherScene)}</Text>
+            </View>
+          ) : null}
           <Svg pointerEvents="none" style={styles.cockpitCowl} viewBox="0 0 430 132">
             <Defs>
               <LinearGradient id="dashboardSurface" x1="0" y1="0" x2="0" y2="1">
@@ -187,6 +192,14 @@ export function RoadProgressBar({
 function sceneLabel(scene: RouteWeatherScene | null | undefined, key: RoadSceneKey): string {
   if (scene) return `${weatherLabel(scene.condition)} · ${timeLabel(scene.timeOfDay)}`;
   return roadSceneLabel(key);
+}
+
+function weatherReadoutLabel(scene: RouteWeatherScene): string {
+  const parts: string[] = [];
+  if (scene.temperatureC !== null) parts.push(`${scene.temperatureC}°C`);
+  if (scene.precipitationProbabilityPercent !== null) parts.push(`${scene.precipitationProbabilityPercent}% liet.`);
+  if (scene.windSpeedKmh !== null) parts.push(`${scene.windSpeedKmh} km/h`);
+  return parts.join(' · ');
 }
 
 function weatherLabel(condition: RouteWeatherScene['condition'] | undefined): string {
@@ -276,6 +289,7 @@ const createStyles = (cockpit: CockpitPalette) => StyleSheet.create({
     height: 132,
   },
   sceneBadge: { position: 'absolute', top: 14, left: 18, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 8, backgroundColor: 'rgba(8, 13, 18, 0.62)' },
+  weatherBadge: { position: 'absolute', top: 14, right: 18, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 8, backgroundColor: 'rgba(8, 13, 18, 0.62)' },
   sceneBadgeText: { color: cockpit.white, fontFamily: fonts.headingSemiBold, fontSize: 9, letterSpacing: 0.7 },
   progressReadout: {
     position: 'absolute',
