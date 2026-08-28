@@ -502,6 +502,15 @@ export default function LoadingScreen() {
           <Text style={styles.summaryText}>Bendras svoris: {formatWeightKg(route.totalWeightKg)} kg</Text>
           {vehicleLoad ? <Text style={[styles.summaryText, vehicleLoad.overCapacity && styles.loadWarning]} testID="vehicle-load-percent">{vehicleLoad.summaryLabel}</Text> : null}
           <Text style={styles.summaryText}>Planuotas atstumas: {route.estimatedDistanceKm === null ? '—' : `${route.estimatedDistanceKm.toFixed(1)} km`}</Text>
+          {profile.role !== 'driver' && assignment ? (
+            // This route still sits in local status "planned" (assigning a
+            // route never advances that status — only the driver starting
+            // loading does), so without this the screen looked unassigned
+            // even right after a successful assignment elsewhere.
+            <Text style={styles.summaryAssigned} testID="planned-route-assigned">
+              Priskirta: {assignment.driverName}{assignment.vehicle ? ` · ${assignment.vehicle.registrationNumber}` : ' · automobilis nepriskirtas'}
+            </Text>
+          ) : null}
         </View>
         {readiness ? (
           <DepartureGateCard
@@ -532,7 +541,7 @@ export default function LoadingScreen() {
           onPress={openDispatcherAssignment}
           testID="assign-planned-route">
           <TruckIcon size={22} color="#FFFFFF" />
-          <Text style={styles.plannedPrimaryText}>Priskirti maršrutą</Text>
+          <Text style={styles.plannedPrimaryText}>{assignment ? 'Keisti priskyrimą' : 'Priskirti maršrutą'}</Text>
         </Pressable>}
         {profile.role !== 'driver' || profile.permissions?.canReorderAssignedRoute ? <Pressable disabled={bulkBusy} style={[styles.plannedSecondaryButton, bulkBusy && styles.disabled]} onPress={() => { void editPlannedRoute(); }} testID="edit-planned-route">
           <PencilIcon size={19} color={colors.brandNavy} />
@@ -833,6 +842,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   },
   percentPillText: { ...type.secondaryStrong, color: colors.info },
   summaryText: { ...type.body, color: colors.textMuted },
+  summaryAssigned: { ...type.bodyStrong, color: colors.success, marginTop: spacing.xs },
   loadingOrderNotice: {
     flexDirection: 'row',
     alignItems: 'center',

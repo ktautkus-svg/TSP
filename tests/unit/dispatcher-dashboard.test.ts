@@ -126,6 +126,16 @@ describe('dispatcher desktop workspace', () => {
     expect(loadingSource).toContain('testID="begin-loading"');
   });
 
+  it('shows a planned route as already assigned instead of always offering to assign it again', () => {
+    // routes.status never advances past "planned" just from being assigned
+    // (only the driver starting loading changes it), so without this the
+    // planning screen looked unassigned even right after a successful
+    // assignment made from route-management.
+    expect(loadingSource).toContain('testID="planned-route-assigned"');
+    expect(loadingSource).toContain('Priskirta: {assignment.driverName}');
+    expect(loadingSource).toContain("{assignment ? 'Keisti priskyrimą' : 'Priskirti maršrutą'}");
+  });
+
   it('sends dispatchers to their workspace and keeps route creation hidden from drivers by default', () => {
     expect(homeSource).toContain("profile.role === 'dispatcher'");
     expect(homeSource).toContain("profile.role !== 'driver'");
