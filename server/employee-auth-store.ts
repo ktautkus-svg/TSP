@@ -1467,6 +1467,13 @@ export class EmployeeAuthStore {
     const delivered = stops.filter((stop) => stop.delivery_status === 'delivered');
     const failed = stops.filter((stop) => stop.delivery_status === 'failed');
     const pending = stops.filter((stop) => stop.delivery_status !== 'delivered' && stop.delivery_status !== 'failed');
+    let onTimeStops = 0;
+    let lateStops = 0;
+    for (const stop of delivered) {
+      const punctuality = stopPunctuality(stop);
+      if (punctuality === 'on_time') onTimeStops += 1;
+      if (punctuality === 'late') lateStops += 1;
+    }
     const summary = {
       totalStops: stops.length,
       deliveredStops: delivered.length,
@@ -1477,8 +1484,8 @@ export class EmployeeAuthStore {
       unknownWeightStops: stops.filter((stop) => stop.weight_kg == null).length,
       plannedDistanceKm: nullableNumber(assignment.routeSnapshot.route.estimated_distance_km),
       actualDistanceKm: nullableNumber(assignment.routeSnapshot.route.actual_distance_km),
-      onTimeStops: 0,
-      lateStops: 0,
+      onTimeStops,
+      lateStops,
       plannedDurationMinutes: nullableNumber(assignment.routeSnapshot.route.estimated_duration_minutes),
       actualDurationMinutes: null,
       durationDeviationMinutes: null,
@@ -2800,6 +2807,48 @@ function qualityStatusRank(status: RouteAssignment['status']): number {
 
 function optionalText(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+// Mirrors src/application/routes/route-workday.ts's completionPunctuality:
+// 15 minutes tolerance on either side of the window/estimate still counts
+// as on time. This path (force-completing an assignment from the admin
+// panel) used to hardcode onTimeStops/lateStops to 0, silently discarding
+// punctuality data for any route completed this way.
+const PUNCTUALITY_TOLERANCE_MINUTES = 15;
+
+function stopPunctuality(stop: Record<string, unknown>): 'on_time' | 'late' | 'unknown' {
+  const deliveredAt = optionalText(stop.delivered_at);
+  if (!deliveredAt) return 'unknown';
+  const deliveredMs = Date.parse(deliveredAt);
+  if (!Number.isFinite(deliveredMs)) return 'unknown';
+  const deliveryTimeTo = optionalText(stop.delivery_time_to);
+  if (deliveryTimeTo) {
+    const deadline = clockOnDeliveredDay(deliveredAt, deliveryTimeTo);
+    if (deadline !== null) {
+      if (deliveredMs - deadline > PUNCTUALITY_TOLERANCE_MINUTES * 60_000) return 'late';
+      const deliveryTimeFrom = optionalText(stop.delivery_time_from);
+      const windowStart = deliveryTimeFrom ? clockOnDeliveredDay(deliveredAt, deliveryTimeFrom) : null;
+      if (windowStart !== null && deliveredMs < windowStart - PUNCTUALITY_TOLERANCE_MINUTES * 60_000) return 'late';
+      return 'on_time';
+    }
+  }
+  const plannedArrivalAt = optionalText(stop.latest_estimated_arrival_at) ?? optionalText(stop.planned_arrival_at);
+  if (plannedArrivalAt) {
+    const plannedMs = Date.parse(plannedArrivalAt);
+    if (Number.isFinite(plannedMs)) {
+      const diffMinutes = Math.round((deliveredMs - plannedMs) / 60_000);
+      return Math.abs(diffMinutes) <= PUNCTUALITY_TOLERANCE_MINUTES ? 'on_time' : 'late';
+    }
+  }
+  return 'unknown';
+}
+
+function clockOnDeliveredDay(deliveredAt: string, clock: string): number | null {
+  const [hours, minutes] = clock.split(':').map(Number);
+  if (!Number.isInteger(hours) || !Number.isInteger(minutes)) return null;
+  const date = new Date(deliveredAt);
+  date.setHours(hours, minutes, 0, 0);
+  return date.getTime();
 }
 
 function nullableNumber(value: unknown): number | null {

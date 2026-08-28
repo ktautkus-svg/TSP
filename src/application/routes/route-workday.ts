@@ -1376,29 +1376,47 @@ function buildAdminCompletionSummary(route: Route, stops: DeliveryStop[]): Route
   };
 }
 
+// Both a driver arriving a bit ahead of the window and a bit past the
+// deadline still count as on time — GPS/traffic noise and a driver
+// confirming the stop a minute or two after actually finishing it make a
+// stricter cutoff punish normal variance, not real lateness.
+const PUNCTUALITY_TOLERANCE_MINUTES = 15;
+
 function completionPunctuality(stop: DeliveryStop): 'on_time' | 'late' | 'unknown' {
   if (!stop.deliveredAt) return 'unknown';
   const deliveredMs = Date.parse(stop.deliveredAt);
   if (!Number.isFinite(deliveredMs)) return 'unknown';
   if (stop.deliveryTimeTo) {
-    const [hours, minutes] = stop.deliveryTimeTo.split(':').map(Number);
-    if (Number.isInteger(hours) && Number.isInteger(minutes)) {
-      const deadline = new Date(stop.deliveredAt);
-      deadline.setHours(hours!, minutes!, 0, 0);
-      const slackMs = deliveredMs - deadline.getTime();
-      if (slackMs <= 5 * 60_000) return 'on_time';
-      return 'late';
+    const deadline = clockOnDeliveredDay(stop.deliveredAt, stop.deliveryTimeTo);
+    if (deadline !== null) {
+      const lateMs = deliveredMs - deadline;
+      if (lateMs > PUNCTUALITY_TOLERANCE_MINUTES * 60_000) return 'late';
+      // Arriving ahead of the window only counts against punctuality once
+      // there is an actual window start to be ahead of — with no known
+      // deliveryTimeFrom, showing up early is never the customer's problem.
+      const windowStart = stop.deliveryTimeFrom ? clockOnDeliveredDay(stop.deliveredAt, stop.deliveryTimeFrom) : null;
+      if (windowStart !== null && deliveredMs < windowStart - PUNCTUALITY_TOLERANCE_MINUTES * 60_000) return 'late';
+      return 'on_time';
     }
   }
   if (stop.plannedArrivalAt) {
     const plannedMs = Date.parse(stop.plannedArrivalAt);
     if (Number.isFinite(plannedMs)) {
       const diffMinutes = Math.round((deliveredMs - plannedMs) / 60_000);
-      if (diffMinutes <= 5) return 'on_time';
-      if (diffMinutes > 5) return 'late';
+      if (Math.abs(diffMinutes) <= PUNCTUALITY_TOLERANCE_MINUTES) return 'on_time';
+      return 'late';
     }
   }
   return 'unknown';
+}
+
+/** Parses an "HH:MM" clock value onto the same calendar day as `deliveredAt`, in ms since epoch; null if unparseable. */
+function clockOnDeliveredDay(deliveredAt: string, clock: string): number | null {
+  const [hours, minutes] = clock.split(':').map(Number);
+  if (!Number.isInteger(hours) || !Number.isInteger(minutes)) return null;
+  const date = new Date(deliveredAt);
+  date.setHours(hours, minutes, 0, 0);
+  return date.getTime();
 }
 
 function stopState(stop: DeliveryStop): Record<string, unknown> {

@@ -413,6 +413,30 @@ describe('driver workday persistence', () => {
     await expect(new CompleteRoute(db).execute('route-1', { endOdometer: 1001, confirmUnfinished: true })).resolves.toMatchObject({ summary: { unmarkedStops: 2 } });
   });
 
+  it('counts a stop delivered within 15 minutes of the window as on time, and beyond as late', async () => {
+    const { db } = createDb();
+    await new CreateDraftRoute(db).execute({ id: 'route-1', startLocation: endpoint, endLocation: endpoint });
+    let stopNumber = 0;
+    const windowed = (id: string, order: number, timeTo: string): DraftStopInput => ({
+      ...stop(id, order, 10),
+      deliveryTimeFrom: '10:00', deliveryTimeTo: timeTo, requiredTimeWindow: true,
+    });
+    await new ReplaceDraftStops(db, undefined, (prefix) => prefix === 'stop' ? `stop-${++stopNumber}` : `${prefix}-${Math.random()}`)
+      .execute('route-1', [windowed('stop-1', 1, '11:00'), windowed('stop-2', 2, '11:00')]);
+    await db.runAsync("UPDATE routes SET status = 'loading', estimated_distance_km = 40 WHERE id = 'route-1'");
+    await new MarkStopLoaded(db).execute('route-1', 'stop-1');
+    await new MarkStopLoaded(db).execute('route-1', 'stop-2');
+    await new SaveStartOdometer(db).execute('route-1', 1000);
+    await new StartRoute(db).execute('route-1');
+    // 10 minutes past the 11:00 deadline: within the 15-minute tolerance.
+    await new MarkStopDelivered(db, () => '2026-08-11T11:10:00.000Z').execute('route-1', 'stop-1');
+    // 20 minutes past: beyond it.
+    await new MarkStopDelivered(db, () => '2026-08-11T11:20:00.000Z').execute('route-1', 'stop-2');
+    await arriveAtRouteEnd(db);
+    const completed = await new CompleteRoute(db, () => '2026-08-11T12:00:00.000Z').execute('route-1', { endOdometer: 1010 });
+    expect(completed.summary).toMatchObject({ onTimeStops: 1, lateStops: 1 });
+  });
+
   it('lets an administrator close a hanging route from loading without odometer', async () => {
     const { adapter, db } = createDb();
     await loadingRoute(db);

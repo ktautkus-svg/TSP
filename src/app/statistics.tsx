@@ -1,9 +1,10 @@
 import { Stack, useFocusEffect, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { ChevronDownIcon } from '@/components/app-icons';
+import { DateInput } from '@/components/date-input';
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { canViewOrgStatistics, canViewStatisticsEarnings, localStatisticsOwnerId } from '@/application/auth/employee-permissions';
@@ -231,10 +232,14 @@ export default function StatisticsScreen() {
         </View>
         {preset === 'custom' ? (
           <View style={styles.customRange} testID="statistics-custom-range">
-            <TextInput accessibilityLabel="Nuo" value={customFrom} onChangeText={setCustomFrom}
-              placeholder="Nuo, YYYY-MM-DD" placeholderTextColor={colors.textMuted} style={styles.customInput} />
-            <TextInput accessibilityLabel="Iki" value={customTo} onChangeText={setCustomTo}
-              placeholder="Iki, YYYY-MM-DD" placeholderTextColor={colors.textMuted} style={styles.customInput} />
+            <View style={styles.customField}>
+              <Text style={styles.customFieldLabel}>NUO</Text>
+              <DateInput accessibilityLabel="Nuo" value={customFrom} onChangeText={setCustomFrom} style={styles.customInput} />
+            </View>
+            <View style={styles.customField}>
+              <Text style={styles.customFieldLabel}>IKI</Text>
+              <DateInput accessibilityLabel="Iki" value={customTo} onChangeText={setCustomTo} style={styles.customInput} />
+            </View>
             <Pressable onPress={applyCustomRange} style={styles.customApply}><Text style={styles.customApplyText}>Taikyti</Text></Pressable>
           </View>
         ) : null}
@@ -372,7 +377,7 @@ function BigNumber({ value, label, comparisonPercent, comparisonIsPoints, styles
       <Text style={styles.bigNumber}>{value}</Text>
       <Text style={styles.bigNumberLabel}>{label}</Text>
       {comparisonPercent === null ? (
-        <Text style={styles.comparisonMeta}>Nėra su kuo palyginti</Text>
+        <Text style={styles.comparisonMeta}>Ankstesniam tokiam pat laikotarpiui duomenų dar nėra</Text>
       ) : (
         <Text style={[styles.comparisonValue, up && styles.comparisonUp, down && styles.comparisonDown]}>
           {up ? '▲' : down ? '▼' : '–'} {formatDecimal(Math.abs(comparisonPercent), 1)}{comparisonIsPoints ? ' p.p.' : '%'} nei ankstesnį tokį patį laikotarpį
@@ -680,6 +685,7 @@ function QualityTab({ styles, colors, current, previous, series, granularity, to
       </View>
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Planas prieš faktą</Text>
+        <Text style={styles.meta}>Rodo, kiek realus važiavimas nukrypsta nuo planavimo metu apskaičiuoto maršruto — didelis skirtumas reiškia, kad planavimo įverčiai (laikas, atstumas) šiam tipui maršrutų netikslūs.</Text>
         <Text style={styles.meta}>Km: planuota {formatDecimal(current.plannedKm)} · faktinė {formatDecimal(current.actualKmForQuality)}</Text>
         <Text style={styles.meta}>Laikas: planuota {durationLabel(current.plannedDurationMinutes)} · faktinė {durationLabel(current.actualDurationMinutes)}</Text>
         <Text style={styles.meta}>Vidutinė maršruto trukmė: {current.averageRouteDurationMinutes === null ? '—' : durationLabel(current.averageRouteDurationMinutes)}</Text>
@@ -741,8 +747,10 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   chipActive: { borderColor: colors.info, backgroundColor: colors.infoSoft },
   chipText: { ...type.secondaryStrong, color: colors.textSecondary },
   chipTextActive: { color: colors.info },
-  customRange: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, alignItems: 'center' },
-  customInput: { flexGrow: 1, minWidth: 140, minHeight: 44, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, paddingHorizontal: spacing.md, color: colors.text },
+  customRange: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, alignItems: 'flex-end' },
+  customField: { flexGrow: 1, minWidth: 140, gap: 4 },
+  customFieldLabel: { ...type.label, color: colors.textMuted },
+  customInput: { minHeight: 44, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, paddingHorizontal: spacing.md, color: colors.text },
   customApply: { minHeight: 44, borderRadius: radius.md, backgroundColor: colors.actionPrimary, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
   customApplyText: { ...type.button, color: colors.textInverse },
   empty: { padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surface, gap: spacing.xs },
