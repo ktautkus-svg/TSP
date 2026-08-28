@@ -7,6 +7,7 @@ import { LocalAccessService, validateNewPin, type ActingDriver } from '@/applica
 import { LocalAccessContext, type LocalAccessContextValue } from '@/application/auth/local-access-context';
 import { pullAssignedRoutes } from '@/application/auth/route-assignment-sync';
 import { TspBrand } from '@/components/tsp-brand';
+import { useForegroundInterval } from '@/hooks/use-foreground-interval';
 import {
     bootstrapEmployeeAdmin,
     EmployeeClientError,
@@ -34,6 +35,15 @@ type GateMode = 'bootstrap' | 'login';
 // interruptions, short enough that a phone left in the vehicle or handed to
 // someone else needs the PIN again before it exposes anything.
 const PIN_GRACE_PERIOD_MS = 4 * 60 * 60 * 1000;
+
+// `online` used to be set once at login/app-mount and never touched again,
+// so a single transient failure at that moment (a deploy rollover, a flaky
+// signal) pinned every screen that reads it — dozens of them — into
+// "offline" behaviour for the rest of the session, even once the network
+// was fine again. Re-checking periodically (and immediately whenever the
+// app comes back to the foreground, via useForegroundInterval) keeps it
+// live instead of a one-time snapshot.
+const ONLINE_RECHECK_INTERVAL_MS = 30_000;
 
 export interface LocalAccessGateProps {
   readonly children: ReactNode;
@@ -104,6 +114,12 @@ export function LocalAccessGate({ children }: LocalAccessGateProps) {
     setError(reason instanceof Error ? reason.message : 'Prisijungimo būsenos atkurti nepavyko.');
     setLoading(false);
   }); }, [refresh]);
+
+  const recheckOnline = useCallback(() => {
+    if (!unlocked || !profile) return;
+    void employeeServerInitialized().then((initialized) => setOnline(initialized !== null));
+  }, [unlocked, profile]);
+  useForegroundInterval(recheckOnline, ONLINE_RECHECK_INTERVAL_MS);
 
   const submit = async () => {
     if (busy) return;

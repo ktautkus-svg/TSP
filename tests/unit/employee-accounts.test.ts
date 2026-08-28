@@ -74,6 +74,15 @@ describe('employee server session', () => {
     expect(settingsSource).toContain('testID="logout-button"');
   });
 
+  it('keeps the app-wide online flag live instead of a one-time login snapshot', () => {
+    // A single transient failure at login/mount time (a deploy rollover, a
+    // flaky signal) used to pin every one of the ~30 screens reading
+    // `online` from useLocalAccess() into permanent offline behaviour for
+    // the rest of the session, with nothing ever re-checking connectivity.
+    expect(accessGateSource).toContain('useForegroundInterval(recheckOnline, ONLINE_RECHECK_INTERVAL_MS)');
+    expect(accessGateSource).toContain('setOnline(initialized !== null)');
+  });
+
   it('keeps the central fleet on the server and exposes admin create and assignment controls', () => {
     expect(employeeApiSource).toContain("pathname === '/api/admin/vehicles'");
     expect(employeeApiSource).toContain("pathname.match(/^\\/api\\/admin\\/vehicles\\/([^/]+)$/)");
