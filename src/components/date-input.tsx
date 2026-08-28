@@ -7,9 +7,14 @@ import { Platform, TextInput, type TextInput as TextInputInstance, type TextInpu
  * from `keyboardType`/`inputMode` (there is no RN equivalent of type="date"),
  * so passing `type: 'date'` as a raw prop is silently discarded on every
  * render — it never reaches the DOM. Forcing the attribute imperatively via
- * the underlying host node after mount is the only way to get the real
- * picker; React never touches that attribute again since its own computed
- * value for it stays `undefined` across re-renders.
+ * the underlying host node is the only way to get the real picker.
+ *
+ * This reasserts on every render, not just mount: a value-driven re-render
+ * (the controlled `value` prop changing, e.g. switching between quality
+ * control's Diena/Savaitė/Mėnuo period tabs without remounting the field)
+ * can make react-native-web resync its own DOM attributes and silently
+ * revert `type` back to "text" — which showed up as this field falling back
+ * to a plain keyboard instead of the calendar picker.
  */
 export const DateInput = forwardRef<TextInputInstance, TextInputProps>((props, forwardedRef) => {
   const innerRef = useRef<TextInputInstance>(null);
@@ -17,8 +22,8 @@ export const DateInput = forwardRef<TextInputInstance, TextInputProps>((props, f
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     const node = innerRef.current as unknown as HTMLInputElement | null;
-    if (node) node.type = 'date';
-  }, []);
+    if (node && node.type !== 'date') node.type = 'date';
+  });
 
   return <TextInput
     placeholder="YYYY-MM-DD"
