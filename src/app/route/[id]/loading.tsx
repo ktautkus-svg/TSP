@@ -51,7 +51,7 @@ import { fonts, radius, spacing, type } from '@/ui/tokens';
 import { describeVehicleLoad } from '@/ui/vehicle-load';
 
 export default function LoadingScreen() {
-  const { profile, online } = useLocalAccess();
+  const { profile, online, actingDriver } = useLocalAccess();
   const { requestSync, revision: syncRevision } = useRouteCloudSync();
   const db = useSQLiteContext();
   const router = useRouter();
@@ -83,6 +83,15 @@ export default function LoadingScreen() {
   // See alternatives.tsx: suppresses this screen's own status guard while a
   // deliberate cancel is navigating away, so it cannot redirect to /history.
   const selfCancelled = useRef(false);
+
+  // An admin/dispatcher who switched this device into "driving as" a chosen
+  // driver (home screen picker, or the "Vykdyti vairuotojo maršrutą" admin
+  // screen) is actually operating this exact route, not just managing it —
+  // without this, every driver-only action here (starting loading, the fuel
+  // confirmation) was unreachable for them, since it was gated to a real
+  // driver-role login only.
+  const drivingAsDriver = profile.role === 'driver'
+    || (actingDriver !== null && assignment?.driverId === actingDriver.id);
 
   const load = useCallback(async () => {
     if (selfCancelled.current) return;
@@ -530,7 +539,7 @@ export default function LoadingScreen() {
           </View> : null}
         </View> : null}
         <View style={styles.plannedActions}>
-        {profile.role === 'driver' ? <Pressable disabled={bulkBusy || Boolean(readiness && !readiness.canBeginLoading)} style={[styles.plannedPrimaryButton, (bulkBusy || Boolean(readiness && !readiness.canBeginLoading)) && styles.disabled]} onPress={beginLoading} testID="begin-loading">
+        {drivingAsDriver ? <Pressable disabled={bulkBusy || Boolean(readiness && !readiness.canBeginLoading)} style={[styles.plannedPrimaryButton, (bulkBusy || Boolean(readiness && !readiness.canBeginLoading)) && styles.disabled]} onPress={beginLoading} testID="begin-loading">
           {bulkBusy ? <ActivityIndicator color="#fff" /> : <>
             <TruckIcon size={22} color="#FFFFFF" />
             <Text style={styles.plannedPrimaryText}>Pradėti krovimą</Text>

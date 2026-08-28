@@ -136,6 +136,16 @@ describe('dispatcher desktop workspace', () => {
     expect(loadingSource).toContain("{assignment ? 'Keisti priskyrimą' : 'Priskirti maršrutą'}");
   });
 
+  it('lets an admin/dispatcher "driving as" a chosen driver actually start loading the route', () => {
+    // "Pradėti krovimą" was gated to profile.role === 'driver' only, so an
+    // admin who imported a driver's route (via execute-route.tsx or the
+    // home-screen picker) could open it but never actually drive it — every
+    // driver-only action was unreachable.
+    expect(loadingSource).toContain("const drivingAsDriver = profile.role === 'driver'");
+    expect(loadingSource).toContain('actingDriver !== null && assignment?.driverId === actingDriver.id');
+    expect(loadingSource).toContain('{drivingAsDriver ? <Pressable');
+  });
+
   it('sends dispatchers to their workspace and keeps route creation hidden from drivers by default', () => {
     expect(homeSource).toContain("profile.role === 'dispatcher'");
     expect(homeSource).toContain("profile.role !== 'driver'");

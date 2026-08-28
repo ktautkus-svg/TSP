@@ -17,7 +17,7 @@ import type { ColorPalette } from '@/ui/theme-palette';
 export default function ExecuteRouteScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
-  const { profile, online } = useLocalAccess();
+  const { profile, online, setActingDriver } = useLocalAccess();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [drivers, setDrivers] = useState<EmployeeProfile[]>([]);
@@ -67,6 +67,12 @@ export default function ExecuteRouteScreen() {
     setError(null);
     try {
       await importAssignmentSnapshot(db, selectedAssignment, selectedAssignment.driverId);
+      // Marks this device as "driving as" the selected driver, the same
+      // signal the home-screen picker sets — otherwise every driver-only
+      // action on the route (starting loading, etc.) stayed unreachable for
+      // admin/dispatcher even after importing and opening it.
+      const driver = drivers.find((item) => item.id === selectedAssignment.driverId);
+      if (driver) await setActingDriver({ id: driver.id, displayName: driver.displayName });
       const route = selectedAssignment.routeSnapshot.route;
       const destination = resolveRouteDestination(String(route.status ?? 'planned') as 'draft' | 'planned' | 'loading' | 'loaded' | 'in_progress' | 'completed' | 'cancelled', {
         routeId: selectedAssignment.routeId,

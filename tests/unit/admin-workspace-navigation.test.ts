@@ -73,6 +73,15 @@ describe('administrator workspace navigation', () => {
     expect(execute).toContain('Vykdyti pasirinktą maršrutą');
   });
 
+  it('marks the device as driving as the selected driver so the route stays operable, not just viewable', () => {
+    // Importing the assignment alone left every driver-only action on the
+    // route (starting loading, etc.) unreachable, since those were gated to
+    // a real driver-role login only — this is what "neleidžia važiuoti"
+    // (won't let me drive) turned out to be.
+    expect(execute).toContain('await setActingDriver({ id: driver.id, displayName: driver.displayName })');
+    expect(home).toContain('drivingAsProxy'); // sanity: same acting-driver concept used on the home screen
+  });
+
   it('keeps all administration groups collapsed until their heading is pressed', () => {
     expect(admin).toContain('const [expandedSection, setExpandedSection] = useState<string | null>(null)');
     expect(admin).toContain('function CollapsibleHeader');
