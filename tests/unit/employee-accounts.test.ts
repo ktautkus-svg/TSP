@@ -139,7 +139,7 @@ describe('employee server session', () => {
     expect(employeeStoreSource).toContain('const punctuality = stopPunctuality(stop)');
     expect(employeeStoreSource).toContain("if (punctuality === 'on_time') onTimeStops += 1");
     expect(employeeStoreSource).toContain('function stopPunctuality');
-    expect(employeeStoreSource).toContain('PUNCTUALITY_TOLERANCE_MINUTES = 15');
+    expect(employeeStoreSource).toContain("import { completionPunctuality } from '../src/domain/lithuanian-time.js'");
   });
 
   it('publishes completed driver routes as role-scoped trip sheets', () => {

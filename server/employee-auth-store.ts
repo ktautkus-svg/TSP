@@ -31,6 +31,7 @@ import {
     type PalletCapacity,
 } from '../src/domain/fleet-cargo-specs.js';
 import { isVanBodyKind, type VanBodyKind } from '../src/domain/loading-schema.js';
+import { completionPunctuality } from '../src/domain/lithuanian-time.js';
 import {
     NLL182_ODOMETER_DRIVER_NAME,
     NLL182_ODOMETER_LOG,
@@ -2809,46 +2810,14 @@ function optionalText(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
-// Mirrors src/application/routes/route-workday.ts's completionPunctuality:
-// 15 minutes tolerance on either side of the window/estimate still counts
-// as on time. This path (force-completing an assignment from the admin
-// panel) used to hardcode onTimeStops/lateStops to 0, silently discarding
-// punctuality data for any route completed this way.
-const PUNCTUALITY_TOLERANCE_MINUTES = 15;
-
 function stopPunctuality(stop: Record<string, unknown>): 'on_time' | 'late' | 'unknown' {
-  const deliveredAt = optionalText(stop.delivered_at);
-  if (!deliveredAt) return 'unknown';
-  const deliveredMs = Date.parse(deliveredAt);
-  if (!Number.isFinite(deliveredMs)) return 'unknown';
-  const deliveryTimeTo = optionalText(stop.delivery_time_to);
-  if (deliveryTimeTo) {
-    const deadline = clockOnDeliveredDay(deliveredAt, deliveryTimeTo);
-    if (deadline !== null) {
-      if (deliveredMs - deadline > PUNCTUALITY_TOLERANCE_MINUTES * 60_000) return 'late';
-      const deliveryTimeFrom = optionalText(stop.delivery_time_from);
-      const windowStart = deliveryTimeFrom ? clockOnDeliveredDay(deliveredAt, deliveryTimeFrom) : null;
-      if (windowStart !== null && deliveredMs < windowStart - PUNCTUALITY_TOLERANCE_MINUTES * 60_000) return 'late';
-      return 'on_time';
-    }
-  }
-  const plannedArrivalAt = optionalText(stop.latest_estimated_arrival_at) ?? optionalText(stop.planned_arrival_at);
-  if (plannedArrivalAt) {
-    const plannedMs = Date.parse(plannedArrivalAt);
-    if (Number.isFinite(plannedMs)) {
-      const diffMinutes = Math.round((deliveredMs - plannedMs) / 60_000);
-      return Math.abs(diffMinutes) <= PUNCTUALITY_TOLERANCE_MINUTES ? 'on_time' : 'late';
-    }
-  }
-  return 'unknown';
-}
-
-function clockOnDeliveredDay(deliveredAt: string, clock: string): number | null {
-  const [hours, minutes] = clock.split(':').map(Number);
-  if (!Number.isInteger(hours) || !Number.isInteger(minutes)) return null;
-  const date = new Date(deliveredAt);
-  date.setHours(hours, minutes, 0, 0);
-  return date.getTime();
+  return completionPunctuality({
+    deliveredAt: optionalText(stop.delivered_at),
+    deliveryTimeFrom: optionalText(stop.delivery_time_from),
+    deliveryTimeTo: optionalText(stop.delivery_time_to),
+    plannedArrivalAt: optionalText(stop.planned_arrival_at),
+    latestEstimatedArrivalAt: optionalText(stop.latest_estimated_arrival_at),
+  });
 }
 
 function nullableNumber(value: unknown): number | null {

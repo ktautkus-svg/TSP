@@ -1,6 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-import type { FailureReasonCount, StatsRouteRow } from '@/domain/statistics';
+import { assessDeliveryTiming } from '@/domain/lithuanian-time';
+import type { FailureReasonCount, StatsLateDelivery, StatsRouteRow } from '@/domain/statistics';
 import type { RouteCompletionSummary } from '@/domain/route';
 
 type StatsRouteQueryRow = {
@@ -12,6 +13,20 @@ type StatsRouteQueryRow = {
   started_at: string | null;
   completed_at: string | null;
   completion_summary_json: string | null;
+};
+
+type StatsStopQueryRow = {
+  route_id: string;
+  route_date: string;
+  route_codes: string | null;
+  stop_id: string;
+  original_address: string;
+  normalized_address: string | null;
+  delivered_at: string;
+  delivery_time_from: string | null;
+  delivery_time_to: string | null;
+  planned_arrival_at: string | null;
+  latest_estimated_arrival_at: string | null;
 };
 
 function parseSummary(value: string | null): RouteCompletionSummary | null {
@@ -43,6 +58,7 @@ function mapRow(row: StatsRouteQueryRow): StatsRouteRow {
 export type StatisticsRows = {
   rows: StatsRouteRow[];
   failureCounts: FailureReasonCount[];
+  lateDeliveries: StatsLateDelivery[];
 };
 
 export class StatisticsRepository {
@@ -89,6 +105,62 @@ export class StatisticsRepository {
     const failureCounts: FailureReasonCount[] = failureRows
       .filter((row): row is { reason: string; count: number } => row.reason !== null)
       .map((row) => ({ reason: row.reason, count: row.count }));
-    return { rows: rows.map(mapRow), failureCounts };
+    const deliveredRows = await this.db.getAllAsync<StatsStopQueryRow>(
+      `SELECT r.id AS route_id, r.date AS route_date,
+              (SELECT GROUP_CONCAT(DISTINCT sl.route_code) FROM shipment_lines sl WHERE sl.route_id = r.id) AS route_codes,
+              ds.id AS stop_id, ds.original_address, ds.normalized_address,
+              ds.delivered_at, ds.delivery_time_from, ds.delivery_time_to,
+              ds.planned_arrival_at, ds.latest_estimated_arrival_at
+       FROM delivery_stops ds
+       JOIN routes r ON r.id = ds.route_id
+       WHERE ds.delivery_status = 'delivered' AND ds.delivered_at IS NOT NULL
+         AND r.status IN ('completed', 'cancelled') AND r.date >= ?
+       ${ownerEmployeeId ? `AND (r.owner_employee_id = ? OR EXISTS (
+         SELECT 1 FROM route_sync_state sync WHERE sync.route_id = r.id AND sync.employee_id = ?
+       ))` : ''}
+       ORDER BY ds.delivered_at DESC`,
+      windowStartKey,
+      ...ownerParams,
+    );
+    const lateDeliveries = deliveredRows.flatMap((row): StatsLateDelivery[] => {
+      const timing = assessDeliveryTiming({
+        deliveredAt: row.delivered_at,
+        deliveryTimeFrom: row.delivery_time_from,
+        deliveryTimeTo: row.delivery_time_to,
+        plannedArrivalAt: row.planned_arrival_at,
+        latestEstimatedArrivalAt: row.latest_estimated_arrival_at,
+      });
+      if (timing.state !== 'late' || timing.differenceMinutes === null || !timing.referenceAt) return [];
+      return [{
+        routeId: row.route_id,
+        date: row.route_date,
+        routeLabel: routeLabel(row.route_codes, row.route_id),
+        driverId: null,
+        driverName: null,
+        vehicleRegistration: null,
+        stopId: row.stop_id,
+        address: row.normalized_address ?? row.original_address,
+        deliveredAt: row.delivered_at,
+        deadlineAt: timing.referenceAt,
+        delayMinutes: timing.differenceMinutes,
+      }];
+    });
+    return { rows: rows.map(mapRow), failureCounts, lateDeliveries };
   }
+}
+
+function routeLabel(value: string | null, routeId: string): string {
+  if (value) {
+    try {
+      const codes = JSON.parse(value) as unknown;
+      if (Array.isArray(codes)) {
+        const label = codes.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).join(' · ');
+        if (label) return label;
+      }
+    } catch {
+      const codes = value.split(',').map((item) => item.trim()).filter(Boolean);
+      if (codes.length > 0) return codes.join(' · ');
+    }
+  }
+  return `Maršrutas ${routeId.slice(0, 8)}`;
 }

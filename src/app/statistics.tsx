@@ -28,12 +28,13 @@ import {
   type FailureReasonCount,
   type PeriodMetrics,
   type PeriodPreset,
+  type StatsLateDelivery,
   type StatsPoint,
   type StatsRouteRow,
 } from '@/domain/statistics';
 import { employeeApi, type EmployeeProfile, type ServerRouteAssignment, type ServerTripSheet } from '@/infrastructure/auth/employee-session';
 import { devWarn } from '@/ui/dev-log';
-import { formatLithuanianDate } from '@/ui/history-labels';
+import { formatLithuanianDate, formatLithuanianDateTime } from '@/ui/history-labels';
 import { durationLabel } from '@/ui/route-eta-labels';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
@@ -84,6 +85,7 @@ export default function StatisticsScreen() {
 
   const [localRows, setLocalRows] = useState<StatsRouteRow[]>([]);
   const [localFailures, setLocalFailures] = useState<FailureReasonCount[]>([]);
+  const [localLateDeliveries, setLocalLateDeliveries] = useState<StatsLateDelivery[]>([]);
   const [drivers, setDrivers] = useState<EmployeeProfile[]>([]);
   const [assignments, setAssignments] = useState<ServerRouteAssignment[]>([]);
   const [tripSheets, setTripSheets] = useState<ServerTripSheet[]>([]);
@@ -101,10 +103,11 @@ export default function StatisticsScreen() {
 
   useFocusEffect(useCallback(() => {
     let mounted = true;
-    void repository.getRows(now, 365, localOwnerId).then(({ rows, failureCounts }) => {
+    void repository.getRows(now, 365, localOwnerId).then(({ rows, failureCounts, lateDeliveries }) => {
       if (!mounted) return;
       setLocalRows(rows);
       setLocalFailures(failureCounts);
+      setLocalLateDeliveries(lateDeliveries);
       setError(null);
     }).catch((reason) => {
       devWarn('STATISTICS_LOAD_FAILED', reason);
@@ -137,10 +140,10 @@ export default function StatisticsScreen() {
 
   const usingOrgData = orgCapable && orgLoaded;
 
-  const { rows, failureCounts } = useMemo(() => {
+  const { rows, failureCounts, lateDeliveries } = useMemo(() => {
     if (usingOrgData) return assignmentsToStatsRows(assignments, selectedDriverId, selectedVehicleId);
-    return { rows: localRows, failureCounts: localFailures };
-  }, [usingOrgData, assignments, selectedDriverId, selectedVehicleId, localRows, localFailures]);
+    return { rows: localRows, failureCounts: localFailures, lateDeliveries: localLateDeliveries };
+  }, [usingOrgData, assignments, selectedDriverId, selectedVehicleId, localRows, localFailures, localLateDeliveries]);
 
   const earningsRows = useMemo(() => {
     const filteredSheets: EarningsSheetInput[] = usingOrgData
@@ -163,6 +166,10 @@ export default function StatisticsScreen() {
   const current = useMemo(() => computePeriodMetrics(rows, failureCounts, period), [rows, failureCounts, period]);
   const previousMetrics = useMemo(() => computePeriodMetrics(rows, failureCounts, previous), [rows, failureCounts, previous]);
   const series = useMemo(() => buildStatsSeries(rows, period), [rows, period]);
+  const periodLateDeliveries = useMemo(
+    () => lateDeliveries.filter((item) => item.date >= period.fromKey && item.date <= period.toKey),
+    [lateDeliveries, period],
+  );
 
   const quickToday = useMemo(() => computePeriodMetrics(rows, failureCounts, periodForPreset('today', now)), [rows, failureCounts, now]);
   const quickWeek = useMemo(() => computePeriodMetrics(rows, failureCounts, periodForPreset('week', now)), [rows, failureCounts, now]);
@@ -245,9 +252,16 @@ export default function StatisticsScreen() {
         ) : null}
         {customError ? <Text style={styles.error}>{customError}</Text> : null}
 
-        {profile.role === 'driver' ? <Pressable style={styles.tripSheetButton} onPress={() => router.push({ pathname: '/trip-sheet', params: { returnTo: 'statistics' } } as Href)} testID="open-trip-sheets">
-          <Text style={styles.tripSheetText}>Kelionės lapai</Text>
-        </Pressable> : null}
+        <View style={styles.relatedActions} testID="statistics-related-actions">
+          <Pressable style={styles.tripSheetButton} onPress={() => router.push({ pathname: '/trip-sheet', params: { returnTo: 'statistics' } } as Href)} testID="open-trip-sheets">
+            <Text style={styles.tripSheetText}>Kelionės lapai ir kuras</Text>
+          </Pressable>
+          {profile.role === 'admin' || profile.role === 'dispatcher' ? (
+            <Pressable style={styles.relatedSecondaryButton} onPress={() => router.push({ pathname: '/finance', params: { returnTo: 'statistics' } } as unknown as Href)} testID="statistics-open-finance">
+              <Text style={styles.relatedSecondaryText}>Maršrutų kainos ir finansai</Text>
+            </Pressable>
+          ) : null}
+        </View>
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
@@ -288,7 +302,9 @@ export default function StatisticsScreen() {
             {activeTab === 'quality' ? (
               <QualityTab styles={styles} colors={colors} current={current} previous={previousMetrics}
                 series={series.points} granularity={series.granularity}
-                today={quickToday} week={quickWeek} month={quickMonth} year={quickYear} />
+                today={quickToday} week={quickWeek} month={quickMonth} year={quickYear}
+                lateDeliveries={periodLateDeliveries}
+                onOpenQualityControl={orgCapable ? () => router.push('/quality-control' as Href) : undefined} />
             ) : null}
           </>
         )}
@@ -636,7 +652,7 @@ function EarningsTab({ styles, colors, current, previous, routeCount, totalKm, d
 // Kokybė
 // ---------------------------------------------------------------------------
 
-function QualityTab({ styles, colors, current, previous, series, granularity, today, week, month, year }: {
+function QualityTab({ styles, colors, current, previous, series, granularity, today, week, month, year, lateDeliveries, onOpenQualityControl }: {
   styles: ReturnType<typeof createStyles>;
   colors: ColorPalette;
   current: PeriodMetrics;
@@ -644,6 +660,8 @@ function QualityTab({ styles, colors, current, previous, series, granularity, to
   series: StatsPoint[];
   granularity: 'day' | 'month';
   today: PeriodMetrics; week: PeriodMetrics; month: PeriodMetrics; year: PeriodMetrics;
+  lateDeliveries: StatsLateDelivery[];
+  onOpenQualityControl?: () => void;
 }) {
   const onTimePercentOf = (point: StatsPoint): number | null =>
     point.onTimeStops + point.lateStops === 0 ? null : (point.onTimeStops / (point.onTimeStops + point.lateStops)) * 100;
@@ -657,6 +675,9 @@ function QualityTab({ styles, colors, current, previous, series, granularity, to
   const pointDelta = current.onTimeWindowPercent === null || previous.onTimeWindowPercent === null
     ? null
     : current.onTimeWindowPercent - previous.onTimeWindowPercent;
+  const averageDelayMinutes = lateDeliveries.length === 0
+    ? null
+    : lateDeliveries.reduce((sum, item) => sum + item.delayMinutes, 0) / lateDeliveries.length;
 
   return (
     <>
@@ -681,7 +702,26 @@ function QualityTab({ styles, colors, current, previous, series, granularity, to
         <Text style={styles.cardTitle}>Maršrutai</Text>
         <Text style={styles.meta}>Vėluota bent viename taške: {current.routesWithLateStop}</Text>
         <Text style={styles.meta}>Visi taškai laiku: {current.routesFullyOnTime}</Text>
-        <Text style={styles.meta}>Vidutinis vėlavimas minutėmis: — (šis rodiklis dar nerenkamas — sistema kol kas žymi tik „laiku“/„vėluoja“, be minučių)</Text>
+        <Text style={styles.meta}>Vidutinis faktinis vėlavimas: {averageDelayMinutes === null ? '—' : `${formatDecimal(averageDelayMinutes)} min.`}</Text>
+      </View>
+      <View style={styles.card} testID="statistics-late-deliveries">
+        <View style={styles.lateListHeading}>
+          <View style={styles.flex}>
+            <Text style={styles.cardTitle}>Konkretūs vėlavimai</Text>
+            <Text style={styles.meta}>{lateDeliveries.length === 0 ? 'Pasirinktu laikotarpiu faktinių vėlavimų nėra.' : `${lateDeliveries.length} pristatymų po 15 min. tolerancijos.`}</Text>
+          </View>
+          {onOpenQualityControl ? <Pressable onPress={onOpenQualityControl} style={styles.inlineLink}><Text style={styles.inlineLinkText}>Kokybės kontrolė</Text></Pressable> : null}
+        </View>
+        {lateDeliveries.map((item) => (
+          <View key={`${item.routeId}:${item.stopId}:${item.deliveredAt}`} style={styles.lateDeliveryRow}>
+            <View style={styles.flex}>
+              <Text style={styles.lateDeliveryAddress}>{item.address}</Text>
+              <Text style={styles.meta}>{item.routeLabel}{item.driverName ? ` · ${item.driverName}` : ''}{item.vehicleRegistration ? ` · ${item.vehicleRegistration}` : ''}</Text>
+              <Text style={styles.meta}>Terminas {formatLithuanianDateTime(item.deadlineAt)} · pristatyta {formatLithuanianDateTime(item.deliveredAt)}</Text>
+            </View>
+            <Text style={styles.lateMinutes}>+{item.delayMinutes} min.</Text>
+          </View>
+        ))}
       </View>
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Planas prieš faktą</Text>
@@ -758,6 +798,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   highlightCard: { padding: spacing.md, borderRadius: radius.lg, backgroundColor: colors.infoSoft, gap: spacing.xs },
   cardTitle: { ...type.sectionTitle, color: colors.text },
   meta: { ...type.secondary, color: colors.textMuted },
+  flex: { flex: 1, minWidth: 0 },
   error: { ...type.secondaryStrong, color: colors.danger },
 
   bigNumberBlock: { paddingVertical: spacing.sm, gap: 2 },
@@ -775,12 +816,21 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
 
   failureRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 },
   failureCount: { ...type.bodyStrong, color: colors.text },
+  lateListHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
+  lateDeliveryRow: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: colors.borderSubtle },
+  lateDeliveryAddress: { ...type.bodyStrong, color: colors.text },
+  lateMinutes: { ...type.bodyStrong, color: colors.danger, flexShrink: 0 },
+  inlineLink: { minHeight: 44, paddingHorizontal: spacing.sm, alignItems: 'center', justifyContent: 'center' },
+  inlineLinkText: { ...type.secondaryStrong, color: colors.info },
   outcomeBar: { flexDirection: 'row', height: 16, borderRadius: 8, overflow: 'hidden', backgroundColor: colors.border },
   outcomeLegendRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.xs },
   outcomeLegend: { ...type.meta },
 
   homeButton: { minHeight: 52, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
   tripSheetButton: { minHeight: 52, borderRadius: radius.md, backgroundColor: colors.actionPrimary, alignItems: 'center', justifyContent: 'center' },
+  relatedActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  relatedSecondaryButton: { flexGrow: 1, minHeight: 52, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+  relatedSecondaryText: { ...type.button, color: colors.textSecondary },
   tripSheetText: { ...type.button, color: colors.textInverse, fontSize: 16 },
   homeText: { ...type.button, color: colors.textSecondary },
 });

@@ -2,6 +2,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { RouteRepository } from '@/database/repositories/route-repository';
 import type { DeliveryStop, Route } from '@/domain/route';
+import { lithuanianClockOnReferenceDay } from '@/domain/lithuanian-time';
 import { haversineKm } from '@/domain/routing/evaluation/geo';
 import type { CandidateLeg, CandidateStopSchedule } from '@/domain/routing/models';
 
@@ -144,7 +145,8 @@ export function calculateRemainingEtas(
       if (index === 0) cursor = Math.max(cursor, now);
       const arrivalAt = new Date(cursor).toISOString();
       if (route.planningMode === 'with_time_windows' && stop.deliveryTimeFrom) {
-        cursor = Math.max(cursor, timeOnSameWorkday(stop.deliveryTimeFrom, currentTime));
+        const windowStart = lithuanianClockOnReferenceDay(currentTime, stop.deliveryTimeFrom);
+        if (windowStart !== null) cursor = Math.max(cursor, windowStart);
       }
       cursor += Math.max(0, stop.serviceDurationMinutes) * 60_000;
       return { stopId: stop.id, arrivalAt };
@@ -199,21 +201,4 @@ function hasCoordinates(value: { latitude: number | null; longitude: number | nu
 
 function roundToTenth(value: number): number {
   return Math.round(value * 10) / 10;
-}
-
-const LITHUANIA_TIME_ZONE = 'Europe/Vilnius';
-
-/** Interprets HH:mm on the same Lithuanian workday as `reference`, independent of device TZ. */
-function timeOnSameWorkday(value: string, reference: string): number {
-  const [hours, minutes] = value.split(':').map(Number);
-  const workday = new Intl.DateTimeFormat('en-CA', {
-    timeZone: LITHUANIA_TIME_ZONE,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date(reference));
-  const hh = String(hours).padStart(2, '0');
-  const mm = String(minutes ?? 0).padStart(2, '0');
-  // Lithuania has used permanent EET (UTC+2) since 1999.
-  return Date.parse(`${workday}T${hh}:${mm}:00+02:00`);
 }

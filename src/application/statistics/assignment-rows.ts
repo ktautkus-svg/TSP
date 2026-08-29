@@ -1,4 +1,6 @@
-import type { FailureReasonCount, StatsRouteRow } from '@/domain/statistics';
+import { assessDeliveryTiming } from '@/domain/lithuanian-time';
+import { uniqueRegionCodes } from '@/domain/route-code';
+import type { FailureReasonCount, StatsLateDelivery, StatsRouteRow } from '@/domain/statistics';
 import type { RouteCompletionSummary } from '@/domain/route';
 import type { ServerRouteAssignment } from '@/infrastructure/auth/employee-session';
 
@@ -28,13 +30,14 @@ export function assignmentsToStatsRows(
   assignments: readonly ServerRouteAssignment[],
   driverId: string,
   vehicleId: string,
-): { rows: StatsRouteRow[]; failureCounts: FailureReasonCount[] } {
+): { rows: StatsRouteRow[]; failureCounts: FailureReasonCount[]; lateDeliveries: StatsLateDelivery[] } {
   const selected = assignments.filter((assignment) =>
     (driverId === 'all' || assignment.driverId === driverId)
     && (vehicleId === 'all' || assignment.vehicle?.id === vehicleId));
 
   const rows: StatsRouteRow[] = [];
   const failures = new Map<string, number>();
+  const lateDeliveries: StatsLateDelivery[] = [];
 
   for (const assignment of selected) {
     const route = assignment.routeSnapshot.route;
@@ -53,14 +56,46 @@ export function assignmentsToStatsRows(
       vehicleMaxPayloadKg: assignment.vehicle?.maximumPayloadKg ?? null,
     });
 
+    const routeNumbers = uniqueRegionCodes(assignment.routeSnapshot.shipmentLines);
+    const routeLabel = routeNumbers.length > 0 ? routeNumbers.join(' · ') : `Maršrutas ${assignment.routeId.slice(0, 8)}`;
     for (const stop of assignment.routeSnapshot.stops) {
       if (stop.delivery_status !== 'failed' || typeof stop.failure_reason !== 'string') continue;
       failures.set(stop.failure_reason, (failures.get(stop.failure_reason) ?? 0) + 1);
+    }
+    for (const stop of assignment.routeSnapshot.stops) {
+      if (stop.delivery_status !== 'delivered') continue;
+      const deliveredAt = optionalText(stop.delivered_at);
+      const timing = assessDeliveryTiming({
+        deliveredAt,
+        deliveryTimeFrom: optionalText(stop.delivery_time_from),
+        deliveryTimeTo: optionalText(stop.delivery_time_to),
+        plannedArrivalAt: optionalText(stop.planned_arrival_at),
+        latestEstimatedArrivalAt: optionalText(stop.latest_estimated_arrival_at),
+      });
+      if (!deliveredAt || timing.state !== 'late' || timing.differenceMinutes === null || !timing.referenceAt) continue;
+      lateDeliveries.push({
+        routeId: assignment.routeId,
+        date: String(route.date ?? assignment.assignedAt.slice(0, 10)),
+        routeLabel,
+        driverId: assignment.driverId,
+        driverName: assignment.driverName,
+        vehicleRegistration: assignment.vehicle?.registrationNumber ?? null,
+        stopId: optionalText(stop.id) ?? `${assignment.routeId}-${lateDeliveries.length + 1}`,
+        address: optionalText(stop.normalized_address) ?? optionalText(stop.original_address) ?? 'Adresas nenurodytas',
+        deliveredAt,
+        deadlineAt: timing.referenceAt,
+        delayMinutes: timing.differenceMinutes,
+      });
     }
   }
 
   return {
     rows,
     failureCounts: [...failures].map(([reason, count]) => ({ reason, count })),
+    lateDeliveries: lateDeliveries.sort((left, right) => right.deliveredAt.localeCompare(left.deliveredAt)),
   };
+}
+
+function optionalText(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
 }

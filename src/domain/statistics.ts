@@ -21,6 +21,20 @@ export type StatsRouteRow = {
 
 export type FailureReasonCount = { reason: string; count: number };
 
+export type StatsLateDelivery = {
+  routeId: string;
+  date: string;
+  routeLabel: string;
+  driverId: string | null;
+  driverName: string | null;
+  vehicleRegistration: string | null;
+  stopId: string;
+  address: string;
+  deliveredAt: string;
+  deadlineAt: string;
+  delayMinutes: number;
+};
+
 export const PERIOD_PRESETS = ['today', 'week', 'month', 'year', 'custom'] as const;
 export type PeriodPreset = (typeof PERIOD_PRESETS)[number];
 
