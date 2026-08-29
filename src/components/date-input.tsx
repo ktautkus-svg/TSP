@@ -19,10 +19,15 @@ import { Platform, TextInput, type TextInput as TextInputInstance, type TextInpu
 export const DateInput = forwardRef<TextInputInstance, TextInputProps>((props, forwardedRef) => {
   const innerRef = useRef<TextInputInstance>(null);
 
-  useEffect(() => {
-    if (Platform.OS !== 'web') return;
+  const ensureWebDateInput = () => {
+    if (Platform.OS !== 'web') return null;
     const node = innerRef.current as unknown as HTMLInputElement | null;
     if (node && node.type !== 'date') node.type = 'date';
+    return node;
+  };
+
+  useEffect(() => {
+    ensureWebDateInput();
   });
 
   return <TextInput
@@ -33,6 +38,15 @@ export const DateInput = forwardRef<TextInputInstance, TextInputProps>((props, f
       else if (forwardedRef) forwardedRef.current = node;
     }}
     {...props}
+    onFocus={(event) => {
+      props.onFocus?.(event);
+      const node = ensureWebDateInput();
+      // iPad/Safari with a connected keyboard can focus a date input without
+      // opening its calendar. `showPicker` keeps the interaction calendar-led
+      // where the browser supports it; normal native behaviour remains the
+      // fallback everywhere else.
+      try { node?.showPicker?.(); } catch { /* Browser declined programmatic picker; native tap still works. */ }
+    }}
   />;
 });
 DateInput.displayName = 'DateInput';

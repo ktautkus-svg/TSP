@@ -92,7 +92,7 @@ export default function DeliveryScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { width: viewportWidth } = useWindowDimensions();
+  const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
   const { id: routeId = '', redirectReason, returnTo, view } = useLocalSearchParams<{ id: string; redirectReason?: string; returnTo?: string; view?: string }>();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -659,7 +659,12 @@ export default function DeliveryScreen() {
   const nextStop = stops.find((stop) => stop.deliveryStatus === 'pending') ?? null;
   const nextStopWindow = arrivalWindowStatus(nextStop, route?.date);
   const wideLayout = viewportWidth >= 720;
-  const gaugeSize = wideLayout ? 140 : Math.min(128, Math.max(92, (Math.min(viewportWidth, 430) - 140) / 2));
+  const compactDashboard = !wideLayout && viewportHeight < 900;
+  const gaugeSize = wideLayout
+    ? 140
+    : compactDashboard
+      ? Math.min(92, Math.max(82, (Math.min(viewportWidth, 430) - 126) / 2))
+      : Math.min(118, Math.max(92, (Math.min(viewportWidth, 430) - 140) / 2));
   const compositeProgress = progress ? calculateCompositeRouteProgress({
     completedStops: progress.totalStops - progress.remainingStops,
     totalStops: progress.totalStops,
@@ -714,13 +719,14 @@ export default function DeliveryScreen() {
             <View style={[styles.dashboard, wideLayout && styles.dashboardWide]} testID="route-dashboard">
               <View style={[styles.dashboardPrimary, wideLayout && styles.dashboardPrimaryWide]}>
               <RoadProgressBar
+                compact={compactDashboard}
                 fraction={compositeProgress?.fraction ?? 0}
                 breakdown={compositeProgress ?? undefined}
                 completed={Boolean(route?.returnArrivedAt)}
                 weatherScene={weatherScene}
               />
-              <View style={styles.gaugePanel}>
-                <View style={styles.gaugeRow}>
+              <View style={[styles.gaugePanel, compactDashboard && styles.gaugePanelCompact]}>
+                <View style={[styles.gaugeRow, compactDashboard && styles.gaugeRowCompact]}>
                   <InstrumentGauge
                     maximum={progress.totalKnownWeightKg}
                     remaining={progress.remainingKnownWeightKg}
@@ -729,7 +735,7 @@ export default function DeliveryScreen() {
                     unit="kg"
                     value={Math.max(0, progress.totalKnownWeightKg - progress.remainingKnownWeightKg)}
                   />
-                  <View style={styles.gaugeCenterStats}>
+                  <View style={[styles.gaugeCenterStats, compactDashboard && styles.gaugeCenterStatsCompact]}>
                     <Text style={styles.gaugeCenterLabel}>LAIKAS</Text>
                     <Text adjustsFontSizeToFit minimumFontScale={0.7} numberOfLines={1} style={styles.gaugeCenterValue}>{elapsedLabel(route?.startedAt ?? null, route?.returnArrivedAt ?? null)}</Text>
                     <View style={styles.gaugeCenterDivider} />
@@ -746,16 +752,16 @@ export default function DeliveryScreen() {
                   />
                 </View>
               </View>
-              <View style={styles.routeMetrics}>
-                <View style={styles.routeMetricCard}>
-                  <View style={styles.metricIconCircle}><DistanceIcon size={20} /></View>
+              <View style={[styles.routeMetrics, compactDashboard && styles.routeMetricsCompact]}>
+                <View style={[styles.routeMetricCard, compactDashboard && styles.routeMetricCardCompact]}>
+                  <View style={[styles.metricIconCircle, compactDashboard && styles.metricIconCircleCompact]}><DistanceIcon size={compactDashboard ? 18 : 20} /></View>
                   <View style={styles.routeMetricText}>
                     <Text style={styles.routeMetricLabel}>IKI KM</Text>
                     <Text numberOfLines={1} style={styles.routeMetricValue}>{nextStop?.legDistanceKm === null || nextStop?.legDistanceKm === undefined ? '—' : `${new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(nextStop.legDistanceKm)} km`}</Text>
                   </View>
                 </View>
-                <View style={styles.routeMetricCard}>
-                  <View style={styles.metricIconCircle}><ClockIcon size={20} /></View>
+                <View style={[styles.routeMetricCard, compactDashboard && styles.routeMetricCardCompact]}>
+                  <View style={[styles.metricIconCircle, compactDashboard && styles.metricIconCircleCompact]}><ClockIcon size={compactDashboard ? 18 : 20} /></View>
                   <View style={styles.routeMetricText}>
                     <Text style={styles.routeMetricLabel}>IKI MIN</Text>
                     <Text numberOfLines={1} style={styles.routeMetricValue}>{nextStop?.legDurationMinutes === null || nextStop?.legDurationMinutes === undefined ? '—' : durationLabel(nextStop.legDurationMinutes)}</Text>
@@ -765,7 +771,7 @@ export default function DeliveryScreen() {
               </View>
               <View style={[styles.dashboardSecondary, wideLayout && styles.dashboardSecondaryWide]}>
               {nextStop ? (
-                <View style={styles.nextStopCard} testID="dashboard-next-stop">
+                <View style={[styles.nextStopCard, compactDashboard && styles.nextStopCardCompact]} testID="dashboard-next-stop">
                   <Text style={styles.dashboardCardLabel}>KITA STOTELĖ</Text>
                   <View style={styles.nextStopHeading} testID="dashboard-stop-heading">
                     <View style={styles.stopNumberBadge}>
@@ -801,14 +807,14 @@ export default function DeliveryScreen() {
                     </Pressable>
                   </View>
                   <View style={styles.dashboardStopActions} testID="dashboard-stop-actions">
-                    <Pressable accessibilityLabel="Naviguoti į kitą stotelę" accessibilityRole="button" style={[styles.dashboardActionButton, styles.dashboardNavigateButton]} onPress={() => { void navigate(nextStop); }}>
+                    <Pressable accessibilityLabel="Naviguoti į kitą stotelę" accessibilityRole="button" style={[styles.dashboardActionButton, compactDashboard && styles.dashboardActionButtonCompact, styles.dashboardNavigateButton]} onPress={() => { void navigate(nextStop); }}>
                       <NavigateIcon size={28} />
                       <Text numberOfLines={1} style={styles.dashboardActionText}>NAVIGUOTI</Text>
                     </Pressable>
                     <Pressable
                       disabled={busy}
                       onPress={() => { void delivered(nextStop.id); }}
-                      style={[styles.dashboardActionButton, styles.dashboardDeliveredButton, busy && styles.disabled]}
+                      style={[styles.dashboardActionButton, compactDashboard && styles.dashboardActionButtonCompact, styles.dashboardDeliveredButton, busy && styles.disabled]}
                       testID="dashboard-delivered-button">
                       <DeliveredIcon size={28} />
                       <Text numberOfLines={1} style={styles.dashboardActionText}>ATLIKTA</Text>
@@ -816,7 +822,7 @@ export default function DeliveryScreen() {
                     <Pressable
                       disabled={busy}
                       onPress={() => beginFailed(nextStop.id)}
-                      style={[styles.dashboardActionButton, styles.dashboardFailedButton, busy && styles.disabled]}
+                      style={[styles.dashboardActionButton, compactDashboard && styles.dashboardActionButtonCompact, styles.dashboardFailedButton, busy && styles.disabled]}
                       testID="dashboard-failed-button">
                       <FailedIcon size={28} />
                       <Text numberOfLines={1} style={styles.dashboardActionText}>NEATLIKTA</Text>
@@ -824,7 +830,7 @@ export default function DeliveryScreen() {
                   </View>
                 </View>
               ) : (
-                <View style={styles.nextStopCard} testID="dashboard-next-stop">
+                <View style={[styles.nextStopCard, compactDashboard && styles.nextStopCardCompact]} testID="dashboard-next-stop">
                   <Text style={styles.dashboardCardLabel}>{route?.returnArrivedAt ? 'LAUKIAMA GALUTINIO ODOMETRO' : route?.returnStartedAt ? 'GRĮŽIMAS Į GALUTINĮ TAŠKĄ' : 'PRISTATYMAI UŽBAIGTI'}</Text>
                   <Text style={styles.nextStopAddress}>{route?.returnStartedAt
                     ? `${route.returnDestinationKind === 'home' ? 'Namai' : 'Sandėlis'} · ${route.endLocation?.normalizedAddress ?? route.endLocation?.originalAddress ?? ''}`
@@ -1270,6 +1276,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     backgroundColor: colors.surface,
     zIndex: 2,
   },
+  gaugePanelCompact: { paddingTop: 2, paddingHorizontal: 10, paddingBottom: 2 },
   gaugeRow: {
     width: '100%',
     flexDirection: 'row',
@@ -1277,6 +1284,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     justifyContent: 'space-between',
     gap: 14,
   },
+  gaugeRowCompact: { gap: 6 },
   gaugeCenterStats: {
     width: 84,
     flexShrink: 0,
@@ -1292,10 +1300,12 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     justifyContent: 'center',
     gap: 2,
   },
+  gaugeCenterStatsCompact: { width: 72, minHeight: 68, paddingVertical: 3 },
   gaugeCenterLabel: { ...type.label, fontSize: 9, color: colors.textSecondary, textAlign: 'center' },
   gaugeCenterValue: { color: colors.text, fontFamily: fonts.headingExtraBold, fontSize: 15, lineHeight: 18, textAlign: 'center' },
   gaugeCenterDivider: { width: '100%', height: 1, marginVertical: 4, backgroundColor: colors.border },
   routeMetrics: { flexDirection: 'row', paddingHorizontal: 14, borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+  routeMetricsCompact: { paddingHorizontal: 10 },
   routeMetricCard: {
     flex: 1,
     minWidth: 0,
@@ -1306,8 +1316,10 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     alignItems: 'center',
     gap: 7,
   },
+  routeMetricCardCompact: { minHeight: 44 },
   routeMetricText: { flex: 1, minWidth: 0 },
   metricIconCircle: { width: 40, height: 40, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.infoSoft },
+  metricIconCircleCompact: { width: 34, height: 34 },
   metricIcon: { color: colors.info, fontSize: 18, fontFamily: fonts.headingExtraBold },
   routeMetricLabel: { ...type.label, color: colors.textMuted },
   routeMetricValue: { ...type.cardTitle, color: colors.text, flexShrink: 1 },
@@ -1319,6 +1331,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     backgroundColor: colors.surface,
     gap: 10,
   },
+  nextStopCardCompact: { paddingHorizontal: 14, paddingTop: 6, paddingBottom: 8, gap: 6 },
   dashboardCardLabel: { ...type.label, color: colors.textMuted },
   nextStopHeading: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   stopNumberBadge: { width: 42, height: 42, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.actionPrimary },
@@ -1344,6 +1357,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     justifyContent: 'center',
     gap: 4,
   },
+  dashboardActionButtonCompact: { height: 50 },
   dashboardNavigateButton: { backgroundColor: colors.actionRoute },
   dashboardDeliveredButton: { backgroundColor: colors.success },
   dashboardFailedButton: { backgroundColor: colors.danger },

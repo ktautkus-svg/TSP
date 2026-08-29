@@ -36,6 +36,7 @@ const sceneAssets = {
 export interface RoadProgressBarProps {
   readonly fraction: number;
   readonly completed?: boolean;
+  readonly compact?: boolean;
   readonly weatherScene?: RouteWeatherScene | null;
   readonly breakdown?: {
     readonly stopsFraction: number;
@@ -47,6 +48,7 @@ export interface RoadProgressBarProps {
 export function RoadProgressBar({
   fraction,
   completed = false,
+  compact = false,
   weatherScene,
   breakdown,
 }: RoadProgressBarProps) {
@@ -124,8 +126,8 @@ export function RoadProgressBar({
       accessibilityLabel={`Maršruto progresas ${Math.round(clamped * 100)} procentų`}
       style={styles.container}
       testID="route-road-progress">
-      <View style={styles.windshieldArea}>
-        <View style={styles.windshieldShell} testID="route-front-windshield">
+      <View style={[styles.windshieldArea, compact && styles.windshieldAreaCompact]}>
+        <View style={[styles.windshieldShell, compact && styles.windshieldShellCompact]} testID="route-front-windshield">
           <Animated.View style={[styles.sceneLayer, { opacity: sceneOpacity }]}>
             <Animated.Image
               accessibilityLabel={roadSceneLabel(displayedSceneKey)}
@@ -134,15 +136,15 @@ export function RoadProgressBar({
               style={styles.sceneImage}
             />
           </Animated.View>
-          <View pointerEvents="none" style={styles.sceneBadge}>
+          <View pointerEvents="none" style={[styles.sceneBadge, compact && styles.sceneBadgeCompact]}>
             <Text style={styles.sceneBadgeText}>{sceneLabel(weatherScene, displayedSceneKey)}</Text>
           </View>
           {weatherScene && (weatherScene.temperatureC !== null || weatherScene.windSpeedKmh !== null || weatherScene.precipitationProbabilityPercent !== null) ? (
-            <View pointerEvents="none" style={styles.weatherBadge} testID="route-weather-readout">
+            <View pointerEvents="none" style={[styles.weatherBadge, compact && styles.weatherBadgeCompact]} testID="route-weather-readout">
               <Text style={styles.sceneBadgeText}>{weatherReadoutLabel(weatherScene)}</Text>
             </View>
           ) : null}
-          <Svg pointerEvents="none" style={styles.cockpitCowl} viewBox="0 0 430 132">
+          <Svg pointerEvents="none" style={[styles.cockpitCowl, compact && styles.cockpitCowlCompact]} viewBox="0 0 430 132">
             <Defs>
               <LinearGradient id="dashboardSurface" x1="0" y1="0" x2="0" y2="1">
                 <Stop offset="0" stopColor={cockpit.metalMid} />
@@ -156,18 +158,18 @@ export function RoadProgressBar({
               </LinearGradient>
             </Defs>
             <Path
-              d="M 0 96 Q 215 30 430 96 L 430 132 L 0 132 Z"
+              d="M 0 70 Q 215 20 430 70 L 430 132 L 0 132 Z"
               fill="url(#dashboardSurface)"
             />
             <Path
-              d="M 18 94 Q 215 36 412 94"
+              d="M 18 72 Q 215 27 412 72"
               fill="none"
               stroke={cockpit.metalLight}
               strokeLinecap="round"
               strokeWidth={6}
             />
             <Path
-              d="M 18 94 Q 215 36 412 94"
+              d="M 18 72 Q 215 27 412 72"
               fill="none"
               stroke="url(#steeringProgress)"
               strokeDasharray={`${Math.max(1, displayedProgress * ARC_LENGTH)} ${ARC_LENGTH}`}
@@ -175,7 +177,7 @@ export function RoadProgressBar({
               strokeWidth={4}
             />
           </Svg>
-          <View pointerEvents="none" style={styles.progressReadout}>
+          <View pointerEvents="none" style={[styles.progressReadout, compact && styles.progressReadoutCompact]}>
             <Text style={styles.percent}>{Math.round(clamped * 100)}%</Text>
             {breakdown ? <Text numberOfLines={1} style={styles.breakdown}>
               Taškai {percent(breakdown.stopsFraction)} · Svoris {percent(breakdown.weightFraction)} · Kelias {percent(breakdown.distanceFraction)}
@@ -259,20 +261,23 @@ const createStyles = (cockpit: CockpitPalette) => StyleSheet.create({
   windshieldArea: {
     width: '100%',
     alignItems: 'center',
-    paddingTop: 8,
-    paddingHorizontal: 10,
+    paddingTop: 6,
+    paddingHorizontal: 8,
     backgroundColor: cockpit.metalDark,
   },
+  windshieldAreaCompact: { paddingTop: 4, paddingHorizontal: 6 },
   windshieldShell: {
     width: '100%',
     maxWidth: 720,
     aspectRatio: 1.95,
     position: 'relative',
     overflow: 'hidden',
-    borderTopLeftRadius: 12,
-    borderTopRightRadius: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: cockpit.metalMid,
     backgroundColor: cockpit.metalDark,
   },
+  windshieldShellCompact: { aspectRatio: 2.55, maxHeight: 170 },
   sceneLayer: {
     position: 'absolute',
     top: 0,
@@ -282,7 +287,7 @@ const createStyles = (cockpit: CockpitPalette) => StyleSheet.create({
     width: undefined,
     height: undefined,
   },
-  sceneImage: { width: '100%', height: '100%' },
+  sceneImage: { width: '100%', height: '100%', transform: [{ scale: 1.06 }] },
   cockpitCowl: {
     position: 'absolute',
     right: 0,
@@ -291,8 +296,11 @@ const createStyles = (cockpit: CockpitPalette) => StyleSheet.create({
     width: '100%',
     height: 132,
   },
+  cockpitCowlCompact: { height: 102 },
   sceneBadge: { position: 'absolute', top: 14, left: 18, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 8, backgroundColor: 'rgba(8, 13, 18, 0.62)' },
   weatherBadge: { position: 'absolute', top: 14, right: 18, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 8, backgroundColor: 'rgba(8, 13, 18, 0.62)' },
+  sceneBadgeCompact: { top: 8, left: 10 },
+  weatherBadgeCompact: { top: 8, right: 10 },
   sceneBadgeText: { color: cockpit.white, fontFamily: fonts.headingSemiBold, fontSize: 9, letterSpacing: 0.7 },
   progressReadout: {
     position: 'absolute',
@@ -301,6 +309,7 @@ const createStyles = (cockpit: CockpitPalette) => StyleSheet.create({
     left: 44,
     alignItems: 'center',
   },
+  progressReadoutCompact: { right: 32, bottom: 4, left: 32 },
   completedMessage: {
     position: 'absolute',
     inset: 0,

@@ -20,7 +20,6 @@ import { ScreenContainer } from '@/components/screen-container';
 import { AppButton, AppCard } from '@/components/ui-primitives';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import type { DeliveryStop, Route } from '@/domain/route';
-import { employeeApi, type EmployeeProfile } from '@/infrastructure/auth/employee-session';
 import { Alert } from '@/ui/alert';
 import { devWarn } from '@/ui/dev-log';
 import { formatWeightKg } from '@/ui/format-weight';
@@ -44,7 +43,6 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
-  const [availableDrivers, setAvailableDrivers] = useState<EmployeeProfile[]>([]);
   // An admin who switched this device into "driving as" a chosen driver sees
   // exactly what that driver would see, without logging out of the admin
   // account — only admin can do this; dispatchers already work primarily
@@ -52,15 +50,6 @@ export default function HomeScreen() {
   const drivingAsProxy = profile.role === 'admin' && actingDriver !== null;
   const showDriverDashboard = profile.role === 'driver' || drivingAsProxy;
   const effectiveDriverId = profile.role === 'driver' ? profile.id : actingDriver?.id ?? null;
-
-  useEffect(() => {
-    if (profile.role !== 'admin' || !online) return;
-    let mounted = true;
-    void employeeApi<{ users: EmployeeProfile[] }>('/api/admin/users')
-      .then((response) => { if (mounted) setAvailableDrivers(response.users.filter((user) => user.role === 'driver' && !user.disabled)); })
-      .catch((reason) => devWarn('ADMIN_DRIVER_LIST_FAILED', reason));
-    return () => { mounted = false; };
-  }, [online, profile.role]);
 
   const exportActiveDiagnostic = async () => {
     if (!active || !active.id || exporting) return;
@@ -176,26 +165,9 @@ export default function HomeScreen() {
                 <Text style={styles.adminMenuTitle}>TSP valdymo centras</Text>
                 <Text style={styles.adminMenuText}>{profile.displayName}</Text>
               </View>
-              {availableDrivers.length > 0 ? (
-                <View style={styles.actingDriverSection} testID="acting-driver-picker">
-                  <Text style={styles.actingDriverLabel}>VAIRUOTI KAIP</Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.actingDriverRow}>
-                    {availableDrivers.map((driver) => (
-                      <Pressable
-                        key={driver.id}
-                        accessibilityRole="button"
-                        onPress={() => void setActingDriver({ id: driver.id, displayName: driver.displayName })}
-                        style={styles.actingDriverChip}
-                        testID={`acting-driver-${driver.id}`}
-                      >
-                        <Text style={styles.actingDriverChipText}>{driver.displayName}</Text>
-                      </Pressable>
-                    ))}
-                  </ScrollView>
-                </View>
-              ) : null}
               <View style={styles.adminMenuFeatured}><GroupedMenuSection label="SKUBŪS DARBAI">
                 <GroupedMenuRow description="Kurti, redaguoti, vykdyti ir stebėti maršrutus." icon={<MenuArtwork kind="dispatch" />} onPress={() => router.push('/dispatcher' as Href)} title="Dispečerio skydelis" tone="success" />
+                <GroupedMenuRow description="Pasirinkti vairuotoją ir atidaryti jam priskirtą maršrutą šiame įrenginyje." icon={<MenuArtwork kind="drivers" />} onPress={() => router.push('/execute-route' as Href)} title="Vykdyti vairuotojo maršrutą" tone="info" />
               </GroupedMenuSection></View>
               <View style={styles.adminMenuSections}>
                 <View style={styles.adminMenuGroup}><GroupedMenuSection label="STEBĖJIMAS IR APSKAITA">
@@ -381,11 +353,6 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   actingBannerText: { ...type.secondaryStrong, color: colors.textInverse },
   actingBannerButton: { minHeight: 32, paddingHorizontal: spacing.sm, borderRadius: radius.sm, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
   actingBannerButtonText: { ...type.meta, fontFamily: fonts.headingSemiBold, color: colors.primary },
-  actingDriverSection: { gap: spacing.xs, paddingHorizontal: spacing.xs },
-  actingDriverLabel: { ...type.label, color: colors.textMuted },
-  actingDriverRow: { flexDirection: 'row', gap: spacing.sm, paddingVertical: 2 },
-  actingDriverChip: { minHeight: 44, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
-  actingDriverChipText: { ...type.bodyStrong, color: colors.text },
   adminMenuFeatured: { marginBottom: spacing.md },
   adminMenuSections: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: spacing.md },
   adminMenuGroup: { flexGrow: 1, flexBasis: 320, minWidth: 0 },

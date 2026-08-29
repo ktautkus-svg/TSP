@@ -13,6 +13,7 @@ const routes = readFileSync(resolve(root, 'src/app/history.tsx'), 'utf8');
 const appLayout = readFileSync(resolve(root, 'src/app/_layout.tsx'), 'utf8');
 const stackNavigation = readFileSync(resolve(root, 'src/components/stack-navigation.tsx'), 'utf8');
 const roleHome = readFileSync(resolve(root, 'src/application/navigation/role-home.ts'), 'utf8');
+const dateInput = readFileSync(resolve(root, 'src/components/date-input.tsx'), 'utf8');
 
 describe('administrator workspace navigation', () => {
   it('shows administrator tools instead of automatically continuing a local route', () => {
@@ -33,10 +34,11 @@ describe('administrator workspace navigation', () => {
     expect(home).toMatch(/showDriverDashboard\s*\?\s*await repository\.listOperational\(effectiveDriverId\)\s*:\s*\[\]/);
   });
 
-  it('lets an admin switch this device into driving as a chosen driver', () => {
-    expect(home).toContain('testID="acting-driver-picker"');
-    expect(home).toContain('VAIRUOTI KAIP');
-    expect(home).toContain("void setActingDriver({ id: driver.id, displayName: driver.displayName })");
+  it('uses one focused flow for choosing and driving as a driver', () => {
+    expect(home).not.toContain('testID="acting-driver-picker"');
+    expect(home).toContain('title="Vykdyti vairuotojo maršrutą"');
+    expect(home).toContain("router.push('/execute-route' as Href)");
+    expect(execute).toContain('await setActingDriver({ id: driver.id, displayName: driver.displayName })');
     expect(home).toContain('testID="acting-driver-banner"');
     expect(home).toContain('Vairuojate kaip');
     expect(home).toContain('void setActingDriver(null)');
@@ -95,5 +97,11 @@ describe('administrator workspace navigation', () => {
     expect(quality).toContain('VISAS MARŠRUTO EILIŠKUMAS');
     expect(quality).toContain('route.stops.map');
     expect(quality).toContain('function RouteSequenceStop');
+  });
+
+  it('keeps the quality-control period input on the native calendar even with an external keyboard', () => {
+    expect(quality).toContain('<DateInput');
+    expect(dateInput).toContain("node.type = 'date'");
+    expect(dateInput).toContain('node?.showPicker?.()');
   });
 });
