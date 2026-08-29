@@ -428,10 +428,9 @@ describe('driver workday persistence', () => {
     await new MarkStopLoaded(db).execute('route-1', 'stop-2');
     await new SaveStartOdometer(db).execute('route-1', 1000);
     await new StartRoute(db).execute('route-1');
-    // completionPunctuality reads the window via local wall-clock hours, so
-    // deliveredAt must be built from local time too, not a fixed UTC string,
-    // or the offset from "11:00" would depend on the machine's timezone.
-    const deadline = new Date(2026, 7, 11, 11, 0, 0);
+    // 11:00 in Lithuania is 08:00 UTC during summer time. The production
+    // calculation is deliberately independent of the CI machine timezone.
+    const deadline = new Date('2026-08-11T08:00:00.000Z');
     // 10 minutes past the 11:00 deadline: within the 15-minute tolerance.
     const tenMinutesLate = new Date(deadline.getTime() + 10 * 60_000).toISOString();
     // 20 minutes past: beyond it.
