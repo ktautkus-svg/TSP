@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { attachDailyCompensation, applyDayReading, buildFuelDayTripSheet, buildServerTripSheet, buildVehicleDayTripSheet, tripSheetFuelNorm, type RouteAssignment, type VehicleDayReading } from '../../server/employee-auth-store';
+import { attachDailyCompensation, applyDayReading, buildFuelDayTripSheet, buildServerTripSheet, buildVehicleDayTripSheet, odometerReadingCoveredBySheet, tripSheetFuelNorm, tripSheetWorkDate, type RouteAssignment, type VehicleDayReading } from '../../server/employee-auth-store';
 import { DEFAULT_ROUTE_PRICE_SETTINGS } from '../../src/application/routes/route-price';
 
 describe('server trip sheet', () => {
@@ -62,6 +62,34 @@ describe('server trip sheet', () => {
     expect(buildServerTripSheet(assignment, null)).toMatchObject({ routeNumbers: ['R11'], actualDistanceKm: null, deliveredWeightKg: 25, vehicle: null });
   });
 
+  it('uses the actual Lithuanian workday instead of a stale planned route date', () => {
+    const assignment = {
+      id: 'assignment-workday', routeId: 'route-workday', driverId: 'driver-1', driverName: 'Vairas',
+      status: 'completed', progress: null, createdBy: 'admin', assignedAt: '2026-08-20T08:00:00.000Z',
+      updatedAt: '2026-08-21T18:00:00.000Z', vehicle: null,
+      routeSnapshot: {
+        route: {
+          id: 'route-workday', date: '2026-08-24', status: 'completed',
+          // 21:30 UTC is already the next calendar day in Lithuania (+03).
+          started_at: '2026-08-20T21:30:00.000Z', completed_at: '2026-08-21T12:00:00.000Z',
+        },
+        stops: [], shipmentLines: [],
+      },
+    } satisfies RouteAssignment;
+    expect(tripSheetWorkDate(assignment)).toBe('2026-08-21');
+    expect(buildServerTripSheet(assignment, null).date).toBe('2026-08-21');
+  });
+
+  it('keeps the planned day while a route has not started', () => {
+    const assignment = {
+      id: 'assignment-planned', routeId: 'route-planned', driverId: 'driver-1', driverName: 'Vairas',
+      status: 'assigned', progress: null, createdBy: 'admin', assignedAt: '2026-08-20T08:00:00.000Z',
+      updatedAt: '2026-08-20T08:00:00.000Z', vehicle: null,
+      routeSnapshot: { route: { id: 'route-planned', date: '2026-08-24', status: 'planned' }, stops: [], shipmentLines: [] },
+    } satisfies RouteAssignment;
+    expect(tripSheetWorkDate(assignment)).toBe('2026-08-24');
+  });
+
   it('calculates one fixed daily amount and switches from planned to odometer kilometres', () => {
     const base = buildServerTripSheet({
       id: 'assignment-12345678', routeId: 'route-1', driverId: 'driver-12345678', driverName: 'Vairas',
@@ -105,6 +133,27 @@ describe('server trip sheet', () => {
       actualDistanceKm: 0,
       fuelEntries: [],
     });
+  });
+
+  it('does not count a contained same-driver day reading as another trip when an old vehicle snapshot is wrong', () => {
+    const route = {
+      ...buildVehicleDayTripSheet({
+        id: 'met:2026-08-24', vehicleId: 'MET630', registrationNumber: 'MET630', date: '2026-08-24',
+        startOdometer: 280498, endOdometer: 281311, distanceKm: 813, driverId: 'driver-1', driverName: 'Vairas',
+        createdAt: '2026-08-24T00:00:00.000Z', updatedAt: '2026-08-24T00:00:00.000Z', createdBy: 'admin',
+      }, { id: 'MET630', registrationNumber: 'MET630', model: 'Renault', maximumPayloadKg: 1200 }),
+      driverId: 'driver-1',
+    };
+    const contained: VehicleDayReading = {
+      id: 'nll:2026-08-24', vehicleId: 'NLL182', registrationNumber: 'NLL182', date: '2026-08-24',
+      startOdometer: 280948, endOdometer: 281311, distanceKm: 363, driverId: 'driver-1', driverName: 'Vairas',
+      createdAt: '2026-08-24T00:00:00.000Z', updatedAt: '2026-08-24T00:00:00.000Z', createdBy: 'import',
+    };
+    expect(odometerReadingCoveredBySheet(contained, [route])).toBe(true);
+    expect(odometerReadingCoveredBySheet({ ...contained, driverId: 'driver-2' }, [route])).toBe(false);
+    expect(odometerReadingCoveredBySheet({ ...contained, startOdometer: 281400, endOdometer: 281700 }, [route])).toBe(false);
+    const [paidDay] = attachDailyCompensation([{ ...route, totalWeightKg: 2654.636, totalStops: 11 }]);
+    expect(paidDay.compensation).toMatchObject({ distanceKm: 813, totalNetEur: 86.73 });
   });
 
   it('synthesizes a fuel-only day without inventing GPS kilometres', () => {

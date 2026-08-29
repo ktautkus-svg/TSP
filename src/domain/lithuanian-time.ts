@@ -55,6 +55,15 @@ export function lithuanianClockOnReferenceDay(reference: string, clock: string):
   return candidate;
 }
 
+/** Calendar date in Lithuania for an absolute timestamp, independent of host TZ. */
+export function lithuanianDateKey(reference: string): string | null {
+  const referenceMs = Date.parse(reference);
+  if (!Number.isFinite(referenceMs)) return null;
+  const parts = dateParts(new Date(referenceMs));
+  if (!parts) return null;
+  return `${String(parts.year).padStart(4, '0')}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
+}
+
 export function assessDeliveryTiming(input: DeliveryTimingInput): DeliveryTiming {
   const deliveredAt = input.deliveredAt?.trim();
   if (!deliveredAt) return unknownTiming();

@@ -4,9 +4,15 @@ import {
   assessDeliveryTiming,
   completionPunctuality,
   lithuanianClockOnReferenceDay,
+  lithuanianDateKey,
 } from '../../src/domain/lithuanian-time';
 
 describe('Lithuanian wall-clock handling', () => {
+  it('resolves the Lithuanian calendar day across a UTC midnight boundary', () => {
+    expect(lithuanianDateKey('2026-08-20T21:30:00.000Z')).toBe('2026-08-21');
+    expect(lithuanianDateKey('not-a-date')).toBeNull();
+  });
+
   it('uses daylight saving time in summer and standard time in winter', () => {
     expect(new Date(lithuanianClockOnReferenceDay('2026-08-11T08:00:00.000Z', '11:00')!).toISOString())
       .toBe('2026-08-11T08:00:00.000Z');

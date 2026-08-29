@@ -31,7 +31,7 @@ import {
     type PalletCapacity,
 } from '../src/domain/fleet-cargo-specs.js';
 import { isVanBodyKind, type VanBodyKind } from '../src/domain/loading-schema.js';
-import { completionPunctuality } from '../src/domain/lithuanian-time.js';
+import { completionPunctuality, lithuanianDateKey } from '../src/domain/lithuanian-time.js';
 import {
     NLL182_ODOMETER_DRIVER_NAME,
     NLL182_ODOMETER_LOG,
@@ -1632,7 +1632,8 @@ export class EmployeeAuthStore {
       }));
     const covered = new Set(sheets.map((sheet) => `${sheet.vehicle?.id ?? ''}:${sheet.date}`));
     const synthetic = visibleReadings
-      .filter((reading) => !covered.has(`${reading.vehicleId}:${reading.date}`))
+      .filter((reading) => !covered.has(`${reading.vehicleId}:${reading.date}`)
+        && !odometerReadingCoveredBySheet(reading, sheets))
       .map((reading) => {
         const vehicle = vehiclesById.get(reading.vehicleId) ?? null;
         const sheet = buildVehicleDayTripSheet(reading, vehicle ? vehicleSnapshot(vehicle) : null);
@@ -2470,7 +2471,7 @@ export function buildServerTripSheet(assignment: RouteAssignment, vehicle: Fleet
     routeId: assignment.routeId,
     routeNumbers,
     status: assignment.status,
-    date: optionalText(route.date) ?? assignment.assignedAt.slice(0, 10),
+    date: tripSheetWorkDate(assignment),
     driverId: assignment.driverId,
     driverName: assignment.driverName,
     vehicle,
@@ -2818,6 +2819,39 @@ function stopPunctuality(stop: Record<string, unknown>): 'on_time' | 'late' | 'u
     plannedArrivalAt: optionalText(stop.planned_arrival_at),
     latestEstimatedArrivalAt: optionalText(stop.latest_estimated_arrival_at),
   });
+}
+
+/**
+ * Old records can carry the wrong vehicle snapshot after a reassignment. If a
+ * driver's separate day reading is wholly inside an already recorded route's
+ * odometer interval, it is the same driven distance, not another trip. Do not
+ * synthesize a second trip sheet merely because the vehicle ids differ.
+ */
+export function odometerReadingCoveredBySheet(
+  reading: VehicleDayReading,
+  sheets: readonly ServerTripSheet[],
+): boolean {
+  if (!reading.driverId) return false;
+  return sheets.some((sheet) => sheet.driverId === reading.driverId
+    && sheet.date === reading.date
+    && sheet.startOdometer !== null
+    && sheet.endOdometer !== null
+    && reading.startOdometer >= sheet.startOdometer
+    && reading.endOdometer <= sheet.endOdometer);
+}
+
+/**
+ * Financial reports follow the day work actually began. A route's planning
+ * date can be edited, imported incorrectly, or left several days ahead of an
+ * already completed assignment; using it moved kilometres and pay to the
+ * wrong day. Before work starts, the planned date remains the best available
+ * value. Admin-completed routes without a start fall back to completion time.
+ */
+export function tripSheetWorkDate(assignment: RouteAssignment): string {
+  const route = assignment.routeSnapshot.route;
+  const actualReference = optionalText(route.started_at) ?? optionalText(route.completed_at);
+  const actualDate = actualReference ? lithuanianDateKey(actualReference) : null;
+  return actualDate ?? optionalText(route.date) ?? assignment.assignedAt.slice(0, 10);
 }
 
 function nullableNumber(value: unknown): number | null {
