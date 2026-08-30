@@ -1,5 +1,6 @@
 import type { AddressLookupProvider } from '@/application/import/address-resolver';
 import { AddressResolutionMemoryRepository } from '@/database/repositories/address-resolution-memory-repository';
+import { knownAddressCorrection } from '@/domain/import/known-address-corrections';
 import type { ResolvedAddressCandidate } from '@/domain/import/models';
 
 export class RememberingAddressResolver implements AddressLookupProvider {
@@ -9,6 +10,11 @@ export class RememberingAddressResolver implements AddressLookupProvider {
   ) {}
 
   async resolve(address: string): Promise<ResolvedAddressCandidate[]> {
+    const known = knownAddressCorrection(address);
+    if (known) {
+      await this.memory.remember(address, known);
+      return [known];
+    }
     const remembered = await this.memory.find(address);
     if (remembered) return [{ ...remembered, confidence: 1 }];
     const candidates = await this.provider.resolve(address);

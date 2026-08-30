@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
+import { strToU8, zipSync } from 'fflate';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { beforeEach, describe, expect, it } from 'vitest';
 
@@ -32,6 +33,35 @@ function parseFixture(importId = 'excel-test'): ExcelImportPreview {
     fileName: 'realaus-formato-logistikos-importas-v1.xlsx',
     fileHash: 'fixture-sha256',
   });
+}
+
+function pajuoscioWorkbook(): Uint8Array {
+  const cell = (column: string, row: number, value: string | number) => typeof value === 'number'
+    ? `<c r="${column}${row}"><v>${value}</v></c>`
+    : `<c r="${column}${row}" t="inlineStr"><is><t>${escapeXml(value)}</t></is></c>`;
+  const values: (string | number)[][] = [
+    ['Užs. Nr.', 'Svoris', 'Stulpelis', 'Adresas', 'Pavadinimas', 'Kryptis'],
+    ['S614031', 437.24, '08:00-16:00', 'UAB GaliasasP.Puzino g.12Panevėžys LT_97123Lietuva', 'UAB Galiasas', 'R54'],
+    ['S614054', 17, '08:00-16:00', 'UAB GaliasasP.Puzino g.12Panevėžys LT_97123Lietuva', 'UAB Galiasas', 'R54'],
+    ['S613364', 216.28, '06:00-15:00', 'Gynybos resursų agentūra prie Krašto apsaugos ministerijos', 'Gynybos resursų agentūra', 'R11'],
+    ['S614429', 440.4, '06:00-15:00', 'UAB Lambda LTPajuosčio pl.73Dembavos k. Velžio sen., Panevėžio r.', 'UAB Lambda LT', 'R11'],
+    ['S613369', 633.72, '06:00-15:00', 'UAB Lambda LTPajuosčio pl.73Dembavos k. Velžio sen., Panevėžio r.', 'UAB Lambda LT', 'R11'],
+    ['S614395', 11.5, '06:00-15:00', 'UAB GaliasasPajuosčio pl.73, Dembavos k. Velžio sen., Panevėžio r.', 'UAB Galiasas', 'R11'],
+    ['S613365', 34.55, '06:00-15:00', 'UAB GaliasasPajuosčio pl.73, Dembavos k. Velžio sen., Panevėžio r.', 'UAB Galiasas', 'R11'],
+  ];
+  const rows = values.map((row, index) => {
+    const rowNumber = index + 4;
+    return `<row r="${rowNumber}">${row.map((value, column) => cell(String.fromCharCode(65 + column), rowNumber, value)).join('')}</row>`;
+  }).join('');
+  return zipSync({
+    'xl/workbook.xml': strToU8('<?xml version="1.0"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="K.Tautkus" sheetId="1" r:id="rId1"/></sheets></workbook>'),
+    'xl/_rels/workbook.xml.rels': strToU8('<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>'),
+    'xl/worksheets/sheet1.xml': strToU8(`<?xml version="1.0"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${rows}</sheetData></worksheet>`),
+  });
+}
+
+function escapeXml(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 describe('LOGISTICS_EXCEL_V1 direct cell parser', () => {
@@ -97,6 +127,13 @@ describe('LOGISTICS_EXCEL_V1 direct cell parser', () => {
     expect(stripSupplierPrefix(raw)).toEqual({ supplierPrefix, cleaned });
   });
 
+  it('separates a supplier name glued directly to the Pajuosčio street name', () => {
+    expect(stripSupplierPrefix('UAB Lambda LTPajuosčio pl.73Dembavos k. Velžio sen.'))
+      .toEqual({ supplierPrefix: 'UAB Lambda LT', cleaned: 'Pajuosčio pl.73Dembavos k. Velžio sen.' });
+    expect(stripSupplierPrefix('UAB GaliasasPajuosčio pl.73, Dembavos k.'))
+      .toEqual({ supplierPrefix: 'UAB Galiasas', cleaned: 'Pajuosčio pl.73, Dembavos k.' });
+  });
+
   it('preserves original supplier text and detects a D/E address conflict', () => {
     const row = parseFixture().rows.find((item) => item.sourceRowNumber === 7)!;
     expect(row.rawColumnD).toContain('UAB Lambda LT');
@@ -112,6 +149,14 @@ describe('LOGISTICS_EXCEL_V1 direct cell parser', () => {
     ['Architektų g.9CŠiauliai', 'Architektų g. 9C, Šiauliai, Lietuva'],
   ])('normalizes missing spaces in %s', (raw, normalized) => {
     expect(normalizeLithuanianAddress(raw, 'Šiauliai', 'Lietuva')).toBe(normalized);
+  });
+
+  it('does not append the default city when the address already names a village, eldership and district', () => {
+    const normalized = normalizeLithuanianAddress('Pajuosčio pl.73Dembavos k. Velžio sen., Panevėžio r.', 'Šiauliai', 'Lietuva');
+    expect(normalized).toContain('Pajuosčio pl. 73');
+    expect(normalized).toContain('Dembavos k.');
+    expect(normalized).not.toContain('Šiauliai');
+    expect(normalized).toContain('Lietuva');
   });
 
   it.each([
@@ -153,6 +198,19 @@ describe('LOGISTICS_EXCEL_V1 direct cell parser', () => {
     expect(filterExcelPreviewByRouteCodes(preview, ['R56']).summary.includedRowCount).toBe(20);
     expect(filterExcelPreviewByRouteCodes(preview, ['R57']).summary.includedRowCount).toBe(20);
     expect(filterExcelPreviewByRouteCodes(preview, ['R56', 'R57']).summary.includedRowCount).toBe(40);
+  });
+
+  it('keeps all seven daily-export rows and groups the four Pajuosčio lines into one real stop', () => {
+    const preview = parseLogisticsExcelWorkbook(pajuoscioWorkbook(), {
+      importId: 'pajuoscio-regression', fileName: '2026.08.31 Vilnius.xlsx', fileHash: 'pajuoscio-hash',
+    });
+    expect(preview.rows).toHaveLength(7);
+    expect(preview.summary.routeCodes).toEqual(['R54', 'R11']);
+    const pajuoscio = preview.groups.find((group) => group.normalizedAddress.includes('Pajuosčio'));
+    expect(pajuoscio?.lineIds).toHaveLength(4);
+    expect(pajuoscio?.normalizedAddress).not.toContain('Šiauliai');
+    expect(preview.summary.physicalStopCount).toBe(2);
+    expect(preview.summary.unconfirmedAddressCount).toBe(1);
   });
 });
 

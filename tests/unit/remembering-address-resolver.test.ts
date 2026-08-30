@@ -9,6 +9,21 @@ function candidate(overrides: Partial<ResolvedAddressCandidate> = {}): ResolvedA
 }
 
 describe('RememberingAddressResolver', () => {
+  it('uses the verified Pajuosčio unloading point without calling the provider', async () => {
+    const provider = { resolve: vi.fn().mockResolvedValue([]) };
+    const memory = { find: vi.fn().mockResolvedValue(null), remember: vi.fn().mockResolvedValue(undefined) } as unknown as AddressResolutionMemoryRepository;
+    const resolver = new RememberingAddressResolver(provider, memory);
+
+    const result = await resolver.resolve('Pajuosčio pl.73, Dembavos k., Velžio sen.');
+
+    expect(result).toEqual([expect.objectContaining({ latitude: 55.738356, longitude: 24.434709 })]);
+    expect(provider.resolve).not.toHaveBeenCalled();
+    expect(memory.remember).toHaveBeenCalledWith(
+      'Pajuosčio pl.73, Dembavos k., Velžio sen.',
+      expect.objectContaining({ latitude: 55.738356, longitude: 24.434709 }),
+    );
+  });
+
   it('remembers an unambiguous automatic hit, not only manual fixes', async () => {
     const found = candidate();
     const provider = { resolve: vi.fn().mockResolvedValue([found]) };

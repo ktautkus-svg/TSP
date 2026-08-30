@@ -178,7 +178,11 @@ export function stripSupplierPrefix(
   const ordered = [...prefixes].sort((a, b) => b.length - a.length);
   for (const prefix of ordered) {
     const pattern = prefix.trim().split(/\s+/).map(supplierTokenPattern).join('[\\s,.;:-]+');
-    const match = leading.match(new RegExp(`^${pattern}(?=\\s|,|\\.|;|:|-|$)[\\s,.;:-]*`, 'iu'));
+    // Daily exports sometimes concatenate the supplier and street without a
+    // separator ("UAB Lambda LTPajuosčio..."). An uppercase next letter is a
+    // valid boundary too; keeping it out of the consumed match preserves the
+    // street name.
+    const match = leading.match(new RegExp(`^${pattern}(?=\\s|,|\\.|;|:|-|\\p{Lu}|$)[\\s,.;:-]*`, 'iu'));
     if (!match) continue;
     const cleaned = leading.slice(match[0].length).trim();
     return { cleaned: cleaned || null, supplierPrefix: prefix };
@@ -210,7 +214,7 @@ export function normalizeLithuanianAddress(
   const hadCountry = countryPattern.test(text);
   if (!hadCountry) {
     const lower = text.toLocaleLowerCase('lt-LT');
-    if (!lower.includes(defaultCity.toLocaleLowerCase('lt-LT'))) text += `, ${defaultCity}`;
+    if (!lower.includes(defaultCity.toLocaleLowerCase('lt-LT')) && !hasLocalityContext(text)) text += `, ${defaultCity}`;
     text += `, ${defaultCountry}`;
   }
   text = text
@@ -221,6 +225,11 @@ export function normalizeLithuanianAddress(
     .replace(/,\s*,/g, ',')
     .trim();
   return text;
+}
+
+function hasLocalityContext(value: string): boolean {
+  return /\b(?:k|mstl|m|sen|r|raj)\.\s*/iu.test(value)
+    || /,\s*\p{Lu}[\p{L}-]+(?:\s*,|\s*$)/u.test(value);
 }
 
 export function groupExcelRows(rows: ExcelSourceRow[]): ExcelDeliveryGroup[] {
