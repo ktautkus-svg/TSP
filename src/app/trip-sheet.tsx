@@ -8,8 +8,8 @@ import { pushCompletedRouteAssignmentProgress } from '@/application/auth/route-a
 import { CompanyProfileSettings, type CompanyProfile } from '@/application/settings/company-profile';
 import { buildTripSheetWorkbook, MIME_XLSX } from '@/application/trip-sheet/export-xlsx';
 import { buildFuelLedger, type FuelLedgerDay } from '@/application/trip-sheet/fuel-balance';
-import { DateInput } from '@/components/date-input';
 import { FoundationScreen } from '@/components/foundation-screen';
+import { PeriodCalendarPicker } from '@/components/period-calendar-picker';
 import { TripSheetRepository, type TripSheetWithRoutes } from '@/database/repositories/trip-sheet-repository';
 import type { FuelType } from '@/domain/vehicle-and-trip';
 import {
@@ -227,14 +227,14 @@ export default function TripSheetScreen() {
             <Pressable style={styles.secondaryButton} onPress={exportExcel} testID="export-trip-sheets-xlsx"><Text style={styles.secondaryText}>Eksportuoti Excel</Text></Pressable>
           </View>
           {!online ? <Pressable style={styles.secondaryButton} disabled={busy} onPress={() => { void syncLocal(); }} testID="sync-trip-sheets"><Text style={styles.secondaryText}>Atnaujinti iš įrenginio maršrutų</Text></Pressable> : null}
-          {profile.role !== 'driver' ? <View style={styles.dateRange} testID="trip-sheet-date-range">
-            <DateInput accessibilityLabel="Nuo" value={dateFrom} onChangeText={setDateFrom} style={[styles.input, styles.dateInput]} placeholderTextColor={colors.textMuted} />
-            <DateInput accessibilityLabel="Iki" value={dateTo} onChangeText={setDateTo} style={[styles.input, styles.dateInput]} placeholderTextColor={colors.textMuted} />
-          </View> : null}
-          {profile.role !== 'driver' ? <View style={styles.filters} testID="trip-sheet-date-presets">
-            {DATE_PRESETS.map((preset) => <Filter key={preset.kind} label={preset.label} active={false} onPress={() => { const [from, to] = datePresetRange(preset.kind); setDateRange(from, to); }} styles={styles} />)}
-            {dateFrom || dateTo ? <Filter label="Išvalyti" active={false} onPress={() => setDateRange('', '')} styles={styles} /> : null}
-          </View> : null}
+          {profile.role !== 'driver' ? <PeriodCalendarPicker
+            allowClear
+            from={dateFrom}
+            onChange={setDateRange}
+            onClear={() => setDateRange('', '')}
+            testID="trip-sheet-period-calendar"
+            to={dateTo}
+          /> : null}
           {vehicles.length > 1 ? <View style={styles.filters} testID="trip-sheet-vehicle-filter">
             <Filter label="Visi automobiliai" active={selectedVehicleId === 'all'} onPress={() => selectFilter(() => setSelectedVehicleId('all'))} styles={styles} />
             {vehicles.map(([id, registrationNumber]) => <Filter key={id} label={registrationNumber} active={selectedVehicleId === id} onPress={() => selectFilter(() => setSelectedVehicleId(id))} styles={styles} />)}
@@ -550,30 +550,6 @@ function localSheet(sheet: TripSheetWithRoutes, fuelEntries: TripFuelEntry[] = [
   };
 }
 
-type DatePresetKind = 'today' | 'yesterday' | 'thisWeek' | 'lastWeek' | 'thisMonth' | 'lastMonth';
-const DATE_PRESETS: { kind: DatePresetKind; label: string }[] = [
-  { kind: 'today', label: 'Šiandien' },
-  { kind: 'yesterday', label: 'Vakar' },
-  { kind: 'thisWeek', label: 'Ši savaitė' },
-  { kind: 'lastWeek', label: 'Praėjusi savaitė' },
-  { kind: 'thisMonth', label: 'Šis mėnuo' },
-  { kind: 'lastMonth', label: 'Praėjęs mėnuo' },
-];
-function datePresetRange(kind: DatePresetKind): [string, string] {
-  const iso = (date: Date) => date.toISOString().slice(0, 10);
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  if (kind === 'today') return [iso(today), iso(today)];
-  if (kind === 'yesterday') { const day = new Date(today); day.setDate(day.getDate() - 1); return [iso(day), iso(day)]; }
-  // Monday-based week, matching the rest of the app's LT convention.
-  const mondayOffset = (today.getDay() + 6) % 7;
-  if (kind === 'thisWeek') { const start = new Date(today); start.setDate(start.getDate() - mondayOffset); const end = new Date(start); end.setDate(end.getDate() + 6); return [iso(start), iso(end)]; }
-  if (kind === 'lastWeek') { const start = new Date(today); start.setDate(start.getDate() - mondayOffset - 7); const end = new Date(start); end.setDate(end.getDate() + 6); return [iso(start), iso(end)]; }
-  if (kind === 'thisMonth') { const start = new Date(today.getFullYear(), today.getMonth(), 1); const end = new Date(today.getFullYear(), today.getMonth() + 1, 0); return [iso(start), iso(end)]; }
-  const start = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-  const end = new Date(today.getFullYear(), today.getMonth(), 0);
-  return [iso(start), iso(end)];
-}
 function tripRouteLabel(row: DailyTripRow): string {
   if (row.routeNumbers.length > 0) return row.routeNumbers.join(' · ');
   if (row.startAddress === row.endAddress) return row.startAddress;

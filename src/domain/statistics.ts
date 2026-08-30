@@ -1,6 +1,12 @@
 import type { RouteCompletionSummary } from '@/domain/route';
 
 export type StatsRouteRow = {
+  routeId?: string | null;
+  routeLabel?: string | null;
+  driverName?: string | null;
+  vehicleRegistration?: string | null;
+  startAddress?: string | null;
+  endAddress?: string | null;
   date: string;
   status: string;
   estimatedDistanceKm: number | null;

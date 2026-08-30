@@ -19,7 +19,7 @@ describe('trip sheet fuel workflow', () => {
       expect(source).toContain(label);
     }
     expect(source).toContain('trip-sheet-report-table');
-    expect(source).toContain('trip-sheet-date-range');
+    expect(source).toContain('trip-sheet-period-calendar');
     expect(source).toContain('VISO PASIRINKTU LAIKOTARPIU');
     expect(source).not.toContain('Generuoti kelionės lapą');
     expect(source).not.toContain('+ Įvesti kurą');

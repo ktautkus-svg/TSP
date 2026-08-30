@@ -120,13 +120,11 @@ describe('quality control dashboard', () => {
     expect(syncContextSource).toContain("profile.role === 'quality'");
   });
 
-  it('can review a day, week, month or custom period for all or one driver', () => {
-    expect(dashboardSource).toContain("type PeriodMode");
+  it('uses one calendar with quick ranges and collapsible driver/vehicle filters', () => {
     expect(dashboardSource).toContain("from '@/application/reporting/period-range'");
-    expect(periodSource).toContain("export type PeriodMode = 'day' | 'week' | 'month' | 'custom'");
-    expect(periodSource).toContain("{ key: 'week', label: 'Savaitė' }");
-    expect(periodSource).toContain("{ key: 'month', label: 'Mėnuo' }");
-    expect(dashboardSource).toContain('periodRange(periodMode, anchorDate, customFrom, customTo)');
+    expect(periodSource).toContain('CALENDAR_PERIOD_PRESETS');
+    expect(dashboardSource).toContain('<PeriodCalendarPicker');
+    expect(dashboardSource).toContain('testID="quality-entity-filters-toggle"');
     expect(dashboardSource).toContain("route.date >= period.from && route.date <= period.to");
     expect(dashboardSource).toContain("driverId === 'all' || route.driverId === driverId");
     expect(dashboardSource).toContain('Visi vairuotojai');

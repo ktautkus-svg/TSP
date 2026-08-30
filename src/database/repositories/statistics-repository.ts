@@ -5,6 +5,10 @@ import type { FailureReasonCount, StatsLateDelivery, StatsRouteRow } from '@/dom
 import type { RouteCompletionSummary } from '@/domain/route';
 
 type StatsRouteQueryRow = {
+  route_id: string;
+  route_codes: string | null;
+  start_address: string | null;
+  end_address: string | null;
   date: string;
   status: string;
   estimated_distance_km: number | null;
@@ -40,6 +44,12 @@ function parseSummary(value: string | null): RouteCompletionSummary | null {
 
 function mapRow(row: StatsRouteQueryRow): StatsRouteRow {
   return {
+    routeId: row.route_id,
+    routeLabel: routeLabel(row.route_codes, row.route_id),
+    driverName: null,
+    vehicleRegistration: null,
+    startAddress: row.start_address,
+    endAddress: row.end_address,
     date: row.date,
     status: row.status,
     estimatedDistanceKm: row.estimated_distance_km,
@@ -77,16 +87,23 @@ export class StatisticsRepository {
     const windowStartKey = windowStartDate.toISOString().slice(0, 10);
 
     const ownerClause = ownerEmployeeId
-      ? `AND (owner_employee_id = ? OR EXISTS (
+      ? `AND (r.owner_employee_id = ? OR EXISTS (
            SELECT 1 FROM route_sync_state sync
-           WHERE sync.route_id = routes.id AND sync.employee_id = ?
+           WHERE sync.route_id = r.id AND sync.employee_id = ?
          ))`
       : '';
     const ownerParams = ownerEmployeeId ? [ownerEmployeeId, ownerEmployeeId] : [];
     const rows = await this.db.getAllAsync<StatsRouteQueryRow>(
-      `SELECT date, status, estimated_distance_km, actual_distance_km, total_stops,
-              started_at, completed_at, completion_summary_json
-       FROM routes WHERE status IN ('completed', 'cancelled') AND date >= ? ${ownerClause}`,
+      `SELECT r.id AS route_id, r.date, r.status, r.estimated_distance_km, r.actual_distance_km, r.total_stops,
+              r.started_at, r.completed_at, r.completion_summary_json,
+              (SELECT GROUP_CONCAT(DISTINCT sl.route_code) FROM shipment_lines sl WHERE sl.route_id = r.id) AS route_codes,
+              (SELECT COALESCE(NULLIF(ds.normalized_address, ''), NULLIF(ds.original_address, ''), NULLIF(ds.address, ''))
+               FROM delivery_stops ds WHERE ds.route_id = r.id
+               ORDER BY COALESCE(ds.active_order, ds.optimized_order, ds.original_order) ASC LIMIT 1) AS start_address,
+              (SELECT COALESCE(NULLIF(ds.normalized_address, ''), NULLIF(ds.original_address, ''), NULLIF(ds.address, ''))
+               FROM delivery_stops ds WHERE ds.route_id = r.id
+               ORDER BY COALESCE(ds.active_order, ds.optimized_order, ds.original_order) DESC LIMIT 1) AS end_address
+       FROM routes r WHERE r.status IN ('completed', 'cancelled') AND r.date >= ? ${ownerClause}`,
       windowStartKey,
       ...ownerParams,
     );

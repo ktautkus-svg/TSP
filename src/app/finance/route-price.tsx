@@ -5,19 +5,11 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { normalizeEmployeePermissions } from '@/application/auth/employee-permissions';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { roleHomePath } from '@/application/navigation/role-home';
-import {
-  PERIOD_OPTIONS,
-  anchorFieldLabel,
-  formatDateRange,
-  formatPeriodTitle,
-  localDateKey,
-  periodRange,
-  type PeriodMode,
-} from '@/application/reporting/period-range';
+import { calendarPresetRange } from '@/application/reporting/period-range';
 import { estimatePreliminaryRoutePrice, type PreliminaryRoutePrice } from '@/application/routes/route-price';
-import { DateInput } from '@/components/date-input';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { MenuArtwork } from '@/components/menu-artwork';
+import { PeriodCalendarPicker } from '@/components/period-calendar-picker';
 import { employeeApi, type ServerTripSheet } from '@/infrastructure/auth/employee-session';
 import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
@@ -39,11 +31,9 @@ export default function RoutePriceScreen() {
   const [tripSheets, setTripSheets] = useState<ServerTripSheet[]>([]);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const initialDate = useMemo(() => localDateKey(new Date()), []);
-  const [periodMode, setPeriodMode] = useState<PeriodMode>('month');
-  const [anchorDate, setAnchorDate] = useState(initialDate);
-  const [customFrom, setCustomFrom] = useState(initialDate);
-  const [customTo, setCustomTo] = useState(initialDate);
+  const initialPeriod = useMemo(() => calendarPresetRange('thisMonth'), []);
+  const [periodFrom, setPeriodFrom] = useState(initialPeriod.from);
+  const [periodTo, setPeriodTo] = useState(initialPeriod.to);
 
   const load = useCallback(async () => {
     if (!online) { setError('Nėra ryšio su serveriu. Reiso kaina skaičiuojama serveryje.'); setBusy(false); return; }
@@ -64,7 +54,7 @@ export default function RoutePriceScreen() {
     void load();
   }, [allowed, load, profile.role, router]);
 
-  const period = useMemo(() => periodRange(periodMode, anchorDate, customFrom, customTo), [anchorDate, customFrom, customTo, periodMode]);
+  const period = useMemo(() => ({ from: periodFrom, to: periodTo }), [periodFrom, periodTo]);
   const visible = useMemo(() => tripSheets.filter((sheet) => sheet.date >= period.from && sheet.date <= period.to), [tripSheets, period]);
 
   const priced: PricedTrip[] = useMemo(() => visible.flatMap((sheet) => {
@@ -102,27 +92,12 @@ export default function RoutePriceScreen() {
         title="Reiso kaina">
 
         <View style={styles.periodPanel} testID="route-price-period-panel">
-          <View style={styles.periodHeading}>
-            <Text style={styles.periodTitle}>{formatPeriodTitle(periodMode, period.from, period.to)}</Text>
-            <Text style={styles.periodSummary}>{formatDateRange(period.from, period.to)}</Text>
-          </View>
-          <View accessibilityLabel="Laikotarpio tipas" accessibilityRole="tablist" style={styles.periodTabs}>
-            {PERIOD_OPTIONS.map((item) => <Pressable
-              key={item.key}
-              accessibilityRole="tab"
-              accessibilityState={{ selected: periodMode === item.key }}
-              onPress={() => setPeriodMode(item.key)}
-              style={[styles.periodTab, periodMode === item.key && styles.periodTabActive]}
-              testID={`route-price-period-${item.key}`}>
-              <Text style={[styles.periodTabText, periodMode === item.key && styles.periodTabTextActive]}>{item.label}</Text>
-            </Pressable>)}
-          </View>
-          <View style={styles.dateFields}>
-            {periodMode === 'custom' ? <>
-              <DateField label="Nuo" value={customFrom} onChange={setCustomFrom} styles={styles} />
-              <DateField label="Iki" value={customTo} onChange={setCustomTo} styles={styles} />
-            </> : <DateField label={anchorFieldLabel(periodMode)} value={anchorDate} onChange={setAnchorDate} styles={styles} />}
-          </View>
+          <PeriodCalendarPicker
+            from={periodFrom}
+            onChange={(from, to) => { setPeriodFrom(from); setPeriodTo(to); }}
+            testID="route-price-period-calendar"
+            to={periodTo}
+          />
         </View>
 
         {error ? <Text accessibilityRole="alert" style={styles.warning}>{error}</Text> : null}
@@ -187,33 +162,9 @@ function Metric({ label, value, emphasis, styles }: { label: string; value: stri
   </View>;
 }
 
-function DateField({ label, value, onChange, styles }: { label: string; value: string; onChange: (value: string) => void; styles: ReturnType<typeof createStyles> }) {
-  return <View style={styles.dateField}>
-    <Text style={styles.fieldLabel}>{label.toUpperCase()}</Text>
-    <DateInput
-      accessibilityLabel={label}
-      onChangeText={onChange}
-      style={styles.dateInput}
-      value={value}
-    />
-  </View>;
-}
-
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   flex: { flex: 1, minWidth: 0 },
   periodPanel: { padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, gap: spacing.md },
-  periodHeading: { gap: 2 },
-  periodTitle: { ...type.sectionTitle, color: colors.text },
-  periodSummary: { ...type.secondary, color: colors.textMuted },
-  periodTabs: { flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' },
-  periodTab: { flex: 1, minWidth: 90, minHeight: 44, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceSubtle },
-  periodTabActive: { borderColor: colors.info, backgroundColor: colors.info },
-  periodTabText: { ...type.button, color: colors.textSecondary },
-  periodTabTextActive: { color: colors.textInverse },
-  dateFields: { flexDirection: 'row', gap: spacing.md, flexWrap: 'wrap' },
-  dateField: { flex: 1, minWidth: 140, gap: 4 },
-  fieldLabel: { ...type.label, color: colors.textMuted },
-  dateInput: { minHeight: 44, paddingHorizontal: spacing.md, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surfaceSubtle, ...type.bodyStrong, color: colors.text },
   warning: { ...type.bodyStrong, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.warningSoft, color: colors.warning },
   empty: { padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, gap: 4 },
   emptyTitle: { ...type.sectionTitle, color: colors.text },

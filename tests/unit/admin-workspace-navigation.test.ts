@@ -100,7 +100,7 @@ describe('administrator workspace navigation', () => {
   });
 
   it('keeps the quality-control period input on the native calendar even with an external keyboard', () => {
-    expect(quality).toContain('<DateInput');
+    expect(quality).toContain('<PeriodCalendarPicker');
     expect(dateInput).toContain("node.type = 'date'");
     expect(dateInput).toContain('node?.showPicker?.()');
   });

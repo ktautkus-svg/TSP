@@ -9,6 +9,19 @@ export type PeriodMode = 'day' | 'week' | 'month' | 'custom';
 
 export type PeriodRange = { from: string; to: string };
 
+export type CalendarPeriodPresetKey = 'today' | 'yesterday' | 'thisWeek' | 'lastWeek' | 'thisMonth' | 'lastMonth' | 'year';
+export type CalendarPeriodPreset = { key: CalendarPeriodPresetKey; label: string };
+
+export const CALENDAR_PERIOD_PRESETS: readonly CalendarPeriodPreset[] = [
+  { key: 'today', label: 'Šiandien' },
+  { key: 'yesterday', label: 'Vakar' },
+  { key: 'thisWeek', label: 'Ši savaitė' },
+  { key: 'lastWeek', label: 'Praėjusi savaitė' },
+  { key: 'thisMonth', label: 'Šis mėnuo' },
+  { key: 'lastMonth', label: 'Praėjęs mėnuo' },
+  { key: 'year', label: '12 mėn.' },
+];
+
 export const PERIOD_OPTIONS: readonly { key: PeriodMode; label: string }[] = [
   { key: 'day', label: 'Diena' },
   { key: 'week', label: 'Savaitė' },
@@ -40,6 +53,51 @@ export function addDays(date: Date, amount: number): Date {
   const result = new Date(date);
   result.setDate(result.getDate() + amount);
   return result;
+}
+
+export function monthKey(value: string): string {
+  return validDateKey(value) ? value.slice(0, 7) : localDateKey(new Date()).slice(0, 7);
+}
+
+export function shiftMonth(value: string, amount: number): string {
+  const [year, month] = value.split('-').map(Number);
+  const shifted = new Date(year, month - 1 + amount, 1, 12);
+  return `${shifted.getFullYear()}-${String(shifted.getMonth() + 1).padStart(2, '0')}`;
+}
+
+export function calendarMonthDays(value: string): { key: string; day: number; inMonth: boolean }[] {
+  const [year, month] = value.split('-').map(Number);
+  const first = new Date(year, month - 1, 1, 12);
+  const mondayOffset = (first.getDay() + 6) % 7;
+  const start = addDays(first, -mondayOffset);
+  return Array.from({ length: 42 }, (_, index) => {
+    const date = addDays(start, index);
+    return { key: localDateKey(date), day: date.getDate(), inMonth: date.getMonth() === month - 1 };
+  });
+}
+
+export function calendarPresetRange(key: CalendarPeriodPresetKey, reference: Date = new Date()): PeriodRange {
+  const today = new Date(reference.getFullYear(), reference.getMonth(), reference.getDate(), 12);
+  if (key === 'today') {
+    const value = localDateKey(today);
+    return { from: value, to: value };
+  }
+  if (key === 'yesterday') {
+    const value = localDateKey(addDays(today, -1));
+    return { from: value, to: value };
+  }
+  if (key === 'thisWeek' || key === 'lastWeek') {
+    const mondayOffset = (today.getDay() + 6) % 7;
+    const fromDate = addDays(today, -mondayOffset - (key === 'lastWeek' ? 7 : 0));
+    return { from: localDateKey(fromDate), to: localDateKey(addDays(fromDate, 6)) };
+  }
+  if (key === 'thisMonth' || key === 'lastMonth') {
+    const offset = key === 'lastMonth' ? -1 : 0;
+    const fromDate = new Date(today.getFullYear(), today.getMonth() + offset, 1, 12);
+    const toDate = new Date(today.getFullYear(), today.getMonth() + offset + 1, 0, 12);
+    return { from: localDateKey(fromDate), to: localDateKey(toDate) };
+  }
+  return { from: localDateKey(addDays(today, -364)), to: localDateKey(today) };
 }
 
 /**

@@ -43,8 +43,16 @@ export function assignmentsToStatsRows(
     const route = assignment.routeSnapshot.route;
     const status = String(route.status ?? assignment.status);
     if (!['completed', 'cancelled'].includes(status)) continue;
+    const routeNumbers = uniqueRegionCodes(assignment.routeSnapshot.shipmentLines);
+    const routeLabel = routeNumbers.length > 0 ? routeNumbers.join(' · ') : `Maršrutas ${assignment.routeId.slice(0, 8)}`;
 
     rows.push({
+      routeId: assignment.routeId,
+      routeLabel,
+      driverName: assignment.driverName,
+      vehicleRegistration: assignment.vehicle?.registrationNumber ?? null,
+      startAddress: snapshotLocationAddress(route.start_location_json) ?? firstStopAddress(assignment.routeSnapshot.stops),
+      endAddress: snapshotLocationAddress(route.end_location_json) ?? lastStopAddress(assignment.routeSnapshot.stops),
       date: String(route.date ?? assignment.assignedAt.slice(0, 10)),
       status,
       estimatedDistanceKm: nullableMetric(route.estimated_distance_km),
@@ -56,8 +64,6 @@ export function assignmentsToStatsRows(
       vehicleMaxPayloadKg: assignment.vehicle?.maximumPayloadKg ?? null,
     });
 
-    const routeNumbers = uniqueRegionCodes(assignment.routeSnapshot.shipmentLines);
-    const routeLabel = routeNumbers.length > 0 ? routeNumbers.join(' · ') : `Maršrutas ${assignment.routeId.slice(0, 8)}`;
     for (const stop of assignment.routeSnapshot.stops) {
       if (stop.delivery_status !== 'failed' || typeof stop.failure_reason !== 'string') continue;
       failures.set(stop.failure_reason, (failures.get(stop.failure_reason) ?? 0) + 1);
@@ -98,4 +104,27 @@ export function assignmentsToStatsRows(
 
 function optionalText(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function snapshotLocationAddress(value: unknown): string | null {
+  let location = value;
+  if (typeof location === 'string') {
+    try { location = JSON.parse(location) as unknown; } catch { return optionalText(location); }
+  }
+  if (!location || typeof location !== 'object') return null;
+  const record = location as Record<string, unknown>;
+  return optionalText(record.address) ?? optionalText(record.label);
+}
+
+function stopAddress(stop: Record<string, unknown> | undefined): string | null {
+  if (!stop) return null;
+  return optionalText(stop.normalized_address) ?? optionalText(stop.original_address) ?? optionalText(stop.address);
+}
+
+function firstStopAddress(stops: Record<string, unknown>[]): string | null {
+  return stopAddress(stops[0]);
+}
+
+function lastStopAddress(stops: Record<string, unknown>[]): string | null {
+  return stopAddress(stops.at(-1));
 }

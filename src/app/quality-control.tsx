@@ -6,17 +6,12 @@ import { useLocalAccess } from '@/application/auth/local-access-context';
 import { roleHomePath } from '@/application/navigation/role-home';
 import { AccountMenuSheet } from '@/components/account-menu-sheet';
 import { BackIcon, StatsIcon } from '@/components/app-icons';
-import { DateInput } from '@/components/date-input';
+import { PeriodCalendarPicker } from '@/components/period-calendar-picker';
 import { TspBrand } from '@/components/tsp-brand';
 import {
-  PERIOD_OPTIONS,
-  anchorFieldLabel,
   formatDateKey,
   formatDateRange,
-  formatPeriodTitle,
   localDateKey,
-  periodRange,
-  type PeriodMode,
 } from '@/application/reporting/period-range';
 import { classifyDeliveryWindow, minutesLate } from '@/domain/delivery-window-timing';
 import { useForegroundInterval } from '@/hooks/use-foreground-interval';
@@ -52,8 +47,6 @@ const STOP_FILTERS: readonly { key: StopFilter; label: string; tone: FilterTone 
   { key: 'late', label: 'KPI', tone: 'info' },
 ];
 
-const PERIODS = PERIOD_OPTIONS;
-
 export default function QualityControlScreen() {
   const router = useRouter();
   const { profile } = useLocalAccess();
@@ -76,10 +69,9 @@ export default function QualityControlScreen() {
   const [stopFilter, setStopFilter] = useState<StopFilter | null>(null);
   const [completedOpen, setCompletedOpen] = useState(false);
   const initialDate = useMemo(() => localDateKey(new Date()), []);
-  const [periodMode, setPeriodMode] = useState<PeriodMode>('day');
-  const [anchorDate, setAnchorDate] = useState(initialDate);
-  const [customFrom, setCustomFrom] = useState(initialDate);
-  const [customTo, setCustomTo] = useState(initialDate);
+  const [periodFrom, setPeriodFrom] = useState(initialDate);
+  const [periodTo, setPeriodTo] = useState(initialDate);
+  const [entityFiltersOpen, setEntityFiltersOpen] = useState(false);
   const [driverId, setDriverId] = useState<string>('all');
   const [vehicleId, setVehicleId] = useState<string>('all');
   const desktop = width >= 980;
@@ -117,7 +109,7 @@ export default function QualityControlScreen() {
     REFRESH_INTERVAL_MS,
   );
 
-  const period = useMemo(() => periodRange(periodMode, anchorDate, customFrom, customTo), [anchorDate, customFrom, customTo, periodMode]);
+  const period = useMemo(() => ({ from: periodFrom, to: periodTo }), [periodFrom, periodTo]);
   // "On the road right now" is a live state, independent of whatever date
   // range happens to be selected — an active driver/vehicle stays first and
   // highlighted even while looking at last week's history.
@@ -238,7 +230,7 @@ export default function QualityControlScreen() {
       <View style={styles.operationsPanel}>
         <View style={[styles.operationsTop, mobile && styles.operationsTopMobile]}>
           <View style={styles.heading}>
-            <Text style={[styles.pageTitle, mobile && styles.pageTitleMobile]}>{formatPeriodTitle(periodMode, period.from, period.to)}</Text>
+            <Text style={[styles.pageTitle, mobile && styles.pageTitleMobile]}>{formatDateRange(period.from, period.to)}</Text>
             <Text style={styles.subtitle}>{driverId === 'all' ? 'Visi vairuotojai' : drivers.find((driver) => driver.id === driverId)?.name} · {formatVehicleCount(vehicleCount)} · {visible.length} {visible.length === 1 ? 'maršrutas' : 'maršrutai'}</Text>
           </View>
           <View style={styles.connection}>
@@ -282,35 +274,17 @@ export default function QualityControlScreen() {
       {stopFilter ? <StopSection filter={stopFilter} stops={stopFilterList} styles={styles} /> : null}
 
       <View style={styles.periodPanel} testID="quality-period-panel">
-        <View style={styles.periodHeading}>
+        <PeriodCalendarPicker from={periodFrom} onChange={(from, to) => { setPeriodFrom(from); setPeriodTo(to); }} testID="quality-period-calendar" to={periodTo} />
+
+        <Pressable accessibilityState={{ expanded: entityFiltersOpen }} onPress={() => setEntityFiltersOpen((value) => !value)} style={styles.entityFilterToggle} testID="quality-entity-filters-toggle">
           <View style={styles.flex}>
-            <Text style={styles.periodTitle}>Ką norite peržiūrėti?</Text>
-            <Text style={styles.muted}>Pasirinkite datą arba laikotarpį, tada – konkretų vairuotoją.</Text>
+            <Text style={styles.entityFilterTitle}>Vairuotojas ir automobilis</Text>
+            <Text style={styles.muted}>{driverId === 'all' ? 'Visi vairuotojai' : drivers.find((driver) => driver.id === driverId)?.name} · {vehicleId === 'all' ? 'visi automobiliai' : vehicles.find((vehicle) => vehicle.id === vehicleId)?.registrationNumber}</Text>
           </View>
-          <Text style={styles.periodSummary}>{formatDateRange(period.from, period.to)}</Text>
-        </View>
+          <Text style={styles.entityFilterAction}>{entityFiltersOpen ? 'Slėpti' : 'Keisti'}</Text>
+        </Pressable>
 
-        <View accessibilityLabel="Laikotarpio tipas" accessibilityRole="tablist" style={[styles.periodTabs, mobile && styles.periodTabsMobile]}>
-          {PERIODS.map((item) => <Pressable
-            key={item.key}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: periodMode === item.key }}
-            onPress={() => setPeriodMode(item.key)}
-            style={({ pressed }) => [styles.periodTab, mobile && styles.periodTabMobile, periodMode === item.key && styles.periodTabActive, pressed && styles.filterPressed]}
-            testID={`quality-period-${item.key}`}
-          >
-            <Text style={[styles.periodTabText, periodMode === item.key && styles.periodTabTextActive]}>{item.label}</Text>
-          </Pressable>)}
-        </View>
-
-        <View style={[styles.dateFields, mobile && styles.dateFieldsMobile]}>
-          {periodMode === 'custom' ? <>
-            <DateField label="Nuo" value={customFrom} onChange={setCustomFrom} styles={styles} />
-            <DateField label="Iki" value={customTo} onChange={setCustomTo} styles={styles} />
-          </> : <DateField label={anchorFieldLabel(periodMode)} value={anchorDate} onChange={setAnchorDate} styles={styles} />}
-        </View>
-
-        <View style={styles.driverFilter}>
+        {entityFiltersOpen ? <><View style={styles.driverFilter}>
           <Text style={styles.fieldLabel}>VAIRUOTOJAS</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.driverChoices}>
             <DriverChoice active={driverId === 'all'} label="Visi vairuotojai" onPress={() => setDriverId('all')} styles={styles} />
@@ -324,7 +298,7 @@ export default function QualityControlScreen() {
             <DriverChoice active={vehicleId === 'all'} label="Visi automobiliai" onPress={() => setVehicleId('all')} styles={styles} />
             {vehicles.map((vehicle) => <DriverChoice key={vehicle.id} active={vehicleId === vehicle.id} label={vehicle.registrationNumber} live={activeVehicleIds.has(vehicle.id)} onPress={() => setVehicleId(vehicle.id)} styles={styles} />)}
           </ScrollView>
-        </View>
+        </View></> : null}
       </View>
 
       {error ? <Text accessibilityRole="alert" style={styles.warning}>{error}</Text> : null}
@@ -522,18 +496,6 @@ function failureLabel(stop: QualityStopMonitor): string {
   return [stop.failureReason, stop.failureComment].filter(Boolean).join(' · ') || 'Priežastis nenurodyta';
 }
 
-function DateField({ label, value, onChange, styles }: { label: string; value: string; onChange: (value: string) => void; styles: ReturnType<typeof createStyles> }) {
-  return <View style={styles.dateField}>
-    <Text style={styles.fieldLabel}>{label.toUpperCase()}</Text>
-    <DateInput
-      accessibilityLabel={label}
-      onChangeText={onChange}
-      style={styles.dateInput}
-      value={value}
-    />
-  </View>;
-}
-
 function DriverChoice({ active, label, live = false, onPress, styles }: { active: boolean; label: string; live?: boolean; onPress: () => void; styles: ReturnType<typeof createStyles> }) {
   return <Pressable accessibilityRole="button" accessibilityState={{ selected: active }} onPress={onPress} style={({ pressed }) => [styles.driverChoice, active && styles.driverChoiceActive, live && styles.driverChoiceLive, pressed && styles.filterPressed]}>
     <View style={[styles.driverChoiceDot, active && styles.driverChoiceDotActive, live && styles.driverChoiceDotLive]} />
@@ -575,9 +537,10 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   heading: { flex: 1, minWidth: 0, gap: 3 }, pageTitle: { ...type.pageTitle, color: colors.textInverse, fontSize: 30, lineHeight: 36 }, pageTitleMobile: { fontSize: 24, lineHeight: 30 }, subtitle: { ...type.bodyStrong, color: colors.brandWordmarkGreenLight },
   warning: { ...type.bodyStrong, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.warningSoft, color: colors.warning },
   periodPanel: { padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.md, shadowColor: colors.primary, shadowOpacity: 0.05, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 1 },
-  periodHeading: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing.lg }, periodTitle: { ...type.sectionTitle, color: colors.text }, periodSummary: { ...type.bodyStrong, color: colors.info, textAlign: 'right' },
-  periodTabs: { flexDirection: 'row', gap: spacing.sm }, periodTabsMobile: { flexWrap: 'wrap' }, periodTab: { flex: 1, minWidth: 120, minHeight: 46, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceSubtle }, periodTabMobile: { minWidth: '46%' }, periodTabActive: { borderColor: colors.info, backgroundColor: colors.info }, periodTabText: { ...type.button, color: colors.textSecondary }, periodTabTextActive: { color: colors.textInverse },
-  dateFields: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.md }, dateFieldsMobile: { flexDirection: 'column', alignItems: 'stretch' }, dateField: { flex: 1, gap: spacing.xs }, fieldLabel: { ...type.label, color: colors.textMuted }, dateInput: { minHeight: 48, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, ...type.bodyStrong, color: colors.text },
+  fieldLabel: { ...type.label, color: colors.textMuted },
+  entityFilterToggle: { minHeight: 58, paddingVertical: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.md, borderTopWidth: 1, borderTopColor: colors.borderSubtle },
+  entityFilterTitle: { ...type.bodyStrong, color: colors.text },
+  entityFilterAction: { ...type.secondaryStrong, color: colors.info },
   driverFilter: { gap: spacing.xs }, driverChoices: { gap: spacing.sm, paddingVertical: 2 }, driverChoice: { minHeight: 44, maxWidth: 240, flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceSubtle }, driverChoiceActive: { borderColor: colors.info, backgroundColor: colors.infoSoft }, driverChoiceDot: { width: 8, height: 8, borderRadius: radius.pill, backgroundColor: colors.borderStrong }, driverChoiceDotActive: { backgroundColor: colors.info }, driverChoiceText: { ...type.bodyStrong, color: colors.textSecondary }, driverChoiceTextActive: { color: colors.info }, driverChoiceLive: { borderColor: colors.success }, driverChoiceDotLive: { backgroundColor: colors.success }, driverChoiceTextLive: { color: colors.success },
   empty: { padding: spacing.xl, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }, emptyTitle: { ...type.sectionTitle, color: colors.text }, muted: { ...type.secondary, color: colors.textMuted },
   section: { gap: spacing.md }, sectionHeading: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm }, sectionTitle: { ...type.sectionTitle, color: colors.text, fontSize: 20, lineHeight: 26 }, count: { minWidth: 30, textAlign: 'center', paddingVertical: 4, borderRadius: radius.pill, overflow: 'hidden', backgroundColor: colors.infoSoft, ...type.secondaryStrong, color: colors.info },
