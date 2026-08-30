@@ -569,10 +569,20 @@ export function extractAddressText(value: string | null): string | null {
     .map((line) => line.trim())
     .filter(Boolean);
   const addressLine = lines.findIndex((line) => looksLikeAddress(line));
-  if (addressLine >= 0) return lines.slice(addressLine).join(' ').trim() || null;
+  if (addressLine >= 0) return joinAddressLines(lines, addressLine);
   const looseAddressLine = lines.findIndex((line) => looksLikeLooseStreetAddress(line));
-  if (looseAddressLine >= 0) return lines.slice(looseAddressLine).join(' ').trim() || null;
+  if (looseAddressLine >= 0) return joinAddressLines(lines, looseAddressLine);
   return looksLikeAddress(value) ? value.trim() : null;
+}
+
+function joinAddressLines(lines: string[], start: number): string | null {
+  const addressLines = lines.slice(start);
+  // Some operational workbooks repeat district/country below an already
+  // complete multiline address. Once the country is present, later lines are
+  // no longer part of that address and must not change its grouping key.
+  const countryLine = addressLines.findIndex((line) => /\bLietuva\b/iu.test(line));
+  const selected = countryLine >= 0 ? addressLines.slice(0, countryLine + 1) : addressLines;
+  return selected.join(' ').trim() || null;
 }
 
 function recipientFromCompanyText(value: string | null): string | null {

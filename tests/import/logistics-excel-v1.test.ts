@@ -43,7 +43,7 @@ function pajuoscioWorkbook(): Uint8Array {
     ['Užs. Nr.', 'Svoris', 'Stulpelis', 'Adresas', 'Pavadinimas', 'Kryptis'],
     ['S614031', 437.24, '08:00-16:00', 'UAB GaliasasP.Puzino g.12Panevėžys LT_97123Lietuva', 'UAB Galiasas', 'R54'],
     ['S614054', 17, '08:00-16:00', 'UAB GaliasasP.Puzino g.12Panevėžys LT_97123Lietuva', 'UAB Galiasas', 'R54'],
-    ['S613364', 216.28, '06:00-15:00', 'Gynybos resursų agentūra prie Krašto apsaugos ministerijos', 'Gynybos resursų agentūra', 'R11'],
+    ['S613364', 216.28, '06:00-15:00', 'Gynybos resursų agentūra prie Krašto apsaugos ministerijos\nPajuosčio pl.73, Dembavos k., Velžio sen. Panevėžio r., Lietuva\nPanevėžio r.\nLietuva', 'Gynybos resursų agentūra prie\nKrašto apsaugos ministerijos, ĮAT Panevėžio įgulos aptarnavimo centro\nvalgykla', 'R11'],
     ['S614429', 440.4, '06:00-15:00', 'UAB Lambda LTPajuosčio pl.73Dembavos k. Velžio sen., Panevėžio r.', 'UAB Lambda LT', 'R11'],
     ['S613369', 633.72, '06:00-15:00', 'UAB Lambda LTPajuosčio pl.73Dembavos k. Velžio sen., Panevėžio r.', 'UAB Lambda LT', 'R11'],
     ['S614395', 11.5, '06:00-15:00', 'UAB GaliasasPajuosčio pl.73, Dembavos k. Velžio sen., Panevėžio r.', 'UAB Galiasas', 'R11'],
@@ -200,17 +200,22 @@ describe('LOGISTICS_EXCEL_V1 direct cell parser', () => {
     expect(filterExcelPreviewByRouteCodes(preview, ['R56', 'R57']).summary.includedRowCount).toBe(40);
   });
 
-  it('keeps all seven daily-export rows and groups the four Pajuosčio lines into one real stop', () => {
+  it('reads the full multiline cells and groups all five Pajuosčio lines into one real stop', () => {
     const preview = parseLogisticsExcelWorkbook(pajuoscioWorkbook(), {
       importId: 'pajuoscio-regression', fileName: '2026.08.31 Vilnius.xlsx', fileHash: 'pajuoscio-hash',
     });
     expect(preview.rows).toHaveLength(7);
     expect(preview.summary.routeCodes).toEqual(['R54', 'R11']);
+    const gynybos = preview.rows.find((row) => row.orderNumber === 'S613364');
+    expect(gynybos?.originalAddress).toBe('Pajuosčio pl.73, Dembavos k., Velžio sen. Panevėžio r., Lietuva');
+    expect(gynybos?.recipient).toContain('Gynybos resursų agentūra');
+    expect(gynybos?.issueCodes).not.toContain('ADDRESS_MISSING');
     const pajuoscio = preview.groups.find((group) => group.normalizedAddress.includes('Pajuosčio'));
-    expect(pajuoscio?.lineIds).toHaveLength(4);
+    expect(pajuoscio?.lineIds).toHaveLength(5);
     expect(pajuoscio?.normalizedAddress).not.toContain('Šiauliai');
+    expect(pajuoscio?.normalizedAddress.match(/Lietuva/gu)).toHaveLength(1);
     expect(preview.summary.physicalStopCount).toBe(2);
-    expect(preview.summary.unconfirmedAddressCount).toBe(1);
+    expect(preview.summary.unconfirmedAddressCount).toBe(0);
   });
 });
 
