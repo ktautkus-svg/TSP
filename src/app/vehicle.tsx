@@ -61,6 +61,7 @@ export default function VehicleScreen() {
   const [vehicleReadings, setVehicleReadings] = useState<ServerTripSheet[]>([]);
   const [drivers, setDrivers] = useState<EmployeeProfile[]>([]);
   const [editingReadingId, setEditingReadingId] = useState<string | null>(null);
+  const [editingReadingDate, setEditingReadingDate] = useState('');
   const [editingReadingStart, setEditingReadingStart] = useState('');
   const [editingReadingEnd, setEditingReadingEnd] = useState('');
   const [editingReadingDriverId, setEditingReadingDriverId] = useState('');
@@ -99,14 +100,22 @@ export default function VehicleScreen() {
     setOpenFaults(await faults.listOpen(vehicleId));
     const saved = await new VehicleDepartureOverrideRepository(db).getLatest(vehicleId);
     setOverride(saved ? { status: saved.status, fingerprint: saved.fingerprint } : null);
-    if (online) {
-      const response = await employeeApi<{ tripSheets: ServerTripSheet[] }>('/api/trip-sheets').catch(() => ({ tripSheets: [] }));
+    // Always attempt this — this function runs right after a successful
+    // save/edit/delete, which already proved the network works, so gating on
+    // the `online` flag (a periodic, not instant, connectivity check — see
+    // local-access-gate.tsx) could silently skip refreshing the very entry
+    // that was just written, leaving the list looking unchanged even though
+    // the save succeeded. On failure, keep whatever was already on screen
+    // instead of wiping it to an empty list.
+    try {
+      const response = await employeeApi<{ tripSheets: ServerTripSheet[] }>('/api/trip-sheets');
       setVehicleReadings(response.tripSheets.filter((sheet) => sheet.vehicle?.id === vehicleId).sort((a, b) => a.date.localeCompare(b.date)));
-    }
-  }, [db, faults, fleetVehicles, online, repository]);
+    } catch { /* keep the previous list rather than clearing it on a transient failure */ }
+  }, [db, faults, fleetVehicles, repository]);
 
   const editReading = (reading: ServerTripSheet) => {
     setEditingReadingId(reading.assignmentId);
+    setEditingReadingDate(reading.date);
     setEditingReadingStart(reading.startOdometer == null ? '' : String(reading.startOdometer));
     setEditingReadingEnd(reading.endOdometer == null ? '' : String(reading.endOdometer));
     setEditingReadingDriverId(reading.driverId || 'none');
@@ -120,8 +129,18 @@ export default function VehicleScreen() {
       const end = Number(editingReadingEnd.replace(',', '.'));
       if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) throw new Error('Patikrinkite odometro pradžią ir pabaigą.');
       const driverId = editingReadingDriverId === 'none' ? null : editingReadingDriverId || undefined;
-      if (parseVehicleDayAssignmentId(reading.assignmentId)) {
-        await employeeApi('/api/trip-sheets/day-readings', { method: 'POST', body: JSON.stringify({ vehicleId: selectedVehicleId, date: reading.date, startOdometer: start, endOdometer: end, driverId }) });
+      const vehicleDay = parseVehicleDayAssignmentId(reading.assignmentId);
+      if (vehicleDay) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(editingReadingDate)) throw new Error('Įveskite datą formatu YYYY-MM-DD.');
+        if (editingReadingDate !== reading.date) {
+          // Standalone day readings are keyed by vehicle+date, so moving one
+          // to a different date means creating it under the new date and
+          // removing the old one — otherwise a wrongly-dated entry (e.g. a
+          // date field that didn't take the typed value) could never be
+          // corrected, only re-entered alongside the stale original.
+          await employeeApi(`/api/admin/trip-sheets/unassigned-day/${encodeURIComponent(selectedVehicleId)}/${encodeURIComponent(reading.date)}`, { method: 'DELETE' });
+        }
+        await employeeApi('/api/trip-sheets/day-readings', { method: 'POST', body: JSON.stringify({ vehicleId: selectedVehicleId, date: editingReadingDate, startOdometer: start, endOdometer: end, driverId }) });
       } else {
         await employeeApi(`/api/trip-sheets/${encodeURIComponent(reading.assignmentId)}`, { method: 'PATCH', body: JSON.stringify({ startOdometer: start, endOdometer: end, driverId: driverId ?? undefined }) });
       }
@@ -135,7 +154,11 @@ export default function VehicleScreen() {
   const deleteReading = (reading: ServerTripSheet) => {
     const vehicleDay = parseVehicleDayAssignmentId(reading.assignmentId);
     if (!vehicleDay) {
-      setMessage('Tik atskirą dienos odometro įrašą galima ištrinti. Tikras maršrutas saugomas istorijoje.');
+      // An easy-to-miss inline banner here reads as "the delete button does
+      // nothing" — this row is a real completed route's trip sheet, not a
+      // standalone odometer entry, so it can't be removed from this list at
+      // all; say that plainly instead of silently doing nothing.
+      Alert.alert('Ištrinti negalima', `${reading.date} priklauso tikram įvykdytam maršrutui — jis saugomas istorijoje ir iš čia netrinamas. Jei norite pakeisti odometro rodmenis, redaguokite eilutę pieštuko mygtuku.`);
       return;
     }
     Alert.alert('Ištrinti dienos įrašą?', `${reading.date} · ${reading.startOdometer ?? '—'} → ${reading.endOdometer ?? '—'} km`, [
@@ -160,8 +183,16 @@ export default function VehicleScreen() {
     if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) { setMessage('Patikrinkite naujos dienos odometro pradžią ir pabaigą.'); return; }
     setBusy(true);
     try {
-      await employeeApi('/api/trip-sheets/day-readings', { method: 'POST', body: JSON.stringify({ vehicleId: selectedVehicleId, date: newReadingDate, startOdometer: start, endOdometer: end, driverId: newReadingDriverId || undefined }) });
-      setAddingReading(false); setNewReadingStart(''); setNewReadingEnd(''); setNewReadingDriverId(''); setMessage('Naujos dienos odometras išsaugotas.');
+      // Echo back exactly what the server actually recorded (registration +
+      // date), not just "saved" — a client/server mismatch (wrong vehicle,
+      // a date that didn't take) is otherwise invisible until the driver
+      // goes looking for the entry and can't find it.
+      const { reading } = await employeeApi<{ reading: { vehicleId: string; date: string } }>(
+        '/api/trip-sheets/day-readings',
+        { method: 'POST', body: JSON.stringify({ vehicleId: selectedVehicleId, date: newReadingDate, startOdometer: start, endOdometer: end, driverId: newReadingDriverId || undefined }) },
+      );
+      setAddingReading(false); setNewReadingStart(''); setNewReadingEnd(''); setNewReadingDriverId('');
+      setMessage(`Išsaugota: ${registrationNumber} · ${reading.date}.`);
       await applyVehicle(selectedVehicleId);
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Naujos dienos išsaugoti nepavyko.'); }
     finally { setBusy(false); }
@@ -410,6 +441,7 @@ export default function VehicleScreen() {
                 {!editing ? <View style={styles.readingActions}><Pressable accessibilityLabel={`Redaguoti ${reading.date}`} onPress={() => editReading(reading)} style={styles.iconButton}><PencilIcon size={18} color={colors.warning} /></Pressable><Pressable accessibilityLabel={`Ištrinti ${reading.date}`} onPress={() => deleteReading(reading)} style={styles.iconButton}><TrashIcon size={18} color={colors.danger} /></Pressable></View> : null}
               </View>
               {editing ? <>
+                {parseVehicleDayAssignmentId(reading.assignmentId) ? <DateInput accessibilityLabel={`Data ${reading.date}`} value={editingReadingDate} onChangeText={setEditingReadingDate} style={styles.input} placeholderTextColor={colors.textMuted} /> : null}
                 <View style={styles.inlineInputs}>
                   <TextInput value={editingReadingStart} onChangeText={setEditingReadingStart} keyboardType="decimal-pad" style={[styles.input, styles.inlineInput]} placeholder="Pradžia" placeholderTextColor={colors.textMuted} />
                   <TextInput value={editingReadingEnd} onChangeText={setEditingReadingEnd} keyboardType="decimal-pad" style={[styles.input, styles.inlineInput]} placeholder="Pabaiga" placeholderTextColor={colors.textMuted} />

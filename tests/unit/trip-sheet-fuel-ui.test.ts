@@ -53,4 +53,20 @@ describe('trip sheet fuel workflow', () => {
     expect(vehicleSource).not.toContain('Kelių dienų korekcija');
     expect(vehicleSource).not.toContain('vehicle-odometer-bulk-editor');
   });
+
+  it('lets a standalone day reading be moved to a different date, and never silently skips refreshing after a save', () => {
+    // A wrongly-dated standalone reading previously had no way to be
+    // corrected at all — the edit form had no date field. Editing one now
+    // deletes the old vehicle+date key and re-creates it under the new date.
+    expect(vehicleSource).toContain('editingReadingDate');
+    expect(vehicleSource).toContain("accessibilityLabel={`Data ${reading.date}`}");
+    expect(vehicleSource).toContain('unassigned-day');
+    // applyVehicle used to skip the /api/trip-sheets refetch entirely
+    // whenever the (periodically, not instantly, rechecked) online flag was
+    // stale-false — even right after a save that had just proven the
+    // network worked — leaving a just-written entry invisible until the
+    // next unrelated refresh.
+    expect(vehicleSource).not.toContain('if (online) {\n      const response = await employeeApi<{ tripSheets: ServerTripSheet[] }>(\'/api/trip-sheets\').catch(() => ({ tripSheets: [] }));');
+    expect(vehicleSource).toContain('const response = await employeeApi<{ tripSheets: ServerTripSheet[] }>(\'/api/trip-sheets\');');
+  });
 });
