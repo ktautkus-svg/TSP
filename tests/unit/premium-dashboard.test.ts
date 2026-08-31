@@ -115,8 +115,10 @@ describe('premium route dashboard', () => {
     expect(delivery).toContain('void navigate(nextStop)');
     expect(delivery).toContain('dashboard-stop-heading');
     expect(delivery).toContain('dashboard-stop-actions');
-    expect(delivery).toContain('dashboardPrimaryActionButton');
+    expect(delivery).toContain('dashboardNavigateAction');
     expect(delivery).toContain('dashboardOutcomeActions');
+    expect(delivery).toContain("dashboardStopActions: { flexDirection: 'row'");
+    expect(delivery).toContain('backgroundColor: colors.dangerSoft');
     expect(delivery).toContain('dashboard-delivered-button');
     expect(delivery).toContain('dashboard-failed-button');
     expect(delivery).toContain('ATLIKTA');
