@@ -5,6 +5,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   addDays,
+  calendarMonthDays,
+  calendarPresetRange,
   dateFromKey,
   formatDateKey,
   formatDateRange,
@@ -80,5 +82,15 @@ describe('periodRange', () => {
     expect(source).toContain("{ key: 'week', label: 'Savaitė' }");
     expect(source).toContain("{ key: 'month', label: 'Mėnuo' }");
     expect(source).toContain('date.getFullYear()');
+  });
+
+  it('builds a Monday-first six-week calendar grid and common quick ranges', () => {
+    const days = calendarMonthDays('2026-08');
+    expect(days).toHaveLength(42);
+    expect(days[0]?.key).toBe('2026-07-27');
+    expect(days.find((day) => day.key === '2026-08-31')).toMatchObject({ day: 31, inMonth: true });
+    const sunday = new Date(2026, 7, 30, 12);
+    expect(calendarPresetRange('thisWeek', sunday)).toEqual({ from: '2026-08-24', to: '2026-08-30' });
+    expect(calendarPresetRange('lastMonth', sunday)).toEqual({ from: '2026-07-01', to: '2026-07-31' });
   });
 });

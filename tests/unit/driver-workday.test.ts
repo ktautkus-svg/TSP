@@ -428,12 +428,17 @@ describe('driver workday persistence', () => {
     await new MarkStopLoaded(db).execute('route-1', 'stop-2');
     await new SaveStartOdometer(db).execute('route-1', 1000);
     await new StartRoute(db).execute('route-1');
+    // 11:00 in Lithuania is 08:00 UTC during summer time. The production
+    // calculation is deliberately independent of the CI machine timezone.
+    const deadline = new Date('2026-08-11T08:00:00.000Z');
     // 10 minutes past the 11:00 deadline: within the 15-minute tolerance.
-    await new MarkStopDelivered(db, () => '2026-08-11T11:10:00.000Z').execute('route-1', 'stop-1');
+    const tenMinutesLate = new Date(deadline.getTime() + 10 * 60_000).toISOString();
     // 20 minutes past: beyond it.
-    await new MarkStopDelivered(db, () => '2026-08-11T11:20:00.000Z').execute('route-1', 'stop-2');
+    const twentyMinutesLate = new Date(deadline.getTime() + 20 * 60_000).toISOString();
+    await new MarkStopDelivered(db, () => tenMinutesLate).execute('route-1', 'stop-1');
+    await new MarkStopDelivered(db, () => twentyMinutesLate).execute('route-1', 'stop-2');
     await arriveAtRouteEnd(db);
-    const completed = await new CompleteRoute(db, () => '2026-08-11T12:00:00.000Z').execute('route-1', { endOdometer: 1010 });
+    const completed = await new CompleteRoute(db, () => new Date(deadline.getTime() + 60 * 60_000).toISOString()).execute('route-1', { endOdometer: 1010 });
     expect(completed.summary).toMatchObject({ onTimeStops: 1, lateStops: 1 });
   });
 

@@ -397,7 +397,19 @@ export default function ImportScreen() {
 
   const openExcelPreview = async (preview: ExcelImportPreview, restoredResult?: ImportResult | null) => {
     await excelRepository.savePreview(preview);
-    const imported = restoredResult ?? excelPreviewToImportResult(preview);
+    const base = restoredResult ?? excelPreviewToImportResult(preview);
+    const pending = base.deliveries.filter((delivery) => delivery.validationState !== 'valid' || !delivery.selectedAddress);
+    const resolvedPending = pending.length > 0 ? await resolveDeliveryAddresses(pending, addressResolver) : [];
+    const resolvedById = new Map(resolvedPending.map((delivery) => [delivery.id, delivery]));
+    const deliveries = base.deliveries.map((delivery) => resolvedById.get(delivery.id) ?? delivery);
+    const imported: ImportResult = {
+      ...base,
+      deliveries,
+      requiresReview: !preview.mappingRecognized
+        || preview.rows.some((row) => !row.excluded && !row.normalizedAddress)
+        || deliveries.some((delivery) => delivery.validationState !== 'valid' || !delivery.selectedAddress)
+        || base.duplicates.length > 0,
+    };
     await excelRepository.saveReviewResult(preview.id, imported);
     setExcelPreview(preview);
     setExcelDuplicate(null);

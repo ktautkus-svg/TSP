@@ -289,6 +289,17 @@ export default function RouteReviewScreen() {
       try {
         if (await redirectStalePlanningScreen()) return;
         await new UpdateDraftStop(db).execute(routeId, stop.id, patch);
+        if (patch.addressValidationState === 'auto_confirmed'
+          && typeof patch.latitude === 'number'
+          && typeof patch.longitude === 'number') {
+          await addressMemory.remember(stop.originalAddress, {
+            normalizedAddress: patch.normalizedAddress ?? stop.normalizedAddress ?? stop.originalAddress,
+            latitude: patch.latitude,
+            longitude: patch.longitude,
+            placeId: null,
+            confidence: 1,
+          });
+        }
         await reload();
         void requestSync('mutation');
       } catch (reason) {

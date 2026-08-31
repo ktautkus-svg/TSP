@@ -336,6 +336,32 @@ describe('StatisticsRepository.getRows (integration)', () => {
     expect(failureCounts).toEqual([{ reason: 'Nedirba', count: 1 }]);
   });
 
+  it('returns the concrete late stop and its real delay in Lithuanian summer time', async () => {
+    const { adapter, db } = createDb();
+    const now = '2026-08-05T10:00:00.000Z';
+    adapter.raw.prepare(
+      `INSERT INTO routes (id, date, status, total_weight_kg, remaining_weight_kg, total_stops, remaining_stops,
+        created_at, updated_at, unknown_weight_stops, remaining_unknown_weight_stops, completed_at)
+       VALUES ('late-route','2026-08-05','completed',0,0,1,0,?,?,0,0,?)`,
+    ).run(now, now, now);
+    adapter.raw.prepare(
+      `INSERT INTO delivery_stops (
+        id, route_id, original_order, original_address, address, normalized_address,
+        delivery_time_from, delivery_time_to, delivery_status, delivered_at, created_at, updated_at
+       ) VALUES ('late-stop','late-route',1,'Pramonės g. 7, Vilnius','Pramonės g. 7, Vilnius',NULL,
+         '10:00','12:00','delivered','2026-08-05T09:40:00.000Z',?,?)`,
+    ).run(now, now);
+
+    const result = await new StatisticsRepository(db).getRows(NOW);
+    expect(result.lateDeliveries).toEqual([expect.objectContaining({
+      routeId: 'late-route',
+      stopId: 'late-stop',
+      address: 'Pramonės g. 7, Vilnius',
+      deadlineAt: '2026-08-05T09:00:00.000Z',
+      delayMinutes: 40,
+    })]);
+  });
+
   it('never includes draft/in_progress routes', async () => {
     const { adapter, db } = createDb();
     const now = new Date().toISOString();

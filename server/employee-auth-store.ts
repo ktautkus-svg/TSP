@@ -31,6 +31,7 @@ import {
     type PalletCapacity,
 } from '../src/domain/fleet-cargo-specs.js';
 import { isVanBodyKind, type VanBodyKind } from '../src/domain/loading-schema.js';
+import { completionPunctuality, lithuanianDateKey } from '../src/domain/lithuanian-time.js';
 import {
     NLL182_ODOMETER_DRIVER_NAME,
     NLL182_ODOMETER_LOG,
@@ -1631,7 +1632,8 @@ export class EmployeeAuthStore {
       }));
     const covered = new Set(sheets.map((sheet) => `${sheet.vehicle?.id ?? ''}:${sheet.date}`));
     const synthetic = visibleReadings
-      .filter((reading) => !covered.has(`${reading.vehicleId}:${reading.date}`))
+      .filter((reading) => !covered.has(`${reading.vehicleId}:${reading.date}`)
+        && !odometerReadingCoveredBySheet(reading, sheets))
       .map((reading) => {
         const vehicle = vehiclesById.get(reading.vehicleId) ?? null;
         const sheet = buildVehicleDayTripSheet(reading, vehicle ? vehicleSnapshot(vehicle) : null);
@@ -2469,7 +2471,7 @@ export function buildServerTripSheet(assignment: RouteAssignment, vehicle: Fleet
     routeId: assignment.routeId,
     routeNumbers,
     status: assignment.status,
-    date: optionalText(route.date) ?? assignment.assignedAt.slice(0, 10),
+    date: tripSheetWorkDate(assignment),
     driverId: assignment.driverId,
     driverName: assignment.driverName,
     vehicle,
@@ -2809,46 +2811,47 @@ function optionalText(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
-// Mirrors src/application/routes/route-workday.ts's completionPunctuality:
-// 15 minutes tolerance on either side of the window/estimate still counts
-// as on time. This path (force-completing an assignment from the admin
-// panel) used to hardcode onTimeStops/lateStops to 0, silently discarding
-// punctuality data for any route completed this way.
-const PUNCTUALITY_TOLERANCE_MINUTES = 15;
-
 function stopPunctuality(stop: Record<string, unknown>): 'on_time' | 'late' | 'unknown' {
-  const deliveredAt = optionalText(stop.delivered_at);
-  if (!deliveredAt) return 'unknown';
-  const deliveredMs = Date.parse(deliveredAt);
-  if (!Number.isFinite(deliveredMs)) return 'unknown';
-  const deliveryTimeTo = optionalText(stop.delivery_time_to);
-  if (deliveryTimeTo) {
-    const deadline = clockOnDeliveredDay(deliveredAt, deliveryTimeTo);
-    if (deadline !== null) {
-      if (deliveredMs - deadline > PUNCTUALITY_TOLERANCE_MINUTES * 60_000) return 'late';
-      const deliveryTimeFrom = optionalText(stop.delivery_time_from);
-      const windowStart = deliveryTimeFrom ? clockOnDeliveredDay(deliveredAt, deliveryTimeFrom) : null;
-      if (windowStart !== null && deliveredMs < windowStart - PUNCTUALITY_TOLERANCE_MINUTES * 60_000) return 'late';
-      return 'on_time';
-    }
-  }
-  const plannedArrivalAt = optionalText(stop.latest_estimated_arrival_at) ?? optionalText(stop.planned_arrival_at);
-  if (plannedArrivalAt) {
-    const plannedMs = Date.parse(plannedArrivalAt);
-    if (Number.isFinite(plannedMs)) {
-      const diffMinutes = Math.round((deliveredMs - plannedMs) / 60_000);
-      return Math.abs(diffMinutes) <= PUNCTUALITY_TOLERANCE_MINUTES ? 'on_time' : 'late';
-    }
-  }
-  return 'unknown';
+  return completionPunctuality({
+    deliveredAt: optionalText(stop.delivered_at),
+    deliveryTimeFrom: optionalText(stop.delivery_time_from),
+    deliveryTimeTo: optionalText(stop.delivery_time_to),
+    plannedArrivalAt: optionalText(stop.planned_arrival_at),
+    latestEstimatedArrivalAt: optionalText(stop.latest_estimated_arrival_at),
+  });
 }
 
-function clockOnDeliveredDay(deliveredAt: string, clock: string): number | null {
-  const [hours, minutes] = clock.split(':').map(Number);
-  if (!Number.isInteger(hours) || !Number.isInteger(minutes)) return null;
-  const date = new Date(deliveredAt);
-  date.setHours(hours, minutes, 0, 0);
-  return date.getTime();
+/**
+ * Old records can carry the wrong vehicle snapshot after a reassignment. If a
+ * driver's separate day reading is wholly inside an already recorded route's
+ * odometer interval, it is the same driven distance, not another trip. Do not
+ * synthesize a second trip sheet merely because the vehicle ids differ.
+ */
+export function odometerReadingCoveredBySheet(
+  reading: VehicleDayReading,
+  sheets: readonly ServerTripSheet[],
+): boolean {
+  if (!reading.driverId) return false;
+  return sheets.some((sheet) => sheet.driverId === reading.driverId
+    && sheet.date === reading.date
+    && sheet.startOdometer !== null
+    && sheet.endOdometer !== null
+    && reading.startOdometer >= sheet.startOdometer
+    && reading.endOdometer <= sheet.endOdometer);
+}
+
+/**
+ * Financial reports follow the day work actually began. A route's planning
+ * date can be edited, imported incorrectly, or left several days ahead of an
+ * already completed assignment; using it moved kilometres and pay to the
+ * wrong day. Before work starts, the planned date remains the best available
+ * value. Admin-completed routes without a start fall back to completion time.
+ */
+export function tripSheetWorkDate(assignment: RouteAssignment): string {
+  const route = assignment.routeSnapshot.route;
+  const actualReference = optionalText(route.started_at) ?? optionalText(route.completed_at);
+  const actualDate = actualReference ? lithuanianDateKey(actualReference) : null;
+  return actualDate ?? optionalText(route.date) ?? assignment.assignedAt.slice(0, 10);
 }
 
 function nullableNumber(value: unknown): number | null {

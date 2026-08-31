@@ -131,6 +131,18 @@ describe('employee server session', () => {
     expect(adminSource).toContain('completeServerAssignment');
   });
 
+  it('computes the on-time/late split when force-completing an assignment, instead of hardcoding it to zero', () => {
+    // completeAssignment used to hardcode onTimeStops/lateStops to 0, which
+    // silently zeroed the on-time rate in statistics for any route closed
+    // via this admin path instead of the normal driver completion flow.
+    expect(employeeStoreSource).not.toContain('onTimeStops: 0,\n      lateStops: 0,');
+    expect(employeeStoreSource).toContain('const punctuality = stopPunctuality(stop)');
+    expect(employeeStoreSource).toContain("if (punctuality === 'on_time') onTimeStops += 1");
+    expect(employeeStoreSource).toContain('function stopPunctuality');
+    expect(employeeStoreSource).toContain('completionPunctuality, lithuanianDateKey');
+    expect(employeeStoreSource).toContain("from '../src/domain/lithuanian-time.js'");
+  });
+
   it('publishes completed driver routes as role-scoped trip sheets', () => {
     expect(employeeApiSource).toContain("pathname === '/api/trip-sheets'");
     expect(employeeStoreSource).toContain('async listTripSheets');

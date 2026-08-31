@@ -65,7 +65,9 @@ describe('premium route dashboard', () => {
     expect(road).toContain('testID="route-front-windshield"');
     expect(road).toContain('styles.windshieldShell');
     expect(road).toContain('styles.cockpitCowl');
-    expect(road).toContain('M 0 96 Q 215 30 430 96');
+    expect(road).toContain('M 0 70 Q 215 20 430 70');
+    expect(road).toContain('readonly compact?: boolean');
+    expect(road).toContain('styles.windshieldShellCompact');
     expect(road).not.toContain('<G transform="translate(215 98)">');
     expect(road).toContain('styles.progressReadout');
     expect(road).not.toContain('styles.instrumentBridge');
@@ -86,6 +88,8 @@ describe('premium route dashboard', () => {
     expect(delivery).toContain('onMenuPress={() => setMenuOpen(true)}');
     expect(delivery).not.toContain('ŠIANDIENOS MARŠRUTAS');
     expect(delivery).toContain('<RoadProgressBar');
+    expect(delivery).toContain('compact={compactDashboard}');
+    expect(delivery).toContain('viewportHeight < 900');
     expect(delivery).toContain('calculateCompositeRouteProgress');
     expect(delivery).toContain('breakdown={compositeProgress ?? undefined}');
     expect(delivery.indexOf('<RoadProgressBar')).toBeLessThan(delivery.indexOf('<InstrumentGauge'));

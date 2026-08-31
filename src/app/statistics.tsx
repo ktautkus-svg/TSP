@@ -4,19 +4,19 @@ import { useCallback, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { ChevronDownIcon } from '@/components/app-icons';
-import { DateInput } from '@/components/date-input';
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { canViewOrgStatistics, canViewStatisticsEarnings, localStatisticsOwnerId } from '@/application/auth/employee-permissions';
 import { roleHomePath } from '@/application/navigation/role-home';
 import { assignmentsToStatsRows } from '@/application/statistics/assignment-rows';
 import { toEarningsRows, type EarningsSheetInput } from '@/application/statistics/earnings';
+import { buildKmHistory } from '@/application/statistics/km-history';
 import { DriverAppTabs } from '@/components/driver-app-tabs';
 import { FoundationScreen } from '@/components/foundation-screen';
+import { PeriodCalendarPicker } from '@/components/period-calendar-picker';
 import { StatBarChart } from '@/components/stat-bar-chart';
 import { StatisticsRepository } from '@/database/repositories/statistics-repository';
 import {
-  PERIOD_PRESETS,
   bestPoint,
   buildStatsSeries,
   computeEarningsMetrics,
@@ -27,13 +27,14 @@ import {
   type EarningsMetrics,
   type FailureReasonCount,
   type PeriodMetrics,
-  type PeriodPreset,
+  type StatsPeriod,
+  type StatsLateDelivery,
   type StatsPoint,
   type StatsRouteRow,
 } from '@/domain/statistics';
 import { employeeApi, type EmployeeProfile, type ServerRouteAssignment, type ServerTripSheet } from '@/infrastructure/auth/employee-session';
 import { devWarn } from '@/ui/dev-log';
-import { formatLithuanianDate } from '@/ui/history-labels';
+import { formatLithuanianDate, formatLithuanianDateTime } from '@/ui/history-labels';
 import { durationLabel } from '@/ui/route-eta-labels';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
@@ -47,14 +48,6 @@ const TABS = [
   { id: 'quality', label: 'Kokybė' },
 ] as const;
 type TabId = (typeof TABS)[number]['id'];
-
-const PERIOD_LABELS: Record<PeriodPreset, string> = {
-  today: 'Šiandien',
-  week: 'Savaitė',
-  month: 'Mėnuo',
-  year: '12 mėn.',
-  custom: 'Pasirinkti',
-};
 
 const numberFormatter = new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 0 });
 
@@ -84,6 +77,7 @@ export default function StatisticsScreen() {
 
   const [localRows, setLocalRows] = useState<StatsRouteRow[]>([]);
   const [localFailures, setLocalFailures] = useState<FailureReasonCount[]>([]);
+  const [localLateDeliveries, setLocalLateDeliveries] = useState<StatsLateDelivery[]>([]);
   const [drivers, setDrivers] = useState<EmployeeProfile[]>([]);
   const [assignments, setAssignments] = useState<ServerRouteAssignment[]>([]);
   const [tripSheets, setTripSheets] = useState<ServerTripSheet[]>([]);
@@ -91,20 +85,21 @@ export default function StatisticsScreen() {
   const [selectedDriverId, setSelectedDriverId] = useState('all');
   const [selectedVehicleId, setSelectedVehicleId] = useState('all');
   const [openFilter, setOpenFilter] = useState<'driver' | 'vehicle' | null>(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [activeTab, setActiveTab] = useState<TabId>('km');
-  const [preset, setPreset] = useState<PeriodPreset>('month');
-  const [customFrom, setCustomFrom] = useState('');
-  const [customTo, setCustomTo] = useState('');
-  const [customError, setCustomError] = useState<string | null>(null);
+  const initialPeriod = useMemo(() => periodForPreset('month', now), [now]);
+  const [periodFrom, setPeriodFrom] = useState(initialPeriod.fromKey);
+  const [periodTo, setPeriodTo] = useState(initialPeriod.toKey);
 
   useFocusEffect(useCallback(() => {
     let mounted = true;
-    void repository.getRows(now, 365, localOwnerId).then(({ rows, failureCounts }) => {
+    void repository.getRows(now, 365, localOwnerId).then(({ rows, failureCounts, lateDeliveries }) => {
       if (!mounted) return;
       setLocalRows(rows);
       setLocalFailures(failureCounts);
+      setLocalLateDeliveries(lateDeliveries);
       setError(null);
     }).catch((reason) => {
       devWarn('STATISTICS_LOAD_FAILED', reason);
@@ -137,10 +132,10 @@ export default function StatisticsScreen() {
 
   const usingOrgData = orgCapable && orgLoaded;
 
-  const { rows, failureCounts } = useMemo(() => {
+  const { rows, failureCounts, lateDeliveries } = useMemo(() => {
     if (usingOrgData) return assignmentsToStatsRows(assignments, selectedDriverId, selectedVehicleId);
-    return { rows: localRows, failureCounts: localFailures };
-  }, [usingOrgData, assignments, selectedDriverId, selectedVehicleId, localRows, localFailures]);
+    return { rows: localRows, failureCounts: localFailures, lateDeliveries: localLateDeliveries };
+  }, [usingOrgData, assignments, selectedDriverId, selectedVehicleId, localRows, localFailures, localLateDeliveries]);
 
   const earningsRows = useMemo(() => {
     const filteredSheets: EarningsSheetInput[] = usingOrgData
@@ -153,16 +148,16 @@ export default function StatisticsScreen() {
 
   const empty = rows.length === 0;
 
-  const period = useMemo(() => {
-    if (preset !== 'custom') return periodForPreset(preset, now);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(customFrom) || !/^\d{4}-\d{2}-\d{2}$/.test(customTo)) return periodForPreset('month', now);
-    return periodForPreset('custom', now, { fromKey: customFrom, toKey: customTo });
-  }, [preset, customFrom, customTo, now]);
+  const period = useMemo(() => ({ fromKey: periodFrom, toKey: periodTo }), [periodFrom, periodTo]);
   const previous = useMemo(() => previousPeriod(period), [period]);
 
   const current = useMemo(() => computePeriodMetrics(rows, failureCounts, period), [rows, failureCounts, period]);
   const previousMetrics = useMemo(() => computePeriodMetrics(rows, failureCounts, previous), [rows, failureCounts, previous]);
   const series = useMemo(() => buildStatsSeries(rows, period), [rows, period]);
+  const periodLateDeliveries = useMemo(
+    () => lateDeliveries.filter((item) => item.date >= period.fromKey && item.date <= period.toKey),
+    [lateDeliveries, period],
+  );
 
   const quickToday = useMemo(() => computePeriodMetrics(rows, failureCounts, periodForPreset('today', now)), [rows, failureCounts, now]);
   const quickWeek = useMemo(() => computePeriodMetrics(rows, failureCounts, periodForPreset('week', now)), [rows, failureCounts, now]);
@@ -178,15 +173,6 @@ export default function StatisticsScreen() {
 
   const goHome = () => router.replace(roleHomePath(profile.role) as Href);
 
-  const applyCustomRange = () => {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(customFrom) || !/^\d{4}-\d{2}-\d{2}$/.test(customTo)) {
-      setCustomError('Įveskite abi datas formatu YYYY-MM-DD.');
-      return;
-    }
-    setCustomError(null);
-    setPreset('custom');
-  };
-
   return (
     <>
     <Stack.Screen options={{ gestureEnabled: false }} />
@@ -197,7 +183,15 @@ export default function StatisticsScreen() {
         description="Maršrutų, taškų, svorio, atlygio ir kokybės rodikliai pasirinktu laikotarpiu.">
 
         {orgCapable && (drivers.length > 0 || vehicles.length > 0) ? (
-          <View style={styles.filterBar}>
+          <View style={styles.filterDisclosure}>
+            <Pressable accessibilityState={{ expanded: filtersOpen }} onPress={() => setFiltersOpen((value) => !value)} style={styles.filterDisclosureButton} testID="statistics-extra-filters-toggle">
+              <View style={styles.flex}>
+                <Text style={styles.filterDisclosureTitle}>Vairuotojas ir automobilis</Text>
+                <Text style={styles.meta}>{selectedDriverId === 'all' ? 'Visi vairuotojai' : (drivers.find((driver) => driver.id === selectedDriverId)?.displayName ?? 'Visi vairuotojai')} · {selectedVehicleId === 'all' ? 'visi automobiliai' : (vehicles.find((vehicle) => vehicle.id === selectedVehicleId)?.registrationNumber ?? 'visi automobiliai')}</Text>
+              </View>
+              <View style={[styles.chevron, filtersOpen && styles.chevronOpen]}><ChevronDownIcon color={colors.info} /></View>
+            </Pressable>
+            {filtersOpen ? <View style={styles.filterBar}>
             {drivers.length > 0 ? (
               <FilterSelect
                 testID="statistics-driver-filter"
@@ -222,40 +216,19 @@ export default function StatisticsScreen() {
                 styles={styles}
               />
             ) : null}
+            </View> : null}
           </View>
         ) : null}
 
-        <View style={styles.filterRow} testID="statistics-period-filter">
-          {PERIOD_PRESETS.map((item) => (
-            <Chip key={item} active={preset === item} label={PERIOD_LABELS[item]} onPress={() => setPreset(item)} styles={styles} />
-          ))}
-        </View>
-        {preset === 'custom' ? (
-          <View style={styles.customRange} testID="statistics-custom-range">
-            <View style={styles.customField}>
-              <Text style={styles.customFieldLabel}>NUO</Text>
-              <DateInput accessibilityLabel="Nuo" value={customFrom} onChangeText={setCustomFrom} style={styles.customInput} />
-            </View>
-            <View style={styles.customField}>
-              <Text style={styles.customFieldLabel}>IKI</Text>
-              <DateInput accessibilityLabel="Iki" value={customTo} onChangeText={setCustomTo} style={styles.customInput} />
-            </View>
-            <Pressable onPress={applyCustomRange} style={styles.customApply}><Text style={styles.customApplyText}>Taikyti</Text></Pressable>
-          </View>
-        ) : null}
-        {customError ? <Text style={styles.error}>{customError}</Text> : null}
-
-        {profile.role === 'driver' ? <Pressable style={styles.tripSheetButton} onPress={() => router.push({ pathname: '/trip-sheet', params: { returnTo: 'statistics' } } as Href)} testID="open-trip-sheets">
-          <Text style={styles.tripSheetText}>Kelionės lapai</Text>
-        </Pressable> : null}
+        <PeriodCalendarPicker from={periodFrom} onChange={(from, to) => { setPeriodFrom(from); setPeriodTo(to); }} testID="statistics-period-calendar" to={periodTo} />
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
-        <View style={styles.tabRow} testID="statistics-tabs">
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabRow} testID="statistics-tabs">
           {visibleTabs.map((tab) => (
             <Chip key={tab.id} active={activeTab === tab.id} label={tab.label} onPress={() => setActiveTab(tab.id)} styles={styles} />
           ))}
-        </View>
+        </ScrollView>
 
         {empty && activeTab !== 'earnings' ? (
           <View style={styles.empty}>
@@ -267,6 +240,7 @@ export default function StatisticsScreen() {
             {activeTab === 'km' ? (
               <KmTab styles={styles} colors={colors} current={current} previous={previousMetrics}
                 series={series.points} granularity={series.granularity}
+                rows={rows} period={period}
                 today={quickToday} week={quickWeek} month={quickMonth} year={quickYear} />
             ) : null}
             {activeTab === 'stops' ? (
@@ -288,10 +262,19 @@ export default function StatisticsScreen() {
             {activeTab === 'quality' ? (
               <QualityTab styles={styles} colors={colors} current={current} previous={previousMetrics}
                 series={series.points} granularity={series.granularity}
-                today={quickToday} week={quickWeek} month={quickMonth} year={quickYear} />
+                today={quickToday} week={quickWeek} month={quickMonth} year={quickYear}
+                lateDeliveries={periodLateDeliveries}
+                onOpenQualityControl={orgCapable ? () => router.push('/quality-control' as Href) : undefined} />
             ) : null}
           </>
         )}
+
+        <RelatedReports
+          canOpenFinance={profile.role === 'admin' || profile.role === 'dispatcher'}
+          onOpenFinance={() => router.push({ pathname: '/finance', params: { returnTo: 'statistics' } } as unknown as Href)}
+          onOpenTripSheets={() => router.push({ pathname: '/trip-sheet', params: { returnTo: 'statistics' } } as Href)}
+          styles={styles}
+        />
 
         {profile.role !== 'driver' ? <Pressable style={styles.homeButton} onPress={goHome}><Text style={styles.homeText}>Į pradžią</Text></Pressable> : null}
       </FoundationScreen>
@@ -311,6 +294,29 @@ function Chip({ active, label, onPress, styles }: { active: boolean; label: stri
       <Text style={[styles.chipText, active && styles.chipTextActive]}>{label}</Text>
     </Pressable>
   );
+}
+
+function RelatedReports({ canOpenFinance, onOpenFinance, onOpenTripSheets, styles }: {
+  canOpenFinance: boolean;
+  onOpenFinance: () => void;
+  onOpenTripSheets: () => void;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  const [open, setOpen] = useState(false);
+  return <View style={styles.relatedDisclosure} testID="statistics-related-actions">
+    <Pressable accessibilityState={{ expanded: open }} onPress={() => setOpen((value) => !value)} style={styles.relatedDisclosureButton}>
+      <Text style={styles.relatedDisclosureTitle}>Kitos ataskaitos</Text>
+      <Text style={styles.relatedDisclosureAction}>{open ? 'Slėpti' : 'Rodyti'}</Text>
+    </Pressable>
+    {open ? <View style={styles.relatedActions}>
+      <Pressable style={styles.tripSheetButton} onPress={onOpenTripSheets} testID="open-trip-sheets">
+        <Text style={styles.tripSheetText}>Kelionės lapai ir kuras</Text>
+      </Pressable>
+      {canOpenFinance ? <Pressable style={styles.relatedSecondaryButton} onPress={onOpenFinance} testID="statistics-open-finance">
+        <Text style={styles.relatedSecondaryText}>Maršrutų kainos ir finansai</Text>
+      </Pressable> : null}
+    </View> : null}
+  </View>;
 }
 
 function FilterSelect({
@@ -431,35 +437,91 @@ function chartData(points: StatsPoint[], metric: (point: StatsPoint) => number, 
 // Kilometrai
 // ---------------------------------------------------------------------------
 
-function KmTab({ styles, colors, current, previous, series, granularity, today, week, month, year }: {
+function KmTab({ styles, colors, current, previous, series, granularity, rows, period, today, week, month, year }: {
   styles: ReturnType<typeof createStyles>;
   colors: ColorPalette;
   current: PeriodMetrics;
   previous: PeriodMetrics;
   series: StatsPoint[];
   granularity: 'day' | 'month';
+  rows: StatsRouteRow[];
+  period: StatsPeriod;
   today: PeriodMetrics; week: PeriodMetrics; month: PeriodMetrics; year: PeriodMetrics;
 }) {
   const record = bestPoint(series, (point) => point.km);
+  const history = useMemo(() => buildKmHistory(rows, period), [period, rows]);
+  const [expandedDay, setExpandedDay] = useState<string | null>(history[0]?.date ?? null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [showAllDays, setShowAllDays] = useState(false);
+  const visibleHistory = showAllDays ? history : history.slice(0, 7);
   return (
     <>
       <BigNumber value={`${formatInt(current.totalKm)} km`} label="Pasirinktu laikotarpiu" comparisonPercent={percentChange(current.totalKm, previous.totalKm)} styles={styles} />
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Kilometrai {granularity === 'day' ? 'per dieną' : 'per mėnesį'}</Text>
-        <StatBarChart colors={colors} color={colors.primary} data={chartData(series, (point) => point.km, granularity)} valueFormatter={(value) => `${value.toFixed(0)} km`} />
+      <View style={styles.historyCard} testID="statistics-km-history">
+        <View style={styles.historyHeading}>
+          <View style={styles.flex}>
+            <Text style={styles.cardTitle}>Kur nuvažiuoti kilometrai</Text>
+            <Text style={styles.meta}>{history.length} {history.length === 1 ? 'diena' : 'dienos'} su kelionėmis</Text>
+          </View>
+        </View>
+        {history.length === 0 ? <Text style={styles.meta}>Pasirinktu laikotarpiu kilometrų nėra.</Text> : visibleHistory.map((day) => {
+          const expanded = expandedDay === day.date;
+          const stops = day.routes.reduce((sum, route) => sum + route.stops, 0);
+          return <View key={day.date} style={styles.historyDay}>
+            <Pressable accessibilityState={{ expanded }} onPress={() => setExpandedDay(expanded ? null : day.date)} style={({ pressed }) => [styles.historyDaySummary, pressed && styles.cardSummaryPressed]} testID={`statistics-km-day-${day.date}`}>
+              <View style={styles.flex}>
+                <Text style={styles.historyDate}>{formatLithuanianDate(day.date)}</Text>
+                <Text style={styles.historyMeta}>{day.routes.length} {day.routes.length === 1 ? 'maršrutas' : 'maršrutai'} · {stops} tašk.</Text>
+              </View>
+              <View style={styles.historyTotal}>
+                <Text style={styles.historyKm}>{formatDecimal(day.totalKm)} km</Text>
+                <Text style={styles.historySource}>{day.allActual ? 'faktiniai' : 'yra planuotų'}</Text>
+              </View>
+              <Text style={styles.historyExpand}>{expanded ? '⌃' : '⌄'}</Text>
+            </Pressable>
+            {expanded ? <View style={styles.historyRoutes}>
+              {day.routes.map((route) => <View key={route.id} style={styles.historyRoute}>
+                <View style={styles.flex}>
+                  <Text style={styles.historyRouteTitle}>{route.label}</Text>
+                  {route.direction ? <Text numberOfLines={2} style={styles.historyDirection}>{route.direction}</Text> : null}
+                  <Text style={styles.historyRouteMeta}>{[route.vehicleRegistration, route.driverName, `${route.stops} tašk.`].filter(Boolean).join(' · ')}</Text>
+                </View>
+                <View style={styles.historyRouteValue}>
+                  <Text style={styles.historyRouteKm}>{formatDecimal(route.km)} km</Text>
+                  <Text style={styles.historySource}>{route.actual ? 'faktiniai' : 'planuoti'}</Text>
+                </View>
+              </View>)}
+            </View> : null}
+          </View>;
+        })}
+        {history.length > 7 ? <Pressable onPress={() => setShowAllDays((value) => !value)} style={styles.historyMore} testID="statistics-km-history-more">
+          <Text style={styles.relatedDisclosureAction}>{showAllDays ? 'Rodyti tik naujausias 7 dienas' : `Rodyti visas ${history.length} dienas`}</Text>
+        </Pressable> : null}
       </View>
-      <QuickCards styles={styles} items={[
-        { label: 'Šiandien', value: `${formatInt(today.totalKm)} km` },
-        { label: 'Ši savaitė', value: `${formatInt(week.totalKm)} km` },
-        { label: 'Šis mėnuo', value: `${formatInt(month.totalKm)} km` },
-        { label: '12 mėn.', value: `${formatInt(year.totalKm)} km` },
-      ]} />
-      <Averages styles={styles} items={[
-        { label: 'Vidutiniškai per dieną', value: formatOrDash(current.averageKmPerDay, (value) => `${formatDecimal(value)} km`) },
-        { label: 'Km vienam taškui', value: formatOrDash(current.averageKmPerStop, (value) => `${formatDecimal(value, 2)} km`) },
-        { label: 'Km vienam maršrutui', value: formatOrDash(current.averageKmPerRoute, (value) => `${formatDecimal(value)} km`) },
-      ]} />
-      {record ? <RecordCard dateKey={record.key} valueLabel={`${formatDecimal(record.km)} km${record.kmIsActual ? '' : ' (planuota)'}`} granularity={granularity} styles={styles} /> : null}
+      <View style={styles.detailsDisclosure}>
+        <Pressable accessibilityState={{ expanded: detailsOpen }} onPress={() => setDetailsOpen((value) => !value)} style={styles.detailsDisclosureButton} testID="statistics-km-details-toggle">
+          <View style={styles.flex}><Text style={styles.detailsDisclosureTitle}>Grafikas ir vidurkiai</Text><Text style={styles.meta}>Papildoma pasirinkto laikotarpio analizė</Text></View>
+          <Text style={styles.relatedDisclosureAction}>{detailsOpen ? 'Slėpti' : 'Rodyti'}</Text>
+        </Pressable>
+        {detailsOpen ? <View style={styles.detailsDisclosureContent}>
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Kilometrai {granularity === 'day' ? 'per dieną' : 'per mėnesį'}</Text>
+            <StatBarChart colors={colors} color={colors.primary} data={chartData(series, (point) => point.km, granularity)} valueFormatter={(value) => `${value.toFixed(0)} km`} />
+          </View>
+          <QuickCards styles={styles} items={[
+            { label: 'Šiandien', value: `${formatInt(today.totalKm)} km` },
+            { label: 'Ši savaitė', value: `${formatInt(week.totalKm)} km` },
+            { label: 'Šis mėnuo', value: `${formatInt(month.totalKm)} km` },
+            { label: '12 mėn.', value: `${formatInt(year.totalKm)} km` },
+          ]} />
+          <Averages styles={styles} items={[
+            { label: 'Vidutiniškai per dieną', value: formatOrDash(current.averageKmPerDay, (value) => `${formatDecimal(value)} km`) },
+            { label: 'Km vienam taškui', value: formatOrDash(current.averageKmPerStop, (value) => `${formatDecimal(value, 2)} km`) },
+            { label: 'Km vienam maršrutui', value: formatOrDash(current.averageKmPerRoute, (value) => `${formatDecimal(value)} km`) },
+          ]} />
+          {record ? <RecordCard dateKey={record.key} valueLabel={`${formatDecimal(record.km)} km${record.kmIsActual ? '' : ' (planuota)'}`} granularity={granularity} styles={styles} /> : null}
+        </View> : null}
+      </View>
     </>
   );
 }
@@ -636,7 +698,7 @@ function EarningsTab({ styles, colors, current, previous, routeCount, totalKm, d
 // Kokybė
 // ---------------------------------------------------------------------------
 
-function QualityTab({ styles, colors, current, previous, series, granularity, today, week, month, year }: {
+function QualityTab({ styles, colors, current, previous, series, granularity, today, week, month, year, lateDeliveries, onOpenQualityControl }: {
   styles: ReturnType<typeof createStyles>;
   colors: ColorPalette;
   current: PeriodMetrics;
@@ -644,6 +706,8 @@ function QualityTab({ styles, colors, current, previous, series, granularity, to
   series: StatsPoint[];
   granularity: 'day' | 'month';
   today: PeriodMetrics; week: PeriodMetrics; month: PeriodMetrics; year: PeriodMetrics;
+  lateDeliveries: StatsLateDelivery[];
+  onOpenQualityControl?: () => void;
 }) {
   const onTimePercentOf = (point: StatsPoint): number | null =>
     point.onTimeStops + point.lateStops === 0 ? null : (point.onTimeStops / (point.onTimeStops + point.lateStops)) * 100;
@@ -657,6 +721,9 @@ function QualityTab({ styles, colors, current, previous, series, granularity, to
   const pointDelta = current.onTimeWindowPercent === null || previous.onTimeWindowPercent === null
     ? null
     : current.onTimeWindowPercent - previous.onTimeWindowPercent;
+  const averageDelayMinutes = lateDeliveries.length === 0
+    ? null
+    : lateDeliveries.reduce((sum, item) => sum + item.delayMinutes, 0) / lateDeliveries.length;
 
   return (
     <>
@@ -681,7 +748,26 @@ function QualityTab({ styles, colors, current, previous, series, granularity, to
         <Text style={styles.cardTitle}>Maršrutai</Text>
         <Text style={styles.meta}>Vėluota bent viename taške: {current.routesWithLateStop}</Text>
         <Text style={styles.meta}>Visi taškai laiku: {current.routesFullyOnTime}</Text>
-        <Text style={styles.meta}>Vidutinis vėlavimas minutėmis: — (šis rodiklis dar nerenkamas — sistema kol kas žymi tik „laiku“/„vėluoja“, be minučių)</Text>
+        <Text style={styles.meta}>Vidutinis faktinis vėlavimas: {averageDelayMinutes === null ? '—' : `${formatDecimal(averageDelayMinutes)} min.`}</Text>
+      </View>
+      <View style={styles.card} testID="statistics-late-deliveries">
+        <View style={styles.lateListHeading}>
+          <View style={styles.flex}>
+            <Text style={styles.cardTitle}>Konkretūs vėlavimai</Text>
+            <Text style={styles.meta}>{lateDeliveries.length === 0 ? 'Pasirinktu laikotarpiu faktinių vėlavimų nėra.' : `${lateDeliveries.length} pristatymų po 15 min. tolerancijos.`}</Text>
+          </View>
+          {onOpenQualityControl ? <Pressable onPress={onOpenQualityControl} style={styles.inlineLink}><Text style={styles.inlineLinkText}>Kokybės kontrolė</Text></Pressable> : null}
+        </View>
+        {lateDeliveries.map((item) => (
+          <View key={`${item.routeId}:${item.stopId}:${item.deliveredAt}`} style={styles.lateDeliveryRow}>
+            <View style={styles.flex}>
+              <Text style={styles.lateDeliveryAddress}>{item.address}</Text>
+              <Text style={styles.meta}>{item.routeLabel}{item.driverName ? ` · ${item.driverName}` : ''}{item.vehicleRegistration ? ` · ${item.vehicleRegistration}` : ''}</Text>
+              <Text style={styles.meta}>Terminas {formatLithuanianDateTime(item.deadlineAt)} · pristatyta {formatLithuanianDateTime(item.deliveredAt)}</Text>
+            </View>
+            <Text style={styles.lateMinutes}>+{item.delayMinutes} min.</Text>
+          </View>
+        ))}
       </View>
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Planas prieš faktą</Text>
@@ -714,6 +800,11 @@ function shortMonthLabel(monthKey: string): string {
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   screen: { flex: 1, alignSelf: 'center', width: '100%', maxWidth: 900, backgroundColor: colors.background },
   filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  filterDisclosure: { borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, overflow: 'hidden' },
+  filterDisclosureButton: { minHeight: 60, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  filterDisclosureTitle: { ...type.bodyStrong, color: colors.text },
+  chevron: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
+  chevronOpen: { transform: [{ rotate: '180deg' }] },
   filterBar: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   filterSelect: { flexGrow: 1, flexBasis: 240, minWidth: 200 },
   filterSelectLabel: { ...type.label, color: colors.textMuted, marginBottom: 6 },
@@ -742,7 +833,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   filterMenuItem: { minHeight: 44, paddingHorizontal: spacing.md, justifyContent: 'center' },
   filterMenuItemText: { ...type.secondary, color: colors.text },
   filterMenuItemTextActive: { ...type.secondaryStrong, color: colors.info },
-  tabRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: spacing.sm },
+  tabRow: { flexDirection: 'row', gap: spacing.xs, borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: spacing.sm },
   chip: { minHeight: 44, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
   chipActive: { borderColor: colors.info, backgroundColor: colors.infoSoft },
   chipText: { ...type.secondaryStrong, color: colors.textSecondary },
@@ -758,6 +849,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   highlightCard: { padding: spacing.md, borderRadius: radius.lg, backgroundColor: colors.infoSoft, gap: spacing.xs },
   cardTitle: { ...type.sectionTitle, color: colors.text },
   meta: { ...type.secondary, color: colors.textMuted },
+  flex: { flex: 1, minWidth: 0 },
   error: { ...type.secondaryStrong, color: colors.danger },
 
   bigNumberBlock: { paddingVertical: spacing.sm, gap: 2 },
@@ -768,6 +860,31 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   comparisonDown: { color: colors.danger },
   comparisonMeta: { ...type.secondary, color: colors.textMuted },
 
+  historyCard: { borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, overflow: 'hidden' },
+  historyHeading: { padding: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.borderSubtle },
+  historyDay: { borderBottomWidth: 1, borderBottomColor: colors.borderSubtle },
+  historyDaySummary: { minHeight: 72, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  cardSummaryPressed: { backgroundColor: colors.surfaceSubtle },
+  historyDate: { ...type.bodyStrong, color: colors.text },
+  historyMeta: { ...type.meta, color: colors.textMuted, marginTop: 2 },
+  historyTotal: { alignItems: 'flex-end' },
+  historyKm: { ...type.readout, color: colors.text },
+  historySource: { ...type.meta, color: colors.textMuted },
+  historyExpand: { width: 24, textAlign: 'center', fontSize: 20, lineHeight: 24, color: colors.info },
+  historyRoutes: { paddingHorizontal: spacing.md, paddingBottom: spacing.sm, backgroundColor: colors.surfaceSubtle },
+  historyRoute: { minHeight: 68, paddingVertical: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.md, borderTopWidth: 1, borderTopColor: colors.borderSubtle },
+  historyRouteTitle: { ...type.bodyStrong, color: colors.text },
+  historyDirection: { ...type.secondary, color: colors.textSecondary, marginTop: 2 },
+  historyRouteMeta: { ...type.meta, color: colors.textMuted, marginTop: 3 },
+  historyRouteValue: { alignItems: 'flex-end', flexShrink: 0 },
+  historyRouteKm: { ...type.bodyStrong, color: colors.info },
+  historyMore: { minHeight: 48, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
+
+  detailsDisclosure: { borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, overflow: 'hidden' },
+  detailsDisclosureButton: { minHeight: 64, padding: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  detailsDisclosureTitle: { ...type.bodyStrong, color: colors.text },
+  detailsDisclosureContent: { padding: spacing.md, paddingTop: 0, gap: spacing.md },
+
   quickRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   quickCard: { flexGrow: 1, minWidth: '45%', padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: 2 },
   quickLabel: { ...type.label, color: colors.textMuted },
@@ -775,12 +892,25 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
 
   failureRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 },
   failureCount: { ...type.bodyStrong, color: colors.text },
+  lateListHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
+  lateDeliveryRow: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: colors.borderSubtle },
+  lateDeliveryAddress: { ...type.bodyStrong, color: colors.text },
+  lateMinutes: { ...type.bodyStrong, color: colors.danger, flexShrink: 0 },
+  inlineLink: { minHeight: 44, paddingHorizontal: spacing.sm, alignItems: 'center', justifyContent: 'center' },
+  inlineLinkText: { ...type.secondaryStrong, color: colors.info },
   outcomeBar: { flexDirection: 'row', height: 16, borderRadius: 8, overflow: 'hidden', backgroundColor: colors.border },
   outcomeLegendRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.xs },
   outcomeLegend: { ...type.meta },
 
   homeButton: { minHeight: 52, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
   tripSheetButton: { minHeight: 52, borderRadius: radius.md, backgroundColor: colors.actionPrimary, alignItems: 'center', justifyContent: 'center' },
+  relatedActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  relatedDisclosure: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm, gap: spacing.sm },
+  relatedDisclosureButton: { minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
+  relatedDisclosureTitle: { ...type.bodyStrong, color: colors.textSecondary },
+  relatedDisclosureAction: { ...type.secondaryStrong, color: colors.info },
+  relatedSecondaryButton: { flexGrow: 1, minHeight: 52, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+  relatedSecondaryText: { ...type.button, color: colors.textSecondary },
   tripSheetText: { ...type.button, color: colors.textInverse, fontSize: 16 },
   homeText: { ...type.button, color: colors.textSecondary },
 });

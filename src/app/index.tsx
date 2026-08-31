@@ -20,7 +20,6 @@ import { ScreenContainer } from '@/components/screen-container';
 import { AppButton, AppCard } from '@/components/ui-primitives';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import type { DeliveryStop, Route } from '@/domain/route';
-import { employeeApi, type EmployeeProfile } from '@/infrastructure/auth/employee-session';
 import { Alert } from '@/ui/alert';
 import { devWarn } from '@/ui/dev-log';
 import { formatWeightKg } from '@/ui/format-weight';
@@ -44,7 +43,6 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
-  const [availableDrivers, setAvailableDrivers] = useState<EmployeeProfile[]>([]);
   // An admin who switched this device into "driving as" a chosen driver sees
   // exactly what that driver would see, without logging out of the admin
   // account — only admin can do this; dispatchers already work primarily
@@ -52,15 +50,6 @@ export default function HomeScreen() {
   const drivingAsProxy = profile.role === 'admin' && actingDriver !== null;
   const showDriverDashboard = profile.role === 'driver' || drivingAsProxy;
   const effectiveDriverId = profile.role === 'driver' ? profile.id : actingDriver?.id ?? null;
-
-  useEffect(() => {
-    if (profile.role !== 'admin' || !online) return;
-    let mounted = true;
-    void employeeApi<{ users: EmployeeProfile[] }>('/api/admin/users')
-      .then((response) => { if (mounted) setAvailableDrivers(response.users.filter((user) => user.role === 'driver' && !user.disabled)); })
-      .catch((reason) => devWarn('ADMIN_DRIVER_LIST_FAILED', reason));
-    return () => { mounted = false; };
-  }, [online, profile.role]);
 
   const exportActiveDiagnostic = async () => {
     if (!active || !active.id || exporting) return;
@@ -176,42 +165,21 @@ export default function HomeScreen() {
                 <Text style={styles.adminMenuTitle}>TSP valdymo centras</Text>
                 <Text style={styles.adminMenuText}>{profile.displayName}</Text>
               </View>
-              {availableDrivers.length > 0 ? (
-                <View style={styles.actingDriverSection} testID="acting-driver-picker">
-                  <Text style={styles.actingDriverLabel}>VAIRUOTI KAIP</Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.actingDriverRow}>
-                    {availableDrivers.map((driver) => (
-                      <Pressable
-                        key={driver.id}
-                        accessibilityRole="button"
-                        onPress={() => void setActingDriver({ id: driver.id, displayName: driver.displayName })}
-                        style={styles.actingDriverChip}
-                        testID={`acting-driver-${driver.id}`}
-                      >
-                        <Text style={styles.actingDriverChipText}>{driver.displayName}</Text>
-                      </Pressable>
-                    ))}
-                  </ScrollView>
-                </View>
-              ) : null}
-              <View style={styles.adminMenuFeatured}><GroupedMenuSection label="SKUBŪS DARBAI">
+              <View style={styles.adminMenuFeatured}><GroupedMenuSection columns label="SKUBŪS DARBAI" testID="admin-urgent-menu">
                 <GroupedMenuRow description="Kurti, redaguoti, vykdyti ir stebėti maršrutus." icon={<MenuArtwork kind="dispatch" />} onPress={() => router.push('/dispatcher' as Href)} title="Dispečerio skydelis" tone="success" />
+                <GroupedMenuRow description="Pasirinkti vairuotoją ir atidaryti jam priskirtą maršrutą šiame įrenginyje." icon={<MenuArtwork kind="drivers" />} onPress={() => router.push('/execute-route' as Href)} title="Vykdyti vairuotojo maršrutą" tone="info" />
+                <GroupedMenuRow description="Taškų seka, laikai ir pristatymo kokybė." icon={<MenuArtwork kind="quality" />} onPress={() => router.push('/quality-control' as Href)} title="Kokybės kontrolė" tone="success" />
               </GroupedMenuSection></View>
-              <View style={styles.adminMenuSections}>
-                <View style={styles.adminMenuGroup}><GroupedMenuSection label="STEBĖJIMAS IR APSKAITA">
-                  <GroupedMenuRow description="Taškų seka, laikai ir pristatymo kokybė." icon={<MenuArtwork kind="quality" />} onPress={() => router.push('/quality-control' as Href)} title="Kokybės kontrolė" tone="success" />
+              <View style={styles.adminMenuGroup}><GroupedMenuSection columns label="STEBĖJIMAS IR APSKAITA" testID="admin-monitoring-menu">
                   <GroupedMenuRow description="Kilometrai, taškai, svoris ir kokybė pagal laikotarpį." icon={<MenuArtwork kind="statistics" />} onPress={() => router.push({ pathname: '/statistics', params: { returnTo: 'home' } } as Href)} title="Statistika" tone="info" />
-                  <GroupedMenuRow description="Reiso savikaina, kuras ir atlygis pagal laikotarpį." icon={<MenuArtwork kind="finance" />} onPress={() => router.push({ pathname: '/finance', params: { returnTo: 'home' } } as unknown as Href)} title="Finansai" tone="neutral" />
-                </GroupedMenuSection></View>
-                <View style={styles.adminMenuGroup}><GroupedMenuSection label="IŠTEKLIAI">
-                  <GroupedMenuRow description="Duomenys, prisijungimai ir leidimai." icon={<MenuArtwork kind="drivers" />} onPress={() => router.push({ pathname: '/admin', params: { section: 'employees', returnTo: 'home' } } as Href)} title="Vairuotojai" />
                   <GroupedMenuRow description="Terminai, techniniai duomenys, kilometražas ir kuras." icon={<MenuArtwork kind="vehicles" />} onPress={() => router.push({ pathname: '/fleet', params: { returnTo: 'home' } } as unknown as Href)} title="Automobiliai" tone="neutral" />
-                </GroupedMenuSection></View>
-                <View style={styles.adminMenuGroup}><GroupedMenuSection label="SISTEMA">
+                  <GroupedMenuRow description="Reiso savikaina, kuras ir atlygis pagal laikotarpį." icon={<MenuArtwork kind="finance" />} onPress={() => router.push({ pathname: '/finance', params: { returnTo: 'home' } } as unknown as Href)} title="Finansai" tone="neutral" />
+                  <GroupedMenuRow description="Duomenys, prisijungimai ir leidimai." icon={<MenuArtwork kind="drivers" />} onPress={() => router.push({ pathname: '/admin', params: { section: 'employees', returnTo: 'home' } } as Href)} title="Vairuotojai" />
+              </GroupedMenuSection></View>
+              <View style={styles.adminMenuGroup}><GroupedMenuSection columns label="SISTEMA" testID="admin-system-menu">
                   <GroupedMenuRow description="Klientai, administracija ir skambinimas iš maršruto." icon={<MenuArtwork kind="navigation" />} onPress={() => router.push({ pathname: '/directory', params: { returnTo: 'home' } } as unknown as Href)} title="Kontaktai" tone="info" />
                   <GroupedMenuRow description="Vietos, navigacija ir programėlė." icon={<MenuArtwork kind="settings" />} onPress={() => router.push('/settings' as Href)} title="Nustatymai" tone="neutral" />
-                </GroupedMenuSection></View>
-              </View>
+              </GroupedMenuSection></View>
             </View>
           ) : showDriverDashboard ? loading ? (
             <View style={styles.loadingState} testID="home-loading-state"><ActivityIndicator color={colors.primary} size="large" /></View>
@@ -381,14 +349,8 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   actingBannerText: { ...type.secondaryStrong, color: colors.textInverse },
   actingBannerButton: { minHeight: 32, paddingHorizontal: spacing.sm, borderRadius: radius.sm, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
   actingBannerButtonText: { ...type.meta, fontFamily: fonts.headingSemiBold, color: colors.primary },
-  actingDriverSection: { gap: spacing.xs, paddingHorizontal: spacing.xs },
-  actingDriverLabel: { ...type.label, color: colors.textMuted },
-  actingDriverRow: { flexDirection: 'row', gap: spacing.sm, paddingVertical: 2 },
-  actingDriverChip: { minHeight: 44, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
-  actingDriverChipText: { ...type.bodyStrong, color: colors.text },
   adminMenuFeatured: { marginBottom: spacing.md },
-  adminMenuSections: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: spacing.md },
-  adminMenuGroup: { flexGrow: 1, flexBasis: 320, minWidth: 0 },
+  adminMenuGroup: { minWidth: 0 },
   // Tertiary navigation: deliberately quiet so it cannot compete with the
   // primary action above it.
   navigationCard: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs },

@@ -6,17 +6,13 @@ import { normalizeEmployeePermissions } from '@/application/auth/employee-permis
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { roleHomePath } from '@/application/navigation/role-home';
 import {
-  PERIOD_OPTIONS,
-  anchorFieldLabel,
-  formatDateRange,
-  formatPeriodTitle,
-  localDateKey,
-  periodRange,
-  type PeriodMode,
+  calendarPresetRange,
+  formatDateKey,
 } from '@/application/reporting/period-range';
-import { DateInput } from '@/components/date-input';
+import { aggregateWageDays } from '@/application/finance/wage-report';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { MenuArtwork } from '@/components/menu-artwork';
+import { PeriodCalendarPicker } from '@/components/period-calendar-picker';
 import { parseVehicleDayAssignmentId } from '@/domain/nll182-odometer-log';
 import { employeeApi, type ServerTripSheet } from '@/infrastructure/auth/employee-session';
 import { Alert } from '@/ui/alert';
@@ -40,7 +36,6 @@ type DriverFinanceRow = {
 
 const eurFormatter = new Intl.NumberFormat('lt-LT', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
 const kmFormatter = new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 0 });
-const litersFormatter = new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 0 });
 
 export default function FinanceScreen() {
   const router = useRouter();
@@ -53,13 +48,10 @@ export default function FinanceScreen() {
   const [tripSheets, setTripSheets] = useState<ServerTripSheet[]>([]);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [expandedDriverId, setExpandedDriverId] = useState<string | null>(null);
   const [cleaningUp, setCleaningUp] = useState(false);
-  const initialDate = useMemo(() => localDateKey(new Date()), []);
-  const [periodMode, setPeriodMode] = useState<PeriodMode>('month');
-  const [anchorDate, setAnchorDate] = useState(initialDate);
-  const [customFrom, setCustomFrom] = useState(initialDate);
-  const [customTo, setCustomTo] = useState(initialDate);
+  const initialPeriod = useMemo(() => calendarPresetRange('thisMonth'), []);
+  const [periodFrom, setPeriodFrom] = useState(initialPeriod.from);
+  const [periodTo, setPeriodTo] = useState(initialPeriod.to);
 
   const load = useCallback(async () => {
     if (!online) { setError('Nėra ryšio su serveriu. Finansų ataskaita skaičiuojama serveryje.'); setBusy(false); return; }
@@ -80,17 +72,24 @@ export default function FinanceScreen() {
     void load();
   }, [allowed, load, profile.role, router]);
 
-  const period = useMemo(() => periodRange(periodMode, anchorDate, customFrom, customTo), [anchorDate, customFrom, customTo, periodMode]);
+  const period = useMemo(() => ({ from: periodFrom, to: periodTo }), [periodFrom, periodTo]);
   const visible = useMemo(() => tripSheets.filter((sheet) => sheet.date >= period.from && sheet.date <= period.to), [tripSheets, period]);
   const rows = useMemo(() => aggregateByDriver(visible), [visible]);
-  const totals = useMemo(() => rows.reduce((sum, row) => ({
-    routes: sum.routes + row.routes,
-    km: sum.km + row.km,
-    fuelLiters: sum.fuelLiters + row.fuelLiters,
-    fuelCostEur: sum.fuelCostEur + row.fuelCostEur,
-    wageEur: sum.wageEur + row.wageEur,
-    totalEur: sum.totalEur + row.totalEur,
-  }), { routes: 0, km: 0, fuelLiters: 0, fuelCostEur: 0, wageEur: 0, totalEur: 0 }), [rows]);
+  const wageDays = useMemo(() => aggregateWageDays(visible), [visible]);
+  const showDriverNames = useMemo(() => new Set(wageDays.map((day) => day.driverId)).size > 1, [wageDays]);
+  const unassignedRow = useMemo(() => rows.find((row) => row.driverId === UNASSIGNED_DRIVER_ID) ?? null, [rows]);
+  const totals = useMemo(() => {
+    const operational = rows.reduce((sum, row) => ({
+      routes: sum.routes + row.routes,
+      km: sum.km + row.km,
+      fuelLiters: sum.fuelLiters + row.fuelLiters,
+      fuelCostEur: sum.fuelCostEur + row.fuelCostEur,
+    }), { routes: 0, km: 0, fuelLiters: 0, fuelCostEur: 0 });
+    // The headline and the visible list intentionally share the exact same
+    // daily rows, so the displayed total cannot drift from the amounts below.
+    const wageEur = wageDays.reduce((sum, day) => sum + day.wageEur, 0);
+    return { ...operational, wageEur, totalEur: operational.fuelCostEur + wageEur };
+  }, [rows, wageDays]);
 
   const deleteUnassigned = (row: DriverFinanceRow) => {
     Alert.alert(
@@ -134,27 +133,12 @@ export default function FinanceScreen() {
         title="Darbuotojų atlygis">
 
         <View style={styles.periodPanel} testID="finance-period-panel">
-          <View style={styles.periodHeading}>
-            <Text style={styles.periodTitle}>{formatPeriodTitle(periodMode, period.from, period.to)}</Text>
-            <Text style={styles.periodSummary}>{formatDateRange(period.from, period.to)}</Text>
-          </View>
-          <View accessibilityLabel="Laikotarpio tipas" accessibilityRole="tablist" style={styles.periodTabs}>
-            {PERIOD_OPTIONS.map((item) => <Pressable
-              key={item.key}
-              accessibilityRole="tab"
-              accessibilityState={{ selected: periodMode === item.key }}
-              onPress={() => setPeriodMode(item.key)}
-              style={[styles.periodTab, periodMode === item.key && styles.periodTabActive]}
-              testID={`finance-period-${item.key}`}>
-              <Text style={[styles.periodTabText, periodMode === item.key && styles.periodTabTextActive]}>{item.label}</Text>
-            </Pressable>)}
-          </View>
-          <View style={styles.dateFields}>
-            {periodMode === 'custom' ? <>
-              <DateField label="Nuo" value={customFrom} onChange={setCustomFrom} styles={styles} />
-              <DateField label="Iki" value={customTo} onChange={setCustomTo} styles={styles} />
-            </> : <DateField label={anchorFieldLabel(periodMode)} value={anchorDate} onChange={setAnchorDate} styles={styles} />}
-          </View>
+          <PeriodCalendarPicker
+            from={periodFrom}
+            onChange={(from, to) => { setPeriodFrom(from); setPeriodTo(to); }}
+            testID="finance-period-calendar"
+            to={periodTo}
+          />
         </View>
 
         {error ? <Text accessibilityRole="alert" style={styles.warning}>{error}</Text> : null}
@@ -170,61 +154,25 @@ export default function FinanceScreen() {
           <Metric label="Iš viso" value={eurFormatter.format(totals.totalEur)} emphasis styles={styles} />
         </View> : null}
 
-        {!busy && rows.length > 0 ? <View style={styles.table} testID="finance-driver-table">
-          {rows.map((row) => {
-            const expanded = expandedDriverId === row.driverId;
-            return <View key={row.driverId} style={styles.driverCard} testID={`finance-driver-row-${row.driverId}`}>
-              <Pressable accessibilityRole="button" accessibilityState={{ expanded }} onPress={() => setExpandedDriverId((current) => current === row.driverId ? null : row.driverId)} style={({ pressed }) => [styles.driverSummary, pressed && styles.driverSummaryPressed]}>
-                <View style={styles.driverIdentity}>
-                  <Text style={styles.driverName}>{row.driverName}</Text>
-                  <Text style={styles.meta}>{row.routes} {row.routes === 1 ? 'reisas' : 'reisai'} · {kmFormatter.format(row.km)} km</Text>
-                </View>
-                <View style={styles.driverAmounts}>
-                  <Text style={styles.driverAmountSecondary}>Kuras {eurFormatter.format(row.fuelCostEur)} · Atlygis {eurFormatter.format(row.wageEur)}</Text>
-                  <Text style={styles.driverAmountTotal}>{eurFormatter.format(row.totalEur)}</Text>
-                </View>
-                <Text style={styles.expandIcon}>{expanded ? '⌃' : '⌄'}</Text>
-              </Pressable>
-              {expanded ? <View style={styles.driverDetail}>
-                {row.driverId === UNASSIGNED_DRIVER_ID ? <>
-                  <Text style={styles.meta}>Šios dienos neturi priskirto vairuotojo (importuoti kelionės lapų duomenys). Jei tai nebereikalingi bandomieji įrašai, juos galite pašalinti.</Text>
-                  <Pressable disabled={cleaningUp} onPress={() => deleteUnassigned(row)} style={[styles.dangerButton, cleaningUp && styles.disabled]} testID="finance-delete-unassigned">
-                    <Text style={styles.dangerButtonText}>{cleaningUp ? 'Šalinama…' : 'Ištrinti šias dienas'}</Text>
-                  </Pressable>
-                </> : null}
-                <View style={styles.detailHeaderRow}>
-                  <Text style={[styles.detailCell, styles.detailHeaderText, styles.detailDateColumn]}>Data</Text>
-                  <Text style={[styles.detailCell, styles.detailHeaderText, styles.detailVehicleColumn]}>Automobilis</Text>
-                  <Text style={[styles.detailCell, styles.detailHeaderText]}>Km</Text>
-                  <Text style={[styles.detailCell, styles.detailHeaderText]}>Kuras (l)</Text>
-                  <Text style={[styles.detailCell, styles.detailHeaderText]}>Kuras €</Text>
-                  <Text style={[styles.detailCell, styles.detailHeaderText]}>Bazė €</Text>
-                  <Text style={[styles.detailCell, styles.detailHeaderText]}>Km €</Text>
-                  <Text style={[styles.detailCell, styles.detailHeaderText]}>Kg €</Text>
-                  <Text style={[styles.detailCell, styles.detailHeaderText]}>Tšk €</Text>
-                  <Text style={[styles.detailCell, styles.detailHeaderText]}>Atlygis €</Text>
-                </View>
-                {row.sheets.map((sheet) => {
-                  const liters = sheet.fuelEntries.reduce((sum, entry) => sum + entry.liters, 0);
-                  const cost = sheet.fuelEntries.reduce((sum, entry) => sum + (entry.totalCost ?? 0), 0);
-                  const wage = sheet.compensation;
-                  return <View key={sheet.id} style={styles.detailRow}>
-                    <Text style={[styles.detailCell, styles.detailDateColumn]}>{sheet.date}</Text>
-                    <Text style={[styles.detailCell, styles.detailVehicleColumn]}>{sheet.vehicle?.registrationNumber ?? '—'}</Text>
-                    <Text style={styles.detailCell}>{kmFormatter.format(sheet.actualDistanceKm ?? sheet.plannedDistanceKm ?? 0)}</Text>
-                    <Text style={styles.detailCell}>{litersFormatter.format(liters)}</Text>
-                    <Text style={styles.detailCell}>{eurFormatter.format(cost)}</Text>
-                    <Text style={styles.detailCell}>{wage ? eurFormatter.format(wage.fixedAmountEur) : '—'}</Text>
-                    <Text style={styles.detailCell}>{wage ? eurFormatter.format(wage.distanceAmountEur) : '—'}</Text>
-                    <Text style={styles.detailCell}>{wage ? eurFormatter.format(wage.weightAmountEur) : '—'}</Text>
-                    <Text style={styles.detailCell}>{wage ? eurFormatter.format(wage.stopsAmountEur) : '—'}</Text>
-                    <Text style={[styles.detailCell, styles.detailTotalCell]}>{wage ? eurFormatter.format(wage.totalNetEur) : '—'}</Text>
-                  </View>;
-                })}
-                <Text style={styles.disclaimer}>Atlygis {eurFormatter.format(row.wageEur)} skaičiuojamas per dieną (ne per reisą) — jei tą dieną buvo keli reisai, jie prisideda prie tos pačios dienos sumos, ne kelios atskiros.</Text>
-              </View> : null}
-            </View>;
-          })}
+        {!busy && wageDays.length > 0 ? <View style={styles.wageList} testID="finance-wage-days">
+          <View style={styles.wageListHeading}>
+            <Text style={styles.wageListTitle}>Atlygis pagal dieną</Text>
+            <Text style={styles.meta}>Viena diena rodoma vieną kartą, nepriklausomai nuo reisų skaičiaus.</Text>
+          </View>
+          {wageDays.map((day) => <View key={day.key} style={styles.wageDayRow} testID={`finance-wage-day-${day.key}`}>
+            <View style={styles.wageDayIdentity}>
+              <Text style={styles.wageDayDate}>{formatDateKey(day.date)}</Text>
+              {showDriverNames ? <Text style={styles.wageDayDriver}>{day.driverName}</Text> : null}
+              {day.preliminary ? <Text style={styles.wageDayStatus}>Preliminaru</Text> : null}
+            </View>
+            <Text style={styles.wageDayAmount}>{eurFormatter.format(day.wageEur)}</Text>
+          </View>)}
+          {unassignedRow ? <View style={styles.unassignedCleanup}>
+            <Text style={styles.meta}>Yra dienų be priskirto vairuotojo. Jei tai bandomieji importo įrašai, juos galima pašalinti.</Text>
+            <Pressable disabled={cleaningUp} onPress={() => deleteUnassigned(unassignedRow)} style={[styles.dangerButton, cleaningUp && styles.disabled]} testID="finance-delete-unassigned">
+              <Text style={styles.dangerButtonText}>{cleaningUp ? 'Šalinama…' : 'Ištrinti nepriskirtas dienas'}</Text>
+            </Pressable>
+          </View> : null}
         </View> : null}
 
         <Text style={styles.disclaimer}>Kuro suma skaičiuojama iš pylimų, kuriuose nurodyta kaina — jei kaina nenurodyta, litrai matomi, bet į € sumą neįskaičiuojami. Atlygis skaičiuojamas serveryje pagal vairuotojo sutartį. „Iš viso“ šiuo metu apima tik kurą ir atlygį — draudimas, kelių mokestis ir kitos sąnaudos į reiso kainos skaičiuoklę bus įtraukti atskirai vėliau.</Text>
@@ -249,6 +197,7 @@ export default function FinanceScreen() {
 function aggregateByDriver(sheets: readonly ServerTripSheet[]): DriverFinanceRow[] {
   const buckets = new Map<string, { driverId: string; driverName: string; routeIds: Set<string>; km: number; fuelLiters: number; fuelCostEur: number; sheets: ServerTripSheet[] }>();
   const wageByDriverDate = new Map<string, number>();
+  const countedFuelEntryIds = new Set<string>();
   for (const sheet of sheets) {
     if (!buckets.has(sheet.driverId)) buckets.set(sheet.driverId, { driverId: sheet.driverId, driverName: sheet.driverName, routeIds: new Set(), km: 0, fuelLiters: 0, fuelCostEur: 0, sheets: [] });
     const bucket = buckets.get(sheet.driverId)!;
@@ -256,6 +205,8 @@ function aggregateByDriver(sheets: readonly ServerTripSheet[]): DriverFinanceRow
     bucket.km += sheet.actualDistanceKm ?? sheet.plannedDistanceKm ?? 0;
     bucket.sheets.push(sheet);
     for (const entry of sheet.fuelEntries) {
+      if (countedFuelEntryIds.has(entry.id)) continue;
+      countedFuelEntryIds.add(entry.id);
       bucket.fuelLiters += entry.liters;
       bucket.fuelCostEur += entry.totalCost ?? 0;
     }
@@ -297,33 +248,9 @@ function Metric({ label, value, emphasis, styles }: { label: string; value: stri
   </View>;
 }
 
-function DateField({ label, value, onChange, styles }: { label: string; value: string; onChange: (value: string) => void; styles: ReturnType<typeof createStyles> }) {
-  return <View style={styles.dateField}>
-    <Text style={styles.fieldLabel}>{label.toUpperCase()}</Text>
-    <DateInput
-      accessibilityLabel={label}
-      onChangeText={onChange}
-      style={styles.dateInput}
-      value={value}
-    />
-  </View>;
-}
-
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   flex: { flex: 1, minWidth: 0 },
   periodPanel: { padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, gap: spacing.md },
-  periodHeading: { gap: 2 },
-  periodTitle: { ...type.sectionTitle, color: colors.text },
-  periodSummary: { ...type.secondary, color: colors.textMuted },
-  periodTabs: { flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' },
-  periodTab: { flex: 1, minWidth: 90, minHeight: 44, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceSubtle },
-  periodTabActive: { borderColor: colors.info, backgroundColor: colors.info },
-  periodTabText: { ...type.button, color: colors.textSecondary },
-  periodTabTextActive: { color: colors.textInverse },
-  dateFields: { flexDirection: 'row', gap: spacing.md, flexWrap: 'wrap' },
-  dateField: { flex: 1, minWidth: 140, gap: 4 },
-  fieldLabel: { ...type.label, color: colors.textMuted },
-  dateInput: { minHeight: 44, paddingHorizontal: spacing.md, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surfaceSubtle, ...type.bodyStrong, color: colors.text },
   warning: { ...type.bodyStrong, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.warningSoft, color: colors.warning },
   empty: { padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, gap: 4 },
   emptyTitle: { ...type.sectionTitle, color: colors.text },
@@ -333,24 +260,16 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   metricValue: { ...type.sectionTitle, color: colors.text },
   metricValueEmphasis: { color: colors.info },
   metricLabel: { ...type.label, color: colors.textMuted },
-  table: { gap: spacing.sm },
-  driverCard: { borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, overflow: 'hidden' },
-  driverSummary: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.md, minHeight: 64 },
-  driverSummaryPressed: { opacity: 0.85 },
-  driverIdentity: { flex: 1, minWidth: 0, gap: 2 },
-  driverName: { ...type.bodyStrong, color: colors.text },
-  driverAmounts: { alignItems: 'flex-end', gap: 2 },
-  driverAmountSecondary: { ...type.meta, color: colors.textMuted },
-  driverAmountTotal: { ...type.sectionTitle, color: colors.text, fontSize: 17 },
-  expandIcon: { ...type.secondary, color: colors.textMuted, width: 18, textAlign: 'center' },
-  driverDetail: { padding: spacing.md, paddingTop: 0, gap: spacing.sm, borderTopWidth: 1, borderTopColor: colors.borderSubtle },
-  detailHeaderRow: { flexDirection: 'row', paddingTop: spacing.sm },
-  detailRow: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: colors.borderSubtle, paddingVertical: spacing.xs },
-  detailCell: { flex: 1, ...type.secondary, color: colors.text, textAlign: 'right' },
-  detailHeaderText: { ...type.label, color: colors.textMuted, textAlign: 'right' },
-  detailDateColumn: { flex: 1.4, textAlign: 'left' },
-  detailVehicleColumn: { flex: 1.2, textAlign: 'left' },
-  detailTotalCell: { ...type.bodyStrong, color: colors.text },
+  wageList: { borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, overflow: 'hidden' },
+  wageListHeading: { padding: spacing.md, gap: 2, backgroundColor: colors.surfaceSubtle },
+  wageListTitle: { ...type.sectionTitle, color: colors.text },
+  wageDayRow: { minHeight: 64, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.md, borderTopWidth: 1, borderTopColor: colors.borderSubtle },
+  wageDayIdentity: { flex: 1, minWidth: 0, gap: 2 },
+  wageDayDate: { ...type.bodyStrong, color: colors.text },
+  wageDayDriver: { ...type.secondary, color: colors.textSecondary },
+  wageDayStatus: { ...type.meta, color: colors.warning },
+  wageDayAmount: { ...type.sectionTitle, color: colors.text, textAlign: 'right' },
+  unassignedCleanup: { padding: spacing.md, gap: spacing.sm, borderTopWidth: 1, borderTopColor: colors.borderSubtle },
   dangerButton: { alignSelf: 'flex-start', minHeight: 40, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.dangerSoft, alignItems: 'center', justifyContent: 'center' },
   dangerButtonText: { ...type.button, color: colors.danger },
   disabled: { opacity: 0.6 },

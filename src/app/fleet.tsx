@@ -50,7 +50,7 @@ export default function FleetScreen() {
           title="Odometras" />
         <FleetCard
           description="Kuro likutis ir papildymų redagavimas pasirinktam automobiliui."
-          icon="trip-sheet"
+          icon="fuel"
           onPress={() => open({ pathname: '/vehicle', params: { section: 'fuel', returnTo: 'fleet' } } as Href)}
           styles={styles}
           testID="fleet-open-fuel"
