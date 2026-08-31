@@ -115,7 +115,15 @@ function sum(values: (number | null)[]): number { return values.reduce<number>((
 function finite(value: number): string { return Number.isFinite(value) ? String(Math.round(value * 100) / 100) : '0'; }
 function formatPlain(value: number): string { return new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 2 }).format(value); }
 function xml(value: string): Uint8Array { return strToU8(value); }
-function escapeXml(value: string): string { return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;'); }
+const ILLEGAL_XML_CHARS = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g;
+function escapeXml(value: string): string {
+  // Route/address text can come from OCR'd photos or pasted spreadsheet
+  // cells and occasionally carries stray control characters. Those are
+  // illegal in XML 1.0 even when entity-escaped, and Excel responds to one
+  // anywhere in the workbook by discarding the sheet's content and showing
+  // the "we found a problem" repair prompt.
+  return value.replace(ILLEGAL_XML_CHARS, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+}
 function columnName(index: number): string { let value = index; let result = ''; while (value > 0) { const remainder = (value - 1) % 26; result = String.fromCharCode(65 + remainder) + result; value = Math.floor((value - 1) / 26); } return result; }
 function monthPeriod(month: string): string { const [year, monthNumber] = month.split('-').map(Number); if (!year || !monthNumber) return month; const last = new Date(year, monthNumber, 0).getDate(); return `${month}-01 - ${month}-${String(last).padStart(2, '0')}`; }
 function uniqueSheetNames(groups: TripSheetExportGroup[]): string[] { const used = new Set<string>(); return groups.map((group, index) => { const base = `${group.registrationNumber || group.driverName || `Lapas ${index + 1}`} ${group.month}`.replace(/[\\/*?:\[\]]/g, ' ').trim().slice(0, 31) || `Lapas ${index + 1}`; let candidate = base; let suffix = 2; while (used.has(candidate)) { const tail = ` ${suffix++}`; candidate = `${base.slice(0, 31 - tail.length)}${tail}`; } used.add(candidate); return candidate; }); }
