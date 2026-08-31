@@ -69,4 +69,19 @@ describe('trip sheet fuel workflow', () => {
     expect(vehicleSource).not.toContain('if (online) {\n      const response = await employeeApi<{ tripSheets: ServerTripSheet[] }>(\'/api/trip-sheets\').catch(() => ({ tripSheets: [] }));');
     expect(vehicleSource).toContain('const response = await employeeApi<{ tripSheets: ServerTripSheet[] }>(\'/api/trip-sheets\');');
   });
+
+  it('lets a day be entered as km driven instead of typing the absolute odometer, and shows the driven distance', () => {
+    // Drivers only know "how far did I drive today", not the raw end
+    // odometer — the km field now fills the end odometer automatically
+    // from start + km, and the start field itself defaults to the last
+    // known odometer so nothing has to be looked up by hand.
+    expect(vehicleSource).toContain('const applyKmToEnd = (startText: string, kmText: string, setEnd: (value: string) => void)');
+    expect(vehicleSource).toContain("if (next && !newReadingStart && latestOdometer != null) setNewReadingStart(String(latestOdometer))");
+    expect(vehicleSource).toContain('testID="new-vehicle-odometer-km"');
+    expect(vehicleSource).toContain('setNewReadingKm(text); applyKmToEnd(newReadingStart, text, setNewReadingEnd)');
+    expect(vehicleSource).toContain('setEditingReadingKm(text); applyKmToEnd(editingReadingStart, text, setEditingReadingEnd)');
+    // The list previously showed only the raw odometer range, never the
+    // distance actually driven that day.
+    expect(vehicleSource).toContain('km per dieną');
+  });
 });

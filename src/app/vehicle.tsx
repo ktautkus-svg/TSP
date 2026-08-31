@@ -18,7 +18,7 @@ import { TripSheetRepository } from '@/database/repositories/trip-sheet-reposito
 import { VehicleDepartureOverrideRepository } from '@/database/repositories/vehicle-departure-override-repository';
 import { VehicleFaultRepository } from '@/database/repositories/vehicle-fault-repository';
 import { evaluateDepartureReadiness, type DepartureOverrideInput } from '@/domain/departure-readiness';
-import { parseVehicleDayAssignmentId } from '@/domain/nll182-odometer-log';
+import { odometerDistanceKm, parseVehicleDayAssignmentId } from '@/domain/nll182-odometer-log';
 import type { FuelType, VehicleFault } from '@/domain/vehicle-and-trip';
 import { employeeApi, type EmployeeProfile, type FuelStatus, type ServerFleetVehicle, type ServerFleetVehicleSnapshot, type ServerFuelEntry, type ServerTripSheet } from '@/infrastructure/auth/employee-session';
 import { Alert } from '@/ui/alert';
@@ -101,11 +101,13 @@ export default function VehicleScreen() {
   const [editingReadingDate, setEditingReadingDate] = useState('');
   const [editingReadingStart, setEditingReadingStart] = useState('');
   const [editingReadingEnd, setEditingReadingEnd] = useState('');
+  const [editingReadingKm, setEditingReadingKm] = useState('');
   const [editingReadingDriverId, setEditingReadingDriverId] = useState('');
   const [addingReading, setAddingReading] = useState(false);
   const [newReadingDate, setNewReadingDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [newReadingStart, setNewReadingStart] = useState('');
   const [newReadingEnd, setNewReadingEnd] = useState('');
+  const [newReadingKm, setNewReadingKm] = useState('');
   const [newReadingDriverId, setNewReadingDriverId] = useState('');
   const [fuelDate, setFuelDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [fuelLiters, setFuelLiters] = useState('');
@@ -155,7 +157,17 @@ export default function VehicleScreen() {
     setEditingReadingDate(reading.date);
     setEditingReadingStart(reading.startOdometer == null ? '' : String(reading.startOdometer));
     setEditingReadingEnd(reading.endOdometer == null ? '' : String(reading.endOdometer));
+    setEditingReadingKm(reading.startOdometer == null || reading.endOdometer == null ? '' : String(odometerDistanceKm(reading.startOdometer, reading.endOdometer)));
     setEditingReadingDriverId(reading.driverId || 'none');
+  };
+
+  // Lets a day be entered as "how many km were driven" instead of typing the
+  // absolute end odometer by hand — the end field fills itself from
+  // start + km. Typing the end field directly still works as before.
+  const applyKmToEnd = (startText: string, kmText: string, setEnd: (value: string) => void) => {
+    const start = Number(startText.replace(',', '.'));
+    const km = Number(kmText.replace(',', '.'));
+    if (Number.isFinite(start) && Number.isFinite(km) && km >= 0) setEnd(String(Math.round((start + km) * 10) / 10));
   };
 
   const saveReading = async (reading: ServerTripSheet) => {
@@ -228,7 +240,7 @@ export default function VehicleScreen() {
         '/api/trip-sheets/day-readings',
         { method: 'POST', body: JSON.stringify({ vehicleId: selectedVehicleId, date: newReadingDate, startOdometer: start, endOdometer: end, driverId: newReadingDriverId || undefined }) },
       );
-      setAddingReading(false); setNewReadingStart(''); setNewReadingEnd(''); setNewReadingDriverId('');
+      setAddingReading(false); setNewReadingStart(''); setNewReadingEnd(''); setNewReadingKm(''); setNewReadingDriverId('');
       setMessage(`Išsaugota: ${registrationNumber} · ${reading.date}.`);
       await applyVehicle(selectedVehicleId);
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Naujos dienos išsaugoti nepavyko.'); }
@@ -281,6 +293,9 @@ export default function VehicleScreen() {
     }
   };
 
+  // vehicleReadings is sorted ascending by date, so the most recent known
+  // odometer reading is the last entry that actually has one.
+  const latestOdometer = [...vehicleReadings].reverse().find((reading) => reading.endOdometer != null)?.endOdometer ?? null;
   const vehicleFuelEntries = vehicleReadings.flatMap((reading) => reading.fuelEntries ?? []).filter((entry) => entry.vehicleId === selectedVehicleId);
   const saveFuel = async () => {
     if (busy) return;
@@ -509,10 +524,41 @@ export default function VehicleScreen() {
         {selectedVehicleId && section === 'odometer' ? <View style={styles.odometerPanel} testID="vehicle-odometer-editor">
           <Text style={styles.sectionTitle}>Dienos odometras</Text>
           <Text style={styles.hint}>Taisykite jau įvestą dieną tiesiog jos eilutėje: pradžią, pabaigą ir kas vairavo.</Text>
-          <Pressable onPress={() => setAddingReading((current) => !current)} style={styles.addDayButton} testID="add-vehicle-odometer-day"><Text style={styles.addDayButtonText}>{addingReading ? 'Uždaryti naujos dienos įvedimą' : '+ Pridėti naują dieną'}</Text></Pressable>
+          <Pressable
+            onPress={() => {
+              setAddingReading((current) => {
+                const next = !current;
+                if (next && !newReadingStart && latestOdometer != null) setNewReadingStart(String(latestOdometer));
+                return next;
+              });
+            }}
+            style={styles.addDayButton}
+            testID="add-vehicle-odometer-day">
+            <Text style={styles.addDayButtonText}>{addingReading ? 'Uždaryti naujos dienos įvedimą' : '+ Pridėti naują dieną'}</Text>
+          </Pressable>
           {addingReading ? <View style={styles.newDayForm} testID="new-vehicle-odometer-day">
             <DateInput accessibilityLabel="Naujos dienos data" value={newReadingDate} onChangeText={setNewReadingDate} style={styles.input} placeholderTextColor={colors.textMuted} />
-            <View style={styles.inlineInputs}><TextInput value={newReadingStart} onChangeText={setNewReadingStart} keyboardType="decimal-pad" style={[styles.input, styles.inlineInput]} placeholder="Pradžia" placeholderTextColor={colors.textMuted} /><TextInput value={newReadingEnd} onChangeText={setNewReadingEnd} keyboardType="decimal-pad" style={[styles.input, styles.inlineInput]} placeholder="Pabaiga" placeholderTextColor={colors.textMuted} /></View>
+            <TextInput
+              value={newReadingKm}
+              onChangeText={(text) => { setNewReadingKm(text); applyKmToEnd(newReadingStart, text, setNewReadingEnd); }}
+              keyboardType="decimal-pad"
+              style={styles.input}
+              placeholder="Nuvažiuota per dieną, km"
+              placeholderTextColor={colors.textMuted}
+              testID="new-vehicle-odometer-km"
+            />
+            <View style={styles.inlineInputs}>
+              <TextInput
+                value={newReadingStart}
+                onChangeText={(text) => { setNewReadingStart(text); if (newReadingKm) applyKmToEnd(text, newReadingKm, setNewReadingEnd); }}
+                keyboardType="decimal-pad"
+                style={[styles.input, styles.inlineInput]}
+                placeholder="Pradžia"
+                placeholderTextColor={colors.textMuted}
+              />
+              <TextInput value={newReadingEnd} onChangeText={setNewReadingEnd} keyboardType="decimal-pad" style={[styles.input, styles.inlineInput]} placeholder="Pabaiga" placeholderTextColor={colors.textMuted} />
+            </View>
+            <Text style={styles.hint}>Pradžia užsipildo automatiškai pagal paskutinį žinomą odometrą — įveskite tik nuvažiuotus km, pabaiga susiskaičiuos pati. Prireikus pabaigą galite įvesti ir tiesiogiai.</Text>
             <View style={styles.options}>{drivers.map((driver) => <Pressable key={driver.id} onPress={() => setNewReadingDriverId(driver.id)} style={[styles.option, newReadingDriverId === driver.id && styles.optionSelected]}><Text style={[styles.optionText, newReadingDriverId === driver.id && styles.optionTextSelected]}>{driver.displayName}</Text></Pressable>)}</View>
             <Pressable disabled={busy || !online} onPress={() => { void saveNewReading(); }} style={[styles.button, (busy || !online) && styles.disabled]}><Text style={styles.buttonText}>Išsaugoti naują dieną</Text></Pressable>
           </View> : null}
@@ -547,13 +593,28 @@ export default function VehicleScreen() {
           {vehicleReadings.map((reading) => {
             const editing = editingReadingId === reading.assignmentId;
             return <View key={reading.assignmentId} style={styles.readingCard}>
-              <View style={styles.readingDisplayRow}><View style={styles.readingHeader}><View style={styles.readingMain}><Text style={styles.readingTitle}>{reading.date}</Text><Text style={styles.hint}>{reading.startOdometer ?? '—'} → {reading.endOdometer ?? '—'} km</Text></View><Text style={styles.hint}>{reading.driverName || 'Nepriskirtas'}</Text></View>
+              <View style={styles.readingDisplayRow}><View style={styles.readingHeader}><View style={styles.readingMain}><Text style={styles.readingTitle}>{reading.date}</Text><Text style={styles.hint}>{reading.startOdometer ?? '—'} → {reading.endOdometer ?? '—'} km{reading.startOdometer != null && reading.endOdometer != null ? ` · ${odometerDistanceKm(reading.startOdometer, reading.endOdometer)} km per dieną` : ''}</Text></View><Text style={styles.hint}>{reading.driverName || 'Nepriskirtas'}</Text></View>
                 {!editing ? <View style={styles.readingActions}><Pressable accessibilityLabel={`Redaguoti ${reading.date}`} onPress={() => editReading(reading)} style={styles.iconButton}><PencilIcon size={18} color={colors.warning} /></Pressable><Pressable accessibilityLabel={`Ištrinti ${reading.date}`} onPress={() => deleteReading(reading)} style={styles.iconButton}><TrashIcon size={18} color={colors.danger} /></Pressable></View> : null}
               </View>
               {editing ? <>
                 {parseVehicleDayAssignmentId(reading.assignmentId) ? <DateInput accessibilityLabel={`Data ${reading.date}`} value={editingReadingDate} onChangeText={setEditingReadingDate} style={styles.input} placeholderTextColor={colors.textMuted} /> : null}
+                <TextInput
+                  value={editingReadingKm}
+                  onChangeText={(text) => { setEditingReadingKm(text); applyKmToEnd(editingReadingStart, text, setEditingReadingEnd); }}
+                  keyboardType="decimal-pad"
+                  style={styles.input}
+                  placeholder="Nuvažiuota per dieną, km"
+                  placeholderTextColor={colors.textMuted}
+                />
                 <View style={styles.inlineInputs}>
-                  <TextInput value={editingReadingStart} onChangeText={setEditingReadingStart} keyboardType="decimal-pad" style={[styles.input, styles.inlineInput]} placeholder="Pradžia" placeholderTextColor={colors.textMuted} />
+                  <TextInput
+                    value={editingReadingStart}
+                    onChangeText={(text) => { setEditingReadingStart(text); if (editingReadingKm) applyKmToEnd(text, editingReadingKm, setEditingReadingEnd); }}
+                    keyboardType="decimal-pad"
+                    style={[styles.input, styles.inlineInput]}
+                    placeholder="Pradžia"
+                    placeholderTextColor={colors.textMuted}
+                  />
                   <TextInput value={editingReadingEnd} onChangeText={setEditingReadingEnd} keyboardType="decimal-pad" style={[styles.input, styles.inlineInput]} placeholder="Pabaiga" placeholderTextColor={colors.textMuted} />
                 </View>
                 <View style={styles.options}>{drivers.map((driver) => <Pressable key={driver.id} onPress={() => setEditingReadingDriverId(driver.id)} style={[styles.option, editingReadingDriverId === driver.id && styles.optionSelected]}><Text style={[styles.optionText, editingReadingDriverId === driver.id && styles.optionTextSelected]}>{driver.displayName}</Text></Pressable>)}</View>
