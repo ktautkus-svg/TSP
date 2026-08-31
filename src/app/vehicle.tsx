@@ -35,6 +35,40 @@ const fuelOptions: { value: FuelType; label: string }[] = [
   { value: 'other', label: 'Kita' },
 ];
 
+// One-time odometer correction after the vehicle's mass cable was replaced on
+// 2026-08-03, which made the odometer jump to a different, discontinuous
+// reading. These 28 rows redistribute the known daily route distances across
+// 2026-08-04..2026-08-31 so no single day shows a fake multi-thousand-km jump,
+// while the cumulative total still lands on the real 2026-08-31 reading.
+const ODOMETER_CORRECTION_2026_08 = `2026-08-04,671444,672107
+2026-08-05,672107,672781
+2026-08-06,672781,672781
+2026-08-07,672781,673644
+2026-08-08,673644,673644
+2026-08-09,673644,673658
+2026-08-10,673658,674175
+2026-08-11,674175,674860
+2026-08-12,674860,675222
+2026-08-13,675222,675310
+2026-08-14,675310,676013
+2026-08-15,676013,676013
+2026-08-16,676013,676147
+2026-08-17,676147,676200
+2026-08-18,676200,676420
+2026-08-19,676420,676796
+2026-08-20,676796,676796
+2026-08-21,676796,677251
+2026-08-22,677251,677251
+2026-08-23,677251,677251
+2026-08-24,677251,677251
+2026-08-25,677251,677261
+2026-08-26,677261,677706
+2026-08-27,677706,678306
+2026-08-28,678306,678895
+2026-08-29,678895,678895
+2026-08-30,678895,678895
+2026-08-31,678895,678895`;
+
 export default function VehicleScreen() {
   const db = useSQLiteContext();
   const { profile, online } = useLocalAccess();
@@ -60,6 +94,9 @@ export default function VehicleScreen() {
   const [selectedVehicleId, setSelectedVehicleId] = useState('');
   const [vehicleReadings, setVehicleReadings] = useState<ServerTripSheet[]>([]);
   const [drivers, setDrivers] = useState<EmployeeProfile[]>([]);
+  const [bulkImportOpen, setBulkImportOpen] = useState(false);
+  const [bulkImportText, setBulkImportText] = useState('');
+  const [bulkImporting, setBulkImporting] = useState(false);
   const [editingReadingId, setEditingReadingId] = useState<string | null>(null);
   const [editingReadingDate, setEditingReadingDate] = useState('');
   const [editingReadingStart, setEditingReadingStart] = useState('');
@@ -198,6 +235,48 @@ export default function VehicleScreen() {
     finally { setBusy(false); }
   };
 
+  /**
+   * Corrects many days at once — one line per day, `data,pradžia,pabaiga`
+   * (YYYY-MM-DD,start,end) — for cases like an odometer/instrument swap
+   * where dozens of historical days need re-entering with numbers computed
+   * ahead of time, rather than one manual "Pridėti naują dieną" per day.
+   * Each line upserts by vehicle+date (same as a normal single entry), so
+   * re-running it (or overlapping with existing rows) simply corrects them.
+   */
+  const runBulkImport = async () => {
+    if (bulkImporting || busy || !selectedVehicleId) return;
+    const lines = bulkImportText.split('\n').map((line) => line.trim()).filter(Boolean);
+    const rows: { date: string; start: number; end: number }[] = [];
+    for (const line of lines) {
+      const parts = line.split(',').map((part) => part.trim());
+      const [date, startText, endText] = parts;
+      const start = Number(startText);
+      const end = Number(endText);
+      if (parts.length !== 3 || !/^\d{4}-\d{2}-\d{2}$/.test(date ?? '') || !Number.isFinite(start) || !Number.isFinite(end) || end < start) {
+        setMessage(`Neteisinga eilutė (data,pradžia,pabaiga): "${line}"`);
+        return;
+      }
+      rows.push({ date, start, end });
+    }
+    if (rows.length === 0) { setMessage('Nėra ką importuoti.'); return; }
+    setBulkImporting(true);
+    setBusy(true);
+    try {
+      for (const row of rows) {
+        await employeeApi('/api/trip-sheets/day-readings', {
+          method: 'POST',
+          body: JSON.stringify({ vehicleId: selectedVehicleId, date: row.date, startOdometer: row.start, endOdometer: row.end }),
+        });
+      }
+      setMessage(`Importuota: ${registrationNumber} · ${rows.length} dienų (${rows[0]!.date} – ${rows[rows.length - 1]!.date}).`);
+      setBulkImportOpen(false); setBulkImportText('');
+      await applyVehicle(selectedVehicleId);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Masinis importas nepavyko.');
+    } finally {
+      setBulkImporting(false); setBusy(false);
+    }
+  };
 
   const vehicleFuelEntries = vehicleReadings.flatMap((reading) => reading.fuelEntries ?? []).filter((entry) => entry.vehicleId === selectedVehicleId);
   const saveFuel = async () => {
@@ -434,6 +513,34 @@ export default function VehicleScreen() {
             <View style={styles.options}>{drivers.map((driver) => <Pressable key={driver.id} onPress={() => setNewReadingDriverId(driver.id)} style={[styles.option, newReadingDriverId === driver.id && styles.optionSelected]}><Text style={[styles.optionText, newReadingDriverId === driver.id && styles.optionTextSelected]}>{driver.displayName}</Text></Pressable>)}</View>
             <Pressable disabled={busy || !online} onPress={() => { void saveNewReading(); }} style={[styles.button, (busy || !online) && styles.disabled]}><Text style={styles.buttonText}>Išsaugoti naują dieną</Text></Pressable>
           </View> : null}
+          <Pressable
+            onPress={() => {
+              setBulkImportOpen((current) => {
+                const next = !current;
+                if (next && !bulkImportText) setBulkImportText(ODOMETER_CORRECTION_2026_08);
+                return next;
+              });
+            }}
+            style={styles.addDayButton}
+            testID="bulk-import-odometer-days">
+            <Text style={styles.addDayButtonText}>{bulkImportOpen ? 'Uždaryti masinį importą' : '+ Masinis kelių dienų importas'}</Text>
+          </Pressable>
+          {bulkImportOpen ? <View style={styles.newDayForm} testID="bulk-import-odometer-form">
+            <Text style={styles.hint}>Viena eilutė = viena diena, formatas „data,pradžia,pabaiga&quot; (YYYY-MM-DD,km,km). Jau užpildyta rugpjūčio odometro pataisymo eilutėmis — pakeiskite, jei reikia kito automobilio ar kitų datų.</Text>
+            <TextInput
+              value={bulkImportText}
+              onChangeText={setBulkImportText}
+              multiline
+              numberOfLines={10}
+              style={[styles.input, styles.bulkImportInput]}
+              placeholder="2026-08-04,671444,672107"
+              placeholderTextColor={colors.textMuted}
+              testID="bulk-import-textarea"
+            />
+            <Pressable disabled={busy || !online || bulkImporting} onPress={() => { void runBulkImport(); }} style={[styles.button, (busy || !online || bulkImporting) && styles.disabled]} testID="bulk-import-submit">
+              <Text style={styles.buttonText}>{bulkImporting ? 'Importuojama…' : 'Importuoti visas eilutes'}</Text>
+            </Pressable>
+          </View> : null}
           {vehicleReadings.map((reading) => {
             const editing = editingReadingId === reading.assignmentId;
             return <View key={reading.assignmentId} style={styles.readingCard}>
@@ -555,6 +662,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   addDayButton: { minHeight: 44, borderRadius: radius.md, borderWidth: 1, borderColor: colors.info, backgroundColor: colors.infoSoft, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
   addDayButtonText: { ...type.button, color: colors.info },
   newDayForm: { padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.surfaceMuted, gap: spacing.sm },
+  bulkImportInput: { minHeight: 220, textAlignVertical: 'top' },
   bulkPanel: { marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceMuted, borderWidth: 1, borderColor: colors.borderStrong, gap: spacing.sm },
   inlineInputs: { flexDirection: 'row', gap: spacing.sm },
   inlineInput: { flex: 1, minWidth: 0 },
