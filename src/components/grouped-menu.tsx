@@ -1,19 +1,21 @@
 import { Children, useMemo, type ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import { ChevronDownIcon, ChevronRightIcon } from '@/components/app-icons';
 import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 
-export function GroupedMenuSection({ children, label, testID }: { children: ReactNode; label: string; testID?: string }) {
+export function GroupedMenuSection({ children, columns = false, label, testID }: { children: ReactNode; columns?: boolean; label: string; testID?: string }) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const { width } = useWindowDimensions();
+  const grid = columns && width >= 720;
   const rows = Children.toArray(children);
   return <View style={styles.section} testID={testID}>
     <Text style={styles.sectionLabel}>{label}</Text>
-    <View style={styles.body}>
-      {rows.map((row, index) => <View key={index} style={styles.item}>
+    <View style={[styles.body, grid && styles.bodyGrid]}>
+      {rows.map((row, index) => <View key={index} style={[styles.item, grid && styles.itemGrid]}>
         {row}
       </View>)}
     </View>
@@ -69,7 +71,9 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   section: { gap: spacing.xs },
   sectionLabel: { ...type.label, color: colors.textMuted, paddingHorizontal: spacing.xs },
   body: { gap: spacing.sm },
+  bodyGrid: { flexDirection: 'row', flexWrap: 'wrap' },
   item: { minWidth: 0 },
+  itemGrid: { flexGrow: 1, flexBasis: '48%' },
   row: {
     minHeight: 86,
     paddingHorizontal: spacing.md,

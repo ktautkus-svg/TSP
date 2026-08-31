@@ -51,7 +51,7 @@ describe('administrator workspace navigation', () => {
     expect(settings).toContain('testID="open-employee-management"');
     expect(settings).toContain('testID="open-vehicle-management"');
     expect(admin).toContain("requestedSection === 'employees' || requestedSection === 'fleet'");
-    expect(admin).toContain("if (focus) setExpandedSection(focus === 'employees' ? 'employee-create' : focus === 'fleet' ? 'vehicle-create' : focus)");
+    expect(admin).toContain("if (focus) setExpandedSection(focus === 'employees' ? null : focus === 'fleet' ? 'vehicle-create' : focus)");
     expect(appLayout).toContain('headerLeft: () => <StackBackButton />');
   });
 
@@ -97,6 +97,13 @@ describe('administrator workspace navigation', () => {
     expect(quality).toContain('VISAS MARŠRUTO EILIŠKUMAS');
     expect(quality).toContain('route.stops.map');
     expect(quality).toContain('function RouteSequenceStop');
+  });
+
+  it('keeps the administrator home groups in the requested responsive grids', () => {
+    expect(home).toContain('<GroupedMenuSection columns label="SKUBŪS DARBAI"');
+    expect(home).toContain('<GroupedMenuSection columns label="STEBĖJIMAS IR APSKAITA"');
+    expect(home).toContain('<GroupedMenuSection columns label="SISTEMA"');
+    expect(home.indexOf('title="Kokybės kontrolė"')).toBeLessThan(home.indexOf('label="STEBĖJIMAS IR APSKAITA"'));
   });
 
   it('keeps the quality-control period input on the native calendar even with an external keyboard', () => {

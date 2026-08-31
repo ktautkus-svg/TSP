@@ -5,6 +5,7 @@ import { radius } from '@/ui/tokens';
 const MENU_ARTWORK = require('../../assets/images/menu/tsp-menu-artwork.png');
 const MENU_SECONDARY_ARTWORK = require('../../assets/images/menu/tsp-menu-secondary-3d.png');
 const MENU_SERVICE_ARTWORK = require('../../assets/images/menu/tsp-menu-service-3d.png');
+const MENU_FUEL_ARTWORK = require('../../assets/images/menu/tsp-menu-fuel-3d.png');
 
 const SOURCE_WIDTH = 768;
 const SOURCE_HEIGHT = 1365;
@@ -44,7 +45,7 @@ const secondaryArtwork = {
   logout: { column: 4, row: 1 },
 } as const;
 
-type DirectArtworkKind = 'service';
+type DirectArtworkKind = 'service' | 'fuel';
 
 export type MenuArtworkKind = keyof typeof artworkCrops | keyof typeof artworkAliases | keyof typeof secondaryArtwork | DirectArtworkKind;
 
@@ -78,10 +79,10 @@ export function MenuArtwork({ kind, size = 58 }: { kind: MenuArtworkKind; size?:
     );
   }
 
-  if (kind === 'service') {
+  if (kind === 'service' || kind === 'fuel') {
     return (
       <View style={[styles.frame, { width: size, height: size }]}>
-        <Image resizeMode="contain" source={MENU_SERVICE_ARTWORK} style={styles.directImage} />
+        <Image resizeMode="contain" source={kind === 'fuel' ? MENU_FUEL_ARTWORK : MENU_SERVICE_ARTWORK} style={styles.directImage} />
       </View>
     );
   }
