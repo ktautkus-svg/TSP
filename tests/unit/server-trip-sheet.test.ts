@@ -1,7 +1,12 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { attachDailyCompensation, applyDayReading, buildFuelDayTripSheet, buildServerTripSheet, buildVehicleDayTripSheet, odometerReadingCoveredBySheet, tripSheetFuelNorm, tripSheetWorkDate, type RouteAssignment, type VehicleDayReading } from '../../server/employee-auth-store';
 import { DEFAULT_ROUTE_PRICE_SETTINGS } from '../../src/application/routes/route-price';
+
+const storeSource = readFileSync(resolve(import.meta.dirname, '../../server/employee-auth-store.ts'), 'utf8');
+const vehicleSource = readFileSync(resolve(import.meta.dirname, '../../src/app/vehicle.tsx'), 'utf8');
 
 describe('server trip sheet', () => {
   it('builds an accounting-ready sheet from a completed assigned route', () => {
@@ -173,5 +178,18 @@ describe('server trip sheet', () => {
       driverName: 'Nepriskirtas',
       fuelEntries: [],
     });
+  });
+
+  it('keeps a covering day reading in sync when the assignment trip sheet is corrected', () => {
+    // applyDayReading always lets a day reading's driver/odometer win over
+    // the assignment's — so editing the driver via updateTripSheet (the
+    // "pencil" edit on an assignment-backed row) used to look like it did
+    // nothing: the next read re-applied the reading's stale driver on top.
+    expect(storeSource).toContain('const readingDocument = await this.vehicleDayReadings.doc(readingId).get()');
+    expect(storeSource).toContain('driverId,\n          driverName,\n          updatedAt,');
+  });
+
+  it('leaves a zero-kilometre bulk-imported day without a driver instead of the vehicle default', () => {
+    expect(vehicleSource).toContain("const driverId = row.start === row.end ? null : undefined;");
   });
 });

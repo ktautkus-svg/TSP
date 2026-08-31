@@ -263,9 +263,12 @@ export default function VehicleScreen() {
     setBusy(true);
     try {
       for (const row of rows) {
+        // A day where the odometer didn't move means nobody drove — leave it
+        // unassigned rather than defaulting to the vehicle's usual driver.
+        const driverId = row.start === row.end ? null : undefined;
         await employeeApi('/api/trip-sheets/day-readings', {
           method: 'POST',
-          body: JSON.stringify({ vehicleId: selectedVehicleId, date: row.date, startOdometer: row.start, endOdometer: row.end }),
+          body: JSON.stringify({ vehicleId: selectedVehicleId, date: row.date, startOdometer: row.start, endOdometer: row.end, driverId }),
         });
       }
       setMessage(`Importuota: ${registrationNumber} · ${rows.length} dienų (${rows[0]!.date} – ${rows[rows.length - 1]!.date}).`);

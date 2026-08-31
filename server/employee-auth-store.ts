@@ -2026,6 +2026,30 @@ export class EmployeeAuthStore {
       }
     }
     const vehicle = updated.vehicle ?? await this.findAssignedVehicleSnapshot(driverId);
+    // A day reading covering this vehicle+date (e.g. from an odometer
+    // correction import) always wins over the assignment in listTripSheets
+    // (see applyDayReading) — so without this, a driver/odometer edit made
+    // here would be silently overwritten back to the reading's stale values
+    // on the very next read.
+    if (vehicle) {
+      const date = tripSheetWorkDate(updated);
+      const readingId = `${vehicle.id}:${date}`;
+      const readingDocument = await this.vehicleDayReadings.doc(readingId).get();
+      const existingReading = readingDocument.data() as VehicleDayReading | undefined;
+      if (existingReading) {
+        await this.vehicleDayReadings.doc(readingId).set({
+          ...existingReading,
+          startOdometer,
+          endOdometer,
+          distanceKm: startOdometer !== null && endOdometer !== null
+            ? odometerDistanceKm(startOdometer, endOdometer)
+            : existingReading.distanceKm,
+          driverId,
+          driverName,
+          updatedAt,
+        });
+      }
+    }
     const priceSettings = await this.getRoutePriceSettings();
     const sheet = buildServerTripSheet(updated, vehicle);
     return { ...sheet, fuelNormLitersPer100Km: tripSheetFuelNorm(sheet.vehicle, priceSettings) };
