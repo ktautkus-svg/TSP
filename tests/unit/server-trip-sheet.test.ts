@@ -186,7 +186,7 @@ describe('server trip sheet', () => {
     // "pencil" edit on an assignment-backed row) used to look like it did
     // nothing: the next read re-applied the reading's stale driver on top.
     expect(storeSource).toContain('const readingDocument = await this.vehicleDayReadings.doc(readingId).get()');
-    expect(storeSource).toContain('driverId,\n          driverName,\n          updatedAt,');
+    expect(storeSource).toMatch(/driverId,\s+driverName,\s+updatedAt,/);
   });
 
   it('leaves a zero-kilometre bulk-imported day without a driver instead of the vehicle default', () => {
