@@ -277,7 +277,7 @@ const createStyles = (cockpit: CockpitPalette) => StyleSheet.create({
     borderColor: cockpit.metalMid,
     backgroundColor: cockpit.metalDark,
   },
-  windshieldShellCompact: { aspectRatio: 2.55, maxHeight: 170 },
+  windshieldShellCompact: { aspectRatio: 2.35, maxHeight: 182 },
   sceneLayer: {
     position: 'absolute',
     top: 0,

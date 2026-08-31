@@ -68,6 +68,7 @@ describe('premium route dashboard', () => {
     expect(road).toContain('M 0 70 Q 215 20 430 70');
     expect(road).toContain('readonly compact?: boolean');
     expect(road).toContain('styles.windshieldShellCompact');
+    expect(road).toContain('windshieldShellCompact: { aspectRatio: 2.35, maxHeight: 182 }');
     expect(road).not.toContain('<G transform="translate(215 98)">');
     expect(road).toContain('styles.progressReadout');
     expect(road).not.toContain('styles.instrumentBridge');
@@ -115,6 +116,9 @@ describe('premium route dashboard', () => {
     expect(delivery).toContain('void navigate(nextStop)');
     expect(delivery).toContain('dashboard-stop-heading');
     expect(delivery).toContain('dashboard-stop-actions');
+    expect(delivery).toContain('testID="call-next-stop"');
+    expect(delivery).toContain('disabled={!isUsablePhone(nextStop.phone)}');
+    expect(delivery).toContain('styles.callButtonDisabled');
     expect(delivery).toContain('dashboardNavigateAction');
     expect(delivery).toContain('dashboardOutcomeActions');
     expect(delivery).toContain("dashboardStopActions: { flexDirection: 'row'");
@@ -132,6 +136,8 @@ describe('premium route dashboard', () => {
     expect(delivery).toContain('showHeading={false}');
     expect(delivery).toContain('minHeight: 48');
     expect(delivery).toContain('routeMain: { flex: 1, minHeight: 0');
+    expect(delivery).toContain('dashboardSecondaryMobile: { flexGrow: 1 }');
+    expect(delivery).toContain("dashboardStopActionsCompact: { marginTop: 'auto' }");
     expect(delivery).not.toContain('minHeight: 200');
     expect(delivery).toContain("gap: 14");
     const foundation = source('src/components/foundation-screen.tsx');

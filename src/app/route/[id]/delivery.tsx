@@ -769,9 +769,9 @@ export default function DeliveryScreen() {
                 </View>
               </View>
               </View>
-              <View style={[styles.dashboardSecondary, wideLayout && styles.dashboardSecondaryWide]}>
+              <View style={[styles.dashboardSecondary, !wideLayout && styles.dashboardSecondaryMobile, wideLayout && styles.dashboardSecondaryWide]}>
               {nextStop ? (
-                <View style={[styles.nextStopCard, compactDashboard && styles.nextStopCardCompact]} testID="dashboard-next-stop">
+                <View style={[styles.nextStopCard, compactDashboard && styles.nextStopCardCompact, compactDashboard && styles.nextStopCardViewportFill]} testID="dashboard-next-stop">
                   <Text style={styles.dashboardCardLabel}>KITA STOTELĖ</Text>
                   <View style={styles.nextStopHeading} testID="dashboard-stop-heading">
                     <View style={styles.stopNumberBadge}>
@@ -797,15 +797,17 @@ export default function DeliveryScreen() {
                       <Text style={styles.arrivalWindowLabel}>KLIENTO TELEFONAS</Text>
                       <Text style={styles.nextStopAddress}>{isUsablePhone(nextStop.phone) ? nextStop.phone : 'Nesuvestas'}</Text>
                     </View>
-                    {isUsablePhone(nextStop.phone) ? <Pressable
+                    <Pressable
                       accessibilityLabel="Skambinti klientui"
+                      accessibilityState={{ disabled: !isUsablePhone(nextStop.phone) }}
+                      disabled={!isUsablePhone(nextStop.phone)}
                       onPress={() => callStop(nextStop)}
-                      style={styles.callButton}
+                      style={[styles.callButton, !isUsablePhone(nextStop.phone) && styles.callButtonDisabled]}
                       testID="call-next-stop">
-                      <Text style={styles.callButtonText}>SKAMBINTI</Text>
-                    </Pressable> : null}
+                      <Text style={[styles.callButtonText, !isUsablePhone(nextStop.phone) && styles.callButtonTextDisabled]}>SKAMBINTI</Text>
+                    </Pressable>
                   </View>
-                  <View style={styles.dashboardStopActions} testID="dashboard-stop-actions">
+                  <View style={[styles.dashboardStopActions, compactDashboard && styles.dashboardStopActionsCompact]} testID="dashboard-stop-actions">
                     <Pressable accessibilityLabel="Naviguoti į kitą stotelę" accessibilityRole="button" style={[styles.dashboardActionButton, styles.dashboardNavigateAction, styles.dashboardNavigateButton]} onPress={() => { void navigate(nextStop); }}>
                       <NavigateIcon size={24} />
                       <Text numberOfLines={1} style={[styles.dashboardActionText, styles.dashboardPrimaryActionText]}>NAVIGUOTI</Text>
@@ -1267,6 +1269,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   dashboardPrimary: { width: '100%' },
   dashboardPrimaryWide: { flex: 1.08, minWidth: 0, overflow: 'hidden', borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
   dashboardSecondary: { width: '100%' },
+  dashboardSecondaryMobile: { flexGrow: 1 },
   dashboardSecondaryWide: { flex: 0.92, minWidth: 320, gap: spacing.md },
   gaugePanel: {
     width: '100%',
@@ -1333,6 +1336,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     gap: 10,
   },
   nextStopCardCompact: { paddingHorizontal: 14, paddingTop: 6, paddingBottom: 8, gap: 6 },
+  nextStopCardViewportFill: { flexGrow: 1 },
   dashboardCardLabel: { ...type.label, color: colors.textMuted },
   nextStopHeading: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   stopNumberBadge: { width: 42, height: 42, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.actionPrimary },
@@ -1348,6 +1352,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   arrivalEta: { ...type.cardTitle, color: colors.text },
   arrivalStatusText: { fontFamily: fonts.headingSemiBold, fontSize: 12, textAlign: 'right' },
   dashboardStopActions: { flexDirection: 'row', gap: 8, minHeight: 94 },
+  dashboardStopActionsCompact: { marginTop: 'auto' },
   dashboardOutcomeActions: { flex: 0.9, gap: 6 },
   dashboardActionButton: {
     minWidth: 0,
@@ -1370,7 +1375,9 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   flex: { flex: 1, minWidth: 0 },
   contactRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   callButton: { minHeight: 44, minWidth: 112, borderRadius: radius.md, backgroundColor: colors.actionRoute, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
+  callButtonDisabled: { backgroundColor: colors.disabledSurface, borderWidth: 1, borderColor: colors.borderStrong },
   callButtonText: { ...type.button, color: colors.textInverse, fontSize: 13 },
+  callButtonTextDisabled: { color: colors.textSecondary },
   completeRouteButton: { minHeight: 58, borderRadius: radius.md, backgroundColor: colors.success, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
   returnChoiceRow: { gap: spacing.sm },
   returnChoiceButton: { minHeight: 56, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
