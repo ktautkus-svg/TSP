@@ -797,36 +797,37 @@ export default function DeliveryScreen() {
                       <Text style={styles.arrivalWindowLabel}>KLIENTO TELEFONAS</Text>
                       <Text style={styles.nextStopAddress}>{isUsablePhone(nextStop.phone) ? nextStop.phone : 'Nesuvestas'}</Text>
                     </View>
-                    <Pressable
+                    {isUsablePhone(nextStop.phone) ? <Pressable
                       accessibilityLabel="Skambinti klientui"
-                      disabled={!isUsablePhone(nextStop.phone)}
                       onPress={() => callStop(nextStop)}
-                      style={[styles.callButton, !isUsablePhone(nextStop.phone) && styles.disabled]}
+                      style={styles.callButton}
                       testID="call-next-stop">
                       <Text style={styles.callButtonText}>SKAMBINTI</Text>
-                    </Pressable>
+                    </Pressable> : null}
                   </View>
                   <View style={styles.dashboardStopActions} testID="dashboard-stop-actions">
-                    <Pressable accessibilityLabel="Naviguoti į kitą stotelę" accessibilityRole="button" style={[styles.dashboardActionButton, compactDashboard && styles.dashboardActionButtonCompact, styles.dashboardNavigateButton]} onPress={() => { void navigate(nextStop); }}>
+                    <Pressable accessibilityLabel="Naviguoti į kitą stotelę" accessibilityRole="button" style={[styles.dashboardActionButton, styles.dashboardPrimaryActionButton, compactDashboard && styles.dashboardActionButtonCompact, styles.dashboardNavigateButton]} onPress={() => { void navigate(nextStop); }}>
                       <NavigateIcon size={28} />
-                      <Text numberOfLines={1} style={styles.dashboardActionText}>NAVIGUOTI</Text>
+                      <Text numberOfLines={1} style={[styles.dashboardActionText, styles.dashboardPrimaryActionText]}>NAVIGUOTI</Text>
                     </Pressable>
-                    <Pressable
-                      disabled={busy}
-                      onPress={() => { void delivered(nextStop.id); }}
-                      style={[styles.dashboardActionButton, compactDashboard && styles.dashboardActionButtonCompact, styles.dashboardDeliveredButton, busy && styles.disabled]}
-                      testID="dashboard-delivered-button">
-                      <DeliveredIcon size={28} />
-                      <Text numberOfLines={1} style={styles.dashboardActionText}>ATLIKTA</Text>
-                    </Pressable>
-                    <Pressable
-                      disabled={busy}
-                      onPress={() => beginFailed(nextStop.id)}
-                      style={[styles.dashboardActionButton, compactDashboard && styles.dashboardActionButtonCompact, styles.dashboardFailedButton, busy && styles.disabled]}
-                      testID="dashboard-failed-button">
-                      <FailedIcon size={28} />
-                      <Text numberOfLines={1} style={styles.dashboardActionText}>NEATLIKTA</Text>
-                    </Pressable>
+                    <View style={styles.dashboardOutcomeActions}>
+                      <Pressable
+                        disabled={busy}
+                        onPress={() => { void delivered(nextStop.id); }}
+                        style={[styles.dashboardActionButton, styles.dashboardOutcomeButton, compactDashboard && styles.dashboardActionButtonCompact, styles.dashboardDeliveredButton, busy && styles.disabled]}
+                        testID="dashboard-delivered-button">
+                        <DeliveredIcon size={28} />
+                        <Text numberOfLines={1} style={styles.dashboardActionText}>ATLIKTA</Text>
+                      </Pressable>
+                      <Pressable
+                        disabled={busy}
+                        onPress={() => beginFailed(nextStop.id)}
+                        style={[styles.dashboardActionButton, styles.dashboardOutcomeButton, compactDashboard && styles.dashboardActionButtonCompact, styles.dashboardFailedButton, busy && styles.disabled]}
+                        testID="dashboard-failed-button">
+                        <FailedIcon size={28} />
+                        <Text numberOfLines={1} style={styles.dashboardActionText}>NEATLIKTA</Text>
+                      </Pressable>
+                    </View>
                   </View>
                 </View>
               ) : (
@@ -1346,9 +1347,9 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   arrivalStatusDot: { width: 12, height: 12, borderRadius: 6, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.75, shadowRadius: 7, elevation: 4 },
   arrivalEta: { ...type.cardTitle, color: colors.text },
   arrivalStatusText: { fontFamily: fonts.headingSemiBold, fontSize: 12, textAlign: 'right' },
-  dashboardStopActions: { flexDirection: 'row', gap: 8 },
+  dashboardStopActions: { gap: 8 },
+  dashboardOutcomeActions: { flexDirection: 'row', gap: 8 },
   dashboardActionButton: {
-    flex: 1,
     minWidth: 0,
     height: 58,
     borderRadius: radius.md,
@@ -1357,12 +1358,15 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     justifyContent: 'center',
     gap: 4,
   },
+  dashboardPrimaryActionButton: { width: '100%', flexDirection: 'row', gap: 10 },
+  dashboardOutcomeButton: { flex: 1 },
   dashboardActionButtonCompact: { height: 50 },
   dashboardNavigateButton: { backgroundColor: colors.actionRoute },
   dashboardDeliveredButton: { backgroundColor: colors.success },
   dashboardFailedButton: { backgroundColor: colors.danger },
   dashboardActionIcon: { color: colors.textInverse, fontFamily: fonts.headingExtraBold, fontSize: 26, lineHeight: 28 },
   dashboardActionText: { ...type.button, color: colors.textInverse },
+  dashboardPrimaryActionText: { fontSize: 15 },
   flex: { flex: 1, minWidth: 0 },
   contactRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   callButton: { minHeight: 44, minWidth: 112, borderRadius: radius.md, backgroundColor: colors.actionRoute, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
