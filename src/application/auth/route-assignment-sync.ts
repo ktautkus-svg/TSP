@@ -1,6 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { LocalAccessService } from '@/application/auth/local-access';
+import { omitLegacyV28StopColumns } from '@/database/migrations';
 import { AdminCompleteRoute } from '@/application/routes/route-workday';
 import {
   EmployeeClientError,
@@ -29,10 +30,10 @@ const DEVICE_LOCAL_ROUTE_COLUMNS = {
 export async function exportRouteSnapshot(db: SQLiteDatabase, routeId: string): Promise<RouteSnapshot> {
   const route = await db.getFirstAsync<Record<string, unknown>>('SELECT * FROM routes WHERE id = ?', routeId);
   if (!route) throw new Error('Maršrutas nerastas.');
-  const stops = await db.getAllAsync<Record<string, unknown>>(
+  const stops = (await db.getAllAsync<Record<string, unknown>>(
     'SELECT * FROM delivery_stops WHERE route_id = ? ORDER BY COALESCE(active_order, optimized_order, original_order)',
     routeId,
-  );
+  )).map(omitLegacyV28StopColumns);
   const shipmentLines = await db.getAllAsync<Record<string, unknown>>(
     'SELECT * FROM shipment_lines WHERE route_id = ? ORDER BY created_at, id',
     routeId,
@@ -394,11 +395,12 @@ export async function importAssignmentSnapshot(db: SQLiteDatabase, assignment: S
 }
 
 export async function insertRow(db: SQLiteDatabase, table: WritableTable, row: Record<string, unknown>): Promise<void> {
-  const columns = assertColumns(table, Object.keys(row));
+  const writable = table === 'delivery_stops' ? omitLegacyV28StopColumns(row) : row;
+  const columns = assertColumns(table, Object.keys(writable));
   const placeholders = columns.map(() => '?').join(', ');
   await db.runAsync(
     `INSERT INTO ${table} (${columns.join(', ')}) VALUES (${placeholders})`,
-    ...columns.map((column) => row[column] as string | number | null),
+    ...columns.map((column) => writable[column] as string | number | null),
   );
 }
 
