@@ -242,10 +242,21 @@ export class OptimizationGatewayService {
     if (!keyValue) {
       const error = new GatewayError(
         'CONFIGURATION_ERROR',
-        `${request.provider.toUpperCase()} serverio API raktas nesukonfigūruotas.`,
+        request.provider === 'google'
+          ? 'Google Routes raktas nesukonfigūruotas Cloud Run Secret Manager. Nustatykite GOOGLE_ROUTES_API_KEY (arba GOOGLE_API_KEY / GOOGLE_MAPS_API_KEY), įjunkite Routes API ir GATEWAY_REAL_PROVIDER_ARMED=1.'
+          : 'HERE serverio API raktas nesukonfigūruotas Cloud Run Secret Manager (HERE_API_KEY).',
         500,
         false,
-        { provider: request.provider },
+        {
+          provider: request.provider,
+          remediation: {
+            secrets:
+              request.provider === 'google'
+                ? ['GOOGLE_ROUTES_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_MAPS_API_KEY']
+                : ['HERE_API_KEY'],
+            flags: ['GATEWAY_REAL_PROVIDER_ARMED=1'],
+          },
+        },
       );
       this.recordError(request, mode, 'miss', elementCount, started, error);
       throw error;

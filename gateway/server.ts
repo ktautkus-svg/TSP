@@ -7,7 +7,7 @@ import {
     FileGatewayResponseCache,
     MemoryGatewayResponseCache,
 } from './cache/file-response-cache';
-import { loadGatewayConfig } from './config';
+import { loadGatewayConfig, routingReadiness } from './config';
 import { GatewayError } from './errors';
 import { GoogleMatrixAdapter } from './providers/google-matrix-adapter';
 import { HereMatrixAdapter } from './providers/here-matrix-adapter';
@@ -98,10 +98,13 @@ export const server = createServer(async (request, response) => {
     }
 
     if (request.method === 'GET' && request.url === '/health') {
+      const routing = routingReadiness(config);
       return json(response, 200, {
         status: 'ok',
         environment: config.environment,
         authentication: config.authMode,
+        // Booleans only — never key material, fingerprints, or secret values.
+        routing,
       });
     }
     if (
@@ -266,21 +269,33 @@ export const server = createServer(async (request, response) => {
 });
 
 server.listen(config.port, config.host, () => {
+  const routing = routingReadiness(config);
   process.stdout.write(
     `${JSON.stringify({
       event: 'gateway_started',
       host: config.host,
       port: config.port,
       providersConfigured: {
-        here: Boolean(config.hereApiKey),
-        google: Boolean(config.googleApiKey),
-        googleGeocoding: Boolean(config.googleGeocodingApiKey),
-        googleVision: Boolean(config.googleVisionApiKey),
+        here: routing.hereKeyConfigured,
+        google: routing.googleRoutesKeyConfigured,
+        googleGeocoding: routing.googleGeocodingKeyConfigured,
+        googleVision: routing.googleVisionKeyConfigured,
       },
+      routing,
       environment: config.environment,
       authentication: config.authMode,
     })}\n`,
   );
+  if (routing.realProviderArmed && routing.googleRoutesKeyConfigured && !routing.googleRoutesKeyLooksValid) {
+    process.stdout.write(
+      `${JSON.stringify({
+        event: 'gateway_routing_warning',
+        code: 'GOOGLE_ROUTES_KEY_SHAPE',
+        message:
+          'GOOGLE_ROUTES_API_KEY / GOOGLE_API_KEY / GOOGLE_MAPS_API_KEY neatrodo kaip Google API raktas (tikėtasi AIza…). Patikrinkite Secret Manager reikšmę be kabučių.',
+      })}\n`,
+    );
+  }
 });
 
 function header(request: IncomingMessage, name: string): string | undefined {

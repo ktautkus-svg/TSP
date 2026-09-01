@@ -99,6 +99,37 @@ describe('Google Routes matrix adapter', () => {
     }
   });
 
+  it('surfaces actionable Lithuanian guidance for Google Routes 403 without leaking secrets', async () => {
+    const key = 'AIzaSyDummyTestKeyValue0000000000000';
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({
+      error: {
+        code: 403,
+        message: 'Routes API has not been used in project 123 before or it is disabled.',
+        status: 'PERMISSION_DENIED',
+        details: [{ reason: 'SERVICE_DISABLED' }],
+      },
+    }), { status: 403 }));
+    try {
+      await new GoogleMatrixAdapter(key, fetcher as typeof fetch).fetchMatrix(
+        gatewayRequest('google'),
+        new AbortController().signal,
+      );
+      expect.unreachable('expected PROVIDER_AUTH_FAILED');
+    } catch (error) {
+      expect(error).toMatchObject({
+        code: 'PROVIDER_AUTH_FAILED',
+        details: expect.objectContaining({
+          providerReason: 'SERVICE_DISABLED',
+          remediation: expect.objectContaining({
+            secrets: expect.arrayContaining(['GOOGLE_ROUTES_API_KEY']),
+          }),
+        }),
+      });
+      expect(String(error)).toMatch(/Routes API/);
+      expect(String(error)).not.toContain(key);
+    }
+  });
+
   it('maps timeout and malformed provider response', async () => {
     const timeoutFetcher = vi.fn(async () => {
       throw new DOMException('aborted', 'AbortError');
