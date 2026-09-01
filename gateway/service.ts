@@ -41,6 +41,13 @@ export type GatewayAuditEvent = {
 };
 
 export class OptimizationGatewayService {
+  /**
+   * Shares an unfinished matrix request across callers. A result cache only
+   * helps after the first call finishes; without this map, two browser tabs or
+   * rapid remounts can miss together and both buy the same n x n matrix.
+   */
+  private readonly inFlightMatrices = new Map<string, Promise<ProviderFetchResult>>();
+
   constructor(
     private readonly config: GatewayConfig,
     private readonly adapters: Record<GatewayProvider, MatrixProviderAdapter>,
@@ -250,23 +257,64 @@ export class OptimizationGatewayService {
       this.recordError(request, mode, 'miss', elementCount, started, error);
       throw error;
     }
+    const shared = mode === 'refresh' ? undefined : this.inFlightMatrices.get(key);
+    if (shared) {
+      try {
+        const result = await shared;
+        const response = this.toResponse(
+          request,
+          result,
+          true,
+          result.matrix.fetchedAt,
+          0,
+          performance.now() - started,
+        );
+        this.record(request, mode, 'success', 'hit', response, elementCount, started);
+        return response;
+      } catch (error) {
+        const gatewayError = error instanceof GatewayError
+          ? error
+          : new GatewayError(
+              'PROVIDER_NETWORK_ERROR',
+              'Nežinoma providerio klaida.',
+              503,
+              true,
+              { provider: request.provider },
+            );
+        this.recordError(request, mode, 'miss', elementCount, started, gatewayError, 0);
+        throw gatewayError;
+      }
+    }
+
     const controller = new AbortController();
-    const timeout = setTimeout(
-      () => controller.abort(),
-      this.config.requestTimeoutMs,
-    );
+    const timeout = setTimeout(() => controller.abort(), this.config.requestTimeoutMs);
+    let operation: Promise<ProviderFetchResult> | null = null;
     try {
       const price = this.config.pricing.perThousandElements[request.provider];
+      if (this.config.environment === 'production' && price === undefined) {
+        throw new GatewayError(
+          'CONFIGURATION_ERROR',
+          `${request.provider.toUpperCase()} matricos kaina nesukonfigūruota. Mokama užklausa saugiai sustabdyta.`,
+          500,
+          false,
+          { provider: request.provider },
+        );
+      }
       const estimatedCostCents = price === undefined ? null : (elementCount * price) / 10;
-      await this.usageGuard.reserve(elementCount, estimatedCostCents);
-      const result = await adapter.fetchMatrix(request, controller.signal, {
-        bypassCache: mode === 'refresh',
-      });
-      const ttl =
-        request.trafficMode === 'none'
-          ? this.config.noTrafficCacheTtlMs
-          : this.config.liveCacheTtlMs;
-      await this.cache.set(key, result, ttl);
+      operation = (async () => {
+        await this.usageGuard.reserve(elementCount, estimatedCostCents);
+        const result = await adapter.fetchMatrix(request, controller.signal, {
+          bypassCache: mode === 'refresh',
+        });
+        const ttl =
+          request.trafficMode === 'none'
+            ? this.config.noTrafficCacheTtlMs
+            : this.config.liveCacheTtlMs;
+        await this.cache.set(key, result, ttl);
+        return result;
+      })();
+      if (mode !== 'refresh') this.inFlightMatrices.set(key, operation);
+      const result = await operation;
       const response = this.toResponse(
         request,
         result,
@@ -308,6 +356,9 @@ export class OptimizationGatewayService {
       );
       throw gatewayError;
     } finally {
+      if (operation && this.inFlightMatrices.get(key) === operation) {
+        this.inFlightMatrices.delete(key);
+      }
       clearTimeout(timeout);
     }
   }

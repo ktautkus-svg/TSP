@@ -89,6 +89,10 @@ describe('Cloud Run deploy', () => {
 
   it('keeps GATEWAY_REAL_PROVIDER_ARMED fail-closed and leaves the service public', () => {
     expect(deployWorkflow).toContain("vars.GATEWAY_REAL_PROVIDER_ARMED || '0'");
+    expect(deployWorkflow).toContain('ROUTING_PRICING_CURRENCY: USD');
+    expect(deployWorkflow).toContain("GOOGLE_PRICE_PER_1000_ELEMENTS: '10'");
+    expect(deployWorkflow).toContain("vars.GATEWAY_DAILY_USAGE_UNITS || '900'");
+    expect(deployWorkflow).toContain("vars.GATEWAY_WEEKLY_USAGE_UNITS || '3000'");
     expect(deployWorkflow).toContain('--allow-unauthenticated');
     expect(gatewayConfig).toContain("(env.GATEWAY_REAL_PROVIDER_ARMED ?? '').trim() === '1'");
   });

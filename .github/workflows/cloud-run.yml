@@ -180,10 +180,14 @@ jobs:
         shell: bash
         env:
           ARMED: ${{ vars.GATEWAY_REAL_PROVIDER_ARMED || '0' }}
-          DAILY_BUDGET_CENTS: ${{ vars.GATEWAY_DAILY_BUDGET_CENTS || '500' }}
-          WEEKLY_BUDGET_CENTS: ${{ vars.GATEWAY_WEEKLY_BUDGET_CENTS || '2000' }}
-          DAILY_USAGE_UNITS: ${{ vars.GATEWAY_DAILY_USAGE_UNITS || '7290' }}
-          WEEKLY_USAGE_UNITS: ${{ vars.GATEWAY_WEEKLY_USAGE_UNITS || '36450' }}
+          ROUTING_PRICING_CURRENCY: USD
+          # Use the Pro price as a deliberately conservative ceiling even
+          # though matrices currently run TRAFFIC_UNAWARE (Essentials).
+          GOOGLE_PRICE_PER_1000_ELEMENTS: '10'
+          DAILY_BUDGET_CENTS: ${{ vars.GATEWAY_DAILY_BUDGET_CENTS || '900' }}
+          WEEKLY_BUDGET_CENTS: ${{ vars.GATEWAY_WEEKLY_BUDGET_CENTS || '3000' }}
+          DAILY_USAGE_UNITS: ${{ vars.GATEWAY_DAILY_USAGE_UNITS || '900' }}
+          WEEKLY_USAGE_UNITS: ${{ vars.GATEWAY_WEEKLY_USAGE_UNITS || '3000' }}
         run: |
           set -euo pipefail
           git_sha="${GITHUB_SHA:0:7}"
@@ -221,7 +225,7 @@ jobs:
             --revision-suffix="n${git_sha}" \
             --async \
             --set-secrets="${{ steps.secrets.outputs.secrets_arg }}" \
-            --set-env-vars="GATEWAY_AUTH_MODE=none,GATEWAY_ENV=production,GATEWAY_REAL_PROVIDER_ARMED=${ARMED},GATEWAY_DAILY_BUDGET_CENTS=${DAILY_BUDGET_CENTS},GATEWAY_WEEKLY_BUDGET_CENTS=${WEEKLY_BUDGET_CENTS},GATEWAY_DAILY_USAGE_UNITS=${DAILY_USAGE_UNITS},GATEWAY_WEEKLY_USAGE_UNITS=${WEEKLY_USAGE_UNITS},APP_VERSION=${GITHUB_SHA}" \
+            --set-env-vars="GATEWAY_AUTH_MODE=none,GATEWAY_ENV=production,GATEWAY_REAL_PROVIDER_ARMED=${ARMED},ROUTING_PRICING_CURRENCY=${ROUTING_PRICING_CURRENCY},GOOGLE_PRICE_PER_1000_ELEMENTS=${GOOGLE_PRICE_PER_1000_ELEMENTS},GATEWAY_DAILY_BUDGET_CENTS=${DAILY_BUDGET_CENTS},GATEWAY_WEEKLY_BUDGET_CENTS=${WEEKLY_BUDGET_CENTS},GATEWAY_DAILY_USAGE_UNITS=${DAILY_USAGE_UNITS},GATEWAY_WEEKLY_USAGE_UNITS=${WEEKLY_USAGE_UNITS},APP_VERSION=${GITHUB_SHA}" \
             --quiet
           ready=""
           for _ in $(seq 1 90); do

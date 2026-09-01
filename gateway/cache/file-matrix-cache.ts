@@ -142,7 +142,12 @@ export function createMatrixCacheKey(
       grossWeightKg: request.vehicle.grossWeightKg ?? null,
       useRoadRestrictions: request.vehicle.useRoadRestrictions,
     },
-    departureAt: request.departureAt,
+    // Google's matrix adapter deliberately sends TRAFFIC_UNAWARE and omits
+    // departureTime. Including the exact timestamp here made two otherwise
+    // identical route calculations miss the cache even though Google received
+    // exactly the same request. HERE still uses departure time, so its cache
+    // identity remains time-specific.
+    departureAt: request.provider === 'google' ? null : request.departureAt,
     trafficMode: request.trafficMode,
     adapterVersion,
   };

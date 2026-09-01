@@ -130,11 +130,11 @@ function Get-DeployVar([string]$name, [string]$fallback) {
   return $fallback
 }
 $armed = Get-DeployVar 'GATEWAY_REAL_PROVIDER_ARMED' '0'
-$dailyBudgetCents = Get-DeployVar 'GATEWAY_DAILY_BUDGET_CENTS' '500'
-$weeklyBudgetCents = Get-DeployVar 'GATEWAY_WEEKLY_BUDGET_CENTS' '2000'
-$dailyUsageUnits = Get-DeployVar 'GATEWAY_DAILY_USAGE_UNITS' '7290'
-$weeklyUsageUnits = Get-DeployVar 'GATEWAY_WEEKLY_USAGE_UNITS' '36450'
-$envArg = "GATEWAY_AUTH_MODE=none,GATEWAY_ENV=production,GATEWAY_REAL_PROVIDER_ARMED=$armed,GATEWAY_DAILY_BUDGET_CENTS=$dailyBudgetCents,GATEWAY_WEEKLY_BUDGET_CENTS=$weeklyBudgetCents,GATEWAY_DAILY_USAGE_UNITS=$dailyUsageUnits,GATEWAY_WEEKLY_USAGE_UNITS=$weeklyUsageUnits,APP_VERSION=1.0.0"
+$dailyBudgetCents = Get-DeployVar 'GATEWAY_DAILY_BUDGET_CENTS' '900'
+$weeklyBudgetCents = Get-DeployVar 'GATEWAY_WEEKLY_BUDGET_CENTS' '3000'
+$dailyUsageUnits = Get-DeployVar 'GATEWAY_DAILY_USAGE_UNITS' '900'
+$weeklyUsageUnits = Get-DeployVar 'GATEWAY_WEEKLY_USAGE_UNITS' '3000'
+$envArg = "GATEWAY_AUTH_MODE=none,GATEWAY_ENV=production,GATEWAY_REAL_PROVIDER_ARMED=$armed,ROUTING_PRICING_CURRENCY=USD,GOOGLE_PRICE_PER_1000_ELEMENTS=10,GATEWAY_DAILY_BUDGET_CENTS=$dailyBudgetCents,GATEWAY_WEEKLY_BUDGET_CENTS=$weeklyBudgetCents,GATEWAY_DAILY_USAGE_UNITS=$dailyUsageUnits,GATEWAY_WEEKLY_USAGE_UNITS=$weeklyUsageUnits,APP_VERSION=1.0.0"
 if ($armed -ne '1') {
   Write-Host 'DĖMESIO: GATEWAY_REAL_PROVIDER_ARMED=0 - geokodavimas, matrix ir polyline grąžins 503 REAL_PROVIDER_DISABLED (adresai nebus patvirtinami).'
 }

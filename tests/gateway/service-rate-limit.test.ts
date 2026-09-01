@@ -59,6 +59,58 @@ describe('gateway service', () => {
     expect(adapter.fetchMatrix).toHaveBeenCalledOnce();
   });
 
+  it('coalesces simultaneous identical matrix requests into one purchase', async () => {
+    const request = gatewayRequest('google');
+    const normalized = normalizeHereMatrix(
+      {
+        matrixId: 'shared',
+        matrix: {
+          numOrigins: 3,
+          numDestinations: 3,
+          travelTimes: Array(9).fill(1),
+          distances: Array(9).fill(1),
+          errorCodes: Array(9).fill(0),
+        },
+      },
+      request,
+      5,
+    );
+    let finish!: (value: typeof normalized) => void;
+    const pending = new Promise<typeof normalized>((resolve) => { finish = resolve; });
+    const adapter: MatrixProviderAdapter = {
+      provider: 'google',
+      version: 'test-v1',
+      capabilities: {
+        trafficSupported: true,
+        predictiveTrafficSupported: true,
+        truckRestrictionsSupported: false,
+        vehicleDimensionsSupported: false,
+        asymmetricMatrixSupported: true,
+        departureTimeSupported: false,
+        maneuverMetadataSupported: false,
+        maximumMatrixElements: 625,
+        executionMode: 'real',
+      },
+      fetchMatrix: vi.fn(() => pending),
+    };
+    const service = new OptimizationGatewayService(
+      loadGatewayConfig({ GOOGLE_ROUTES_API_KEY: 'configured' }),
+      { here: { ...adapter, provider: 'here' }, google: adapter },
+      new MemoryMatrixResultCache(),
+    );
+
+    const first = service.getMatrix(request, 'real');
+    await vi.waitFor(() => expect(adapter.fetchMatrix).toHaveBeenCalledOnce());
+    const second = service.getMatrix({ ...request, matrixId: 'second-caller' }, 'real');
+    finish(normalized);
+
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+    expect(firstResult.executionMode).toBe('real');
+    expect(secondResult.executionMode).toBe('cache');
+    expect(secondResult.gatewayMetadata.usage.externalRequestCount).toBe(0);
+    expect(adapter.fetchMatrix).toHaveBeenCalledOnce();
+  });
+
   it('cache-only fails closed on miss and real fails without key', async () => {
     const adapter = {
       provider: 'here',

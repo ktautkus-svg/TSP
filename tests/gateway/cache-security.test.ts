@@ -25,12 +25,34 @@ describe('gateway cache and signature', () => {
       }).authMode,
     ).toBe('none');
   });
-  it('includes departure and adapter version in cache identity', () => {
+  it('keeps HERE departure identity but ignores time Google never sends', () => {
     const cache = new MemoryMatrixResultCache();
     const request = gatewayRequest();
     const first = cache.createKey(request, 'v1');
     expect(cache.createKey({ ...request, departureAt: '2026-08-03T05:30:00Z' }, 'v1')).not.toBe(first);
     expect(cache.createKey(request, 'v2')).not.toBe(first);
+
+    const google = gatewayRequest('google');
+    expect(cache.createKey({ ...google, departureAt: '2026-08-03T05:30:00Z' }, 'v1'))
+      .toBe(cache.createKey(google, 'v1'));
+  });
+
+  it('fails closed when an armed production Google gateway has no price', () => {
+    expect(() => loadGatewayConfig({
+      GATEWAY_ENV: 'production',
+      GATEWAY_AUTH_MODE: 'none',
+      GATEWAY_REAL_PROVIDER_ARMED: '1',
+      GOOGLE_ROUTES_API_KEY: 'configured',
+    })).toThrow(/GOOGLE_PRICE_PER_1000_ELEMENTS/);
+
+    expect(() => loadGatewayConfig({
+      GATEWAY_ENV: 'production',
+      GATEWAY_AUTH_MODE: 'none',
+      GATEWAY_REAL_PROVIDER_ARMED: '1',
+      GOOGLE_ROUTES_API_KEY: 'configured',
+      ROUTING_PRICING_CURRENCY: 'USD',
+      GOOGLE_PRICE_PER_1000_ELEMENTS: '10',
+    })).not.toThrow();
   });
 
   it('distinguishes fresh and stale traffic cache', async () => {

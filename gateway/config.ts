@@ -101,6 +101,20 @@ export function loadGatewayConfig(
       false,
     );
   }
+  const realProviderArmed = (env.GATEWAY_REAL_PROVIDER_ARMED ?? '').trim() === '1';
+  if (
+    environment === 'production'
+    && realProviderArmed
+    && cleanSecret(env.GOOGLE_ROUTES_API_KEY || env.GOOGLE_API_KEY || env.GOOGLE_MAPS_API_KEY)
+    && pricing.perThousandElements.google === undefined
+  ) {
+    throw new GatewayError(
+      'CONFIGURATION_ERROR',
+      'Google Routes įjungtas be GOOGLE_PRICE_PER_1000_ELEMENTS. Mokamos matricos blokuojamos, nes piniginis limitas negalėtų veikti.',
+      500,
+      false,
+    );
+  }
   return {
     environment,
     authMode,
@@ -181,10 +195,10 @@ export function loadGatewayConfig(
     // stray tab or newline, and a strict === against an untrimmed value fails
     // silently: the gateway stays disarmed, every geocode returns 503, and the
     // screen only reports "address unconfirmed". That cost a full evening once.
-    realProviderArmed: (env.GATEWAY_REAL_PROVIDER_ARMED ?? '').trim() === '1',
+    realProviderArmed,
     usageDirectory: env.GATEWAY_USAGE_DIRECTORY?.trim() || '.gateway-cache/usage',
-    dailyUsageUnits: positiveFiniteNumber(env.GATEWAY_DAILY_USAGE_UNITS, 7290),
-    weeklyUsageUnits: positiveFiniteNumber(env.GATEWAY_WEEKLY_USAGE_UNITS, 36450),
+    dailyUsageUnits: positiveFiniteNumber(env.GATEWAY_DAILY_USAGE_UNITS, 900),
+    weeklyUsageUnits: positiveFiniteNumber(env.GATEWAY_WEEKLY_USAGE_UNITS, 3000),
     dailyBudgetCents: optionalBudgetCents(env.GATEWAY_DAILY_BUDGET_CENTS),
     weeklyBudgetCents: optionalBudgetCents(env.GATEWAY_WEEKLY_BUDGET_CENTS),
   };

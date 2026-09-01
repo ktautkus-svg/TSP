@@ -50,7 +50,9 @@ describe('client secret boundary', () => {
         for (const token of forbidden) expect(content).not.toContain(token);
       }
     }
-  }, 30_000);
+  // The complete suite scans this bundle while other workers are reading the
+  // same tree. Keep the assertion strict, but allow slower Windows/CI disks.
+  }, 60_000);
 });
 
 async function files(directory: string): Promise<string[]> {
