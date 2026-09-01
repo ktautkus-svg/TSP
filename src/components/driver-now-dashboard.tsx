@@ -6,6 +6,7 @@ import type { RouteProgress } from '@/application/routes/route-workday';
 import { RouteMapView } from '@/components/route-map';
 import { driverNowCopy } from '@/data/driver-ui';
 import type { DeliveryStop, Route } from '@/domain/route';
+import { routingCoordinates } from '@/domain/location-park-memory';
 import type { RoutingLocation } from '@/domain/routing/models';
 import { useElapsedRouteTime } from '@/hooks/use-elapsed-route-time';
 import { stitchColorsFor } from '@/theme';
@@ -133,7 +134,12 @@ function routeMap(route: Route, stops: DeliveryStop[]): { start: RoutingLocation
   const start = endpointLocation('start', route.startLocation);
   const end = endpointLocation('end', route.endLocation ?? route.startLocation);
   if (!start || !end) return null;
-  const mappedStops = stops.flatMap((stop) => Number.isFinite(stop.latitude) && Number.isFinite(stop.longitude) ? [{ id: stop.id, label: stop.address, address: stop.address, latitude: stop.latitude as number, longitude: stop.longitude as number }] : []);
+  const mappedStops = stops.flatMap((stop) => {
+    const coords = routingCoordinates(stop);
+    return coords
+      ? [{ id: stop.id, label: stop.address, address: stop.address, latitude: coords.latitude, longitude: coords.longitude }]
+      : [];
+  });
   return { start, stops: mappedStops, end };
 }
 

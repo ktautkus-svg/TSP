@@ -2,7 +2,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import {
   isSupportedLocalSchemaVersion,
-  omitLegacyV28StopColumns,
+  omitUnavailableParkStopColumns,
   SCHEMA_VERSION,
 } from '@/database/migrations';
 import { LOCAL_ACCESS_PREFERENCE_PREFIX } from '@/application/auth/local-access';
@@ -41,6 +41,7 @@ const tables = [
   'routing_recalculations',
   'import_audits',
   'saved_locations',
+  'location_park_memory',
   'route_creation_commands',
   'excel_import_sessions',
   'excel_import_rows',
@@ -80,9 +81,16 @@ export async function createPwaBackup(
   }
   const data = {} as Record<BackupTable, BackupRow[]>;
   for (const table of tables) {
-    data[table] = await db.getAllAsync<BackupRow>(`SELECT * FROM ${table}`);
-    if (table === 'delivery_stops') {
-      data[table] = data[table].map((row) => omitLegacyV28StopColumns(row));
+    try {
+      data[table] = await db.getAllAsync<BackupRow>(`SELECT * FROM ${table}`);
+    } catch (error) {
+      // Schema-27 backups / DBs that have not opened since park-memory returned
+      // do not have location_park_memory yet.
+      if (table === 'location_park_memory' && /no such table/i.test(String(error))) {
+        data[table] = [];
+        continue;
+      }
+      throw error;
     }
     if (table === 'app_preferences') {
       data[table] = data[table].filter((row) =>
@@ -120,6 +128,10 @@ export function parsePwaBackup(raw: string): PwaBackup {
   }
   for (const table of tables) {
     if (!Array.isArray(candidate.tables[table])) {
+      if (table === 'location_park_memory' && candidate.schemaVersion === 27) {
+        candidate.tables[table] = [];
+        continue;
+      }
       throw new Error(`Atsarginėje kopijoje trūksta lentelės „${table}“ duomenų.`);
     }
     for (const row of candidate.tables[table]) {
@@ -150,17 +162,20 @@ export async function restorePwaBackup(db: SQLiteDatabase, backup: PwaBackup): P
   await db.withTransactionAsync(async () => {
     await db.execAsync('PRAGMA defer_foreign_keys = ON;');
     for (const table of [...tables].reverse()) {
+      const exists = (await db.getAllAsync<{ name: string }>(`PRAGMA table_info(${table})`)).length > 0;
+      if (!exists) continue;
       await db.runAsync(`DELETE FROM ${table}`);
     }
     for (const table of tables) {
       const allowedColumns = new Set(
         (await db.getAllAsync<{ name: string }>(`PRAGMA table_info(${table})`)).map((column) => column.name),
       );
+      if (allowedColumns.size === 0) continue;
       const sourceRows = table === 'app_preferences'
         ? parsed.tables[table].filter((row) => typeof row.key !== 'string' || !row.key.startsWith(LOCAL_ACCESS_PREFERENCE_PREFIX))
         : parsed.tables[table];
       const rows = table === 'delivery_stops'
-        ? sourceRows.map((row) => omitLegacyV28StopColumns(row))
+        ? sourceRows.map((row) => omitUnavailableParkStopColumns(row, allowedColumns))
         : sourceRows;
       for (const row of rows) {
         const columns = Object.keys(row);

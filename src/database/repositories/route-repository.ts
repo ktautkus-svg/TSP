@@ -59,6 +59,12 @@ type DeliveryStopRow = {
   geocoding_error: string | null;
   latitude: number | null;
   longitude: number | null;
+  park_latitude?: number | null;
+  park_longitude?: number | null;
+  park_heading?: number | null;
+  park_accuracy_m?: number | null;
+  park_sample_count?: number | null;
+  park_sampled_at?: string | null;
   delivery_time_from: string | null;
   delivery_time_to: string | null;
   required_time_window: number;
@@ -179,6 +185,12 @@ function mapStop(row: DeliveryStopRow): DeliveryStop {
     geocodingError: row.geocoding_error,
     latitude: row.latitude,
     longitude: row.longitude,
+    parkLatitude: row.park_latitude ?? null,
+    parkLongitude: row.park_longitude ?? null,
+    parkHeading: row.park_heading ?? null,
+    parkAccuracyM: row.park_accuracy_m ?? null,
+    parkSampleCount: row.park_sample_count ?? null,
+    parkSampledAt: row.park_sampled_at ?? null,
     deliveryTimeFrom: row.delivery_time_from,
     deliveryTimeTo: row.delivery_time_to,
     requiredTimeWindow: row.required_time_window === 1,

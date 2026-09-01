@@ -11,12 +11,13 @@ import {
   parsePwaBackup,
   restorePwaBackup,
 } from '../../src/application/backup/pwa-backup';
-import { CreateDraftRouteWithStops } from '../../src/application/routes/route-commands';
+import { ActivateRoute, CreateDraftRouteWithStops } from '../../src/application/routes/route-commands';
 import {
   COMPATIBLE_LEGACY_SCHEMA_VERSIONS,
   migrateDatabase,
   SCHEMA_VERSION,
 } from '../../src/database/migrations';
+import { LocationParkMemoryRepository } from '../../src/database/repositories/location-park-memory-repository';
 import { ExcelImportRepository } from '../../src/database/repositories/excel-import-repository';
 import { LOGISTICS_EXCEL_V1, type ExcelImportPreview } from '../../src/domain/import/excel-models';
 
@@ -50,10 +51,18 @@ function migration(index: number): string {
   return match[1];
 }
 
-function schema27(): ExpoLikeDatabase {
+function schemaThrough(version: number): ExpoLikeDatabase {
   const adapter = new ExpoLikeDatabase();
-  for (let index = 1; index <= SCHEMA_VERSION; index += 1) adapter.raw.exec(migration(index));
+  for (let index = 1; index <= version; index += 1) adapter.raw.exec(migration(index));
   return adapter;
+}
+
+function schema27(): ExpoLikeDatabase {
+  return schemaThrough(27);
+}
+
+function schema28(): ExpoLikeDatabase {
+  return schemaThrough(28);
 }
 
 function leftoverV28(): ExpoLikeDatabase {
@@ -144,13 +153,15 @@ function excelPreview(id = 'excel-leftover'): ExcelImportPreview {
   };
 }
 
-describe('legacy schema 28 leftover after park-memory rollback', () => {
-  it('keeps SCHEMA_VERSION at 27 and treats 28 as compatible leftover', () => {
-    expect(SCHEMA_VERSION).toBe(27);
-    expect(COMPATIBLE_LEGACY_SCHEMA_VERSIONS).toEqual([28]);
-    expect(source).not.toContain('ensureParkMemorySchema');
-    expect(source).not.toMatch(/CREATE TABLE(?: IF NOT EXISTS)? location_park_memory/);
-    expect(source).not.toContain('SCHEMA_VERSION = 28');
+describe('schema 28 park-memory with leftover-28 clients', () => {
+  it('makes schema 28 first-class with an idempotent park-memory migration', () => {
+    expect(SCHEMA_VERSION).toBe(28);
+    expect(COMPATIBLE_LEGACY_SCHEMA_VERSIONS).toEqual([27]);
+    expect(source).toContain('ensureParkMemorySchema');
+    expect(source).toMatch(/CREATE TABLE IF NOT EXISTS location_park_memory/);
+    expect(source).toContain('SCHEMA_VERSION = 28');
+    expect(migration(28)).not.toContain('BEGIN IMMEDIATE');
+    expect(source).toMatch(/if \(currentVersion < 28\) \{[\s\S]*ensureParkMemorySchema/);
   });
 
   it('opens a user_version 28 database without wiping routes or blocking import writes', async () => {
@@ -191,6 +202,61 @@ describe('legacy schema 28 leftover after park-memory rollback', () => {
     expect(created.stopIds).toHaveLength(1);
     expect(adapter.raw.prepare('SELECT status FROM routes WHERE id = ?').get(created.routeId))
       .toMatchObject({ status: 'draft' });
+    expect(adapter.raw.prepare('PRAGMA table_info(delivery_stops)').all().map((column) => String(column.name)))
+      .toEqual(expect.arrayContaining(['park_latitude', 'park_longitude', 'park_sampled_at']));
+  });
+
+  it('reuses leftover courtyard pins after migrate and can start loading', async () => {
+    const adapter = leftoverV28();
+    const db = adapter as unknown as SQLiteDatabase;
+    await new LocationParkMemoryRepository(db).save(
+      'Vilniaus g. 1, Šiauliai, Lietuva',
+      {
+        latitude: 55.93032,
+        longitude: 23.31028,
+        heading: 175,
+        accuracyM: 12,
+        sampleCount: 1,
+        lastSampledAt: '2026-09-01T15:00:00.000Z',
+      },
+      '2026-09-01T15:00:00.000Z',
+    );
+    await migrateDatabase(db);
+
+    const created = await new CreateDraftRouteWithStops(db).execute({
+      commandId: 'reuse-leftover-pin',
+      id: 'route-reuse',
+      date: '2026-09-01',
+      startLocation: endpoint,
+      endLocation: endpoint,
+      stops: [{
+        originalOrder: 1,
+        orderNumber: 'S1',
+        recipient: 'Gavėjas',
+        originalAddress: 'Vilniaus g. 1, Šiauliai',
+        geocodingQuery: 'Vilniaus g. 1, Šiauliai',
+        normalizedAddress: 'Vilniaus g. 1, Šiauliai, Lietuva',
+        addressValidationState: 'auto_confirmed',
+        latitude: 55.93,
+        longitude: 23.31,
+        deliveryTimeFrom: null,
+        deliveryTimeTo: null,
+        requiredTimeWindow: false,
+        weightKg: 40,
+        phone: null,
+        notes: null,
+      }],
+    });
+    expect(adapter.raw.prepare('SELECT park_latitude, park_longitude FROM delivery_stops WHERE id = ?')
+      .get(created.stopIds[0])).toMatchObject({
+      park_latitude: 55.93032,
+      park_longitude: 23.31028,
+    });
+
+    await db.runAsync("UPDATE routes SET status = 'planned' WHERE id = ?", created.routeId);
+    await expect(new ActivateRoute(db).execute(created.routeId)).resolves.toEqual({ idempotent: false });
+    expect(adapter.raw.prepare('SELECT status FROM routes WHERE id = ?').get(created.routeId))
+      .toMatchObject({ status: 'loading' });
   });
 
   it('still rejects a newer unknown schema', async () => {
@@ -210,7 +276,7 @@ describe('legacy schema 28 leftover after park-memory rollback', () => {
     expect(adapter.raw.prepare("SELECT COUNT(*) AS n FROM location_park_memory").get()).toMatchObject({ n: 0 });
   });
 
-  it('backs up a leftover v28 database as schema 27 without park columns', async () => {
+  it('backs up a leftover v28 database as schema 28 with park columns', async () => {
     const adapter = leftoverV28();
     const db = adapter as unknown as SQLiteDatabase;
     await migrateDatabase(db);
@@ -244,8 +310,9 @@ describe('legacy schema 28 leftover after park-memory rollback', () => {
     );
 
     const backup = await createPwaBackup(db, '1.0.0', new Date('2026-09-01T16:00:00Z'));
-    expect(backup.schemaVersion).toBe(27);
-    expect(backup.tables.delivery_stops[0]).not.toHaveProperty('park_latitude');
+    expect(backup.schemaVersion).toBe(28);
+    expect(backup.tables.delivery_stops[0]).toMatchObject({ park_latitude: 55.9, park_longitude: 23.3 });
+    expect(backup.tables.location_park_memory).toEqual([]);
     expect(JSON.stringify(backup)).toContain('route-backup');
   });
 
@@ -285,14 +352,52 @@ describe('legacy schema 28 leftover after park-memory rollback', () => {
     };
     expect(() => parsePwaBackup(JSON.stringify(backup))).not.toThrow();
 
-    const target = schema27();
+    const target = schema28();
     await restorePwaBackup(target as unknown as SQLiteDatabase, backup);
     expect(target.raw.prepare('SELECT id FROM routes').get()).toMatchObject({ id: created.routeId });
-    expect(target.raw.prepare('PRAGMA table_info(delivery_stops)').all().map((column) => String(column.name)))
-      .not.toEqual(expect.arrayContaining(['park_latitude']));
+    expect(target.raw.prepare('SELECT park_latitude, park_longitude FROM delivery_stops').get())
+      .toMatchObject({ park_latitude: 55.9, park_longitude: 23.3 });
   });
 
-  it('does not publish leftover park columns in a cloud snapshot', async () => {
+  it('restores a schema-27 backup onto schema 28 without requiring location_park_memory', async () => {
+    const sourceDb = schema27();
+    await new CreateDraftRouteWithStops(sourceDb as unknown as SQLiteDatabase).execute({
+      commandId: 'restore-schema-27',
+      id: 'route-v27',
+      date: '2026-09-01',
+      startLocation: endpoint,
+      endLocation: endpoint,
+      stops: [{
+        originalOrder: 1,
+        orderNumber: 'S1',
+        recipient: 'Gavėjas',
+        originalAddress: 'Vilniaus g. 1, Šiauliai',
+        geocodingQuery: 'Vilniaus g. 1, Šiauliai',
+        normalizedAddress: 'Vilniaus g. 1, Šiauliai, Lietuva',
+        addressValidationState: 'auto_confirmed',
+        latitude: 55.93,
+        longitude: 23.31,
+        deliveryTimeFrom: null,
+        deliveryTimeTo: null,
+        requiredTimeWindow: false,
+        weightKg: 40,
+        phone: null,
+        notes: null,
+      }],
+    });
+    const backup = await createPwaBackup(sourceDb as unknown as SQLiteDatabase, '1.0.0');
+    backup.schemaVersion = 27;
+    delete (backup.tables as { location_park_memory?: unknown }).location_park_memory;
+    expect(() => parsePwaBackup(JSON.stringify(backup))).not.toThrow();
+
+    const target = schema28();
+    await restorePwaBackup(target as unknown as SQLiteDatabase, backup);
+    expect(target.raw.prepare('SELECT id FROM routes').get()).toMatchObject({ id: 'route-v27' });
+    expect(target.raw.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='location_park_memory'").get())
+      .toMatchObject({ name: 'location_park_memory' });
+  });
+
+  it('publishes courtyard park columns in a cloud snapshot', async () => {
     const adapter = leftoverV28();
     const db = adapter as unknown as SQLiteDatabase;
     await migrateDatabase(db);
@@ -326,8 +431,7 @@ describe('legacy schema 28 leftover after park-memory rollback', () => {
     );
 
     const snapshot = await exportRouteSnapshot(db, 'route-sync');
-    expect(snapshot.stops[0]).not.toHaveProperty('park_latitude');
-    expect(snapshot.stops[0]).not.toHaveProperty('park_longitude');
+    expect(snapshot.stops[0]).toMatchObject({ park_latitude: 55.9, park_longitude: 23.3 });
   });
 
   it('applies a leftover-28 snapshot onto a schema-27 peer', async () => {
