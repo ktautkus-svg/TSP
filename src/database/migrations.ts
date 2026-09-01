@@ -2,6 +2,28 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 export const SCHEMA_VERSION = 27;
 
+/**
+ * PWA clients that ran courtyard park-memory (#21/#22) are already at
+ * `user_version` 28. That revision only added unused `location_park_memory`
+ * and `delivery_stops.park_*` leftovers. The app no longer reads them, but
+ * throwing here would brick those clients until site data is cleared.
+ */
+export const COMPATIBLE_LEGACY_SCHEMA_VERSIONS = [28] as const;
+
+export const LEGACY_V28_DELIVERY_STOP_COLUMNS = [
+  'park_latitude',
+  'park_longitude',
+  'park_heading',
+  'park_accuracy_m',
+  'park_sample_count',
+  'park_sampled_at',
+] as const;
+
+export function isSupportedLocalSchemaVersion(version: number): boolean {
+  return version === SCHEMA_VERSION
+    || (COMPATIBLE_LEGACY_SCHEMA_VERSIONS as readonly number[]).includes(version);
+}
+
 const migrationV1 = `
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
@@ -1263,6 +1285,9 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
   let currentVersion = result?.user_version ?? 0;
 
   if (currentVersion > SCHEMA_VERSION) {
+    if (isSupportedLocalSchemaVersion(currentVersion)) {
+      return;
+    }
     throw new Error(
       `Duomenų bazės versija ${currentVersion} yra naujesnė už programos palaikomą ${SCHEMA_VERSION}.`,
     );
