@@ -7,6 +7,8 @@ import { completionPunctuality as assessCompletionPunctuality } from '@/domain/l
 import { isLoadingFailureReason, type LoadingFailureReason } from '@/domain/loading-failure';
 import type { DeliveryStop, Route, RouteCompletionSummary, RouteEndpoint } from '@/domain/route';
 import { assertRouteTransition, validateOdometerInput as validateOdometer } from '@/domain/shared-validation';
+import { parkPinForAddress, rememberParkPinFromGps } from '@/application/location/remember-park-pin';
+import type { GpsSample } from '@/domain/location-park-memory';
 import { RouteCommandError } from './route-commands';
 import { RefreshRouteEtas } from './route-eta';
 
@@ -497,6 +499,7 @@ export class AddStopDuringDelivery extends WorkdayCommand {
       );
       const originalOrder = (orders?.maxOriginal ?? 0) + 1;
       const activeOrder = (orders?.maxActive ?? 0) + 1;
+      const parkPin = await parkPinForAddress(this.db, input.normalizedAddress || input.originalAddress);
       await this.db.runAsync(
         `INSERT INTO delivery_stops (
           id, route_id, original_order, active_order, recipient, address,
@@ -520,6 +523,22 @@ export class AddStopDuringDelivery extends WorkdayCommand {
         now,
         now,
       );
+      if (parkPin) {
+        await this.db.runAsync(
+          `UPDATE delivery_stops
+           SET park_latitude = ?, park_longitude = ?, park_heading = ?, park_accuracy_m = ?,
+               park_sample_count = ?, park_sampled_at = ?, updated_at = ?
+           WHERE id = ?`,
+          parkPin.latitude,
+          parkPin.longitude,
+          parkPin.heading,
+          parkPin.accuracyM,
+          parkPin.sampleCount,
+          parkPin.lastSampledAt,
+          now,
+          stopId,
+        );
+      }
       // Recomputed directly from delivery_status, unlike the draft-phase
       // updateRouteTotals() in route-commands.ts which treats every stop as
       // "remaining" — that would be wrong here since some stops are already
@@ -543,7 +562,11 @@ export class AddStopDuringDelivery extends WorkdayCommand {
 }
 
 export class MarkStopDelivered extends WorkdayCommand {
-  async execute(routeId: string, stopId: string): Promise<{ idempotent: boolean; actionId: string | null }> {
+  async execute(
+    routeId: string,
+    stopId: string,
+    options: { gpsFix?: GpsSample | null } = {},
+  ): Promise<{ idempotent: boolean; actionId: string | null }> {
     const route = await this.route(routeId);
     const stop = await this.stop(routeId, stopId);
     if (stop.deliveryStatus === 'delivered') return { idempotent: true, actionId: null };
@@ -577,6 +600,13 @@ export class MarkStopDelivered extends WorkdayCommand {
         failureReason: stop.failureReason, failureComment: stop.failureComment, attemptId,
       }, true);
     });
+    if (options.gpsFix) {
+      try {
+        await rememberParkPinFromGps(this.db, stop, options.gpsFix, now);
+      } catch {
+        // Delivery already committed. A bad GPS write must not roll it back.
+      }
+    }
     await new RefreshRouteEtas(this.db, this.clock).execute(routeId);
     return { idempotent: false, actionId };
   }

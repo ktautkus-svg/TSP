@@ -15,6 +15,7 @@ import type { DraftShipmentLineInput } from '@/domain/shipment-line';
 import type { CandidateLeg, CandidateStopSchedule } from '@/domain/routing/models';
 import { persistCandidateEtas } from './route-eta';
 import { firstBlockerMessage, loadDepartureReadiness } from '@/application/operations/departure-readiness';
+import { parkPinForAddress } from '@/application/location/remember-park-pin';
 import { isUsablePhone, normalizePhone } from '@/domain/phone';
 import { addressMemoryKey } from '@/database/repositories/address-resolution-memory-repository';
 
@@ -775,6 +776,7 @@ async function insertStop(
   const importAddress = stop.normalizedAddress ?? stop.originalAddress;
   const phone = stop.phone ?? await rememberedContactPhone(db, importAddress);
   if (stop.phone) await rememberContactPhone(db, importAddress, stop.phone, now);
+  const parkPin = await parkPinForAddress(db, importAddress);
   await db.runAsync(
     `INSERT INTO delivery_stops (
       id, source_stop_id, route_id, original_order, active_order, order_number, recipient,
@@ -810,6 +812,22 @@ async function insertStop(
     now,
     now,
   );
+  if (parkPin) {
+    await db.runAsync(
+      `UPDATE delivery_stops
+       SET park_latitude = ?, park_longitude = ?, park_heading = ?, park_accuracy_m = ?,
+           park_sample_count = ?, park_sampled_at = ?, updated_at = ?
+       WHERE id = ?`,
+      parkPin.latitude,
+      parkPin.longitude,
+      parkPin.heading,
+      parkPin.accuracyM,
+      parkPin.sampleCount,
+      parkPin.lastSampledAt,
+      now,
+      stopId,
+    );
+  }
   for (const line of stop.shipmentLines ?? []) {
     await db.runAsync(
       `INSERT INTO shipment_lines (

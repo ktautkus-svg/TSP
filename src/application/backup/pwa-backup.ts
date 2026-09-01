@@ -37,6 +37,7 @@ const tables = [
   'routing_recalculations',
   'import_audits',
   'saved_locations',
+  'location_park_memory',
   'route_creation_commands',
   'excel_import_sessions',
   'excel_import_rows',
