@@ -8,7 +8,7 @@ import {
     Text,
     View,
 } from 'react-native';
-import Svg, { Defs, LinearGradient, Path, Stop } from 'react-native-svg';
+import Svg, { Circle, Defs, G, Line, LinearGradient, Stop } from 'react-native-svg';
 
 import type { RouteWeatherScene } from '@/application/weather/route-weather';
 import { cockpitColorsFor } from '@/theme';
@@ -16,7 +16,9 @@ import { useTheme } from '@/ui/theme';
 import { fonts } from '@/ui/tokens';
 
 type CockpitPalette = ReturnType<typeof cockpitColorsFor>;
-const ARC_LENGTH = 470;
+/** Circumference of the steering-rim progress stroke (r = 46). */
+const WHEEL_RADIUS = 46;
+const WHEEL_CIRCUMFERENCE = 2 * Math.PI * WHEEL_RADIUS;
 const SCENE_ROTATION_INTERVAL_MS = 30 * 60 * 1000;
 
 const sceneAssets = {
@@ -38,11 +40,6 @@ export interface RoadProgressBarProps {
   readonly completed?: boolean;
   readonly compact?: boolean;
   readonly weatherScene?: RouteWeatherScene | null;
-  readonly breakdown?: {
-    readonly stopsFraction: number;
-    readonly weightFraction: number;
-    readonly distanceFraction: number;
-  };
 }
 
 export function RoadProgressBar({
@@ -50,7 +47,6 @@ export function RoadProgressBar({
   completed = false,
   compact = false,
   weatherScene,
-  breakdown,
 }: RoadProgressBarProps) {
   const { scheme } = useTheme();
   const cockpit = cockpitColorsFor(scheme);
@@ -65,6 +61,7 @@ export function RoadProgressBar({
   const selectedSceneKey = availableScenes[sceneIndex % availableScenes.length];
   const [displayedSceneKey, setDisplayedSceneKey] = useState(selectedSceneKey);
   const sceneOpacity = useRef(new Animated.Value(1)).current;
+  const progressStroke = Math.max(0.01, displayedProgress * WHEEL_CIRCUMFERENCE);
 
   useEffect(() => {
     void AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion);
@@ -144,44 +141,53 @@ export function RoadProgressBar({
               <Text style={styles.sceneBadgeText}>{weatherReadoutLabel(weatherScene)}</Text>
             </View>
           ) : null}
-          <Svg pointerEvents="none" style={[styles.cockpitCowl, compact && styles.cockpitCowlCompact]} viewBox="0 0 430 132">
-            <Defs>
-              <LinearGradient id="dashboardSurface" x1="0" y1="0" x2="0" y2="1">
-                <Stop offset="0" stopColor={cockpit.metalMid} />
-                <Stop offset="0.18" stopColor={cockpit.metalDark} />
-                <Stop offset="1" stopColor={cockpit.primaryDark} />
-              </LinearGradient>
-              <LinearGradient id="steeringProgress" x1="0" y1="0" x2="1" y2="0">
-                <Stop offset="0" stopColor={cockpit.primaryDark} />
-                <Stop offset="0.6" stopColor={cockpit.primary} />
-                <Stop offset="1" stopColor={cockpit.routeBright} />
-              </LinearGradient>
-            </Defs>
-            <Path
-              d="M 0 70 Q 215 20 430 70 L 430 132 L 0 132 Z"
-              fill="url(#dashboardSurface)"
-            />
-            <Path
-              d="M 18 72 Q 215 27 412 72"
-              fill="none"
-              stroke={cockpit.metalLight}
-              strokeLinecap="round"
-              strokeWidth={6}
-            />
-            <Path
-              d="M 18 72 Q 215 27 412 72"
-              fill="none"
-              stroke="url(#steeringProgress)"
-              strokeDasharray={`${Math.max(1, displayedProgress * ARC_LENGTH)} ${ARC_LENGTH}`}
-              strokeLinecap="round"
-              strokeWidth={4}
-            />
-          </Svg>
-          <View pointerEvents="none" style={[styles.progressReadout, compact && styles.progressReadoutCompact]}>
-            <Text style={styles.percent}>{Math.round(clamped * 100)}%</Text>
-            {breakdown ? <Text numberOfLines={1} style={styles.breakdown}>
-              Taškai {percent(breakdown.stopsFraction)} · Svoris {percent(breakdown.weightFraction)} · Kelias {percent(breakdown.distanceFraction)}
-            </Text> : null}
+          {/* Compact steering-rim progress: no opaque dashboard card over the road. */}
+          <View pointerEvents="none" style={[styles.steeringWheelWrap, compact && styles.steeringWheelWrapCompact]}>
+            <Svg
+              pointerEvents="none"
+              style={[styles.steeringWheelSvg, compact && styles.steeringWheelSvgCompact]}
+              testID="route-steering-progress"
+              viewBox="0 0 140 140">
+              <Defs>
+                <LinearGradient id="steeringProgress" x1="0" y1="0" x2="1" y2="1">
+                  <Stop offset="0" stopColor={cockpit.primaryDark} />
+                  <Stop offset="0.55" stopColor={cockpit.primary} />
+                  <Stop offset="1" stopColor={cockpit.routeBright} />
+                </LinearGradient>
+              </Defs>
+              <G transform="translate(70 70)">
+                {/* Soft hub disc keeps the % readable without hiding the road. */}
+                <Circle cx={0} cy={0} fill="rgba(8, 13, 18, 0.42)" r={34} />
+                <Circle
+                  cx={0}
+                  cy={0}
+                  fill="none"
+                  r={WHEEL_RADIUS}
+                  stroke={cockpit.metalDark}
+                  strokeOpacity={0.55}
+                  strokeWidth={11}
+                />
+                <Circle
+                  cx={0}
+                  cy={0}
+                  fill="none"
+                  r={WHEEL_RADIUS}
+                  stroke="url(#steeringProgress)"
+                  strokeDasharray={`${progressStroke} ${WHEEL_CIRCUMFERENCE}`}
+                  strokeLinecap="round"
+                  strokeWidth={7}
+                  transform="rotate(-90)"
+                />
+                <Circle cx={0} cy={0} fill="none" r={33} stroke={cockpit.metalLight} strokeOpacity={0.4} strokeWidth={2} />
+                <Line stroke={cockpit.metalLight} strokeLinecap="round" strokeOpacity={0.55} strokeWidth={6} x1={0} x2={0} y1={-4} y2={-28} />
+                <Line stroke={cockpit.metalLight} strokeLinecap="round" strokeOpacity={0.55} strokeWidth={6} x1={0} x2={-24} y1={2} y2={18} />
+                <Line stroke={cockpit.metalLight} strokeLinecap="round" strokeOpacity={0.55} strokeWidth={6} x1={0} x2={24} y1={2} y2={18} />
+                <Circle cx={0} cy={0} fill={cockpit.primary} r={9} stroke={cockpit.white} strokeOpacity={0.75} strokeWidth={1.5} />
+              </G>
+            </Svg>
+            <View pointerEvents="none" style={styles.progressReadout}>
+              <Text style={[styles.percent, compact && styles.percentCompact]}>{Math.round(clamped * 100)}%</Text>
+            </View>
           </View>
           {completed ? (
             <View pointerEvents="none" style={styles.completedMessage} testID="route-completed-windshield-message">
@@ -213,11 +219,6 @@ function weatherLabel(condition: RouteWeatherScene['condition'] | undefined): st
 
 function timeLabel(timeOfDay: RouteWeatherScene['timeOfDay'] | undefined): string {
   return ({ dawn: 'AUŠRA', day: 'DIENA', dusk: 'SAULĖLYDIS', night: 'NAKTIS' } as const)[timeOfDay ?? 'day'];
-}
-
-function percent(value: number): string {
-  const fraction = Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
-  return `${Math.round(fraction * 100)}%`;
 }
 
 type RoadSceneKey = keyof typeof sceneAssets;
@@ -289,28 +290,34 @@ const createStyles = (cockpit: CockpitPalette) => StyleSheet.create({
     height: undefined,
   },
   sceneImage: { width: '100%', height: '100%', transform: [{ scale: 1.06 }] },
-  cockpitCowl: {
-    position: 'absolute',
-    right: 0,
-    bottom: 0,
-    left: 0,
-    width: '100%',
-    height: 132,
-  },
-  cockpitCowlCompact: { height: 112 },
   sceneBadge: { position: 'absolute', top: 14, left: 18, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 8, backgroundColor: 'rgba(8, 13, 18, 0.62)' },
   weatherBadge: { position: 'absolute', top: 14, right: 18, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 8, backgroundColor: 'rgba(8, 13, 18, 0.62)' },
   sceneBadgeCompact: { top: 10, left: 10, paddingHorizontal: 10, paddingVertical: 6 },
   weatherBadgeCompact: { top: 10, right: 10, paddingHorizontal: 10, paddingVertical: 6 },
   sceneBadgeText: { color: cockpit.white, fontFamily: fonts.headingSemiBold, fontSize: 10, letterSpacing: 0.7 },
+  steeringWheelWrap: {
+    position: 'absolute',
+    bottom: 4,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 112,
+  },
+  steeringWheelWrapCompact: { height: 92, bottom: 2 },
+  steeringWheelSvg: {
+    width: 112,
+    height: 112,
+  },
+  steeringWheelSvgCompact: {
+    width: 92,
+    height: 92,
+  },
   progressReadout: {
     position: 'absolute',
-    right: 44,
-    bottom: 8,
-    left: 44,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  progressReadoutCompact: { right: 28, bottom: 6, left: 28 },
   completedMessage: {
     position: 'absolute',
     inset: 0,
@@ -328,16 +335,11 @@ const createStyles = (cockpit: CockpitPalette) => StyleSheet.create({
   percent: {
     color: cockpit.white,
     fontFamily: fonts.headingExtraBold,
-    fontSize: 20,
-    lineHeight: 23,
+    fontSize: 18,
+    lineHeight: 20,
+    textShadowColor: 'rgba(0, 0, 0, 0.55)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
-  breakdown: {
-    maxWidth: '100%',
-    color: cockpit.metalLight,
-    fontFamily: fonts.headingSemiBold,
-    fontSize: 10,
-    lineHeight: 13,
-    letterSpacing: 0.15,
-  },
+  percentCompact: { fontSize: 16, lineHeight: 18 },
 });
-

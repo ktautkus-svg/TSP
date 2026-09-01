@@ -723,7 +723,6 @@ export default function DeliveryScreen() {
               <RoadProgressBar
                 compact={compactDashboard}
                 fraction={compositeProgress?.fraction ?? 0}
-                breakdown={compositeProgress ?? undefined}
                 completed={Boolean(route?.returnArrivedAt)}
                 weatherScene={weatherScene}
               />
@@ -739,10 +738,11 @@ export default function DeliveryScreen() {
                   />
                   <View style={[styles.gaugeCenterStats, compactDashboard && styles.gaugeCenterStatsCompact]}>
                     <Text style={styles.gaugeCenterLabel}>LAIKAS</Text>
-                    <Text adjustsFontSizeToFit minimumFontScale={0.7} numberOfLines={1} style={styles.gaugeCenterValue}>{elapsedLabel(route?.startedAt ?? null, route?.returnArrivedAt ?? null)}</Text>
+                    <Text numberOfLines={1} style={styles.gaugeCenterValue}>{elapsedLabel(route?.startedAt ?? null, route?.returnArrivedAt ?? null)}</Text>
                     <View style={styles.gaugeCenterDivider} />
                     <Text style={styles.gaugeCenterLabel}>RIDA</Text>
-                    <Text adjustsFontSizeToFit minimumFontScale={0.7} numberOfLines={1} style={styles.gaugeCenterValue}>{formatMetric(progress.completedPlannedDistanceKm)} km</Text>
+                    <Text numberOfLines={1} style={styles.gaugeCenterValue}>{formatDistanceKm(progress.completedPlannedDistanceKm)}</Text>
+                    <Text style={styles.gaugeCenterUnit}>km</Text>
                   </View>
                   <InstrumentGauge
                     maximum={progress.totalStops}
@@ -794,26 +794,32 @@ export default function DeliveryScreen() {
                       <Text style={[styles.arrivalStatusText, { color: colors[nextStopWindow.color] }]}>{nextStopWindow.label}</Text>
                     </View>
                   </View>
-                  <View style={styles.contactRow} testID="dashboard-client-contact">
+                  <View style={styles.contactBlock} testID="dashboard-client-contact">
                     <View style={styles.flex}>
                       <Text style={styles.arrivalWindowLabel}>KLIENTO TELEFONAS</Text>
                       <Text style={styles.nextStopAddress}>{isUsablePhone(nextStop.phone) ? nextStop.phone : 'Nesuvestas'}</Text>
                     </View>
-                    <Pressable
-                      accessibilityLabel="Skambinti klientui"
-                      accessibilityState={{ disabled: !isUsablePhone(nextStop.phone) }}
-                      disabled={!isUsablePhone(nextStop.phone)}
-                      onPress={() => callStop(nextStop)}
-                      style={[styles.callButton, !isUsablePhone(nextStop.phone) && styles.callButtonDisabled]}
-                      testID="call-next-stop">
-                      <Text style={[styles.callButtonText, !isUsablePhone(nextStop.phone) && styles.callButtonTextDisabled]}>SKAMBINTI</Text>
-                    </Pressable>
+                    <View style={styles.stopInfoActions} testID="dashboard-stop-info-actions">
+                      <Pressable
+                        accessibilityLabel="Naviguoti į kitą stotelę"
+                        accessibilityRole="button"
+                        onPress={() => { void navigate(nextStop); }}
+                        style={[styles.dashboardActionButton, styles.stopInfoActionButton, styles.dashboardNavigateButton]}>
+                        <NavigateIcon size={compactDashboard ? 16 : 18} />
+                        <Text numberOfLines={1} style={[styles.dashboardActionText, styles.dashboardPrimaryActionText]}>NAVIGUOTI</Text>
+                      </Pressable>
+                      <Pressable
+                        accessibilityLabel="Skambinti klientui"
+                        accessibilityState={{ disabled: !isUsablePhone(nextStop.phone) }}
+                        disabled={!isUsablePhone(nextStop.phone)}
+                        onPress={() => callStop(nextStop)}
+                        style={[styles.dashboardActionButton, styles.stopInfoActionButton, styles.callButton, !isUsablePhone(nextStop.phone) && styles.callButtonDisabled]}
+                        testID="call-next-stop">
+                        <Text style={[styles.callButtonText, !isUsablePhone(nextStop.phone) && styles.callButtonTextDisabled]}>SKAMBINTI</Text>
+                      </Pressable>
+                    </View>
                   </View>
                   <View style={[styles.dashboardStopActions, compactDashboard && styles.dashboardStopActionsCompact]} testID="dashboard-stop-actions">
-                    <Pressable accessibilityLabel="Naviguoti į kitą stotelę" accessibilityRole="button" style={[styles.dashboardActionButton, styles.dashboardNavigateAction, styles.dashboardNavigateButton]} onPress={() => { void navigate(nextStop); }}>
-                      <NavigateIcon size={compactDashboard ? 18 : 20} />
-                      <Text numberOfLines={1} style={[styles.dashboardActionText, styles.dashboardPrimaryActionText]}>NAVIGUOTI</Text>
-                    </Pressable>
                     <View style={styles.dashboardOutcomeActions}>
                       <Pressable
                         disabled={busy}
@@ -1217,9 +1223,18 @@ function elapsedLabel(startedAt: string | null, endedAt: string | null = null): 
   return `${hours}:${String(minutes).padStart(2, '0')}`;
 }
 
-function formatMetric(value: number | null | undefined): string {
+/**
+ * Compact km readout for the narrow RIDA column. Keeps the Lithuanian decimal
+ * comma when a tenth is useful, but drops the fraction from 100 km upward so
+ * values never clip as "254,7…".
+ */
+function formatDistanceKm(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return '—';
-  return new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(value);
+  const fractionDigits = Math.abs(value) >= 100 ? 0 : 1;
+  return new Intl.NumberFormat('lt-LT', {
+    maximumFractionDigits: fractionDigits,
+    minimumFractionDigits: 0,
+  }).format(value);
 }
 
 function filterLabel(filter: DeliveryFilter): string {
@@ -1292,24 +1307,32 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   },
   gaugeRowCompact: { gap: 8 },
   gaugeCenterStats: {
-    width: 84,
+    width: 86,
     flexShrink: 0,
     minHeight: 96,
     alignSelf: 'center',
     paddingVertical: 8,
-    paddingHorizontal: 5,
+    paddingHorizontal: 4,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surfaceMuted,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 2,
+    gap: 1,
   },
-  gaugeCenterStatsCompact: { width: 78, minHeight: 88, paddingVertical: 6 },
+  gaugeCenterStatsCompact: { width: 80, minHeight: 88, paddingVertical: 5 },
   gaugeCenterLabel: { ...type.label, fontSize: 9, color: colors.textSecondary, textAlign: 'center' },
-  gaugeCenterValue: { color: colors.text, fontFamily: fonts.headingExtraBold, fontSize: 16, lineHeight: 19, textAlign: 'center' },
-  gaugeCenterDivider: { width: '100%', height: 1, marginVertical: 4, backgroundColor: colors.border },
+  gaugeCenterValue: {
+    color: colors.text,
+    fontFamily: fonts.headingExtraBold,
+    fontSize: 15,
+    lineHeight: 18,
+    textAlign: 'center',
+    width: '100%',
+  },
+  gaugeCenterUnit: { ...type.label, fontSize: 9, color: colors.textMuted, textAlign: 'center', marginTop: -1 },
+  gaugeCenterDivider: { width: '100%', height: 1, marginVertical: 3, backgroundColor: colors.border },
   routeMetrics: { flexDirection: 'row', paddingHorizontal: 14, borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
   routeMetricsCompact: { paddingHorizontal: 10 },
   routeMetricCard: {
@@ -1353,11 +1376,10 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   arrivalStatusDot: { width: 10, height: 10, borderRadius: 5, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.75, shadowRadius: 7, elevation: 4 },
   arrivalEta: { ...type.cardTitle, color: colors.text, fontSize: 14 },
   arrivalStatusText: { fontFamily: fonts.headingSemiBold, fontSize: 11, textAlign: 'right' },
-  // Single compact action row: primary NAVIGUOTI + ATLIKTA / NEATLIKTA side by side.
-  // Keeps ~48px thumb targets without the old stacked 94px action block.
+  // Outcome pair only — NAVIGUOTI sits beside SKAMBINTI in the stop-info row above.
   dashboardStopActions: { flexDirection: 'row', alignItems: 'stretch', gap: 6, minHeight: 48 },
   dashboardStopActionsCompact: { marginTop: 'auto' },
-  dashboardOutcomeActions: { flex: 1.85, flexDirection: 'row', gap: 6 },
+  dashboardOutcomeActions: { flex: 1, flexDirection: 'row', gap: 6 },
   dashboardActionButton: {
     minWidth: 0,
     minHeight: 48,
@@ -1369,18 +1391,20 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     flexDirection: 'row',
     gap: 5,
   },
-  dashboardNavigateAction: { flex: 1.2 },
   dashboardOutcomeButton: { flex: 1, minHeight: 48 },
   dashboardNavigateButton: { backgroundColor: colors.actionRoute },
   dashboardDeliveredButton: { backgroundColor: colors.success },
   dashboardFailedButton: { backgroundColor: colors.dangerSoft, borderWidth: 1, borderColor: colors.danger },
   dashboardActionIcon: { color: colors.textInverse, fontFamily: fonts.headingExtraBold, fontSize: 26, lineHeight: 28 },
   dashboardActionText: { ...type.button, color: colors.textInverse, fontSize: 12 },
-  dashboardPrimaryActionText: { fontSize: 13 },
+  dashboardPrimaryActionText: { fontSize: 12 },
   dashboardFailedActionText: { ...type.button, color: colors.danger, fontSize: 12 },
   flex: { flex: 1, minWidth: 0 },
+  contactBlock: { gap: 6 },
   contactRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  callButton: { minHeight: 40, minWidth: 100, borderRadius: radius.md, backgroundColor: colors.actionRoute, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.sm },
+  stopInfoActions: { flexDirection: 'row', alignItems: 'stretch', gap: 6 },
+  stopInfoActionButton: { flex: 1, minHeight: 44 },
+  callButton: { minHeight: 44, borderRadius: radius.md, backgroundColor: colors.actionRoute, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.sm },
   callButtonDisabled: { backgroundColor: colors.disabledSurface, borderWidth: 1, borderColor: colors.borderStrong },
   callButtonText: { ...type.button, color: colors.textInverse, fontSize: 12 },
   callButtonTextDisabled: { color: colors.textSecondary },
