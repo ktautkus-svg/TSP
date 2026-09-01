@@ -15,21 +15,36 @@ const wordmarkSource = require('../../assets/brand/firo-wordmark-color.png') as 
 const inverseWordmarkSource = require('../../assets/brand/firo-wordmark-inverse.png') as {
   readonly uri: string;
 };
+const markSource = require('../../assets/brand/firo-mark-color.png') as {
+  readonly uri: string;
+};
+const inverseMarkSource = require('../../assets/brand/firo-mark-inverse.png') as {
+  readonly uri: string;
+};
 
-/** Wide FR / FIRO badge aspect (~1.59). Keep render boxes matched to avoid letterboxing. */
+/** Full wordmark aspect (badge + FIRO caption). */
 const BADGE_ASPECT = 720 / 454;
+/** Wider landscape mark for compact headers — more elongated, no cramped caption. */
+const COMPACT_MARK_ASPECT = 720 / 343;
 
 function badgeSize(kind: 'compact' | 'default' | 'hero'): { width: number; height: number } {
-  // Compact fits BrandHeader next to the profile control; hero is the login lock-up.
-  const height = kind === 'compact' ? 48 : kind === 'hero' ? 128 : 60;
+  if (kind === 'compact') {
+    const height = 40;
+    return { width: Math.round(height * COMPACT_MARK_ASPECT), height };
+  }
+  // Hero is the login lock-up; default is the larger non-header wordmark.
+  const height = kind === 'hero' ? 128 : 60;
   return { width: Math.round(height * BADGE_ASPECT), height };
 }
 
 /** Shared FiRo lock-up for headers, authentication and compact navigation. */
 export function FiroBrand({ compact = false, hero = false, inverse = false, descriptor }: Readonly<FiroBrandProps>) {
   const foreground = inverse ? colors.textInverse : colors.brandNavy;
-  const { width, height } = badgeSize(compact ? 'compact' : hero ? 'hero' : 'default');
-  const source = inverse ? inverseWordmarkSource : wordmarkSource;
+  const kind = compact ? 'compact' : hero ? 'hero' : 'default';
+  const { width, height } = badgeSize(kind);
+  const source = compact
+    ? (inverse ? inverseMarkSource : markSource)
+    : (inverse ? inverseWordmarkSource : wordmarkSource);
 
   return (
     <View accessibilityLabel={descriptor ? `FiRo – ${descriptor}` : 'FiRo'} style={[styles.lockup, hero && styles.heroLockup]}>
