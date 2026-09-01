@@ -5,9 +5,11 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Never cancel an in-flight production deploy. A newer push to main waits
+# until this group is free instead of aborting Cloud Build / Cloud Run.
 concurrency:
   group: cloud-run-production
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
@@ -21,7 +23,7 @@ jobs:
   quality:
     name: Validate application
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -50,6 +52,9 @@ jobs:
       - name: Build PWA
         run: npm run pwa:build
 
+      - name: Validate PWA bundle contract
+        run: npm run pwa:test
+
   deploy:
     name: Deploy production revision
     needs: quality
@@ -71,51 +76,48 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Create or update Secret Manager values
+      - name: Bind existing Secret Manager values
         id: secrets
         shell: bash
-        env:
-          GATEWAY_DEVICE_SECRET: ${{ secrets.GATEWAY_DEVICE_SECRET }}
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-          GOOGLE_ROUTES_API_KEY: ${{ secrets.GOOGLE_ROUTES_API_KEY }}
-          GOOGLE_GEOCODING_API_KEY: ${{ secrets.GOOGLE_GEOCODING_API_KEY }}
-          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
-          GOOGLE_VISION_API_KEY: ${{ secrets.GOOGLE_VISION_API_KEY }}
-          HERE_API_KEY: ${{ secrets.HERE_API_KEY }}
-          TSP_INITIAL_ADMIN_PIN: ${{ secrets.TSP_INITIAL_ADMIN_PIN }}
         run: |
           set -euo pipefail
-          declare -A VALUES=(
-            [GATEWAY_DEVICE_SECRET]="${GATEWAY_DEVICE_SECRET}"
-            [GOOGLE_API_KEY]="${GOOGLE_API_KEY}"
-            [GOOGLE_ROUTES_API_KEY]="${GOOGLE_ROUTES_API_KEY}"
-            [GOOGLE_GEOCODING_API_KEY]="${GOOGLE_GEOCODING_API_KEY}"
-            [GOOGLE_MAPS_API_KEY]="${GOOGLE_MAPS_API_KEY}"
-            [GOOGLE_VISION_API_KEY]="${GOOGLE_VISION_API_KEY}"
-            [HERE_API_KEY]="${HERE_API_KEY}"
-            [TSP_INITIAL_ADMIN_PIN]="${TSP_INITIAL_ADMIN_PIN}"
+          SECRET_NAMES=(
+            GATEWAY_DEVICE_SECRET
+            GOOGLE_API_KEY
+            GOOGLE_ROUTES_API_KEY
+            GOOGLE_GEOCODING_API_KEY
+            GOOGLE_MAPS_API_KEY
+            GOOGLE_VISION_API_KEY
+            HERE_API_KEY
+            TSP_INITIAL_ADMIN_PIN
           )
-          pairs=()
-          for name in "${!VALUES[@]}"; do
-            value="${VALUES[$name]}"
-            if [ -z "$value" ]; then
-              continue
+          PAIRS=()
+          for name in "${SECRET_NAMES[@]}"; do
+            if gcloud secrets describe "$name" --project="$GCP_PROJECT_ID" >/dev/null 2>&1; then
+              PAIRS+=("${name}=${name}:latest")
             fi
-            gcloud secrets describe "$name" --project="$GCP_PROJECT_ID" >/dev/null 2>&1 || \
-              gcloud secrets create "$name" --replication-policy=automatic --project="$GCP_PROJECT_ID"
-            printf '%s' "$value" | gcloud secrets versions add "$name" --data-file=- --project="$GCP_PROJECT_ID" >/dev/null
-            pairs+=("${name}=${name}:latest")
           done
-          if [ -z "$GATEWAY_DEVICE_SECRET" ] || [ -z "$TSP_INITIAL_ADMIN_PIN" ]; then
-            echo 'GATEWAY_DEVICE_SECRET and TSP_INITIAL_ADMIN_PIN are required.' >&2
+          if ! gcloud secrets describe GATEWAY_DEVICE_SECRET --project="$GCP_PROJECT_ID" >/dev/null 2>&1; then
+            echo 'GATEWAY_DEVICE_SECRET missing in Secret Manager.' >&2
             exit 1
           fi
-          if [ -z "$GOOGLE_API_KEY$GOOGLE_ROUTES_API_KEY$GOOGLE_GEOCODING_API_KEY$GOOGLE_MAPS_API_KEY$GOOGLE_VISION_API_KEY$HERE_API_KEY" ]; then
-            echo 'At least one provider API key is required.' >&2
+          if ! gcloud secrets describe TSP_INITIAL_ADMIN_PIN --project="$GCP_PROJECT_ID" >/dev/null 2>&1; then
+            echo 'TSP_INITIAL_ADMIN_PIN missing in Secret Manager.' >&2
             exit 1
           fi
-          secrets_arg="$(IFS=,; echo "${pairs[*]}")"
-          echo "secrets_arg=$secrets_arg" >> "$GITHUB_OUTPUT"
+          PROVIDER_FOUND=false
+          for name in GOOGLE_API_KEY GOOGLE_ROUTES_API_KEY GOOGLE_GEOCODING_API_KEY GOOGLE_MAPS_API_KEY GOOGLE_VISION_API_KEY HERE_API_KEY; do
+            if gcloud secrets describe "$name" --project="$GCP_PROJECT_ID" >/dev/null 2>&1; then
+              PROVIDER_FOUND=true
+              break
+            fi
+          done
+          if [ "$PROVIDER_FOUND" = false ]; then
+            echo 'At least one provider API key is required in Secret Manager.' >&2
+            exit 1
+          fi
+          SECRETS_ARG=$(IFS=,; echo "${PAIRS[*]}")
+          echo "secrets_arg=$SECRETS_ARG" >> "$GITHUB_OUTPUT"
 
       - name: Grant Cloud Run access to secrets
         shell: bash
@@ -185,7 +187,7 @@ jobs:
         run: |
           set -euo pipefail
           git_sha="${GITHUB_SHA:0:7}"
-          revision="${CLOUD_RUN_SERVICE}-n${git_sha}"
+          new_rev="${CLOUD_RUN_SERVICE}-n${git_sha}"
 
           # An earlier failed revision can leave a generated revision name in
           # the service template. Clear that name before creating a fresh
@@ -217,9 +219,53 @@ jobs:
             --max-instances=1 \
             --no-traffic \
             --revision-suffix="n${git_sha}" \
+            --async \
             --set-secrets="${{ steps.secrets.outputs.secrets_arg }}" \
             --set-env-vars="GATEWAY_AUTH_MODE=none,GATEWAY_ENV=production,GATEWAY_REAL_PROVIDER_ARMED=${ARMED},GATEWAY_DAILY_BUDGET_CENTS=${DAILY_BUDGET_CENTS},GATEWAY_WEEKLY_BUDGET_CENTS=${WEEKLY_BUDGET_CENTS},GATEWAY_DAILY_USAGE_UNITS=${DAILY_USAGE_UNITS},GATEWAY_WEEKLY_USAGE_UNITS=${WEEKLY_USAGE_UNITS},APP_VERSION=${GITHUB_SHA}" \
             --quiet
+          ready=""
+          for _ in $(seq 1 90); do
+            created=$(gcloud run services describe "$CLOUD_RUN_SERVICE" \
+              --project="$GCP_PROJECT_ID" \
+              --region="$GCP_REGION" \
+              --format='value(status.latestCreatedRevisionName)')
+            ready=missing
+            created_ready=missing
+            if gcloud run revisions describe "$new_rev" \
+              --project="$GCP_PROJECT_ID" \
+              --region="$GCP_REGION" \
+              --format=json > /tmp/want-rev.json 2>/tmp/want-rev.err; then
+              ready=$(node ./scripts/cloud-run-ready-status.mjs < /tmp/want-rev.json)
+            else
+              echo "want describe failed: $(tr '\n' ' ' < /tmp/want-rev.err)"
+            fi
+            if gcloud run revisions describe "$created" \
+              --project="$GCP_PROJECT_ID" \
+              --region="$GCP_REGION" \
+              --format=json > /tmp/created-rev.json 2>/tmp/created-rev.err; then
+              created_ready=$(node ./scripts/cloud-run-ready-status.mjs < /tmp/created-rev.json)
+            fi
+            echo "$(date -u +%H:%M:%S) want ${new_rev} Ready=${ready}; created ${created} Ready=${created_ready}"
+            if [ "$ready" = True ]; then
+              break
+            fi
+            if [ "$created" = "$new_rev" ] && [ "$created_ready" = True ]; then
+              ready=True
+              break
+            fi
+            if [ "$ready" = False ] || { [ "$created" = "$new_rev" ] && [ "$created_ready" = False ]; }; then
+              echo "New Cloud Run revision failed to start" >&2
+              node -e "console.log(JSON.stringify(JSON.parse(require('fs').readFileSync('/tmp/want-rev.json','utf8')).status,null,2))" || true
+              exit 1
+            fi
+            sleep 5
+          done
+          if [ "$ready" != True ]; then
+            echo "Timed out waiting for ${new_rev}" >&2
+            cat /tmp/want-rev.err || true
+            node -e "console.log(JSON.stringify(JSON.parse(require('fs').readFileSync('/tmp/want-rev.json','utf8')).status,null,2))" || true
+            exit 1
+          fi
 
       - name: Verify deployment health
         shell: bash
