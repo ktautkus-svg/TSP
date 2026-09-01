@@ -660,11 +660,13 @@ export default function DeliveryScreen() {
   const nextStopWindow = arrivalWindowStatus(nextStop, route?.date);
   const wideLayout = viewportWidth >= 720;
   const compactDashboard = !wideLayout && viewportHeight < 900;
+  // Compact phones still get a readable cockpit: gauges stay large enough to
+  // read outdoors, while the action bar below is kept short (~48px).
   const gaugeSize = wideLayout
     ? 140
     : compactDashboard
-      ? Math.min(92, Math.max(82, (Math.min(viewportWidth, 430) - 126) / 2))
-      : Math.min(118, Math.max(92, (Math.min(viewportWidth, 430) - 140) / 2));
+      ? Math.min(114, Math.max(100, (Math.min(viewportWidth, 430) - 108) / 2))
+      : Math.min(122, Math.max(104, (Math.min(viewportWidth, 430) - 120) / 2));
   const compositeProgress = progress ? calculateCompositeRouteProgress({
     completedStops: progress.totalStops - progress.remainingStops,
     totalStops: progress.totalStops,
@@ -809,7 +811,7 @@ export default function DeliveryScreen() {
                   </View>
                   <View style={[styles.dashboardStopActions, compactDashboard && styles.dashboardStopActionsCompact]} testID="dashboard-stop-actions">
                     <Pressable accessibilityLabel="Naviguoti į kitą stotelę" accessibilityRole="button" style={[styles.dashboardActionButton, styles.dashboardNavigateAction, styles.dashboardNavigateButton]} onPress={() => { void navigate(nextStop); }}>
-                      <NavigateIcon size={24} />
+                      <NavigateIcon size={compactDashboard ? 18 : 20} />
                       <Text numberOfLines={1} style={[styles.dashboardActionText, styles.dashboardPrimaryActionText]}>NAVIGUOTI</Text>
                     </Pressable>
                     <View style={styles.dashboardOutcomeActions}>
@@ -818,7 +820,7 @@ export default function DeliveryScreen() {
                         onPress={() => { void delivered(nextStop.id); }}
                         style={[styles.dashboardActionButton, styles.dashboardOutcomeButton, styles.dashboardDeliveredButton, busy && styles.disabled]}
                         testID="dashboard-delivered-button">
-                        <DeliveredIcon size={21} />
+                        <DeliveredIcon size={compactDashboard ? 16 : 18} />
                         <Text numberOfLines={1} style={styles.dashboardActionText}>ATLIKTA</Text>
                       </Pressable>
                       <Pressable
@@ -826,7 +828,7 @@ export default function DeliveryScreen() {
                         onPress={() => beginFailed(nextStop.id)}
                         style={[styles.dashboardActionButton, styles.dashboardOutcomeButton, styles.dashboardFailedButton, busy && styles.disabled]}
                         testID="dashboard-failed-button">
-                        <FailedIcon color={colors.danger} size={21} />
+                        <FailedIcon color={colors.danger} size={compactDashboard ? 16 : 18} />
                         <Text numberOfLines={1} style={styles.dashboardFailedActionText}>NEATLIKTA</Text>
                       </Pressable>
                     </View>
@@ -1266,21 +1268,21 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     backgroundColor: colors.surface,
   },
   dashboardWide: { maxWidth: 1120, flexDirection: 'row', alignItems: 'flex-start', gap: spacing.lg, backgroundColor: colors.background },
-  dashboardPrimary: { width: '100%' },
+  dashboardPrimary: { width: '100%', flexShrink: 0 },
   dashboardPrimaryWide: { flex: 1.08, minWidth: 0, overflow: 'hidden', borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
   dashboardSecondary: { width: '100%' },
-  dashboardSecondaryMobile: { flexGrow: 1 },
+  dashboardSecondaryMobile: { flexGrow: 1, flexShrink: 1, minHeight: 0 },
   dashboardSecondaryWide: { flex: 0.92, minWidth: 320, gap: spacing.md },
   gaugePanel: {
     width: '100%',
     marginTop: -1,
-    paddingTop: 5,
-    paddingHorizontal: 14,
-    paddingBottom: 4,
+    paddingTop: 8,
+    paddingHorizontal: 12,
+    paddingBottom: 6,
     backgroundColor: colors.surface,
     zIndex: 2,
   },
-  gaugePanelCompact: { paddingTop: 2, paddingHorizontal: 10, paddingBottom: 2 },
+  gaugePanelCompact: { paddingTop: 6, paddingHorizontal: 8, paddingBottom: 4 },
   gaugeRow: {
     width: '100%',
     flexDirection: 'row',
@@ -1288,13 +1290,13 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     justifyContent: 'space-between',
     gap: 14,
   },
-  gaugeRowCompact: { gap: 6 },
+  gaugeRowCompact: { gap: 8 },
   gaugeCenterStats: {
     width: 84,
     flexShrink: 0,
-    minHeight: 88,
+    minHeight: 96,
     alignSelf: 'center',
-    paddingVertical: 7,
+    paddingVertical: 8,
     paddingHorizontal: 5,
     borderRadius: 10,
     borderWidth: 1,
@@ -1304,26 +1306,26 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     justifyContent: 'center',
     gap: 2,
   },
-  gaugeCenterStatsCompact: { width: 72, minHeight: 68, paddingVertical: 3 },
+  gaugeCenterStatsCompact: { width: 78, minHeight: 88, paddingVertical: 6 },
   gaugeCenterLabel: { ...type.label, fontSize: 9, color: colors.textSecondary, textAlign: 'center' },
-  gaugeCenterValue: { color: colors.text, fontFamily: fonts.headingExtraBold, fontSize: 15, lineHeight: 18, textAlign: 'center' },
+  gaugeCenterValue: { color: colors.text, fontFamily: fonts.headingExtraBold, fontSize: 16, lineHeight: 19, textAlign: 'center' },
   gaugeCenterDivider: { width: '100%', height: 1, marginVertical: 4, backgroundColor: colors.border },
   routeMetrics: { flexDirection: 'row', paddingHorizontal: 14, borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
   routeMetricsCompact: { paddingHorizontal: 10 },
   routeMetricCard: {
     flex: 1,
     minWidth: 0,
-    minHeight: 50,
+    minHeight: 48,
     paddingHorizontal: 6,
     backgroundColor: colors.surface,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 7,
   },
-  routeMetricCardCompact: { minHeight: 44 },
+  routeMetricCardCompact: { minHeight: 40 },
   routeMetricText: { flex: 1, minWidth: 0 },
   metricIconCircle: { width: 40, height: 40, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.infoSoft },
-  metricIconCircleCompact: { width: 34, height: 34 },
+  metricIconCircleCompact: { width: 32, height: 32 },
   metricIcon: { color: colors.info, fontSize: 18, fontFamily: fonts.headingExtraBold },
   routeMetricLabel: { ...type.label, color: colors.textMuted },
   routeMetricValue: { ...type.cardTitle, color: colors.text, flexShrink: 1 },
@@ -1335,48 +1337,52 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     backgroundColor: colors.surface,
     gap: 10,
   },
-  nextStopCardCompact: { paddingHorizontal: 14, paddingTop: 6, paddingBottom: 8, gap: 6 },
+  nextStopCardCompact: { paddingHorizontal: 12, paddingTop: 4, paddingBottom: 6, gap: 4 },
   nextStopCardViewportFill: { flexGrow: 1 },
   dashboardCardLabel: { ...type.label, color: colors.textMuted },
-  nextStopHeading: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  stopNumberBadge: { width: 42, height: 42, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.actionPrimary },
-  stopNumber: { color: colors.textInverse, fontFamily: fonts.headingExtraBold, fontSize: 18 },
-  nextStopAddress: { flex: 1, minWidth: 0, ...type.cardTitle, color: colors.text },
+  nextStopHeading: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  stopNumberBadge: { width: 36, height: 36, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.actionPrimary },
+  stopNumber: { color: colors.textInverse, fontFamily: fonts.headingExtraBold, fontSize: 16 },
+  nextStopAddress: { flex: 1, minWidth: 0, ...type.cardTitle, color: colors.text, fontSize: 15, lineHeight: 20 },
   nextStopChevron: { color: colors.textMuted, fontSize: 20, lineHeight: 24 },
-  arrivalWindowPanel: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  arrivalWindowPanel: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
   arrivalWindowLabel: { ...type.label, color: colors.textMuted },
-  arrivalWindowValue: { ...type.sectionTitle, color: colors.text, marginTop: 4 },
-  arrivalWindowResult: { flex: 1, minWidth: 0, alignItems: 'flex-end', gap: 4 },
-  arrivalEtaRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
-  arrivalStatusDot: { width: 12, height: 12, borderRadius: 6, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.75, shadowRadius: 7, elevation: 4 },
-  arrivalEta: { ...type.cardTitle, color: colors.text },
-  arrivalStatusText: { fontFamily: fonts.headingSemiBold, fontSize: 12, textAlign: 'right' },
-  dashboardStopActions: { flexDirection: 'row', gap: 8, minHeight: 94 },
+  arrivalWindowValue: { ...type.sectionTitle, color: colors.text, marginTop: 2, fontSize: 16 },
+  arrivalWindowResult: { flex: 1, minWidth: 0, alignItems: 'flex-end', gap: 2 },
+  arrivalEtaRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  arrivalStatusDot: { width: 10, height: 10, borderRadius: 5, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.75, shadowRadius: 7, elevation: 4 },
+  arrivalEta: { ...type.cardTitle, color: colors.text, fontSize: 14 },
+  arrivalStatusText: { fontFamily: fonts.headingSemiBold, fontSize: 11, textAlign: 'right' },
+  // Single compact action row: primary NAVIGUOTI + ATLIKTA / NEATLIKTA side by side.
+  // Keeps ~48px thumb targets without the old stacked 94px action block.
+  dashboardStopActions: { flexDirection: 'row', alignItems: 'stretch', gap: 6, minHeight: 48 },
   dashboardStopActionsCompact: { marginTop: 'auto' },
-  dashboardOutcomeActions: { flex: 0.9, gap: 6 },
+  dashboardOutcomeActions: { flex: 1.85, flexDirection: 'row', gap: 6 },
   dashboardActionButton: {
     minWidth: 0,
+    minHeight: 48,
     borderRadius: radius.md,
-    paddingHorizontal: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 0,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
-    gap: 8,
+    gap: 5,
   },
-  dashboardNavigateAction: { flex: 1.1 },
-  dashboardOutcomeButton: { flex: 1, minHeight: 44 },
+  dashboardNavigateAction: { flex: 1.2 },
+  dashboardOutcomeButton: { flex: 1, minHeight: 48 },
   dashboardNavigateButton: { backgroundColor: colors.actionRoute },
   dashboardDeliveredButton: { backgroundColor: colors.success },
   dashboardFailedButton: { backgroundColor: colors.dangerSoft, borderWidth: 1, borderColor: colors.danger },
   dashboardActionIcon: { color: colors.textInverse, fontFamily: fonts.headingExtraBold, fontSize: 26, lineHeight: 28 },
-  dashboardActionText: { ...type.button, color: colors.textInverse },
-  dashboardPrimaryActionText: { fontSize: 14 },
-  dashboardFailedActionText: { ...type.button, color: colors.danger },
+  dashboardActionText: { ...type.button, color: colors.textInverse, fontSize: 12 },
+  dashboardPrimaryActionText: { fontSize: 13 },
+  dashboardFailedActionText: { ...type.button, color: colors.danger, fontSize: 12 },
   flex: { flex: 1, minWidth: 0 },
   contactRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  callButton: { minHeight: 44, minWidth: 112, borderRadius: radius.md, backgroundColor: colors.actionRoute, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
+  callButton: { minHeight: 40, minWidth: 100, borderRadius: radius.md, backgroundColor: colors.actionRoute, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.sm },
   callButtonDisabled: { backgroundColor: colors.disabledSurface, borderWidth: 1, borderColor: colors.borderStrong },
-  callButtonText: { ...type.button, color: colors.textInverse, fontSize: 13 },
+  callButtonText: { ...type.button, color: colors.textInverse, fontSize: 12 },
   callButtonTextDisabled: { color: colors.textSecondary },
   completeRouteButton: { minHeight: 58, borderRadius: radius.md, backgroundColor: colors.success, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
   returnChoiceRow: { gap: spacing.sm },

@@ -265,7 +265,7 @@ const createStyles = (cockpit: CockpitPalette) => StyleSheet.create({
     paddingHorizontal: 8,
     backgroundColor: cockpit.metalDark,
   },
-  windshieldAreaCompact: { paddingTop: 4, paddingHorizontal: 6 },
+  windshieldAreaCompact: { paddingTop: 5, paddingHorizontal: 6 },
   windshieldShell: {
     width: '100%',
     maxWidth: 720,
@@ -277,7 +277,8 @@ const createStyles = (cockpit: CockpitPalette) => StyleSheet.create({
     borderColor: cockpit.metalMid,
     backgroundColor: cockpit.metalDark,
   },
-  windshieldShellCompact: { aspectRatio: 2.35, maxHeight: 182 },
+  // Taller hero on phones so the road scene + weather chips read as the focus.
+  windshieldShellCompact: { aspectRatio: 2.05, maxHeight: 214 },
   sceneLayer: {
     position: 'absolute',
     top: 0,
@@ -296,12 +297,12 @@ const createStyles = (cockpit: CockpitPalette) => StyleSheet.create({
     width: '100%',
     height: 132,
   },
-  cockpitCowlCompact: { height: 102 },
+  cockpitCowlCompact: { height: 112 },
   sceneBadge: { position: 'absolute', top: 14, left: 18, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 8, backgroundColor: 'rgba(8, 13, 18, 0.62)' },
   weatherBadge: { position: 'absolute', top: 14, right: 18, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 8, backgroundColor: 'rgba(8, 13, 18, 0.62)' },
-  sceneBadgeCompact: { top: 8, left: 10 },
-  weatherBadgeCompact: { top: 8, right: 10 },
-  sceneBadgeText: { color: cockpit.white, fontFamily: fonts.headingSemiBold, fontSize: 9, letterSpacing: 0.7 },
+  sceneBadgeCompact: { top: 10, left: 10, paddingHorizontal: 10, paddingVertical: 6 },
+  weatherBadgeCompact: { top: 10, right: 10, paddingHorizontal: 10, paddingVertical: 6 },
+  sceneBadgeText: { color: cockpit.white, fontFamily: fonts.headingSemiBold, fontSize: 10, letterSpacing: 0.7 },
   progressReadout: {
     position: 'absolute',
     right: 44,
@@ -309,7 +310,7 @@ const createStyles = (cockpit: CockpitPalette) => StyleSheet.create({
     left: 44,
     alignItems: 'center',
   },
-  progressReadoutCompact: { right: 32, bottom: 4, left: 32 },
+  progressReadoutCompact: { right: 28, bottom: 6, left: 28 },
   completedMessage: {
     position: 'absolute',
     inset: 0,
@@ -327,15 +328,15 @@ const createStyles = (cockpit: CockpitPalette) => StyleSheet.create({
   percent: {
     color: cockpit.white,
     fontFamily: fonts.headingExtraBold,
-    fontSize: 17,
-    lineHeight: 20,
+    fontSize: 20,
+    lineHeight: 23,
   },
   breakdown: {
     maxWidth: '100%',
     color: cockpit.metalLight,
     fontFamily: fonts.headingSemiBold,
-    fontSize: 9,
-    lineHeight: 12,
+    fontSize: 10,
+    lineHeight: 13,
     letterSpacing: 0.15,
   },
 });
