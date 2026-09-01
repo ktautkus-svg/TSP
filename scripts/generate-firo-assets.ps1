@@ -1,5 +1,7 @@
 param(
-  [string]$Source = '.stitch/designs/firo-logo-fi-blue-ro-burgundy.jpg'
+  # Approved wide FR / FIRO landscape badge (rounded rectangle). Legacy spiral source:
+  # assets/brand/legacy/firo-approved-source-spiral.jpg
+  [string]$Source = '.stitch/designs/firo-logo-wide-c.png'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -9,12 +11,19 @@ $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $sourcePath = (Resolve-Path (Join-Path $projectRoot $Source)).Path
 $brandDirectory = Join-Path $projectRoot 'assets/brand'
 $publicDirectory = Join-Path $projectRoot 'public'
-$approvedSource = Join-Path $brandDirectory 'firo-approved-source.jpg'
+$approvedSourcePng = Join-Path $brandDirectory 'firo-approved-source.png'
+$approvedSourceJpg = Join-Path $brandDirectory 'firo-approved-source.jpg'
 
-Copy-Item -LiteralPath $sourcePath -Destination $approvedSource -Force
+Copy-Item -LiteralPath $sourcePath -Destination $approvedSourcePng -Force
+# Keep a JPG companion for tooling that expects the historical extension.
+$approvedBitmap = New-Object System.Drawing.Bitmap($sourcePath)
+$approvedBitmap.Save($approvedSourceJpg, [System.Drawing.Imaging.ImageFormat]::Jpeg)
+$approvedBitmap.Dispose()
 
 function New-TransparentArtwork([System.Drawing.Bitmap]$source, [bool]$markOnly) {
   $result = New-Object System.Drawing.Bitmap($source.Width, $source.Height, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+  # Wide badge: drop the bottom FIRO strip for mark-only (~78% of height).
+  $markCutY = [int]($source.Height * 0.78)
   for ($y = 0; $y -lt $source.Height; $y++) {
     for ($x = 0; $x -lt $source.Width; $x++) {
       $pixel = $source.GetPixel($x, $y)
@@ -26,7 +35,7 @@ function New-TransparentArtwork([System.Drawing.Bitmap]$source, [bool]$markOnly)
       } elseif ($softWhite) {
         $alpha = [Math]::Max(0, [Math]::Min(255, (236 - [Math]::Min($pixel.R, [Math]::Min($pixel.G, $pixel.B))) * 14))
       }
-      if ($markOnly -and $y -gt 292) { $alpha = 0 }
+      if ($markOnly -and $y -gt $markCutY) { $alpha = 0 }
       $result.SetPixel($x, $y, [System.Drawing.Color]::FromArgb($alpha, $pixel.R, $pixel.G, $pixel.B))
     }
   }
@@ -117,16 +126,17 @@ Save-Png $markArtwork (Join-Path $brandDirectory 'firo-mark-color.png')
 Save-Png $fullInverseArtwork (Join-Path $brandDirectory 'firo-wordmark-inverse.png')
 Save-Png $markInverseArtwork (Join-Path $brandDirectory 'firo-mark-inverse.png')
 
+# Wide landscape badge: use the full wordmark in square icons so FR + road stay readable.
 foreach ($definition in @(
-  @{ Name = 'firo-app-icon-1024.png'; Size = 1024; Scale = 0.72; Transparent = $false },
-  @{ Name = 'firo-app-icon-512.png'; Size = 512; Scale = 0.72; Transparent = $false },
-  @{ Name = 'firo-app-icon-192.png'; Size = 192; Scale = 0.72; Transparent = $false },
-  @{ Name = 'firo-app-icon-maskable-512.png'; Size = 512; Scale = 0.58; Transparent = $false },
-  @{ Name = 'firo-app-icon-foreground-1024.png'; Size = 1024; Scale = 0.58; Transparent = $true },
-  @{ Name = 'firo-apple-touch-icon-180.png'; Size = 180; Scale = 0.68; Transparent = $false },
-  @{ Name = 'firo-favicon-64.png'; Size = 64; Scale = 0.78; Transparent = $false }
+  @{ Name = 'firo-app-icon-1024.png'; Size = 1024; Scale = 0.86; Transparent = $false },
+  @{ Name = 'firo-app-icon-512.png'; Size = 512; Scale = 0.86; Transparent = $false },
+  @{ Name = 'firo-app-icon-192.png'; Size = 192; Scale = 0.86; Transparent = $false },
+  @{ Name = 'firo-app-icon-maskable-512.png'; Size = 512; Scale = 0.72; Transparent = $false },
+  @{ Name = 'firo-app-icon-foreground-1024.png'; Size = 1024; Scale = 0.72; Transparent = $true },
+  @{ Name = 'firo-apple-touch-icon-180.png'; Size = 180; Scale = 0.82; Transparent = $false },
+  @{ Name = 'firo-favicon-64.png'; Size = 64; Scale = 0.90; Transparent = $false }
 )) {
-  $icon = New-Icon $markArtwork $definition.Size $definition.Scale $definition.Transparent
+  $icon = New-Icon $fullArtwork $definition.Size $definition.Scale $definition.Transparent
   Save-Png $icon (Join-Path $brandDirectory $definition.Name)
   $icon.Dispose()
 }

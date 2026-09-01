@@ -9,10 +9,16 @@ const source = (path: string) => readFileSync(resolve(root, path), 'utf8');
 describe('approved first screens', () => {
   it('uses the approved navy-burgundy transparent FiRo asset on login and driver chrome', () => {
     const brand = source('src/components/firo-brand.tsx');
+    const gate = source('src/components/local-access-gate.tsx');
     expect(brand).toContain('firo-wordmark-color.png');
     expect(brand).toContain('firo-wordmark-inverse.png');
     expect(brand).toContain('resizeMode="contain"');
-    expect(source('src/components/local-access-gate.tsx')).toContain('FIRO · FIBONACCI + ROAD');
+    expect(brand).toContain('BADGE_ASPECT');
+    // Login must use the shared inverse wide badge — never a separate spiral asset.
+    expect(gate).toContain('<FiroBrand hero inverse />');
+    expect(gate).not.toContain('firo-wordmark-color-spiral');
+    expect(gate).not.toContain('tsp-logo');
+    expect(gate).toContain('FIRO · FIBONACCI + ROAD');
     expect(source('src/components/brand-header.tsx')).toContain("variant?: 'default' | 'driver'");
   });
 

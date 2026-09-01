@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" width="960" height="600" role="img" aria-label="FiRo">
+  <title>FiRo</title>
+
+  <!-- Wide rounded FR / FIRO badge — vector reference for the approved landscape mark -->
+  <rect x="24" y="24" width="912" height="552" rx="68" ry="68" fill="#FFFFFF" stroke="#0B2A5C" stroke-width="18"/>
+
+  <path fill="#0B2A5C" d="
+    M108 96 H330 V178 H214 V218 H310 V298 H214 V414 H108 Z"/>
+
+  <path fill="#0B2A5C" d="
+    M510 96 H690 C798 96 866 158 866 236 C866 300 824 344 748 360
+    L874 414 H730 L628 360 H616 V414 H510 Z"/>
+  <path fill="#FFFFFF" d="
+    M616 176 V280 H700 C746 280 772 258 772 236 C772 210 746 176 700 176 Z"/>
+
+  <path fill="#C8102E" d="
+    M332 448 C356 372 396 304 452 252 C504 204 570 166 648 142
+    C700 126 752 116 804 114 L828 92 L916 144 L874 170
+    C826 172 782 182 744 202 C682 232 632 274 594 324
+    C556 374 530 428 512 456 Z"/>
+  <path
+    d="M386 408 C418 342 472 276 540 226 C592 188 654 160 720 142"
+    fill="none" stroke="#FFFFFF" stroke-width="15" stroke-linecap="butt" stroke-dasharray="30 20"/>
+  <path fill="#C8102E" d="M796 78 L932 140 L840 200 L858 144 Z"/>
+
+  <line x1="86" y1="476" x2="874" y2="476" stroke="#0B2A5C" stroke-width="5"/>
+
+  <!-- Outward wings ≪ FIRO ≫ matching approved mark -->
+  <g fill="#C8102E">
+    <path d="M248 532 L206 502 L206 562 Z"/>
+    <path d="M210 532 L168 502 L168 562 Z"/>
+    <path d="M712 532 L754 502 L754 562 Z"/>
+    <path d="M750 532 L792 502 L792 562 Z"/>
+  </g>
+
+  <g fill="#0B2A5C" font-family="Arial Black, Helvetica Neue, Arial, sans-serif" font-weight="900">
+    <text x="480" y="548" text-anchor="middle" font-size="64" letter-spacing="34">FIRO</text>
+  </g>
+</svg>

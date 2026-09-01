@@ -19,9 +19,28 @@ describe('FiRo visual identity across employee modules', () => {
     const header = readFileSync(resolve(root, 'src/components/brand-header.tsx'), 'utf8');
 
     expect(brand).toContain('firo-wordmark-color.png');
+    expect(brand).toContain('BADGE_ASPECT');
+    expect(brand).toMatch(/720\s*\/\s*454/);
     expect(layout).toContain('<StackBrandTitle title={children} />');
     expect(layout).toContain('headerStyle: { backgroundColor: colors.surface }');
     expect(header).toContain('<FiroBrand compact />');
+  });
+
+  it('keeps the approved wide FR badge source in the brand pipeline', () => {
+    const generatePy = readFileSync(resolve(root, 'scripts/generate-firo-assets.py'), 'utf8');
+    const generatePs1 = readFileSync(resolve(root, 'scripts/generate-firo-assets.ps1'), 'utf8');
+    expect(generatePy).toContain('firo-approved-source.png');
+    expect(generatePs1).toContain('firo-logo-wide-c.png');
+    expect(readdirSync(resolve(root, 'assets/brand'))).toEqual(expect.arrayContaining([
+      'firo-wordmark-color.png',
+      'firo-wordmark-inverse.png',
+      'firo-approved-source.png',
+      'firo-mark-color.png',
+    ]));
+    expect(readdirSync(resolve(root, 'assets/brand/legacy'))).toEqual(expect.arrayContaining([
+      'firo-approved-source-spiral.jpg',
+      'firo-wordmark-color-spiral.png',
+    ]));
   });
 
   it('does not leave the retired green shell or old logo references in any app screen', () => {
