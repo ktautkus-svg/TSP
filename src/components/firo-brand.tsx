@@ -16,11 +16,12 @@ const inverseWordmarkSource = require('../../assets/brand/firo-wordmark-inverse.
   readonly uri: string;
 };
 
-/** Wide FR / FIRO badge aspect (~1.63). Keep render boxes matched to avoid letterboxing. */
-const BADGE_ASPECT = 720 / 442;
+/** Wide FR / FIRO badge aspect (~1.59). Keep render boxes matched to avoid letterboxing. */
+const BADGE_ASPECT = 720 / 454;
 
 function badgeSize(kind: 'compact' | 'default' | 'hero'): { width: number; height: number } {
-  const height = kind === 'compact' ? 48 : kind === 'hero' ? 112 : 60;
+  // Compact fits BrandHeader next to the profile control; hero is the login lock-up.
+  const height = kind === 'compact' ? 48 : kind === 'hero' ? 128 : 60;
   return { width: Math.round(height * BADGE_ASPECT), height };
 }
 

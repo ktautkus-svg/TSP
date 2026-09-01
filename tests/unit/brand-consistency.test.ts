@@ -20,7 +20,7 @@ describe('FiRo visual identity across employee modules', () => {
 
     expect(brand).toContain('firo-wordmark-color.png');
     expect(brand).toContain('BADGE_ASPECT');
-    expect(brand).toMatch(/720\s*\/\s*442/);
+    expect(brand).toMatch(/720\s*\/\s*454/);
     expect(layout).toContain('<StackBrandTitle title={children} />');
     expect(layout).toContain('headerStyle: { backgroundColor: colors.surface }');
     expect(header).toContain('<FiroBrand compact />');

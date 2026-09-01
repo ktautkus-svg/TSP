@@ -140,13 +140,12 @@ def main() -> None:
   # Preserve a copy as the committed approved source.
   approved_png = BRAND / 'firo-approved-source.png'
   approved_jpg = BRAND / 'firo-approved-source.jpg'
-  if source_path.suffix.lower() in {'.jpg', '.jpeg'}:
-    shutil.copy2(source_path, approved_jpg)
-    Image.open(source_path).convert('RGB').save(approved_jpg, quality=95, optimize=True)
-    Image.open(source_path).convert('RGBA').save(approved_png)
-  else:
-    shutil.copy2(source_path, approved_png)
-    Image.open(source_path).convert('RGB').save(approved_jpg, quality=95, optimize=True)
+  if source_path.resolve() != approved_png.resolve():
+    if source_path.suffix.lower() in {'.jpg', '.jpeg'}:
+      Image.open(source_path).convert('RGBA').save(approved_png)
+    else:
+      shutil.copy2(source_path, approved_png)
+  Image.open(source_path).convert('RGB').save(approved_jpg, quality=95, optimize=True)
 
   full_canvas = make_transparent(Image.open(source_path))
   full_art = crop_visible(full_canvas)
