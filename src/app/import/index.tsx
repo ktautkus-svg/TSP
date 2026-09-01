@@ -56,6 +56,7 @@ import {
     type ExcelSourceRow,
 } from '@/domain/import/excel-models';
 import type { ImportDocument, ImportField, ImportResult, ParsedDelivery } from '@/domain/import/models';
+import { smelynes25UnloadLabel } from '@/domain/import/smelynes-25-unloads';
 import type { PlanningMode, RouteEndpoint } from '@/domain/route';
 import { readPickedExcelAsset } from '@/infrastructure/import/excel-file-adapter';
 import { ExpoImageTransformAdapter } from '@/infrastructure/import/expo-image-transform-adapter';
@@ -1371,10 +1372,11 @@ export default function ImportScreen() {
               const rows = group.lineIds.map((id) => excelPreview.rows.find((row) => row.id === id)).filter(Boolean) as ExcelImportPreview['rows'];
               const delivery = excelDeliveriesById.get(group.id);
               const needsAction = excelGroupNeedsAction(group, delivery, planningMode);
+              const unloadLabel = smelynes25UnloadLabel(rows);
               return (
                 <View key={group.id} style={[styles.excelCompactCard, needsAction && styles.excelProblemCard]} testID={`excel-group-${group.id}`}>
                   <Text style={styles.cardTitle}>{group.normalizedAddress}</Text>
-                  <Text style={styles.importantMeta}>{formatWeight(group.totalWeightGrams)} · {formatGroupTime(rows)}</Text>
+                  <Text style={styles.importantMeta}>{formatWeight(group.totalWeightGrams)} · {formatGroupTime(rows)}{unloadLabel ? ` · ${unloadLabel}` : ''}</Text>
                   {needsAction ? <Text style={styles.issueText}>{excelProblemText(group, delivery)}</Text> : null}
                   <Pressable style={styles.compactButton} onPress={() => setExpandedExcelGroups((current) => expanded ? current.filter((id) => id !== group.id) : [...current, group.id])}>
                     <Text style={styles.secondaryText}>{expanded ? 'Uždaryti taisymą' : needsAction ? 'Taisyti šį adresą' : 'Peržiūrėti'}</Text>

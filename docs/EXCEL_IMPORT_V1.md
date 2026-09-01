@@ -32,6 +32,8 @@ Konfigūruojamas v1 sąrašas: `UAB Lambda LT`, `Lambda`, `UAB Galiasas`, `Galia
 
 Pirminėje peržiūroje eilutės grupuojamos pagal normalizuotą adreso kandidatą. Galutinis grupavimas atliekamas tik po geokodavimo: vienodos patvirtintos koordinatės (5 skaitmenys po kablelio) reiškia vieną fizinį sustojimą. Gavėjo pavadinimas nėra grupavimo raktas.
 
+Viena išimtis: Smėlynės g. 25 (Respublikinė Panevėžio ligoninė). Jei Excel E stulpelis skiria kavinę ir ne-kavinę, tai lieka du sustojimai net kai adresas ir koordinatės sutampa. Visur kitur tas pats adresas ir toliau jungiamas į vieną tašką.
+
 Svoris saugomas sveikais gramais. Tuščias svoris yra `null`, ne nulis. Sustojimo svoris yra visų žinomų susietų eilučių gramų suma; nežinomų svorių skaičius rodomas atskirai.
 
 Vienodi laiko langai paliekami. Persidengiančių langų rezultatas yra sankirta. Nesusikertantys langai pažymimi `TIME_WINDOW_CONFLICT` ir prieš maršruto kūrimą turi būti pataisyti.

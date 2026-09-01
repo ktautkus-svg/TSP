@@ -12,6 +12,7 @@ import {
     type ExcelWorkbookSheet,
     type LogisticsExcelTemplate,
 } from '@/domain/import/excel-models';
+import { smelynes25UnloadKey } from '@/domain/import/smelynes-25-unloads';
 import { normalizeRegionCode } from '@/domain/route-code';
 
 type WorkbookRow = { rowNumber: number; cells: Record<string, ExcelCellValue> };
@@ -236,7 +237,7 @@ export function groupExcelRows(rows: ExcelSourceRow[]): ExcelDeliveryGroup[] {
   const included = rows.filter((row) => !row.excluded && row.normalizedAddress);
   const byAddress = new Map<string, ExcelSourceRow[]>();
   for (const row of included) {
-    const key = row.manualGroupKey ?? addressKey(row.normalizedAddress!);
+    const key = row.manualGroupKey ?? `${addressKey(row.normalizedAddress!)}${smelynes25UnloadKey(row)}`;
     const bucket = byAddress.get(key) ?? [];
     bucket.push(row);
     byAddress.set(key, bucket);
