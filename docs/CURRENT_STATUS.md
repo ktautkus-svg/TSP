@@ -67,6 +67,7 @@ SQLite schema v27, 37 lentelės (`npm run validate:schema`).
 - ESLint: praėjo.
 - SQLite schema: praėjo, schema v27, 37 lentelės.
 - Vitest: praėjo, 116 failai ir 1022 testai.
+- PWA build ir `pwa:test`: praėjo (bundle scan: 70 failai, 0 uždraustų URL / IP / paslapčių).
 
 ## Routing API sauga
 
