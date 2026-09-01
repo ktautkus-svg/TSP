@@ -12,6 +12,7 @@ describe('approved first screens', () => {
     expect(brand).toContain('firo-wordmark-color.png');
     expect(brand).toContain('firo-wordmark-inverse.png');
     expect(brand).toContain('resizeMode="contain"');
+    expect(brand).toContain('BADGE_ASPECT');
     expect(source('src/components/local-access-gate.tsx')).toContain('FIRO · FIBONACCI + ROAD');
     expect(source('src/components/brand-header.tsx')).toContain("variant?: 'default' | 'driver'");
   });
