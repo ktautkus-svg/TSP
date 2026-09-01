@@ -62,7 +62,10 @@ export async function parkPinForAddress(
   try {
     return await new LocationParkMemoryRepository(db).find(address);
   } catch (error) {
-    if (/no such table: location_park_memory/i.test(String(error))) return null;
+    // Pre-v28 / partially migrated clients must still import and start loading.
+    if (/no such table: location_park_memory|no such column: park_|finalizing statement/i.test(String(error))) {
+      return null;
+    }
     throw error;
   }
 }
@@ -97,20 +100,25 @@ async function writeParkPinOntoMatchingStops(
   for (const row of rows) {
     const stopKeys = addressMemoryKeys(row.normalized_address ?? row.original_address);
     if (!stopKeys.some((key) => keys.has(key))) continue;
-    await db.runAsync(
-      `UPDATE delivery_stops
-       SET park_latitude = ?, park_longitude = ?, park_heading = ?, park_accuracy_m = ?,
-           park_sample_count = ?, park_sampled_at = ?, updated_at = ?
-       WHERE id = ?`,
-      pin?.latitude ?? null,
-      pin?.longitude ?? null,
-      pin?.heading ?? null,
-      pin?.accuracyM ?? null,
-      pin?.sampleCount ?? null,
-      pin?.lastSampledAt ?? null,
-      now,
-      row.id,
-    );
+    try {
+      await db.runAsync(
+        `UPDATE delivery_stops
+         SET park_latitude = ?, park_longitude = ?, park_heading = ?, park_accuracy_m = ?,
+             park_sample_count = ?, park_sampled_at = ?, updated_at = ?
+         WHERE id = ?`,
+        pin?.latitude ?? null,
+        pin?.longitude ?? null,
+        pin?.heading ?? null,
+        pin?.accuracyM ?? null,
+        pin?.sampleCount ?? null,
+        pin?.lastSampledAt ?? null,
+        now,
+        row.id,
+      );
+    } catch (error) {
+      if (/no such column: park_|finalizing statement/i.test(String(error))) return;
+      throw error;
+    }
   }
 }
 
