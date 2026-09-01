@@ -672,15 +672,50 @@ export class ActivateRoute extends RouteCommandBase {
     if (!readiness.canBeginLoading) {
       throw new RouteCommandError('DEPARTURE_BLOCKED', firstBlockerMessage(readiness));
     }
-    assertRouteTransition(route.status, 'loading');
-    await this.db.withTransactionAsync(async () => {
-      await this.db.runAsync(
-        `UPDATE routes SET status = 'loading', updated_at = ? WHERE id = ? AND status = 'planned'`,
-        this.clock(),
-        routeId,
+    // one_working_route unique index: only one loading/loaded/in_progress route.
+    // Check before UPDATE so expo-sqlite cannot mask the constraint failure as
+    // the opaque "Error finalizing statement" seen on the loading screen.
+    const working = await this.db.getFirstAsync<{ id: string; status: string }>(
+      `SELECT id, status FROM routes
+       WHERE id <> ? AND status IN ('loading', 'loaded', 'in_progress')
+       ORDER BY updated_at DESC LIMIT 1`,
+      routeId,
+    );
+    if (working) {
+      throw new RouteCommandError(
+        'ACTIVE_ROUTE_EXISTS',
+        'Jau vykdomas kitas maršrutas. Pirmiausia jį užbaikite arba atšaukite, tada pradėkite krovimą.',
+        { routeId: working.id, status: working.status },
       );
-      await this.audit(routeId, 'route_activated_for_loading', { status: route.status }, { status: 'loading' });
-    });
+    }
+    assertRouteTransition(route.status, 'loading');
+    try {
+      await this.db.withTransactionAsync(async () => {
+        await this.db.runAsync(
+          `UPDATE routes SET status = 'loading', updated_at = ? WHERE id = ? AND status = 'planned'`,
+          this.clock(),
+          routeId,
+        );
+        await this.audit(routeId, 'route_activated_for_loading', { status: route.status }, { status: 'loading' });
+      });
+    } catch (error) {
+      if (error instanceof RouteCommandError) throw error;
+      const detail = error instanceof Error ? error.message : String(error);
+      if (/one_working_route|UNIQUE constraint failed/i.test(detail)) {
+        throw new RouteCommandError(
+          'ACTIVE_ROUTE_EXISTS',
+          'Jau vykdomas kitas maršrutas. Pirmiausia jį užbaikite arba atšaukite, tada pradėkite krovimą.',
+        );
+      }
+      if (/finalizing statement|cannot start a transaction|no such (table|column)/i.test(detail)) {
+        throw new RouteCommandError(
+          'INVALID_ROUTE_STATE',
+          'Vietinė duomenų bazė neparuošta krovimui. Perkraukite programą ir bandykite dar kartą.',
+          { cause: detail },
+        );
+      }
+      throw error;
+    }
     return { idempotent: false };
   }
 }
@@ -813,20 +848,25 @@ async function insertStop(
     now,
   );
   if (parkPin) {
-    await db.runAsync(
-      `UPDATE delivery_stops
-       SET park_latitude = ?, park_longitude = ?, park_heading = ?, park_accuracy_m = ?,
-           park_sample_count = ?, park_sampled_at = ?, updated_at = ?
-       WHERE id = ?`,
-      parkPin.latitude,
-      parkPin.longitude,
-      parkPin.heading,
-      parkPin.accuracyM,
-      parkPin.sampleCount,
-      parkPin.lastSampledAt,
-      now,
-      stopId,
-    );
+    try {
+      await db.runAsync(
+        `UPDATE delivery_stops
+         SET park_latitude = ?, park_longitude = ?, park_heading = ?, park_accuracy_m = ?,
+             park_sample_count = ?, park_sampled_at = ?, updated_at = ?
+         WHERE id = ?`,
+        parkPin.latitude,
+        parkPin.longitude,
+        parkPin.heading,
+        parkPin.accuracyM,
+        parkPin.sampleCount,
+        parkPin.lastSampledAt,
+        now,
+        stopId,
+      );
+    } catch (error) {
+      // Draft creation must not fail when park_* columns are still missing.
+      if (!/no such column: park_|finalizing statement/i.test(String(error))) throw error;
+    }
   }
   for (const line of stop.shipmentLines ?? []) {
     await db.runAsync(
