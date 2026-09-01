@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-export const SCHEMA_VERSION = 27;
+export const SCHEMA_VERSION = 28;
 
 const migrationV1 = `
 PRAGMA journal_mode = WAL;
@@ -1233,6 +1233,39 @@ PRAGMA user_version = 27;
 COMMIT;
 `;
 
+// v28 stores the courtyard / unload pin the driver actually parked at, separate
+// from the customer-facing geocode. Learning is phone GPS only.
+const migrationV28 = `
+BEGIN IMMEDIATE;
+
+CREATE TABLE location_park_memory (
+  address_key TEXT PRIMARY KEY NOT NULL,
+  latitude REAL NOT NULL CHECK (latitude BETWEEN -90 AND 90),
+  longitude REAL NOT NULL CHECK (longitude BETWEEN -180 AND 180),
+  heading REAL CHECK (heading IS NULL OR (heading >= 0 AND heading < 360)),
+  accuracy_m REAL CHECK (accuracy_m IS NULL OR accuracy_m >= 0),
+  sample_count INTEGER NOT NULL DEFAULT 1 CHECK (sample_count > 0),
+  last_sampled_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+ALTER TABLE delivery_stops ADD COLUMN park_latitude REAL
+  CHECK (park_latitude IS NULL OR park_latitude BETWEEN -90 AND 90);
+ALTER TABLE delivery_stops ADD COLUMN park_longitude REAL
+  CHECK (park_longitude IS NULL OR park_longitude BETWEEN -180 AND 180);
+ALTER TABLE delivery_stops ADD COLUMN park_heading REAL
+  CHECK (park_heading IS NULL OR (park_heading >= 0 AND park_heading < 360));
+ALTER TABLE delivery_stops ADD COLUMN park_accuracy_m REAL
+  CHECK (park_accuracy_m IS NULL OR park_accuracy_m >= 0);
+ALTER TABLE delivery_stops ADD COLUMN park_sample_count INTEGER
+  CHECK (park_sample_count IS NULL OR park_sample_count > 0);
+ALTER TABLE delivery_stops ADD COLUMN park_sampled_at TEXT;
+
+PRAGMA user_version = 28;
+COMMIT;
+`;
+
 async function ensureRouteReturnColumns(db: SQLiteDatabase): Promise<void> {
   const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(routes)');
   const names = new Set(columns.map((column) => column.name));
@@ -1401,5 +1434,10 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
 
   if (currentVersion < 27) {
     await db.execAsync(migrationV27);
+    currentVersion = 27;
+  }
+
+  if (currentVersion < 28) {
+    await db.execAsync(migrationV28);
   }
 }

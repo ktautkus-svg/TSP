@@ -3,6 +3,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import type { DeliveryStop, Route } from '@/domain/route';
 import { lithuanianClockOnReferenceDay } from '@/domain/lithuanian-time';
+import { routingCoordinates } from '@/domain/location-park-memory';
 import { haversineKm } from '@/domain/routing/evaluation/geo';
 import type { CandidateLeg, CandidateStopSchedule } from '@/domain/routing/models';
 
@@ -168,9 +169,11 @@ export function estimateFirstPendingLeg(
 
   if (!latestResolved && nextIndex === 0) return null;
   if (!origin || (plannedPrevious && latestResolved?.id === plannedPrevious.id)) return null;
-  if (!hasCoordinates(origin) || !hasCoordinates(next)) return null;
+  const originCoords = routingCoordinates(origin);
+  const nextCoords = routingCoordinates(next);
+  if (!originCoords || !nextCoords) return null;
 
-  const directDistanceKm = haversineKm(origin, next);
+  const directDistanceKm = haversineKm(originCoords, nextCoords);
   const distanceKm = roundToTenth(directDistanceKm * APPROXIMATE_ROAD_FACTOR);
   const durationMinutes = Math.max(1, Math.round(distanceKm / APPROXIMATE_ROAD_SPEED_KMH * 60));
   return { stopId: next.id, distanceKm, durationMinutes };
@@ -193,10 +196,6 @@ function latestResolvedStop(stops: DeliveryStop[]): DeliveryStop | null {
 
 function resolvedAt(stop: DeliveryStop): string {
   return stop.deliveredAt ?? stop.failedAt ?? '';
-}
-
-function hasCoordinates(value: { latitude: number | null; longitude: number | null }): value is { latitude: number; longitude: number } {
-  return Number.isFinite(value.latitude) && Number.isFinite(value.longitude);
 }
 
 function roundToTenth(value: number): number {
