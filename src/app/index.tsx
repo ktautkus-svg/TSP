@@ -162,7 +162,7 @@ export default function HomeScreen() {
             <View style={styles.adminMenu} testID="admin-home-menu">
               <View style={styles.adminMenuHeading}>
                 <Text style={styles.adminMenuEyebrow}>ADMINISTRATORIAUS MENIU</Text>
-                <Text style={styles.adminMenuTitle}>TSP valdymo centras</Text>
+                <Text style={styles.adminMenuTitle}>FiRo valdymo centras</Text>
                 <Text style={styles.adminMenuText}>{profile.displayName}</Text>
               </View>
               <View style={styles.adminMenuFeatured}><GroupedMenuSection columns label="SKUBŪS DARBAI" testID="admin-urgent-menu">

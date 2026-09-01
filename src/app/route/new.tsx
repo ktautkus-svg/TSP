@@ -156,7 +156,7 @@ export default function NewRouteScreen() {
           hint="Po vieną įstaigos pavadinimą arba pilną adresą eilutėje."
           value={sourceText}
           onChangeText={setSourceText}
-          placeholder={'TSP sandėlis, Savanorių pr. 180, Vilnius\nKliento įmonė, Smėlynės g. 25, Panevėžys'}
+          placeholder={'FiRo sandėlis, Savanorių pr. 180, Vilnius\nKliento įmonė, Smėlynės g. 25, Panevėžys'}
           multiline
           numberOfLines={8}
           textAlignVertical="top"

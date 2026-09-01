@@ -4,7 +4,7 @@ import Svg, { Circle, Path } from 'react-native-svg';
 
 import { BackIcon, HomeIcon } from '@/components/app-icons';
 import { CloudSyncStatus } from '@/components/cloud-sync-status';
-import { TspBrand } from '@/components/tsp-brand';
+import { FiroBrand } from '@/components/firo-brand';
 import { colors, spacing } from '@/ui/tokens';
 
 export interface BrandHeaderProps {
@@ -35,7 +35,7 @@ export function BrandHeader({
         <Text style={styles.navigationText}>Atgal</Text>
       </Pressable> : null}
       <Pressable accessibilityLabel="Į pradžią" accessibilityRole="button" onPress={goHome} style={[styles.brandRow, driver && styles.driverBrandRow]} testID="brand-header-logo">
-        <TspBrand inverse={false} />
+        <FiroBrand compact />
       </Pressable>
       {!driver ? <View style={styles.headerActions}>
         {showSyncStatus && width >= 720 ? <CloudSyncStatus compact /> : null}
@@ -70,7 +70,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     backgroundColor: colors.surface,
     borderTopWidth: 3,
-    borderTopColor: colors.brandWordmarkGreen,
+    borderTopColor: colors.brandBurgundy,
     borderBottomWidth: 1,
     borderBottomColor: colors.borderSubtle,
     flexDirection: 'row',

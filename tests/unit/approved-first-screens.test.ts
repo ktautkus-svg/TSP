@@ -7,11 +7,12 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const source = (path: string) => readFileSync(resolve(root, path), 'utf8');
 
 describe('approved first screens', () => {
-  it('uses the approved red-blue transparent TSP asset on login and driver chrome', () => {
-    const brand = source('src/components/tsp-brand.tsx');
-    expect(brand).toContain('tsp-wordmark-red-blue.png');
+  it('uses the approved navy-burgundy transparent FiRo asset on login and driver chrome', () => {
+    const brand = source('src/components/firo-brand.tsx');
+    expect(brand).toContain('firo-wordmark-color.png');
+    expect(brand).toContain('firo-wordmark-inverse.png');
     expect(brand).toContain('resizeMode="contain"');
-    expect(source('src/components/local-access-gate.tsx')).toContain('PRISIJUNGTI →');
+    expect(source('src/components/local-access-gate.tsx')).toContain('FIRO · FIBONACCI + ROAD');
     expect(source('src/components/brand-header.tsx')).toContain("variant?: 'default' | 'driver'");
   });
 

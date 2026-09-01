@@ -1,7 +1,7 @@
 import { colors as appColors } from '@/ui/tokens';
 import type { ColorPalette } from '@/ui/theme-palette';
 
-/** Quality-control variant of the current red/blue TSP identity. */
+/** Quality-control variant of the current navy/burgundy FiRo identity. */
 export const qualityControlColors: ColorPalette = {
   ...appColors,
   background: '#FBF9F8',
@@ -31,9 +31,9 @@ export const qualityControlColors: ColorPalette = {
   danger: '#BA1A1A',
   dangerSoft: '#FDECEA',
   brandNavy: '#15174C',
-  brandWordmarkBlue: '#174A88',
-  brandWordmarkGreen: '#A73835',
-  brandWordmarkGreenLight: '#F3B8B5',
+  brandOperationalNavy: '#15174C',
+  brandBurgundy: '#9E202C',
+  brandBurgundyLight: '#F0A8AF',
 };
 
-export const qualityBrandRed = '#A73835';
+export const qualityBrandBurgundy = '#9E202C';

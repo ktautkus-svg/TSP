@@ -3,7 +3,7 @@ import { useRouter, type Href } from 'expo-router';
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { roleHomePath } from '@/application/navigation/role-home';
-import { TspBrand } from '@/components/tsp-brand';
+import { FiroBrand } from '@/components/firo-brand';
 import { colors, spacing, type } from '@/ui/tokens';
 
 export interface StackBrandTitleProps {
@@ -23,7 +23,7 @@ export function StackBrandTitle({ title }: StackBrandTitleProps) {
         onPress={() => router.replace(roleHomePath(profile.role) as Href)}
         style={({ pressed }) => [styles.brandButton, pressed && styles.pressed]}
         testID="stack-brand-home">
-        <TspBrand compact inverse={false} />
+        <FiroBrand compact />
       </Pressable>
       {title && showTitle ? <View style={styles.divider} /> : null}
       {title && showTitle ? <Text numberOfLines={1} style={styles.title}>{title}</Text> : null}

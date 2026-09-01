@@ -15,8 +15,8 @@ describe('production PWA contract', () => {
       id: '/', start_url: '/', scope: '/', display: 'standalone', orientation: 'portrait', lang: 'lt',
     });
     expect(manifest.icons).toEqual(expect.arrayContaining([
-      expect.objectContaining({ src: '/tsp-pwa-icon-192.png', sizes: '192x192' }),
-      expect.objectContaining({ src: '/tsp-pwa-icon-maskable-512.png', sizes: '512x512', purpose: expect.stringContaining('maskable') }),
+      expect.objectContaining({ src: '/firo-pwa-icon-192.png', sizes: '192x192' }),
+      expect.objectContaining({ src: '/firo-pwa-icon-maskable-512.png', sizes: '512x512', purpose: expect.stringContaining('maskable') }),
     ]));
   });
 
@@ -24,8 +24,8 @@ describe('production PWA contract', () => {
     const app = JSON.parse(await readFile('app.json', 'utf8'));
     const runtime = await readFile('src/components/pwa-runtime.tsx', 'utf8');
     expect(app.expo.web.output).toBe('single');
-    expect(app.expo.icon).toBe('./assets/brand/tsp-app-icon-1024.png');
-    expect(app.expo.web.favicon).toBe('./assets/brand/tsp-favicon-64.png');
+    expect(app.expo.icon).toBe('./assets/brand/firo-app-icon-1024.png');
+    expect(app.expo.web.favicon).toBe('./assets/brand/firo-favicon-64.png');
     expect(runtime).toContain("register('/service-worker.js'");
     expect(runtime).toContain('Yra nauja aplikacijos versija');
   });
@@ -36,7 +36,7 @@ describe('production PWA contract', () => {
     expect(builder).toContain('-webkit-text-size-adjust: 100%');
     expect(builder).toContain('max-width: 100vw');
     expect(builder).toContain('font-size: 16px !important');
-    expect(builder).toContain('href="/tsp-apple-touch-icon.png"');
+    expect(builder).toContain('href="/firo-apple-touch-icon.png"');
   });
 
   it('keeps API requests network-only in the service worker', async () => {

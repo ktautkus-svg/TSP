@@ -1,12 +1,12 @@
 import { Platform } from 'react-native';
 
 /**
- * TSP design system.
+ * FiRo operational design system.
  *
  * Colour rules this palette exists to enforce:
- * - one dark brand green (`primary`) carries brand and primary actions;
- * - one lighter green (`accent`) is the only other green, used for success and
- *   positive status — never as decoration;
+ * - one dark FiRo navy (`primary`) carries brand and primary actions;
+ * - green (`accent`) is reserved for success and positive status, never as
+ *   decoration;
  * - neutrals carry everything else: surfaces, borders, secondary text;
  * - amber means "check this", red means "this is wrong", blue means "this is
  *   information" — none of them are used just to add colour.
@@ -31,7 +31,7 @@ export const colors = {
   borderSubtle: '#E9EDF3',
   borderStrong: '#BAC4D2',
 
-  // TSP navy for the shell and primary actions.
+  // FiRo navy for the shell and primary actions.
   primary: '#15174C',
   primaryDark: '#0D0F38',
   primarySoft: '#EDEDF7',
@@ -61,10 +61,10 @@ export const colors = {
 
   /** Header/chrome surface. Kept as its own key because it is brand, not action. */
   brandNavy: '#15174C',
-  /** TSP wordmark-only colors; they do not define the operational UI palette. */
-  brandWordmarkBlue: '#174A88',
-  brandWordmarkGreen: '#A73835',
-  brandWordmarkGreenLight: '#C8504C',
+  /** FiRo identity colors; they do not replace semantic operational colors. */
+  brandOperationalNavy: '#15174C',
+  brandBurgundy: '#9E202C',
+  brandBurgundyLight: '#D2747D',
 } as const;
 
 export const fonts = {

@@ -7,7 +7,7 @@ import { roleHomePath } from '@/application/navigation/role-home';
 import { AccountMenuSheet } from '@/components/account-menu-sheet';
 import { BackIcon, StatsIcon } from '@/components/app-icons';
 import { PeriodCalendarPicker } from '@/components/period-calendar-picker';
-import { TspBrand } from '@/components/tsp-brand';
+import { FiroBrand } from '@/components/firo-brand';
 import {
   formatDateKey,
   formatDateRange,
@@ -17,7 +17,7 @@ import { classifyDeliveryWindow, minutesLate } from '@/domain/delivery-window-ti
 import { useForegroundInterval } from '@/hooks/use-foreground-interval';
 import { employeeApi, type QualityRouteMonitor, type QualityStopMonitor } from '@/infrastructure/auth/employee-session';
 import { formatWeightKg } from '@/ui/format-weight';
-import { qualityControlColors as colors, qualityBrandRed } from '@/ui/quality-control-palette';
+import { qualityControlColors as colors, qualityBrandBurgundy } from '@/ui/quality-control-palette';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { fonts, radius, spacing, type } from '@/ui/tokens';
 
@@ -197,7 +197,7 @@ export default function QualityControlScreen() {
       </Pressable>}
       <View style={styles.headerIdentity}>
         <Pressable accessibilityLabel="Į pradžią" accessibilityRole="button" onPress={() => router.replace(roleHomePath(profile.role) as Href)} style={({ pressed }) => [styles.headerBrandButton, pressed && styles.cardSummaryPressed]}>
-          <TspBrand compact inverse={false} />
+          <FiroBrand compact />
         </Pressable>
         {!mobile ? <View style={styles.headerDivider} /> : null}
         {!mobile ? <Text numberOfLines={1} style={styles.headerContext}>KOKYBĖS KONTROLĖ</Text> : null}
@@ -521,7 +521,7 @@ function formatRelative(value: string): string { const seconds = Math.max(0, Mat
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background },
-  header: { minHeight: 68, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border, borderTopWidth: 3, borderTopColor: qualityBrandRed, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
+  header: { minHeight: 68, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border, borderTopWidth: 3, borderTopColor: qualityBrandBurgundy, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
   headerIdentity: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   headerBrandButton: { minWidth: 84, minHeight: 48, justifyContent: 'center' },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
@@ -534,7 +534,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   page: { flexGrow: 1, width: '100%', maxWidth: 1440, alignSelf: 'center', padding: spacing.lg, paddingBottom: spacing.xl, gap: spacing.lg }, pageMobile: { padding: spacing.md, gap: spacing.md },
   operationsPanel: { padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.primary, gap: spacing.md },
   operationsTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.lg }, operationsTopMobile: { alignItems: 'stretch', flexDirection: 'column' },
-  heading: { flex: 1, minWidth: 0, gap: 3 }, pageTitle: { ...type.pageTitle, color: colors.textInverse, fontSize: 30, lineHeight: 36 }, pageTitleMobile: { fontSize: 24, lineHeight: 30 }, subtitle: { ...type.bodyStrong, color: colors.brandWordmarkGreenLight },
+  heading: { flex: 1, minWidth: 0, gap: 3 }, pageTitle: { ...type.pageTitle, color: colors.textInverse, fontSize: 30, lineHeight: 36 }, pageTitleMobile: { fontSize: 24, lineHeight: 30 }, subtitle: { ...type.bodyStrong, color: colors.brandBurgundyLight },
   warning: { ...type.bodyStrong, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.warningSoft, color: colors.warning },
   periodPanel: { padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.md, shadowColor: colors.primary, shadowOpacity: 0.05, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 1 },
   fieldLabel: { ...type.label, color: colors.textMuted },

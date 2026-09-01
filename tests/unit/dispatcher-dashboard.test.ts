@@ -207,7 +207,7 @@ describe('driver permissions', () => {
 
   it('explains how to recover when another web tab holds the SQLite database', () => {
     expect(layoutSource).toContain('NoModificationAllowedError');
-    expect(layoutSource).toContain('Uždarykite kitą TSP kortelę');
+    expect(layoutSource).toContain('Uždarykite kitą FiRo kortelę');
     expect(layoutSource).toContain('setDbError(localDatabaseError(error))');
   });
 

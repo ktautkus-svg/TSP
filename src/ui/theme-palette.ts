@@ -44,7 +44,7 @@ export const darkColors: ColorPalette = {
   disabledText: '#7F8A83',
 
   brandNavy: '#15174C',
-  brandWordmarkBlue: '#6FA3D6',
-  brandWordmarkGreen: '#E4695E',
-  brandWordmarkGreenLight: '#F19A92',
+  brandOperationalNavy: '#AEB4FF',
+  brandBurgundy: '#D2747D',
+  brandBurgundyLight: '#F0A8AF',
 };

@@ -6,7 +6,7 @@ import Svg, { Circle, Path } from 'react-native-svg';
 import { LocalAccessService, validateNewPin, type ActingDriver } from '@/application/auth/local-access';
 import { LocalAccessContext, type LocalAccessContextValue } from '@/application/auth/local-access-context';
 import { pullAssignedRoutes } from '@/application/auth/route-assignment-sync';
-import { TspBrand } from '@/components/tsp-brand';
+import { FiroBrand } from '@/components/firo-brand';
 import { useForegroundInterval } from '@/hooks/use-foreground-interval';
 import {
     bootstrapEmployeeAdmin,
@@ -201,12 +201,17 @@ export function LocalAccessGate({ children }: LocalAccessGateProps) {
     const bootstrap = mode === 'bootstrap';
     return (
       <View style={[styles.screen, !bootstrap && styles.loginScreen, bootstrap && styles.bootstrapScreen]} testID={bootstrap ? 'employee-bootstrap-screen' : 'employee-login-screen'}>
+        {!bootstrap ? <LoginBackdrop palette={login} /> : null}
         <View style={[styles.brand, !bootstrap && styles.loginBrand]}>
-          <TspBrand hero inverse={bootstrap} />
+          <FiroBrand hero inverse />
         </View>
+        {!bootstrap ? <View style={styles.loginIntro}>
+          <Text style={styles.loginTitle}>Prisijungimas</Text>
+          <Text style={styles.loginSubtitle}>Maršrutai ir pristatymai vienoje vietoje.</Text>
+        </View> : null}
         <View style={[styles.card, !bootstrap && styles.loginCard, bootstrap && styles.bootstrapCard]}>
           {bootstrap ? <Text style={styles.title}>Aktyvuoti administratorių</Text> : null}
-          {bootstrap ? <Text style={styles.helper}>Sukurkite pirmą administratoriaus paskyrą. Pradinis PIN turi sutapti su serverio TSP_INITIAL_ADMIN_PIN (6–8 skaitmenys) ir vėliau galėsite jį pakeisti nustatymuose.</Text> : null}
+          {bootstrap ? <Text style={styles.helper}>Sukurkite pirmą administratoriaus paskyrą. Pradinis PIN turi sutapti su serveryje nustatytu pradiniu PIN (6–8 skaitmenys) ir vėliau galėsite jį pakeisti nustatymuose.</Text> : null}
           {bootstrap ? <TextInput
             value={displayName}
             onChangeText={setDisplayName}
@@ -283,6 +288,7 @@ export function LocalAccessGate({ children }: LocalAccessGateProps) {
             {busy ? <ActivityIndicator color={colors.textInverse} /> : <Text style={[styles.buttonText, !bootstrap && styles.loginButtonText]}>{bootstrap ? 'Aktyvuoti ir tęsti' : 'PRISIJUNGTI →'}</Text>}
           </Pressable>
         </View>
+        {!bootstrap ? <Text style={styles.loginFooter}>FIRO · FIBONACCI + ROAD</Text> : null}
       </View>
     );
   }
@@ -309,14 +315,26 @@ function LoginFieldIcon({ kind, palette }: LoginFieldIconProps) {
   </Svg>;
 }
 
+function LoginBackdrop({ palette }: Readonly<{ palette: LoginPalette }>) {
+  return <Svg accessibilityLabel="" height="100%" style={[StyleSheet.absoluteFill, { pointerEvents: 'none' }]} viewBox="0 0 390 844" width="100%">
+    <Path d="M-80 92C45 62 92 7 120-70" fill="none" opacity={0.22} stroke={palette.border} strokeWidth={1.2} />
+    <Path d="M-38 126C84 88 145 27 165-62" fill="none" opacity={0.14} stroke={palette.border} strokeWidth={1} />
+    <Path d="M13 690C116 590 223 574 432 516" fill="none" opacity={0.25} stroke={palette.border} strokeWidth={1.2} />
+    <Path d="M34 848C95 735 207 671 434 636" fill="none" opacity={0.18} stroke={palette.border} strokeWidth={1} />
+  </Svg>;
+}
+
 const createStyles = (colors: ColorPalette, login: LoginPalette) => StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', padding: spacing.lg, gap: spacing.xl },
-  loginScreen: { backgroundColor: login.background, gap: 44 },
+  loginScreen: { backgroundColor: login.background, gap: spacing.lg, overflow: 'hidden' },
   bootstrapScreen: { backgroundColor: colors.brandNavy },
   brand: { alignItems: 'center', gap: 2 },
-  loginBrand: { marginBottom: spacing.sm },
+  loginBrand: { marginBottom: 0, zIndex: 1 },
+  loginIntro: { width: '100%', maxWidth: 438, alignItems: 'center', gap: spacing.xs, zIndex: 1 },
+  loginTitle: { ...type.pageTitle, color: login.text, fontSize: 32, lineHeight: 38, textAlign: 'center' },
+  loginSubtitle: { ...type.body, color: login.muted, textAlign: 'center' },
   card: { width: '100%', maxWidth: 420, paddingHorizontal: spacing.lg, paddingVertical: spacing.md, borderRadius: radius.lg, backgroundColor: colors.surface, gap: spacing.md },
-  loginCard: { maxWidth: 438, paddingHorizontal: 0, paddingVertical: 0, borderRadius: 0, backgroundColor: login.background, gap: spacing.lg },
+  loginCard: { maxWidth: 438, paddingHorizontal: 0, paddingVertical: 0, borderRadius: 0, backgroundColor: 'transparent', gap: spacing.lg, zIndex: 1 },
   bootstrapCard: { padding: spacing.lg },
   title: { ...type.pageTitle, fontSize: 22, lineHeight: 27, color: colors.text },
   helper: { ...type.body, color: colors.textMuted },
@@ -327,9 +345,10 @@ const createStyles = (colors: ColorPalette, login: LoginPalette) => StyleSheet.c
   loginInput: { flex: 1, minWidth: 0, borderWidth: 0, borderRadius: 0, backgroundColor: 'transparent', color: login.text, paddingLeft: spacing.sm },
   eyeButton: { minWidth: 48, minHeight: 54, alignItems: 'center', justifyContent: 'center' },
   button: { minHeight: 54, borderRadius: radius.md, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  loginButton: { minHeight: 56, borderRadius: 4, borderBottomWidth: 3, borderBottomColor: login.accent, backgroundColor: login.primary },
+  loginButton: { minHeight: 60, borderRadius: 4, borderWidth: 1, borderColor: login.accent, borderBottomWidth: 3, borderBottomColor: login.accent, backgroundColor: login.primary },
   buttonText: { ...type.button, fontSize: 16, color: colors.textInverse },
   loginButtonText: { fontSize: 17, letterSpacing: 0.2 },
   error: { ...type.secondary, fontFamily: fonts.headingSemiBold, color: login.error },
+  loginFooter: { ...type.label, color: login.muted, letterSpacing: 0.9, textAlign: 'center', zIndex: 1 },
   disabled: { opacity: 0.55 },
 });

@@ -1,0 +1,40 @@
+import { Image, Platform, StyleSheet, Text, View } from 'react-native';
+
+import { colors, fonts, spacing } from '@/ui/tokens';
+
+export interface FiroBrandProps {
+  readonly compact?: boolean;
+  readonly hero?: boolean;
+  readonly inverse?: boolean;
+  readonly descriptor?: string;
+}
+
+const wordmarkSource = require('../../assets/brand/firo-wordmark-color.png') as {
+  readonly uri: string;
+};
+const inverseWordmarkSource = require('../../assets/brand/firo-wordmark-inverse.png') as {
+  readonly uri: string;
+};
+
+/** Shared FiRo lock-up for headers, authentication and compact navigation. */
+export function FiroBrand({ compact = false, hero = false, inverse = false, descriptor }: Readonly<FiroBrandProps>) {
+  const foreground = inverse ? colors.textInverse : colors.brandNavy;
+  const width = compact ? 58 : hero ? 142 : 72;
+  const height = compact ? 48 : hero ? 118 : 60;
+  const source = inverse ? inverseWordmarkSource : wordmarkSource;
+
+  return (
+    <View accessibilityLabel={descriptor ? `FiRo – ${descriptor}` : 'FiRo'} style={[styles.lockup, hero && styles.heroLockup]}>
+      {Platform.OS === 'web'
+        ? <img alt="FiRo" src={source.uri} style={{ display: 'block', height, objectFit: 'contain', width }} />
+        : <Image accessibilityLabel="FiRo" resizeMode="contain" source={source} style={{ width, height }} />}
+      {!compact && descriptor ? <Text numberOfLines={1} style={[styles.descriptor, { color: foreground }]}>{descriptor}</Text> : null}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  lockup: { minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  heroLockup: { flexDirection: 'column', gap: spacing.xs },
+  descriptor: { maxWidth: 220, fontFamily: fonts.bodyMedium, fontSize: 10, lineHeight: 13, letterSpacing: 0.55, opacity: 0.78 },
+});

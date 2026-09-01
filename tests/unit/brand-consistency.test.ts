@@ -12,20 +12,20 @@ function filesBelow(directory: string): string[] {
   });
 }
 
-describe('TSP visual identity across employee modules', () => {
+describe('FiRo visual identity across employee modules', () => {
   it('uses one shared transparent wordmark and branded stack header', () => {
-    const brand = readFileSync(resolve(root, 'src/components/tsp-brand.tsx'), 'utf8');
+    const brand = readFileSync(resolve(root, 'src/components/firo-brand.tsx'), 'utf8');
     const layout = readFileSync(resolve(root, 'src/app/_layout.tsx'), 'utf8');
     const header = readFileSync(resolve(root, 'src/components/brand-header.tsx'), 'utf8');
 
-    expect(brand).toContain('tsp-wordmark-red-blue.png');
+    expect(brand).toContain('firo-wordmark-color.png');
     expect(layout).toContain('<StackBrandTitle title={children} />');
     expect(layout).toContain('headerStyle: { backgroundColor: colors.surface }');
-    expect(header).toContain('<TspBrand inverse={false} />');
+    expect(header).toContain('<FiroBrand compact />');
   });
 
   it('does not leave the retired green shell or old logo references in any app screen', () => {
-    const retired = ['#0A5A31', '#07351E', '#0E766E', 'tsp-logo-mark.png', 'TSP Logistics'];
+    const retired = ['#0A5A31', '#07351E', '#0E766E', 'tsp-logo-mark.png', 'TSP Logistics', '<TspBrand'];
     const sources = filesBelow(resolve(root, 'src/app')).map((path) => readFileSync(path, 'utf8'));
     for (const value of retired) expect(sources.some((source) => source.includes(value)), value).toBe(false);
   });

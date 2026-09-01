@@ -151,10 +151,10 @@ describe('premium route dashboard', () => {
     expect(source('src/app/_layout.tsx')).toContain('backgroundColor: colors.surface');
     expect(source('src/app/_layout.tsx')).toContain('<StackBrandTitle title={children} />');
     const header = source('src/components/brand-header.tsx');
-    const brand = source('src/components/tsp-brand.tsx');
-    expect(header).toContain('<TspBrand inverse={false} />');
-    expect(brand).toContain("accessibilityLabel={descriptor ? `TSP – ${descriptor}` : 'TSP'}");
-    expect(brand).toContain('tsp-wordmark-red-blue.png');
+    const brand = source('src/components/firo-brand.tsx');
+    expect(header).toContain('<FiroBrand compact />');
+    expect(brand).toContain("accessibilityLabel={descriptor ? `FiRo – ${descriptor}` : 'FiRo'}");
+    expect(brand).toContain('firo-wordmark-color.png');
     expect(brand).toContain('readonly descriptor?: string');
     expect(header).not.toContain('brandName');
     expect(header).not.toContain('tsp-logo-mark.png');
@@ -165,10 +165,10 @@ describe('premium route dashboard', () => {
     expect(source('src/app/history/[id].tsx')).toContain('maxWidth: 900');
   });
 
-  it('keeps sign-in focused and uses the transparent vector TSP wordmark', () => {
+  it('keeps sign-in focused and uses the transparent FiRo wordmark', () => {
     const gate = source('src/components/local-access-gate.tsx');
-    const brand = source('src/components/tsp-brand.tsx');
-    expect(gate).toContain('<TspBrand hero inverse={bootstrap} />');
+    const brand = source('src/components/firo-brand.tsx');
+    expect(gate).toContain('<FiroBrand hero inverse />');
     expect(gate).toContain('PRISIJUNGIMO VARDAS');
     expect(gate).toContain('PIN KODAS');
     expect(gate).toContain("bootstrap ? 'Aktyvuoti ir tęsti' : 'PRISIJUNGTI →'");
@@ -176,6 +176,6 @@ describe('premium route dashboard', () => {
     expect(gate).not.toContain('Darbo duomenys lieka SQLite');
     expect(brand).toContain('readonly hero?: boolean');
     expect(brand).toContain('<Image');
-    expect(brand).toContain('tsp-wordmark-red-blue.png');
+    expect(brand).toContain('firo-wordmark-inverse.png');
   });
 });

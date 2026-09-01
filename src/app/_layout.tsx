@@ -61,7 +61,7 @@ const failureStyles = {
 function localDatabaseError(error: unknown): Error {
   const fallback = error instanceof Error ? error.message : String(error);
   if (/NoModificationAllowedError|Access Handles? cannot be created/i.test(fallback)) {
-    return new Error('TSP vietinė bazė jau naudojama kitame naršyklės lange. Uždarykite kitą TSP kortelę arba įdiegtos programėlės langą ir paspauskite „Perkrauti puslapį“.');
+    return new Error('FiRo vietinė bazė jau naudojama kitame naršyklės lange. Uždarykite kitą FiRo kortelę arba įdiegtos programėlės langą ir paspauskite „Perkrauti puslapį“.');
   }
   return error instanceof Error ? error : new Error(`Vietinės bazės klaida: ${fallback}`);
 }

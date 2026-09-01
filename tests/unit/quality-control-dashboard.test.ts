@@ -133,17 +133,17 @@ describe('quality control dashboard', () => {
     expect(dashboardSource).toContain("completed: completedRoutes.length");
   });
 
-  it('matches the current red and blue TSP identity instead of the old green dark theme', () => {
+  it('matches the current navy and burgundy FiRo identity instead of the old green dark theme', () => {
     expect(dashboardSource).not.toContain('useTheme');
-    expect(dashboardSource).toContain('qualityBrandRed');
+    expect(dashboardSource).toContain('qualityBrandBurgundy');
     expect(paletteSource).toContain("background: '#FBF9F8'");
     expect(paletteSource).toContain("primary: '#15174C'");
-    expect(paletteSource).toContain("brandWordmarkBlue: '#174A88'");
-    expect(paletteSource).toContain("qualityBrandRed = '#A73835'");
+    expect(paletteSource).toContain("brandOperationalNavy: '#15174C'");
+    expect(paletteSource).toContain("qualityBrandBurgundy = '#9E202C'");
   });
 
-  it('uses the real TSP mark and classifies delivery timing without changing route logic', () => {
-    expect(dashboardSource).toContain('<TspBrand compact inverse={false} />');
+  it('uses the real FiRo mark and classifies delivery timing without changing route logic', () => {
+    expect(dashboardSource).toContain('<FiroBrand compact />');
     expect(dashboardSource).toContain('KOKYBĖS KONTROLĖ');
     expect(dashboardSource).not.toContain('Maršrutai gyvai');
     expect(dashboardSource).toContain('MINOR_DELAY_MINUTES = 45');

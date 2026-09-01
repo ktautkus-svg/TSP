@@ -15,14 +15,14 @@ export default function RootHtml({ children }: PropsWithChildren) {
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-        <meta name="apple-mobile-web-app-title" content="TSP" />
-        <meta name="application-name" content="TSP – Tikslus siuntų pristatymas" />
+        <meta name="apple-mobile-web-app-title" content="FiRo" />
+        <meta name="application-name" content="FiRo – maršrutai ir pristatymai" />
         <meta
           name="description"
-          content="Tikslus siuntų maršruto planavimas ir pristatymo vykdymas."
+          content="Maršrutų planavimas ir pristatymų vykdymas vienoje vietoje."
         />
         <link rel="manifest" href="/manifest.webmanifest" />
-        <link rel="apple-touch-icon" sizes="180x180" href="/tsp-apple-touch-icon.png" />
+        <link rel="apple-touch-icon" sizes="180x180" href="/firo-apple-touch-icon.png" />
         {/* Served from our own origin so the service worker can precache it and
             the map still renders offline. Copied by scripts/sync-leaflet-css.mjs. */}
         <link rel="stylesheet" href="/leaflet.css" />

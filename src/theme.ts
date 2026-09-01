@@ -47,22 +47,22 @@ export const stitchCockpitTheme = {
 } as const;
 
 /**
- * Screen-specific tokens extracted from the two approved Stitch frames.
+ * Screen-specific tokens extracted from the approved Stitch frames.
  * They deliberately do not replace the application's operational palette:
- * the login is a brand moment, while the driver "Dabar" screen uses the
- * brighter route colours approved for fast scanning in daylight.
+ * login is a fixed dark FiRo brand moment, while the driver "Dabar" screen
+ * keeps the brighter route colours approved for fast scanning in daylight.
  */
 export const stitchTheme = {
   login: {
-    background: '#FBF9F8',
-    surface: '#FFFFFF',
-    text: '#1B1C1C',
-    muted: '#777680',
-    border: '#C7C5D0',
+    background: '#15174C',
+    surface: '#15174C',
+    text: '#FFFFFF',
+    muted: '#C7C5D0',
+    border: '#46464F',
     primary: '#15174C',
-    primaryPressed: '#2B2D62',
-    accent: '#A73835',
-    error: '#BA1A1A',
+    primaryPressed: '#20235B',
+    accent: '#9E202C',
+    error: '#FFB4AB',
   },
   driverNow: {
     background: '#F7F9FC',
@@ -80,13 +80,9 @@ export const stitchTheme = {
 } as const;
 
 /**
- * Dark counterparts of the two approved light palettes above.
- *
- * The light values are the approved Stitch extraction and must not drift, so
- * these screens cannot simply be moved onto the generic tokens. Instead every
- * approved role gets a dark twin taken from `@/ui/theme-palette`, and screens
- * select the pair with `stitchColorsFor` / `cockpitColorsFor`. Light mode stays
- * pixel-identical; dark mode stops rendering dark text on white panels.
+ * Theme counterparts for the screen-specific palettes above. FiRo login stays
+ * dark in either application mode; the driver cockpit still receives a true
+ * dark counterpart without changing its operational color meanings.
  */
 type CockpitColors = Record<keyof typeof stitchCockpitTheme.colors, string>;
 type StitchColors = {
@@ -124,17 +120,15 @@ const stitchCockpitDarkColors: CockpitColors = {
 
 const stitchDark: StitchColors = {
   login: {
-    background: '#101512',
-    surface: '#18201B',
-    text: '#EDF1EE',
-    muted: '#9AA69E',
-    border: '#3D4A42',
-    // The two approved navies swap roles so the button still separates from a
-    // dark background instead of disappearing into it.
-    primary: '#2B2D62',
-    primaryPressed: '#15174C',
-    accent: '#E4695E',
-    error: '#E4695E',
+    background: '#15174C',
+    surface: '#15174C',
+    text: '#FFFFFF',
+    muted: '#C7C5D0',
+    border: '#46464F',
+    primary: '#15174C',
+    primaryPressed: '#20235B',
+    accent: '#9E202C',
+    error: '#FFB4AB',
   },
   driverNow: {
     background: '#101512',

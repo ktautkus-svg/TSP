@@ -1,0 +1,92 @@
+{
+  "name": "FiRo operational identity",
+  "source": {
+    "projectId": "13725255048005026406",
+    "logoScreenId": "2fb540077a344355a079769c476a5867",
+    "loginScreenId": "679005e99fc24945a1b08100cb680a43",
+    "syncedAt": "2026-09-01"
+  },
+  "brand": {
+    "name": "FiRo",
+    "meaning": "Fibonacci + Road",
+    "logo": {
+      "spiral": "burgundy",
+      "road": "operationalNavy",
+      "roadShoulders": "burgundy",
+      "wordmark": {
+        "Fi": "operationalNavy",
+        "Ro": "burgundy"
+      }
+    }
+  },
+  "colors": {
+    "operationalNavy": "#15174C",
+    "operationalNavyDark": "#10123D",
+    "burgundy": "#9E202C",
+    "white": "#FFFFFF",
+    "surfaceLowest": "#060734",
+    "surfaceLow": "#141641",
+    "surface": "#0C0D39",
+    "surfaceVariant": "#2E315C",
+    "onDark": "#E1E0FF",
+    "onDarkMuted": "#C7C5D0",
+    "outline": "#918F9A",
+    "outlineVariant": "#46464F"
+  },
+  "typography": {
+    "headline": "Sora",
+    "body": "Hanken Grotesk",
+    "label": "JetBrains Mono",
+    "headlineXl": {
+      "fontSize": 40,
+      "lineHeight": 48,
+      "fontWeight": 700,
+      "letterSpacingEm": -0.02
+    },
+    "headlineLg": {
+      "fontSize": 32,
+      "lineHeight": 40,
+      "fontWeight": 700,
+      "letterSpacingEm": -0.01
+    },
+    "headlineLgMobile": {
+      "fontSize": 28,
+      "lineHeight": 34,
+      "fontWeight": 700
+    },
+    "bodyLg": {
+      "fontSize": 18,
+      "lineHeight": 28,
+      "fontWeight": 400
+    },
+    "input": {
+      "fontSize": 20,
+      "lineHeight": 24,
+      "fontWeight": 500
+    },
+    "labelBold": {
+      "fontSize": 14,
+      "lineHeight": 20,
+      "fontWeight": 600,
+      "letterSpacingEm": 0.05
+    }
+  },
+  "spacing": {
+    "unit": 8,
+    "gutter": 16,
+    "containerPadding": 24,
+    "inputHeightMin": 56,
+    "buttonHeightLarge": 64
+  },
+  "radius": {
+    "default": 4,
+    "large": 8,
+    "extraLarge": 12,
+    "full": 9999
+  },
+  "usage": {
+    "brandMoment": "Dark navy login/splash surfaces with the FiRo mark and restrained burgundy accents.",
+    "operationalUi": "Keep the existing semantic operational palette; the rebrand must not change route, status or action meanings.",
+    "smallSizes": "Use the mark or wordmark without a tagline when supporting text would become unreadable."
+  }
+}

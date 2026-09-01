@@ -1,14 +1,14 @@
 {
   "expo": {
-    "name": "TSP – Tikslus siuntų pristatymas",
+    "name": "FiRo – maršrutai ir pristatymai",
     "slug": "logistikos-pristatymai",
     "version": "1.0.0",
     "orientation": "default",
-    "icon": "./assets/brand/tsp-app-icon-1024.png",
+    "icon": "./assets/brand/firo-app-icon-1024.png",
     "scheme": "logistikospristatymai",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/brand/tsp-app-icon-1024.png",
+      "icon": "./assets/brand/firo-app-icon-1024.png",
       "supportsTablet": true,
       "bundleIdentifier": "lt.asmeninis.manopristatymai",
       "infoPlist": {
@@ -22,23 +22,23 @@
       "package": "lt.asmeninis.manopristatymai",
       "adaptiveIcon": {
         "backgroundColor": "#F7F9FC",
-        "foregroundImage": "./assets/brand/tsp-app-icon-foreground-1024.png"
+        "foregroundImage": "./assets/brand/firo-app-icon-foreground-1024.png"
       },
       "predictiveBackGestureEnabled": false
     },
     "web": {
       "output": "single",
-      "favicon": "./assets/brand/tsp-favicon-64.png",
-      "name": "TSP – Tikslus siuntų pristatymas",
-      "shortName": "TSP",
-      "description": "Tikslus siuntų maršruto planavimas ir pristatymo vykdymas.",
+      "favicon": "./assets/brand/firo-favicon-64.png",
+      "name": "FiRo – maršrutai ir pristatymai",
+      "shortName": "FiRo",
+      "description": "Maršrutų planavimas ir pristatymų vykdymas vienoje vietoje.",
       "lang": "lt",
       "scope": "/",
       "startUrl": "/",
       "display": "standalone",
       "orientation": "portrait",
       "themeColor": "#15174C",
-      "backgroundColor": "#FBF9F8"
+      "backgroundColor": "#15174C"
     },
     "plugins": [
       [
@@ -69,8 +69,8 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#FBF9F8",
-          "image": "./assets/brand/tsp-wordmark-red-blue.png",
+          "backgroundColor": "#15174C",
+          "image": "./assets/brand/firo-wordmark-inverse.png",
           "imageWidth": 206
         }
       ],
