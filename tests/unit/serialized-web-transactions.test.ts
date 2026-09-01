@@ -57,4 +57,30 @@ describe('serialized web SQLite transactions', () => {
       throw new Error('Excel eilutė negalėjo būti išsaugota');
     })).rejects.toThrow('Excel eilutė negalėjo būti išsaugota');
   });
+
+  it('recovers a leftover open transaction instead of failing BEGIN IMMEDIATE', async () => {
+    const events: string[] = [];
+    let inTransaction = true;
+    const db = {
+      async execAsync(sql: string) {
+        events.push(sql);
+        if (sql === 'BEGIN IMMEDIATE' && inTransaction) {
+          throw new Error('cannot start a transaction within a transaction');
+        }
+        if (sql.startsWith('BEGIN')) inTransaction = true;
+        if (sql === 'COMMIT' || sql === 'ROLLBACK') inTransaction = false;
+      },
+      async isInTransactionAsync() { return inTransaction; },
+      async withTransactionAsync(_task: () => Promise<void>) {
+        throw new Error('unpatched');
+      },
+    };
+    installSerializedWebTransactions(db as never, 'web');
+    await db.withTransactionAsync(async () => {
+      events.push('import');
+    });
+    expect(events).toEqual([
+      'BEGIN IMMEDIATE', 'ROLLBACK', 'BEGIN IMMEDIATE', 'import', 'COMMIT',
+    ]);
+  });
 });

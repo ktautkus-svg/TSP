@@ -1,5 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
+import { withSafeTransactionAsync } from './sqlite-transaction';
+
 const installed = new WeakSet<object>();
 
 /**
@@ -8,6 +10,10 @@ const installed = new WeakSet<object>();
  * calls and replace the useful error with "cannot rollback - no transaction is
  * active". Native platforms have a dedicated exclusive transaction API; on web
  * we serialize the existing application transactions on this database object.
+ *
+ * Each queued write uses withSafeTransactionAsync so a leftover nested BEGIN
+ * or a self-committed task cannot replace the real error with
+ * "cannot rollback - no transaction is active".
  */
 export function installSerializedWebTransactions(
   db: SQLiteDatabase,
@@ -19,30 +25,10 @@ export function installSerializedWebTransactions(
   let tail: Promise<void> = Promise.resolve();
   db.withTransactionAsync = async (task: () => Promise<void>): Promise<void> => {
     const run = tail.then(
-      () => runTransaction(db, task),
-      () => runTransaction(db, task),
+      () => withSafeTransactionAsync(db, task, { begin: 'BEGIN IMMEDIATE' }),
+      () => withSafeTransactionAsync(db, task, { begin: 'BEGIN IMMEDIATE' }),
     );
     tail = run.then(() => undefined, () => undefined);
     return run;
   };
-}
-
-async function runTransaction(
-  db: SQLiteDatabase,
-  task: () => Promise<void>,
-): Promise<void> {
-  await db.execAsync('BEGIN IMMEDIATE');
-  try {
-    await task();
-    await db.execAsync('COMMIT');
-  } catch (error) {
-    // Preserve the original database/application error. Expo's unconditional
-    // ROLLBACK masks it when another operation has already ended the transaction.
-    try {
-      if (await db.isInTransactionAsync()) await db.execAsync('ROLLBACK');
-    } catch {
-      // The original error is the actionable one.
-    }
-    throw error;
-  }
 }

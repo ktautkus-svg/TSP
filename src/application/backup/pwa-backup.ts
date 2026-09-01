@@ -1,6 +1,10 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-import { SCHEMA_VERSION } from '@/database/migrations';
+import {
+  isSupportedLocalSchemaVersion,
+  omitLegacyV28StopColumns,
+  SCHEMA_VERSION,
+} from '@/database/migrations';
 import { LOCAL_ACCESS_PREFERENCE_PREFIX } from '@/application/auth/local-access';
 
 export const BACKUP_FORMAT = 'logistikos-pristatymai-backup';
@@ -71,12 +75,15 @@ export async function createPwaBackup(
   now = new Date(),
 ): Promise<PwaBackup> {
   const userVersion = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
-  if (userVersion?.user_version !== SCHEMA_VERSION) {
+  if (!isSupportedLocalSchemaVersion(userVersion?.user_version ?? -1)) {
     throw new Error(`Nepalaikoma SQLite schema: ${userVersion?.user_version ?? 'nežinoma'}.`);
   }
   const data = {} as Record<BackupTable, BackupRow[]>;
   for (const table of tables) {
     data[table] = await db.getAllAsync<BackupRow>(`SELECT * FROM ${table}`);
+    if (table === 'delivery_stops') {
+      data[table] = data[table].map((row) => omitLegacyV28StopColumns(row));
+    }
     if (table === 'app_preferences') {
       data[table] = data[table].filter((row) =>
         typeof row.key !== 'string' || !row.key.startsWith(LOCAL_ACCESS_PREFERENCE_PREFIX),
@@ -105,7 +112,7 @@ export function parsePwaBackup(raw: string): PwaBackup {
   if (candidate.format !== BACKUP_FORMAT || candidate.formatVersion !== BACKUP_FORMAT_VERSION) {
     throw new Error('Tai nėra palaikoma „Logistikos pristatymų“ atsarginė kopija.');
   }
-  if (candidate.schemaVersion !== SCHEMA_VERSION) {
+  if (!isSupportedLocalSchemaVersion(candidate.schemaVersion ?? -1)) {
     throw new Error(`Atsarginės kopijos schema ${candidate.schemaVersion ?? 'nežinoma'} nesuderinama su ${SCHEMA_VERSION}.`);
   }
   if (!candidate.tables || typeof candidate.tables !== 'object') {
@@ -149,9 +156,12 @@ export async function restorePwaBackup(db: SQLiteDatabase, backup: PwaBackup): P
       const allowedColumns = new Set(
         (await db.getAllAsync<{ name: string }>(`PRAGMA table_info(${table})`)).map((column) => column.name),
       );
-      const rows = table === 'app_preferences'
+      const sourceRows = table === 'app_preferences'
         ? parsed.tables[table].filter((row) => typeof row.key !== 'string' || !row.key.startsWith(LOCAL_ACCESS_PREFERENCE_PREFIX))
         : parsed.tables[table];
+      const rows = table === 'delivery_stops'
+        ? sourceRows.map((row) => omitLegacyV28StopColumns(row))
+        : sourceRows;
       for (const row of rows) {
         const columns = Object.keys(row);
         if (!columns.length || columns.some((column) => !allowedColumns.has(column))) {

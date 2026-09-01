@@ -1,7 +1,39 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
+
 import { installSerializedWebTransactions } from './serialized-web-transactions';
+import { abortOrphanTransaction, installSafeTransactions } from './sqlite-transaction';
 
 export const SCHEMA_VERSION = 27;
+
+/**
+ * PWA clients that ran courtyard park-memory (#21/#22) are already at
+ * `user_version` 28. That revision only added unused `location_park_memory`
+ * and `delivery_stops.park_*` leftovers. The app no longer reads them, but
+ * throwing here would brick those clients until site data is cleared.
+ */
+export const COMPATIBLE_LEGACY_SCHEMA_VERSIONS = [28] as const;
+
+export const LEGACY_V28_DELIVERY_STOP_COLUMNS = [
+  'park_latitude',
+  'park_longitude',
+  'park_heading',
+  'park_accuracy_m',
+  'park_sample_count',
+  'park_sampled_at',
+] as const;
+
+export function isSupportedLocalSchemaVersion(version: number): boolean {
+  return version === SCHEMA_VERSION
+    || (COMPATIBLE_LEGACY_SCHEMA_VERSIONS as readonly number[]).includes(version);
+}
+
+export function omitLegacyV28StopColumns<T extends Record<string, unknown>>(row: T): T {
+  const next: Record<string, unknown> = { ...row };
+  for (const column of LEGACY_V28_DELIVERY_STOP_COLUMNS) {
+    delete next[column];
+  }
+  return next as T;
+}
 
 const migrationV1 = `
 PRAGMA journal_mode = WAL;
@@ -1237,34 +1269,36 @@ COMMIT;
 async function ensureRouteReturnColumns(db: SQLiteDatabase): Promise<void> {
   const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(routes)');
   const names = new Set(columns.map((column) => column.name));
-  if (
-    names.has('return_destination_kind')
-    && names.has('return_started_at')
-    && names.has('return_arrived_at')
-  ) return;
-
-  await db.withTransactionAsync(async () => {
-    if (!names.has('return_destination_kind')) {
-      await db.execAsync(`ALTER TABLE routes ADD COLUMN return_destination_kind TEXT
-        CHECK (return_destination_kind IS NULL OR return_destination_kind IN ('warehouse','home'));`);
-    }
-    if (!names.has('return_started_at')) {
-      await db.execAsync('ALTER TABLE routes ADD COLUMN return_started_at TEXT;');
-    }
-    if (!names.has('return_arrived_at')) {
-      await db.execAsync('ALTER TABLE routes ADD COLUMN return_arrived_at TEXT;');
-    }
-  });
+  // Idempotent ALTERs, not a nested withTransactionAsync: migration blobs
+  // already use BEGIN/COMMIT, and expo-sqlite's helper always ROLLBACKs in
+  // catch even when no transaction is active.
+  if (!names.has('return_destination_kind')) {
+    await db.execAsync(`ALTER TABLE routes ADD COLUMN return_destination_kind TEXT
+      CHECK (return_destination_kind IS NULL OR return_destination_kind IN ('warehouse','home'));`);
+  }
+  if (!names.has('return_started_at')) {
+    await db.execAsync('ALTER TABLE routes ADD COLUMN return_started_at TEXT;');
+  }
+  if (!names.has('return_arrived_at')) {
+    await db.execAsync('ALTER TABLE routes ADD COLUMN return_arrived_at TEXT;');
+  }
 }
 
 export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
+  installSafeTransactions(db);
+  // Web only: queue withTransactionAsync so concurrent import effects cannot
+  // interleave BEGIN/ROLLBACK. Uses the safe helper already installed above.
   installSerializedWebTransactions(db);
+  await abortOrphanTransaction(db);
   await db.execAsync('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
 
   const result = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
   let currentVersion = result?.user_version ?? 0;
 
   if (currentVersion > SCHEMA_VERSION) {
+    if (isSupportedLocalSchemaVersion(currentVersion)) {
+      return;
+    }
     throw new Error(
       `Duomenų bazės versija ${currentVersion} yra naujesnė už programos palaikomą ${SCHEMA_VERSION}.`,
     );
