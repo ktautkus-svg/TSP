@@ -3,7 +3,6 @@ import { createReadStream, existsSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { createServer, request as httpRequest, type IncomingMessage, type ServerResponse } from 'node:http';
 import { extname, join, normalize, resolve } from 'node:path';
-import { loadGatewayConfig, routingReadiness } from '../gateway/config.js';
 import { authenticateApiRequest, handleEmployeeApi, requireProductionAdminPin } from './employee-api.js';
 import { EmployeeApiError } from './employee-auth-store.js';
 
@@ -20,9 +19,6 @@ process.env.GATEWAY_ALLOWED_ORIGIN = '';
 
 async function start(): Promise<void> {
   requireProductionAdminPin();
-  // Readiness uses the same Secret Manager → env wiring as the gateway. Booleans
-  // only — /health never returns key material.
-  const routing = routingReadiness(loadGatewayConfig());
   const server = createServer(async (request, response) => {
     const requestId = header(request, 'x-request-id') ?? randomUUID();
     response.setHeader('x-request-id', requestId);
@@ -36,7 +32,6 @@ async function start(): Promise<void> {
           status: 'ok',
           service: 'logistikos-pristatymai-pwa',
           version: process.env.APP_VERSION ?? 'development',
-          routing,
         });
       }
       if (await handleEmployeeApi(request, response, url.pathname, requestId)) return;

@@ -1,4 +1,3 @@
-import { routingCoordinates } from '@/domain/location-park-memory';
 import { createBaseRequest } from '@/domain/routing/scenarios';
 import type { OptimizationStop, RouteOptimizationRequest } from '@/domain/routing/models';
 import type { DeliveryStop, Route } from '@/domain/route';
@@ -15,8 +14,7 @@ export function buildOptimizationStop(
   plannedDepartureAt: string,
   options: { priorityRank?: number; deliverBeforeStopIds?: string[] } = {},
 ): OptimizationStop {
-  const coords = routingCoordinates(stop);
-  if (stop.addressValidationState !== 'auto_confirmed' || !coords || !stop.normalizedAddress) {
+  if (stop.addressValidationState !== 'auto_confirmed' || stop.latitude === null || stop.longitude === null || !stop.normalizedAddress) {
     throw new Error(`Taškas „${stop.originalAddress}“ dar neturi patvirtintų koordinačių.`);
   }
   const priorityRank = options.priorityRank ?? (stop.priorityFirst ? 1 : 0);
@@ -26,8 +24,8 @@ export function buildOptimizationStop(
       id: stop.id,
       label: stop.recipient || stop.normalizedAddress,
       address: stop.normalizedAddress,
-      latitude: coords.latitude,
-      longitude: coords.longitude,
+      latitude: stop.latitude,
+      longitude: stop.longitude,
     },
     weightKg: stop.weightKg,
     serviceDurationMinutes: stop.serviceDurationMinutes,
@@ -58,7 +56,10 @@ export function buildOptimizationRequestFromRoute(
   const end = requireEndpoint(route.endLocation ?? route.startLocation, 'pabaigos');
   if (stops.length === 0) throw new Error('Maršrutas neturi pristatymo taškų.');
   for (const stop of stops) {
-    if (stop.addressValidationState !== 'auto_confirmed' || !routingCoordinates(stop) || !stop.normalizedAddress) {
+    if (
+      stop.addressValidationState !== 'auto_confirmed' ||
+      stop.latitude === null || stop.longitude === null || !stop.normalizedAddress
+    ) {
       throw new Error(`Taškas „${stop.originalAddress}“ dar neturi patvirtintų koordinačių.`);
     }
   }

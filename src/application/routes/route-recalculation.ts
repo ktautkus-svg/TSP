@@ -1,8 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-import { hydrateStopParkPins } from '@/application/location/remember-park-pin';
 import { normalizeProviderDepartureAt } from '@/application/parsing/text-parser';
-import { routingCoordinates } from '@/domain/location-park-memory';
 import { buildOptimizationStop } from '@/application/routes/route-request-builder';
 import { RoutingEngine } from '@/application/routing/routing-engine';
 import { RouteRepository } from '@/database/repositories/route-repository';
@@ -41,14 +39,12 @@ export class ProposeRemainingRouteRecalculation {
     );
     if (!row) throw new Error('Pirminio maršruto skaičiavimo auditas nerastas.');
     const original = JSON.parse(row.request_json) as RouteOptimizationRequest;
-    const stops = await hydrateStopParkPins(this.db, persisted.stops);
-    const currentStop = stops.find((stop) => stop.id === currentStopId);
-    const origin = currentStop ? routingCoordinates(currentStop) : null;
-    if (!currentStop || !origin) {
+    const currentStop = persisted.stops.find((stop) => stop.id === currentStopId);
+    if (!currentStop || currentStop.latitude === null || currentStop.longitude === null) {
       throw new Error('Dabartinė vieta neturi patvirtintų koordinačių. Esama seka nekeičiama.');
     }
-    const completedIds = stops.filter((stop) => stop.deliveryStatus !== 'pending').map((stop) => stop.id);
-    const remainingStops = stops.filter((stop) => stop.deliveryStatus === 'pending');
+    const completedIds = persisted.stops.filter((stop) => stop.deliveryStatus !== 'pending').map((stop) => stop.id);
+    const remainingStops = persisted.stops.filter((stop) => stop.deliveryStatus === 'pending');
     const remainingIds = remainingStops.map((stop) => stop.id);
     const plannedDepartureAt = normalizeProviderDepartureAt(this.clock());
     const priorityOrdered = remainingStops
@@ -71,14 +67,11 @@ export class ProposeRemainingRouteRecalculation {
       ...original,
       routeId,
       plannedDepartureAt,
-      // Prefer the courtyard / last GPS pin over the rooftop geocode so the
-      // remaining-route origin is where the driver actually is. Uses the same
-      // already-purchased (or haversine) planning path — no extra matrix.
       startLocation: {
         id: `current-${currentStop.id}`,
         label: 'Dabartinė vieta',
-        latitude: origin.latitude,
-        longitude: origin.longitude,
+        latitude: currentStop.latitude,
+        longitude: currentStop.longitude,
       },
       // Ranks are rebuilt here, not carried over: mid-route the priority stops
       // already delivered are gone, so the chain has to be re-formed over what

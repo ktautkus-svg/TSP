@@ -8,7 +8,6 @@ import { pushRouteAssignmentProgress, pushRouteAssignmentRevision } from '@/appl
 import { roleHomePath } from '@/application/navigation/role-home';
 import { CancelDraftRoute, SaveSelectedRouteCandidate } from '@/application/routes/route-commands';
 import { resolveRoute, type ResolvedRouteDestination } from '@/application/routes/route-navigation';
-import { hydrateStopParkPins } from '@/application/location/remember-park-pin';
 import { buildOptimizationRequestFromRoute } from '@/application/routes/route-request-builder';
 import {
     buildRouteAlternatives,
@@ -91,8 +90,7 @@ export default function RouteAlternativesScreen() {
         } as Href);
         return;
       }
-      const stops = await hydrateStopParkPins(db, persisted.stops);
-      const nextRequest = buildOptimizationRequestFromRoute(persisted.route, stops);
+      const nextRequest = buildOptimizationRequestFromRoute(persisted.route, persisted.stops);
       const provider = createPlanningTravelProvider({ allowSynthetic });
       const four = await buildRouteAlternatives(new RoutingEngine(provider), nextRequest);
       await new SQLiteRoutingAuditRepository(db).saveOptimizationRun(routeId, four.request, four.result);

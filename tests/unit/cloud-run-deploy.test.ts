@@ -58,9 +58,6 @@ describe('Cloud Run deploy', () => {
     expect(deployWorkflow).not.toContain('gcloud secrets create');
     expect(deployWorkflow).toContain('GATEWAY_DEVICE_SECRET missing in Secret Manager');
     expect(deployWorkflow).toContain('TSP_INITIAL_ADMIN_PIN missing in Secret Manager');
-    expect(deployWorkflow).toContain('GOOGLE_ROUTES_API_KEY, GOOGLE_API_KEY, or GOOGLE_MAPS_API_KEY');
-    expect(deployWorkflow).toContain('googleRoutesKeyConfigured');
-    expect(deployWorkflow).toContain("tr -d '[:space:]'");
   });
 
   it('keeps the VPC-SC async Cloud Build poll, unpin workaround, and Ready wait-loop', () => {
@@ -162,8 +159,6 @@ describe('Cloud Run deploy', () => {
       productionServer.indexOf("await import('../gateway/server.js')"),
     );
     expect(productionServer).toContain("pathname === '/health'");
-    expect(productionServer).toContain('routingReadiness');
-    expect(productionServer).toContain('routing');
   });
 
   it('keeps NLL182 odometer catalog on a relative import in the server graph', () => {

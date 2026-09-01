@@ -84,6 +84,10 @@ export function loadGatewayConfig(
       pricing.perThousandElements[provider as GatewayProvider] = value;
     }
   }
+  const cleanSecret = (val: string | undefined): string => {
+    if (!val) return '';
+    return val.trim().replace(/^["']|["']$/g, '').trim();
+  };
   const environment = env.GATEWAY_ENV === 'production' ? 'production' : 'development';
   const authMode = env.GATEWAY_AUTH_MODE
     ? (env.GATEWAY_AUTH_MODE === 'none' ? 'none' : 'hmac')
@@ -97,39 +101,29 @@ export function loadGatewayConfig(
       false,
     );
   }
-  // Same cleanSecret used for API keys: Secret Manager / .env pastes routinely
-  // wrap values in quotes or leave a trailing newline. Those characters make
-  // Google return 401/403 PROVIDER_AUTH_FAILED even when the underlying key is
-  // valid — trim+dequote before first use.
-  const googleApiKey =
-    firstConfiguredSecret(
-      env.GOOGLE_ROUTES_API_KEY,
-      env.GOOGLE_API_KEY,
-      env.GOOGLE_MAPS_API_KEY,
-    );
-  const googleGeocodingApiKey =
-    firstConfiguredSecret(
-      env.GOOGLE_GEOCODING_API_KEY,
-      env.GOOGLE_MAPS_API_KEY,
-      env.GOOGLE_API_KEY,
-      env.GOOGLE_ROUTES_API_KEY,
-    );
-  const googleVisionApiKey =
-    firstConfiguredSecret(
-      env.GOOGLE_VISION_API_KEY,
-      env.GOOGLE_API_KEY,
-      env.GOOGLE_MAPS_API_KEY,
-    );
   return {
     environment,
     authMode,
     host: env.GATEWAY_HOST?.trim() || '0.0.0.0',
     port: finiteNumber(env.GATEWAY_PORT, 8787),
     appSecret,
-    hereApiKey: firstConfiguredSecret(env.HERE_API_KEY),
-    googleApiKey,
-    googleGeocodingApiKey,
-    googleVisionApiKey,
+    hereApiKey: env.HERE_API_KEY?.trim() || null,
+    googleApiKey:
+      env.GOOGLE_ROUTES_API_KEY?.trim() ||
+      env.GOOGLE_API_KEY?.trim() ||
+      env.GOOGLE_MAPS_API_KEY?.trim() ||
+      null,
+    googleGeocodingApiKey:
+      env.GOOGLE_GEOCODING_API_KEY?.trim() ||
+      env.GOOGLE_MAPS_API_KEY?.trim() ||
+      env.GOOGLE_API_KEY?.trim() ||
+      env.GOOGLE_ROUTES_API_KEY?.trim() ||
+      null,
+    googleVisionApiKey:
+      env.GOOGLE_VISION_API_KEY?.trim() ||
+      env.GOOGLE_API_KEY?.trim() ||
+      env.GOOGLE_MAPS_API_KEY?.trim() ||
+      null,
     requestTimeoutMs: finiteNumber(env.GATEWAY_TIMEOUT_MS, 15_000),
     maxStops: Math.min(40, finiteNumber(env.GATEWAY_MAX_STOPS, 40)),
     maxBodyBytes: finiteNumber(env.GATEWAY_MAX_BODY_BYTES, 256 * 1024),
@@ -213,53 +207,4 @@ export function requireRealProviderKeys(config: GatewayConfig): void {
       { missing: ['HERE_API_KEY', 'GOOGLE_ROUTES_API_KEY / GOOGLE_API_KEY / GOOGLE_MAPS_API_KEY'] },
     );
   }
-}
-
-/** Strip quotes/whitespace that break Google/HERE auth when pasted into secrets. */
-export function cleanSecret(val: string | undefined): string {
-  if (!val) return '';
-  return val.trim().replace(/^["']|["']$/g, '').trim();
-}
-
-export function firstConfiguredSecret(
-  ...candidates: Array<string | undefined>
-): string | null {
-  for (const candidate of candidates) {
-    const cleaned = cleanSecret(candidate);
-    if (cleaned) return cleaned;
-  }
-  return null;
-}
-
-/** Google API keys issued by Cloud Console start with AIza and are ~39 chars. */
-export function looksLikeGoogleApiKey(value: string | null | undefined): boolean {
-  if (!value) return false;
-  return /^AIza[0-9A-Za-z_-]{20,}$/.test(value);
-}
-
-export type RoutingReadiness = {
-  realProviderArmed: boolean;
-  googleRoutesKeyConfigured: boolean;
-  googleRoutesKeyLooksValid: boolean;
-  googleGeocodingKeyConfigured: boolean;
-  googleVisionKeyConfigured: boolean;
-  hereKeyConfigured: boolean;
-  /** Env var names the gateway will try for Routes/Matrix, in priority order. */
-  googleRoutesSecretPriority: readonly string[];
-};
-
-export function routingReadiness(config: GatewayConfig): RoutingReadiness {
-  return {
-    realProviderArmed: config.realProviderArmed,
-    googleRoutesKeyConfigured: Boolean(config.googleApiKey),
-    googleRoutesKeyLooksValid: looksLikeGoogleApiKey(config.googleApiKey),
-    googleGeocodingKeyConfigured: Boolean(config.googleGeocodingApiKey),
-    googleVisionKeyConfigured: Boolean(config.googleVisionApiKey),
-    hereKeyConfigured: Boolean(config.hereApiKey),
-    googleRoutesSecretPriority: [
-      'GOOGLE_ROUTES_API_KEY',
-      'GOOGLE_API_KEY',
-      'GOOGLE_MAPS_API_KEY',
-    ],
-  };
 }
