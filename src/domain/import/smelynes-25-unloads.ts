@@ -1,9 +1,10 @@
 /**
  * Smėlynės g. 25 (Respublikinė Panevėžio ligoninė / UAB Lambda LT) has two
  * separate unloadings. Daily Excel marks them in column E as kavinė vs
- * ne-kavinė. This is a single-site exception: every other same-address merge
- * is unchanged. Do not add other sites here.
+ * ne-kavinė. The site itself is the durable rule in known-address-corrections.
  */
+
+import { knownSplitUnloadSite } from '@/domain/import/known-address-corrections';
 
 export type Smelynes25Unload = 'cafe' | 'default';
 
@@ -51,14 +52,14 @@ export function smelynes25UnloadLabel(rows: readonly Smelynes25Row[]): string | 
 }
 
 function isSmelynes25Row(row: Smelynes25Row): boolean {
-  return mentionsSmelynes25(
+  return knownSplitUnloadSite([
     row.normalizedAddress,
     row.originalAddress,
     row.rawColumnE,
     row.recipient,
     literalColumn(row.rawRow, 'E'),
     literalColumn(row.rawRow, 'D'),
-  );
+  ].filter((value): value is string => Boolean(value?.trim())).join(' '));
 }
 
 function columnEText(row: Smelynes25Row): string {

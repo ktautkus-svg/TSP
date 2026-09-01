@@ -1,4 +1,6 @@
+import { knownSplitUnloadSite } from './known-address-corrections';
 import type { DuplicateFinding, ParsedDelivery } from './models';
+import { smelynes25UnloadIdentity } from './smelynes-25-unloads';
 
 export function detectDuplicates(deliveries: ParsedDelivery[]): DuplicateFinding[] {
   const findings: DuplicateFinding[] = [];
@@ -14,6 +16,9 @@ export function detectDuplicates(deliveries: ParsedDelivery[]): DuplicateFinding
         findings.push(finding(left.id, right.id, 'same-order-number', 1, 'merge'));
         continue;
       }
+      if (keepSeparateUnloads(left, right)) {
+        continue;
+      }
       if (addressLeft && addressLeft === addressRight) {
         findings.push(finding(left.id, right.id, 'same-address', 1, 'merge'));
         continue;
@@ -25,6 +30,23 @@ export function detectDuplicates(deliveries: ParsedDelivery[]): DuplicateFinding
     }
   }
   return findings;
+}
+
+function keepSeparateUnloads(left: ParsedDelivery, right: ParsedDelivery): boolean {
+  const leftText = deliverySiteText(left);
+  const rightText = deliverySiteText(right);
+  if (!knownSplitUnloadSite(leftText) && !knownSplitUnloadSite(rightText)) return false;
+  return smelynes25UnloadIdentity(leftText) !== smelynes25UnloadIdentity(rightText);
+}
+
+function deliverySiteText(delivery: ParsedDelivery): string {
+  return [
+    delivery.address.value,
+    delivery.address.evidence,
+    delivery.recipient.value,
+    delivery.notes.value,
+    delivery.rawText,
+  ].filter((value): value is string => Boolean(value?.trim())).join(' ');
 }
 
 export function addressSimilarity(left: string, right: string): number {

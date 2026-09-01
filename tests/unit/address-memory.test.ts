@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { describe, expect, it } from 'vitest';
 
 import { AddressResolutionMemoryRepository, addressMemoryKeys } from '../../src/database/repositories/address-resolution-memory-repository';
-import { knownAddressCorrection } from '../../src/domain/import/known-address-corrections';
+import { knownAddressCorrection, knownSplitUnloadSite } from '../../src/domain/import/known-address-corrections';
 
 class MemoryDatabase {
   readonly raw = new DatabaseSync(':memory:');
@@ -23,6 +23,13 @@ describe('address correction memory', () => {
       latitude: 55.738356,
       longitude: 24.434709,
     });
+  });
+
+  it('remembers Lambda / Panevėžio ligoninė as a split-unload site and leaves other addresses alone', () => {
+    expect(knownSplitUnloadSite('UAB Lambda LT, VšĮ Respublikinė Panevėžio ligoninė')).toBe(true);
+    expect(knownSplitUnloadSite('Smėlynės g. 25, Panevėžys')).toBe(true);
+    expect(knownSplitUnloadSite('UAB Lambda LT Pajuosčio pl.73 Dembavos k.')).toBe(false);
+    expect(knownSplitUnloadSite('Dainų g. 11, Šiauliai')).toBe(false);
   });
 
   it('uses a semantic street key across spacing and locality variants', async () => {
