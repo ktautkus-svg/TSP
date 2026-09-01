@@ -86,8 +86,9 @@ function logisticsWorkbook(values: (string | number)[][]): Uint8Array {
   const cell = (column: string, row: number, value: string | number) => typeof value === 'number'
     ? `<c r="${column}${row}"><v>${value}</v></c>`
     : `<c r="${column}${row}" t="inlineStr"><is><t>${escapeXml(value)}</t></is></c>`;
-  const rows = values.map((row, index) => {
-    const rowNumber = index + 4;
+  const padded = values.length >= 4 ? values : [['Maršrutas'], ...values];
+  const rows = padded.map((row, index) => {
+    const rowNumber = index + 1;
     return `<row r="${rowNumber}">${row.map((value, column) => cell(String.fromCharCode(65 + column), rowNumber, value)).join('')}</row>`;
   }).join('');
   return zipSync({

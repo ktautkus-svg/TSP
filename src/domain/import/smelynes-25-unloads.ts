@@ -23,9 +23,13 @@ export function mentionsSmelynes25(...texts: (string | null | undefined)[]): boo
 }
 
 export function smelynes25UnloadIdentity(columnText: string | null | undefined): Smelynes25Unload {
-  const compact = fold(columnText ?? '');
-  if (compact.includes('nekavin')) return 'default';
-  if (compact.includes('kavin')) return 'cafe';
+  const folded = (columnText ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('lt-LT');
+  // Keep punctuation so "ligoninė(kavinė)" is not read as "ne kavinė".
+  if (/(?:^|[^a-z])ne[\s\-()]*kavin/.test(folded)) return 'default';
+  if (/(?:^|[^a-z])kavin/.test(folded)) return 'cafe';
   return 'default';
 }
 
