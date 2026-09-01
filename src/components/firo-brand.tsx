@@ -15,24 +15,21 @@ const wordmarkSource = require('../../assets/brand/firo-wordmark-color.png') as 
 const inverseWordmarkSource = require('../../assets/brand/firo-wordmark-inverse.png') as {
   readonly uri: string;
 };
-const markSource = require('../../assets/brand/firo-mark-color.png') as {
-  readonly uri: string;
-};
-const inverseMarkSource = require('../../assets/brand/firo-mark-inverse.png') as {
-  readonly uri: string;
-};
 
-/** Full wordmark aspect (badge + FIRO caption). */
+/**
+ * Approved wide FR / FIRO landscape badge (assets/brand/firo-wordmark-*.png,
+ * generated from firo-approved-source.png). Keep the render box matched to the
+ * artwork aspect so the badge elongates horizontally without vertical squash.
+ */
 const BADGE_ASPECT = 720 / 454;
-/** Wider landscape mark for compact headers — more elongated, no cramped caption. */
-const COMPACT_MARK_ASPECT = 720 / 343;
 
 function badgeSize(kind: 'compact' | 'default' | 'hero'): { width: number; height: number } {
+  // Compact header: tall enough for the border + FIRO caption to stay legible,
+  // wide enough to read as a landscape badge between Atgal and Home.
   if (kind === 'compact') {
-    const height = 40;
-    return { width: Math.round(height * COMPACT_MARK_ASPECT), height };
+    const height = 46;
+    return { width: Math.round(height * BADGE_ASPECT), height };
   }
-  // Hero is the login lock-up; default is the larger non-header wordmark.
   const height = kind === 'hero' ? 128 : 60;
   return { width: Math.round(height * BADGE_ASPECT), height };
 }
@@ -42,22 +39,20 @@ export function FiroBrand({ compact = false, hero = false, inverse = false, desc
   const foreground = inverse ? colors.textInverse : colors.brandNavy;
   const kind = compact ? 'compact' : hero ? 'hero' : 'default';
   const { width, height } = badgeSize(kind);
-  const source = compact
-    ? (inverse ? inverseMarkSource : markSource)
-    : (inverse ? inverseWordmarkSource : wordmarkSource);
+  const source = inverse ? inverseWordmarkSource : wordmarkSource;
 
   return (
     <View accessibilityLabel={descriptor ? `FiRo – ${descriptor}` : 'FiRo'} style={[styles.lockup, hero && styles.heroLockup]}>
       {Platform.OS === 'web'
-        ? <img alt="FiRo" src={source.uri} style={{ display: 'block', height, objectFit: 'contain', width }} />
-        : <Image accessibilityLabel="FiRo" resizeMode="contain" source={source} style={{ width, height }} />}
+        ? <img alt="FiRo" src={source.uri} style={{ display: 'block', height, objectFit: 'contain', width, backgroundColor: 'transparent' }} />
+        : <Image accessibilityLabel="FiRo" resizeMode="contain" source={source} style={{ width, height, backgroundColor: 'transparent' }} />}
       {!compact && descriptor ? <Text numberOfLines={1} style={[styles.descriptor, { color: foreground }]}>{descriptor}</Text> : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  lockup: { minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  lockup: { minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, overflow: 'visible' },
   heroLockup: { flexDirection: 'column', gap: spacing.xs },
   descriptor: { maxWidth: 220, fontFamily: fonts.bodyMedium, fontSize: 10, lineHeight: 13, letterSpacing: 0.55, opacity: 0.78 },
 });

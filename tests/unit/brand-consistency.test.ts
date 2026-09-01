@@ -19,11 +19,12 @@ describe('FiRo visual identity across employee modules', () => {
     const header = readFileSync(resolve(root, 'src/components/brand-header.tsx'), 'utf8');
 
     expect(brand).toContain('firo-wordmark-color.png');
-    expect(brand).toContain('firo-mark-color.png');
     expect(brand).toContain('BADGE_ASPECT');
-    expect(brand).toContain('COMPACT_MARK_ASPECT');
     expect(brand).toMatch(/720\s*\/\s*454/);
-    expect(brand).toMatch(/720\s*\/\s*343/);
+    // Compact headers use the full wide FR/FIRO landscape badge (not a
+    // vertically cropped mark that reads as squashed).
+    expect(brand).not.toContain('COMPACT_MARK_ASPECT');
+    expect(brand).not.toContain('firo-mark-color.png');
     expect(layout).toContain('<StackBrandTitle title={children} />');
     expect(layout).toContain('headerStyle: { backgroundColor: colors.surface }');
     expect(header).toContain('<FiroBrand compact />');

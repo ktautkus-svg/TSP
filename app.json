@@ -15,7 +15,11 @@
         "NSLocalNetworkUsageDescription": "Vystymo metu programa jungiasi prie maršrutizavimo gateway tame pačiame vietiniame tinkle.",
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
-        }
+        },
+        "LSApplicationQueriesSchemes": [
+          "waze",
+          "comgooglemaps"
+        ]
       }
     },
     "android": {

@@ -3,7 +3,10 @@ import type { RouteEndpoint } from '@/domain/route';
 export type NavigationPlatform = 'ios' | 'android' | 'web';
 
 export type NavigationUrls = {
+  /** Native Waze URL scheme — preferred on every platform, including iOS PWA. */
   waze: string;
+  /** HTTPS universal link / web fallback when the Waze app is not installed. */
+  wazeUniversal: string;
   appleMaps: string;
   googleMaps: string;
   fallback: string;
@@ -30,18 +33,21 @@ export function buildNavigationUrls(
     ? `${target.latitude},${target.longitude}`
     : address;
   const encoded = encodeURIComponent(destination);
-  const waze = platform === 'web'
-    ? hasCoordinates
-      ? `https://waze.com/ul?ll=${target.latitude}%2C${target.longitude}&navigate=yes`
-      : `https://waze.com/ul?q=${encoded}&navigate=yes`
-    : hasCoordinates
-      ? `waze://?ll=${target.latitude},${target.longitude}&navigate=yes`
-      : `waze://?q=${encoded}&navigate=yes`;
+  // Always prefer the custom scheme. https://waze.com/ul often stays inside
+  // Safari/PWA and lands on the "Don't have Waze yet?" download page even when
+  // the app is installed (iOS universal-link handoff is unreliable from PWAs).
+  const waze = hasCoordinates
+    ? `waze://?ll=${target.latitude},${target.longitude}&navigate=yes`
+    : `waze://?q=${encoded}&navigate=yes`;
+  const wazeUniversal = hasCoordinates
+    ? `https://waze.com/ul?ll=${target.latitude}%2C${target.longitude}&navigate=yes`
+    : `https://waze.com/ul?q=${encoded}&navigate=yes`;
   const appleMaps = `https://maps.apple.com/?daddr=${encoded}&dirflg=d`;
   const googleMaps = `https://www.google.com/maps/dir/?api=1&destination=${encoded}&travelmode=driving`;
   if (platform === 'ios') {
     return {
       waze,
+      wazeUniversal,
       appleMaps,
       googleMaps,
       fallback: appleMaps,
@@ -50,6 +56,7 @@ export function buildNavigationUrls(
   }
   return {
     waze,
+    wazeUniversal,
     appleMaps,
     googleMaps,
     fallback: googleMaps,

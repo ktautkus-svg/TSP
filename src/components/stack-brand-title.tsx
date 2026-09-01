@@ -33,7 +33,7 @@ export function StackBrandTitle({ title }: StackBrandTitleProps) {
 
 const styles = StyleSheet.create({
   row: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  brandButton: { minHeight: 48, minWidth: 110, justifyContent: 'center' },
+  brandButton: { minHeight: 48, minWidth: 120, overflow: 'visible', justifyContent: 'center' },
   pressed: { opacity: 0.72 },
   divider: { width: 1, height: 24, backgroundColor: colors.border },
   title: { ...type.bodyStrong, flexShrink: 1, color: colors.brandNavy },
