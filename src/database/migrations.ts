@@ -1,38 +1,50 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { installSerializedWebTransactions } from './serialized-web-transactions';
-import { abortOrphanTransaction, installSafeTransactions } from './sqlite-transaction';
+import { abortOrphanTransaction, installSafeTransactions, rollbackIfActive } from './sqlite-transaction';
 
-export const SCHEMA_VERSION = 27;
+export const SCHEMA_VERSION = 28;
 
 /**
- * PWA clients that ran courtyard park-memory (#21/#22) are already at
- * `user_version` 28. That revision only added unused `location_park_memory`
- * and `delivery_stops.park_*` leftovers. The app no longer reads them, but
- * throwing here would brick those clients until site data is cleared.
+ * Schema-27 PWA backups (and any client that has not opened the app since
+ * park-memory returned) remain readable. Fresh installs and leftover-28
+ * clients from #21/#22/#26 all land on schema 28 with real park tables.
  */
-export const COMPATIBLE_LEGACY_SCHEMA_VERSIONS = [28] as const;
+export const COMPATIBLE_LEGACY_SCHEMA_VERSIONS = [27] as const;
 
-export const LEGACY_V28_DELIVERY_STOP_COLUMNS = [
-  'park_latitude',
-  'park_longitude',
-  'park_heading',
-  'park_accuracy_m',
-  'park_sample_count',
-  'park_sampled_at',
-] as const;
+export const PARK_STOP_COLUMNS: ReadonlyArray<{ name: string; sqlType: string }> = [
+  { name: 'park_latitude', sqlType: 'REAL' },
+  { name: 'park_longitude', sqlType: 'REAL' },
+  { name: 'park_heading', sqlType: 'REAL' },
+  { name: 'park_accuracy_m', sqlType: 'REAL' },
+  { name: 'park_sample_count', sqlType: 'INTEGER' },
+  { name: 'park_sampled_at', sqlType: 'TEXT' },
+];
+
+export const LEGACY_V28_DELIVERY_STOP_COLUMNS = PARK_STOP_COLUMNS.map((column) => column.name);
 
 export function isSupportedLocalSchemaVersion(version: number): boolean {
   return version === SCHEMA_VERSION
     || (COMPATIBLE_LEGACY_SCHEMA_VERSIONS as readonly number[]).includes(version);
 }
 
-export function omitLegacyV28StopColumns<T extends Record<string, unknown>>(row: T): T {
+/** Drop park_* only when the target table does not have them (schema-27 peer). */
+export function omitUnavailableParkStopColumns<T extends Record<string, unknown>>(
+  row: T,
+  existingColumns: Iterable<string>,
+): T {
+  const names = existingColumns instanceof Set ? existingColumns : new Set(existingColumns);
+  if (PARK_STOP_COLUMNS.every((column) => names.has(column.name))) return row;
   const next: Record<string, unknown> = { ...row };
-  for (const column of LEGACY_V28_DELIVERY_STOP_COLUMNS) {
-    delete next[column];
+  for (const column of PARK_STOP_COLUMNS) {
+    delete next[column.name];
   }
   return next as T;
+}
+
+/** @deprecated Use omitUnavailableParkStopColumns — park pins are first-class on schema 28. */
+export function omitLegacyV28StopColumns<T extends Record<string, unknown>>(row: T): T {
+  return omitUnavailableParkStopColumns(row, []);
 }
 
 const migrationV1 = `
@@ -1266,6 +1278,39 @@ PRAGMA user_version = 27;
 COMMIT;
 `;
 
+// v28 stores the courtyard / unload pin the driver actually parked at, separate
+// from the customer-facing geocode. Learning is phone GPS only.
+//
+// Kept as a sequential SQL blob for validate-schema / unit tests that replay
+// migrationV1..N on a fresh DB. Production upgrades go through
+// ensureParkMemorySchema so leftover-28 clients (table created, columns
+// missing, open transaction after a failed CREATE) can repair safely.
+// No BEGIN/COMMIT wrapper: a failed statement must not leave the connection
+// inside an uncommitted transaction (expo-sqlite then masks later writes as
+// "Error finalizing statement").
+const migrationV28 = `
+CREATE TABLE IF NOT EXISTS location_park_memory (
+  address_key TEXT PRIMARY KEY NOT NULL,
+  latitude REAL NOT NULL CHECK (latitude BETWEEN -90 AND 90),
+  longitude REAL NOT NULL CHECK (longitude BETWEEN -180 AND 180),
+  heading REAL CHECK (heading IS NULL OR (heading >= 0 AND heading < 360)),
+  accuracy_m REAL CHECK (accuracy_m IS NULL OR accuracy_m >= 0),
+  sample_count INTEGER NOT NULL DEFAULT 1 CHECK (sample_count > 0),
+  last_sampled_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+ALTER TABLE delivery_stops ADD COLUMN park_latitude REAL;
+ALTER TABLE delivery_stops ADD COLUMN park_longitude REAL;
+ALTER TABLE delivery_stops ADD COLUMN park_heading REAL;
+ALTER TABLE delivery_stops ADD COLUMN park_accuracy_m REAL;
+ALTER TABLE delivery_stops ADD COLUMN park_sample_count INTEGER;
+ALTER TABLE delivery_stops ADD COLUMN park_sampled_at TEXT;
+
+PRAGMA user_version = 28;
+`;
+
 async function ensureRouteReturnColumns(db: SQLiteDatabase): Promise<void> {
   const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(routes)');
   const names = new Set(columns.map((column) => column.name));
@@ -1284,6 +1329,39 @@ async function ensureRouteReturnColumns(db: SQLiteDatabase): Promise<void> {
   }
 }
 
+/**
+ * Idempotent v28 park-memory repair. Safe on fresh installs, on leftover-28
+ * clients from #21/#22/#26, and on stale clients where `location_park_memory`
+ * exists but delivery_stops park_* columns do not.
+ */
+export async function ensureParkMemorySchema(db: SQLiteDatabase): Promise<void> {
+  // Close a leftover explicit transaction from the original BEGIN-wrapped
+  // v28 blob so ALTER/CREATE are not nested. Uses the #26 helper so a
+  // healthy connection never sees "cannot rollback - no transaction is active".
+  await rollbackIfActive(db);
+
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS location_park_memory (
+      address_key TEXT PRIMARY KEY NOT NULL,
+      latitude REAL NOT NULL CHECK (latitude BETWEEN -90 AND 90),
+      longitude REAL NOT NULL CHECK (longitude BETWEEN -180 AND 180),
+      heading REAL CHECK (heading IS NULL OR (heading >= 0 AND heading < 360)),
+      accuracy_m REAL CHECK (accuracy_m IS NULL OR accuracy_m >= 0),
+      sample_count INTEGER NOT NULL DEFAULT 1 CHECK (sample_count > 0),
+      last_sampled_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+
+  const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(delivery_stops)');
+  const names = new Set(columns.map((column) => column.name));
+  for (const column of PARK_STOP_COLUMNS) {
+    if (names.has(column.name)) continue;
+    await db.execAsync(`ALTER TABLE delivery_stops ADD COLUMN ${column.name} ${column.sqlType};`);
+  }
+}
+
 export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
   installSafeTransactions(db);
   // Web only: queue withTransactionAsync so concurrent import effects cannot
@@ -1296,9 +1374,6 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
   let currentVersion = result?.user_version ?? 0;
 
   if (currentVersion > SCHEMA_VERSION) {
-    if (isSupportedLocalSchemaVersion(currentVersion)) {
-      return;
-    }
     throw new Error(
       `Duomenų bazės versija ${currentVersion} yra naujesnė už programos palaikomą ${SCHEMA_VERSION}.`,
     );
@@ -1437,5 +1512,18 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
 
   if (currentVersion < 27) {
     await db.execAsync(migrationV27);
+    currentVersion = 27;
+  }
+
+  if (currentVersion < 28) {
+    // Prefer the repair helper over the raw migrationV28 blob: the first
+    // shipped v28 wrapped CREATE/ALTER in BEGIN IMMEDIATE without IF NOT EXISTS,
+    // so a partial failure could leave the PWA connection unusable for writes
+    // (ActivateRoute then surfaces expo-sqlite's "Error finalizing statement").
+    await ensureParkMemorySchema(db);
+    await db.execAsync('PRAGMA user_version = 28;');
+    currentVersion = 28;
+  } else {
+    await ensureParkMemorySchema(db);
   }
 }

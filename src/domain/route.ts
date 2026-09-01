@@ -114,6 +114,13 @@ export type DeliveryStop = {
   geocodingError: string | null;
   latitude: number | null;
   longitude: number | null;
+  /** Courtyard / unload pin learned from phone GPS. Display still uses latitude/longitude. */
+  parkLatitude?: number | null;
+  parkLongitude?: number | null;
+  parkHeading?: number | null;
+  parkAccuracyM?: number | null;
+  parkSampleCount?: number | null;
+  parkSampledAt?: string | null;
   deliveryTimeFrom: string | null;
   deliveryTimeTo: string | null;
   requiredTimeWindow: boolean;

@@ -250,7 +250,7 @@ describe('applyRouteSnapshot — non-destructive apply', () => {
     expect(snapshot.route.vehicle_id).toBeNull();
   });
 
-  it('drops leftover park-memory stop columns when applying onto schema 27', async () => {
+  it('keeps park-memory stop columns when applying onto schema 28', async () => {
     const { adapter, db } = createDb();
     seedLocalRoute(adapter);
 
@@ -260,10 +260,17 @@ describe('applyRouteSnapshot — non-destructive apply', () => {
       park_heading: 180,
     }), T1)).resolves.toBeUndefined();
 
-    const stop = adapter.raw.prepare('SELECT id, recipient FROM delivery_stops WHERE id = ?').get('stop-1') as { id: string; recipient: string };
+    const stop = adapter.raw.prepare('SELECT id, recipient, park_latitude, park_longitude, park_heading FROM delivery_stops WHERE id = ?').get('stop-1') as {
+      id: string;
+      recipient: string;
+      park_latitude: number;
+      park_longitude: number;
+      park_heading: number;
+    };
     expect(stop.id).toBe('stop-1');
     expect(stop.recipient).toBe('Gavėjas');
-    const columns = adapter.raw.prepare('PRAGMA table_info(delivery_stops)').all().map((column) => String(column.name));
-    expect(columns).not.toEqual(expect.arrayContaining(['park_latitude']));
+    expect(stop.park_latitude).toBe(55.9);
+    expect(stop.park_longitude).toBe(23.3);
+    expect(stop.park_heading).toBe(180);
   });
 });
