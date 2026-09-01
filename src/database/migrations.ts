@@ -1,4 +1,5 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { installSerializedWebTransactions } from './serialized-web-transactions';
 
 export const SCHEMA_VERSION = 27;
 
@@ -1257,6 +1258,7 @@ async function ensureRouteReturnColumns(db: SQLiteDatabase): Promise<void> {
 }
 
 export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
+  installSerializedWebTransactions(db);
   await db.execAsync('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
 
   const result = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
