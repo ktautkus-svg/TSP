@@ -312,17 +312,7 @@ export function InstrumentGauge({
 
 const createStyles = (cockpit: CockpitPalette) => StyleSheet.create({
   wrapper: { flex: 1, minWidth: 0, maxWidth: '46%', alignItems: 'center' },
-  title: {
-    zIndex: 1,
-    paddingHorizontal: 5,
-    borderRadius: 4,
-    color: cockpit.onSurface,
-    backgroundColor: cockpit.surface,
-    fontFamily: fonts.heading,
-    fontSize: 12,
-    letterSpacing: 0.8,
-    marginBottom: 3,
-  },
+  title: { color: cockpit.onSurface, fontFamily: fonts.heading, fontSize: 12, letterSpacing: 0.8, marginBottom: 3 },
   shadow: {
     alignItems: 'center',
     justifyContent: 'center',

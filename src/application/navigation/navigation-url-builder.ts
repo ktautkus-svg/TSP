@@ -1,5 +1,4 @@
 import type { RouteEndpoint } from '@/domain/route';
-import { routingCoordinates } from '@/domain/location-park-memory';
 
 export type NavigationPlatform = 'ios' | 'android' | 'web';
 
@@ -70,19 +69,16 @@ export function navigationTargetFromStop(stop: {
   normalizedAddress: string | null;
   latitude: number | null;
   longitude: number | null;
-  parkLatitude?: number | null;
-  parkLongitude?: number | null;
   addressValidationState: string;
 }): RouteEndpoint {
   if (stop.addressValidationState !== 'auto_confirmed') {
     throw new NavigationTargetError('Adresas dar nepatvirtintas. Patvirtinkite jį prieš atidarydami navigaciją.');
   }
-  const coords = routingCoordinates(stop);
   return {
     originalAddress: stop.originalAddress,
     geocodingQuery: stop.originalAddress,
     normalizedAddress: stop.normalizedAddress,
-    latitude: coords?.latitude ?? stop.latitude,
-    longitude: coords?.longitude ?? stop.longitude,
+    latitude: stop.latitude,
+    longitude: stop.longitude,
   };
 }

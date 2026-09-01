@@ -10,8 +10,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { launchNavigation } from '@/application/navigation/navigation-launcher';
 import { buildNavigationUrls, navigationTargetFromStop } from '@/application/navigation/navigation-url-builder';
-import { isRecentGpsSample, readRecentDeviceGpsFix, watchDeviceGps } from '@/application/location/device-gps';
-import { forgetParkPin, hydrateStopParkPins } from '@/application/location/remember-park-pin';
 import { callPhone } from '@/application/operations/call-phone';
 import { calculateCompositeRouteProgress } from '@/application/routes/composite-route-progress';
 import { CancelDraftRoute } from '@/application/routes/route-commands';
@@ -59,7 +57,6 @@ import { RouteRepository } from '@/database/repositories/route-repository';
 import { DELIVERY_FAILURE_REASONS, deliveryMatchesFilter, type DeliveryFailureReason } from '@/domain/delivery-failure';
 import { isUsablePhone } from '@/domain/phone';
 import type { DeliveryFilter, DeliveryStop, Route, RouteEndpoint } from '@/domain/route';
-import type { GpsSample } from '@/domain/location-park-memory';
 import type { OperationalContact } from '@/domain/vehicle-and-trip';
 import { useForegroundInterval } from '@/hooks/use-foreground-interval';
 import { employeeApi, type EmployeeProfile } from '@/infrastructure/auth/employee-session';
@@ -87,10 +84,6 @@ const LIVE_REFRESH_INTERVAL_MS = 10_000;
 // Whichever of deliveredAt/failedAt is set is when the stop was resolved.
 function recalcTimestamp(stop: DeliveryStop): string | null {
   return stop.deliveryStatus === 'delivered' ? stop.deliveredAt : stop.deliveryStatus === 'failed' ? stop.failedAt : null;
-}
-
-function hasLearnedParkPin(stop: Pick<DeliveryStop, 'parkLatitude' | 'parkLongitude'>): boolean {
-  return Number.isFinite(stop.parkLatitude) && Number.isFinite(stop.parkLongitude);
 }
 
 export default function DeliveryScreen() {
@@ -139,7 +132,6 @@ export default function DeliveryScreen() {
   // just cancelled ourselves into a /history redirect mid-navigation.
   const selfCancelled = useRef(false);
   const draftSaveQueue = useRef<Promise<void>>(Promise.resolve());
-  const gpsFixRef = useRef<GpsSample | null>(null);
   const geocoder = useMemo(() => new GatewayGeocodingProvider(), []);
 
   const load = useCallback(async () => {
@@ -156,7 +148,7 @@ export default function DeliveryScreen() {
       const refreshed = await repository.getWithStops(routeId);
       if (!refreshed) return setError('Maršrutas nerastas.');
       setRoute(refreshed.route);
-      setStops(await hydrateStopParkPins(db, refreshed.stops));
+      setStops(refreshed.stops);
       setProgress(await new GetRouteProgress(db).execute(routeId));
       setUndo(await new GetLatestUndoableAction(db).execute(routeId));
       setStartOdometer(refreshed.route.startOdometer === null ? '' : String(refreshed.route.startOdometer));
@@ -226,24 +218,6 @@ export default function DeliveryScreen() {
 
   useFocusEffect(useCallback(() => { void refreshFromServer(); }, [refreshFromServer]));
 
-  useFocusEffect(useCallback(() => {
-    let active = true;
-    let stopWatch: (() => void) | undefined;
-    void watchDeviceGps((sample) => {
-      if (active) gpsFixRef.current = sample;
-    }).then((stop) => {
-      if (!active) {
-        stop();
-        return;
-      }
-      stopWatch = stop;
-    });
-    return () => {
-      active = false;
-      stopWatch?.();
-    };
-  }, []));
-
   useEffect(() => {
     if (syncRevision > 0) void load();
   }, [load, syncRevision]);
@@ -259,13 +233,7 @@ export default function DeliveryScreen() {
     if (busy) return;
     setBusy(true);
     try {
-      const gpsFix = isRecentGpsSample(gpsFixRef.current)
-        ? gpsFixRef.current
-        : await Promise.race([
-          readRecentDeviceGpsFix(),
-          new Promise<null>((resolve) => { setTimeout(() => resolve(null), 1_800); }),
-        ]);
-      await new MarkStopDelivered(db).execute(routeId, stopId, { gpsFix });
+      await new MarkStopDelivered(db).execute(routeId, stopId);
       const updatedRoute = await repository.getById(routeId);
       setExpandedStopId(null);
       await load();
@@ -294,26 +262,6 @@ export default function DeliveryScreen() {
     } finally {
       setBusy(false);
     }
-  };
-
-  const forgetCourtyard = (stop: DeliveryStop) => {
-    Alert.alert(
-      'Pamiršti kiemo vietą?',
-      'Navigacija vėl ves į adreso tašką žemėlapyje, ne į kiemą, kuriame išsikrovėte.',
-      [
-        { text: 'Palikti', style: 'cancel' },
-        {
-          text: 'Pamiršti',
-          style: 'destructive',
-          onPress: () => {
-            void (async () => {
-              await forgetParkPin(db, stop);
-              await load();
-            })();
-          },
-        },
-      ],
-    );
   };
 
   const beginFailed = (stopId: string) => {
@@ -832,17 +780,6 @@ export default function DeliveryScreen() {
                       <Text style={styles.stopNumber}>{nextStop.activeOrder ?? nextStop.optimizedOrder ?? nextStop.originalOrder}</Text>
                     </View>
                     <Text style={styles.nextStopAddress}>{nextStop.normalizedAddress ?? nextStop.originalAddress}</Text>
-                    {hasLearnedParkPin(nextStop) ? (
-                      <Pressable
-                        accessibilityLabel="Kiemas. Palieskite, kad pamirštumėte išmoktą vietą."
-                        accessibilityRole="button"
-                        onLongPress={() => forgetCourtyard(nextStop)}
-                        onPress={() => forgetCourtyard(nextStop)}
-                        style={styles.parkHint}
-                        testID="learned-park-pin-hint">
-                        <Text style={styles.parkHintText}>Kiemas</Text>
-                      </Pressable>
-                    ) : null}
                   </View>
                   <View style={styles.arrivalWindowPanel} testID="dashboard-arrival-window">
                     <View>
@@ -1028,17 +965,6 @@ export default function DeliveryScreen() {
               <View style={styles.cardHeaderText}>
                 <Text style={styles.order}>{statusLabel(stop)}{stop.priorityFirst ? ' ⭐' : ''}</Text>
                 <Text style={styles.address}>{stop.normalizedAddress ?? stop.originalAddress}</Text>
-                {hasLearnedParkPin(stop) ? (
-                  <Pressable
-                    accessibilityLabel="Kiemas. Palieskite, kad pamirštumėte išmoktą vietą."
-                    accessibilityRole="button"
-                    onLongPress={() => forgetCourtyard(stop)}
-                    onPress={() => forgetCourtyard(stop)}
-                    style={styles.parkHint}
-                    testID={`learned-park-pin-hint-${stop.id}`}>
-                    <Text style={styles.parkHintText}>Kiemas</Text>
-                  </Pressable>
-                ) : null}
               </View>
               <Text style={styles.weight}>{stop.weightKg === null ? 'Svoris nežinomas' : `${formatWeightKg(stop.weightKg)} kg`}</Text>
               <Text style={styles.chevron}>{expanded ? '▾' : '▸'}</Text>
@@ -1441,23 +1367,6 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   stopNumberBadge: { width: 36, height: 36, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.actionPrimary },
   stopNumber: { color: colors.textInverse, fontFamily: fonts.headingExtraBold, fontSize: 16 },
   nextStopAddress: { flex: 1, minWidth: 0, ...type.cardTitle, color: colors.text, fontSize: 15, lineHeight: 20 },
-  parkHint: {
-    alignSelf: 'flex-start',
-    minHeight: 28,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: radius.pill,
-    backgroundColor: colors.infoSoft,
-    borderWidth: 1,
-    borderColor: colors.info,
-    justifyContent: 'center',
-  },
-  parkHintText: {
-    color: colors.info,
-    fontSize: 11,
-    fontFamily: fonts.headingSemiBold,
-    letterSpacing: 0.4,
-  },
   nextStopChevron: { color: colors.textMuted, fontSize: 20, lineHeight: 24 },
   arrivalWindowPanel: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
   arrivalWindowLabel: { ...type.label, color: colors.textMuted },

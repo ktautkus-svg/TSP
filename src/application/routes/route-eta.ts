@@ -3,7 +3,6 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import type { DeliveryStop, Route } from '@/domain/route';
 import { lithuanianClockOnReferenceDay } from '@/domain/lithuanian-time';
-import { routingCoordinates } from '@/domain/location-park-memory';
 import { haversineKm } from '@/domain/routing/evaluation/geo';
 import type { CandidateLeg, CandidateStopSchedule } from '@/domain/routing/models';
 
@@ -168,14 +167,10 @@ export function estimateFirstPendingLeg(
   const origin = latestResolved ?? route.startLocation;
 
   if (!latestResolved && nextIndex === 0) return null;
-  if (!origin) return null;
-  const sequential = Boolean(plannedPrevious && latestResolved?.id === plannedPrevious.id);
-  if (sequential && !parkPinDiffersFromRooftop(latestResolved)) return null;
-  const originCoords = routingCoordinates(origin);
-  const nextCoords = routingCoordinates(next);
-  if (!originCoords || !nextCoords) return null;
+  if (!origin || (plannedPrevious && latestResolved?.id === plannedPrevious.id)) return null;
+  if (!hasCoordinates(origin) || !hasCoordinates(next)) return null;
 
-  const directDistanceKm = haversineKm(originCoords, nextCoords);
+  const directDistanceKm = haversineKm(origin, next);
   const distanceKm = roundToTenth(directDistanceKm * APPROXIMATE_ROAD_FACTOR);
   const durationMinutes = Math.max(1, Math.round(distanceKm / APPROXIMATE_ROAD_SPEED_KMH * 60));
   return { stopId: next.id, distanceKm, durationMinutes };
@@ -200,11 +195,8 @@ function resolvedAt(stop: DeliveryStop): string {
   return stop.deliveredAt ?? stop.failedAt ?? '';
 }
 
-function parkPinDiffersFromRooftop(stop: DeliveryStop | null): boolean {
-  if (!stop || !Number.isFinite(stop.parkLatitude) || !Number.isFinite(stop.parkLongitude)) return false;
-  if (!Number.isFinite(stop.latitude) || !Number.isFinite(stop.longitude)) return true;
-  return Math.abs((stop.parkLatitude as number) - (stop.latitude as number)) > 1e-5
-    || Math.abs((stop.parkLongitude as number) - (stop.longitude as number)) > 1e-5;
+function hasCoordinates(value: { latitude: number | null; longitude: number | null }): value is { latitude: number; longitude: number } {
+  return Number.isFinite(value.latitude) && Number.isFinite(value.longitude);
 }
 
 function roundToTenth(value: number): number {

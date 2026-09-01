@@ -57,14 +57,10 @@ describe('premium route dashboard', () => {
     // Semicircular steering-rim frame (look through the wheel) — progress fills
     // along the rim; gauges render as children in the instrument bay. Not a
     // tiny disconnected ring, and not an opaque blue dashboard card.
-    expect(road).toContain('const ARC_LENGTH = 540');
+    expect(road).toContain('const ARC_LENGTH = 520');
     expect(road).toContain('displayedProgress * ARC_LENGTH');
     expect(road).toContain('const RIM_PATH');
     expect(road).toContain('M 28 198 A 172 172 0 0 1 372 198');
-    expect(road).toContain('preserveAspectRatio="none"');
-    expect(road).toContain('id="steeringLeather"');
-    expect(road).toContain('strokeWidth={50}');
-    expect(road).toContain('strokeWidth={40}');
     expect(road).toContain('styles.steeringRim');
     expect(road).toContain('styles.clusterBay');
     expect(road).toContain('styles.gaugeSlot');

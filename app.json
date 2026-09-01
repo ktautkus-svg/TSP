@@ -67,7 +67,7 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Leisti naudoti dabartinę vietą kaip maršruto pradžią, perskaičiavimo atskaitos tašką ir išmoktą kiemo iškrovimo vietą."
+          "locationWhenInUsePermission": "Leisti naudoti dabartinę vietą kaip maršruto pradžią ir perskaičiavimo atskaitos tašką."
         }
       ],
       [

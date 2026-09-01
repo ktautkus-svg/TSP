@@ -14,7 +14,6 @@ import { ChevronDownIcon, ChevronRightIcon } from '@/components/app-icons';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import type { DeliveryStop, Route } from '@/domain/route';
-import { routingCoordinates } from '@/domain/location-park-memory';
 import { employeeApi, type ServerRouteAssignment } from '@/infrastructure/auth/employee-session';
 import { formatWeightKg } from '@/ui/format-weight';
 import { describeVehicleLoad } from '@/ui/vehicle-load';
@@ -290,14 +289,13 @@ function buildOrderMap(route: Route | null, stops: DeliveryStop[], orderedIds: s
   const byId = new Map(stops.map((stop) => [stop.id, stop]));
   const orderedStops = orderedIds.flatMap((id) => {
     const stop = byId.get(id);
-    const coords = stop ? routingCoordinates(stop) : null;
-    if (!stop || !coords) return [];
+    if (!stop || !Number.isFinite(stop.latitude) || !Number.isFinite(stop.longitude)) return [];
     return [{
       id: stop.id,
       label: stop.recipient || stop.normalizedAddress || stop.originalAddress,
       address: stop.normalizedAddress ?? stop.originalAddress,
-      latitude: coords.latitude,
-      longitude: coords.longitude,
+      latitude: stop.latitude as number,
+      longitude: stop.longitude as number,
     }];
   });
   return { start, end, stops: orderedStops };
