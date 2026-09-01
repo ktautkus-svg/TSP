@@ -1,6 +1,6 @@
 # TSP dabartinė projekto būsena
 
-Atnaujinta: 2026-08-24
+Atnaujinta: 2026-09-01
 
 ## Kanoninis kodas
 
@@ -24,40 +24,50 @@ lokalios ir ignoruojamos Git.
 
 ## Patikros
 
-Pagrindinės lokaliai vykdomos patikros:
+Lokaliai ir GitHub Actions CI (`.github/workflows/ci.yml`, `pull_request` ir `push`):
 
 ```text
 npm run typecheck
 npm run lint
 npm test
 npm run validate:schema
+npm run pwa:build
 npm run pwa:test
 ```
+
+CI naudoja Node 24, kaip ir `Dockerfile`. Produkcinis Cloud Run deploy yra atskiras
+workflow (`.github/workflows/cloud-run.yml`): jis vis dar paleidžia tą patį kokybės
+rinkinį prieš revision, bet `cancel-in-progress` yra išjungtas, kad naujas push į
+`main` nenutrauktų jau vykstančio produkcinio deploy. Secret Manager versijos
+kiekvieno auto-deploy metu nebekuriamos — naudojamos esamos paslaptys.
 
 PWA patikra papildomai skenuoja produkcinį bundle ir neleidžia jame palikti
 konfigūruotų kūrimo URL, privačių IP adresų, testinių adresų ar paslapčių.
 
 ## Schema
 
-SQLite schema v25, 36 lentelės (`npm run validate:schema`).
+SQLite schema v27, 37 lentelės (`npm run validate:schema`).
 
-## 2026-08-24 patikros
+## Kas iš tikrųjų veikia
+
+- **Kelionės lapai** — dienos lapai, degalai, norma, Excel eksportas
+  (`src/app/trip-sheet.tsx`, serverio `/api/admin/trip-sheets`).
+- **Odometras kaip km** — dienos ridą galima įvesti kaip nuvažiuotus kilometrus,
+  ne tik absoliutų odometro skaičių; sąraše rodoma `km per dieną`.
+- **Excel** — LOGISTICS_EXCEL_V1 importas ir kelionės lapų `.xlsx` eksportas.
+- **Darbuotojų paskyros** — `admin` / `dispatcher` / `driver`, PIN, sesijos,
+  maršrutų paskyrimas (`docs/EMPLOYEE_ACCOUNTS_V1.md`).
+- **Cloud sync** — maršrutų momentinės kopijos tarp įrenginių (v1 / Phase 0).
+  Cloud Sync v2 1–5 fazės (vietos, nuostatos, atskiri ne maršruto entitetai)
+  lieka plane, ne produkcijoje (`docs/CLOUD_SYNC_V2_PLAN.md`).
+
+## 2026-09-01 patikros
 
 - TypeScript: praėjo.
 - ESLint: praėjo.
-- SQLite schema: praėjo, schema v25, 36 lentelės.
-- Vitest: praėjo, 102 failai ir 909 testai.
-
-## 2026-08-24 pataisymai prieš deploy
-
-- Debesų sinchronizacija neperrašo vietinio `loading|loaded|in_progress` maršruto
-  tyliai; konfliktas paliekamas ir rodomas vairuotojui.
-- OCR eina per usage guard; synthetic routing neįsijungia tyliai.
-- Rate limit raktas naudoja `x-tsp-rate-limit-key` (sesija arba `x-forwarded-for`).
-- Nauji PIN 6–8 skaitmenys; produkcijoje nėra numatytojo `12345`.
-  `TSP_INITIAL_ADMIN_PIN` reikalingas tik pirmai administratoriaus paskyrai.
-- Vairuotojo pradžia yra `/` (Dabar), ne `/history`.
-- Pristatymo ekranas naudoja temą, kitą adresą rodo pirmą, metrikos `IKI KM` / `IKI MIN`.
+- SQLite schema: praėjo, schema v27, 37 lentelės.
+- Vitest: praėjo, 116 failai ir 1022 testai.
+- PWA build ir `pwa:test`: praėjo (bundle scan: 70 failai, 0 uždraustų URL / IP / paslapčių).
 
 ## Routing API sauga
 
@@ -72,6 +82,9 @@ Prieš įjungiant realų API reikia patikrinti providerio billing kainas, nustat
 `GATEWAY_DAILY_BUDGET_CENTS`, `GATEWAY_WEEKLY_BUDGET_CENTS` ir perkelti usage ledger
 į tikrai persistent atomic saugyklą, jei Cloud Run restartai turi išlikti savaitės
 limite.
+
+Cloud Run servisas šiame pakeitime lieka `--allow-unauthenticated` (produkto
+sprendimas, ne CI užduotis).
 
 ## Dar neatlikta lokaliai
 

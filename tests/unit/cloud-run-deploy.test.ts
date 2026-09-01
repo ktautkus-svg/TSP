@@ -1,46 +1,96 @@
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-const workflow = readFileSync(resolve(import.meta.dirname, '../../.github/workflows/cloud-run-deploy.yml'), 'utf8');
-const pushWorkflow = readFileSync(resolve(import.meta.dirname, '../../.github/workflows/cloud-run.yml'), 'utf8');
+const workflowsDir = resolve(import.meta.dirname, '../../.github/workflows');
+const ciWorkflowPath = resolve(workflowsDir, 'ci.yml');
+const deployWorkflowPath = resolve(workflowsDir, 'cloud-run.yml');
+const retiredDispatchPath = resolve(workflowsDir, 'cloud-run-deploy.yml');
+const ciWorkflow = readFileSync(ciWorkflowPath, 'utf8');
+const deployWorkflow = readFileSync(deployWorkflowPath, 'utf8');
 const productionServer = readFileSync(resolve(import.meta.dirname, '../../server/production-server.ts'), 'utf8');
 const employeeStore = readFileSync(resolve(import.meta.dirname, '../../server/employee-auth-store.ts'), 'utf8');
+const gatewayConfig = readFileSync(resolve(import.meta.dirname, '../../gateway/config.ts'), 'utf8');
 const script = resolve(import.meta.dirname, '../../scripts/prepare-cloud-run-revision.mjs');
 
-describe('Cloud Run deploy', () => {
-  it('deletes the stuck failed revision then deploys a unique image with an auto-generated name', () => {
-    expect(workflow).toContain('gcloud builds submit');
-    expect(workflow).toContain('--tag "$IMAGE"');
-    expect(workflow).toContain('gcloud builds describe');
-    expect(workflow).toContain('prepare-cloud-run-revision.mjs');
-    expect(workflow).toContain('cloud-run-ready-status.mjs');
-    expect(workflow).toContain('--revision-suffix="n${GIT_SHA}"');
-    expect(workflow).toContain('--image "$IMAGE"');
-    expect(workflow).not.toContain('--clear-revision-suffix');
-    expect(workflow).not.toMatch(/gcloud run deploy[\s\S]*--source \./);
-    expect(workflow).not.toContain('gcloud run services replace');
+describe('GitHub Actions workflows', () => {
+  it('keeps pull-request CI separate from a single Cloud Run deploy workflow', () => {
+    const files = readdirSync(workflowsDir).filter((name) => name.endsWith('.yml') || name.endsWith('.yaml')).sort();
+    expect(files).toEqual(['ci.yml', 'cloud-run.yml']);
+    expect(existsSync(retiredDispatchPath)).toBe(false);
+
+    const names = [ciWorkflow, deployWorkflow].map((body) => body.match(/^name:\s*(.+)$/m)?.[1]?.trim());
+    expect(names).toEqual(['CI', 'Deploy to Cloud Run']);
+    expect(ciWorkflow).toMatch(/^\s*pull_request:\s*$/m);
+    expect(ciWorkflow).toMatch(/^\s*push:\s*$/m);
+    expect(deployWorkflow).toContain('branches: [main]');
+    expect(deployWorkflow).toContain('workflow_dispatch');
   });
 
-  it('submits Cloud Build asynchronously and polls status instead of streaming logs', () => {
-    expect(pushWorkflow).toContain('--async');
-    expect(pushWorkflow).toContain('--suppress-logs');
-    expect(pushWorkflow).toContain('Grant Cloud Run access to secrets');
-    expect(pushWorkflow).toContain('roles/secretmanager.secretAccessor');
-    expect(pushWorkflow).toContain('compute@developer.gserviceaccount.com');
-    expect(pushWorkflow).toContain('GCP_PROJECT_NUMBER');
-    expect(pushWorkflow).not.toContain('gcloud projects describe "$GCP_PROJECT_ID"');
-    expect(pushWorkflow).toContain('prepare-cloud-run-revision.mjs');
-    expect(pushWorkflow).toContain('--revision-suffix="n${git_sha}"');
-    expect(pushWorkflow).toContain('--no-traffic');
-    expect(pushWorkflow).toContain('gcloud run services update-traffic');
-    expect(pushWorkflow).toContain("gcloud builds describe \"$build_id\"");
-    expect(pushWorkflow).toContain('for _ in $(seq 1 120)');
-    expect(pushWorkflow).toContain('sleep 10');
-    expect(pushWorkflow).toContain('FAILURE|TIMEOUT|CANCELLED|EXPIRED|INTERNAL_ERROR');
-    expect(pushWorkflow).toMatch(/if \[ "\$status" != SUCCESS \]/);
-    expect(pushWorkflow).not.toMatch(/gcloud builds submit --project=.* --tag=.* --timeout=1200s\s*$/m);
+  it('runs the same Node 24 quality gate as the Cloud Run image', () => {
+    for (const body of [ciWorkflow, deployWorkflow]) {
+      expect(body).toContain('node-version: 24');
+      expect(body).not.toContain('node-version: 22');
+      expect(body).toContain('npm run typecheck');
+      expect(body).toContain('npm run lint');
+      expect(body).toContain('npm test');
+      expect(body).toContain('npm run validate:schema');
+      expect(body).toContain('npm run pwa:build');
+      expect(body).toContain('npm run pwa:test');
+    }
+  });
+
+  it('lets CI cancel overlapping checks but never cancels an in-flight production deploy', () => {
+    expect(ciWorkflow).toMatch(/cancel-in-progress:\s*true/);
+    expect(deployWorkflow).toContain('group: cloud-run-production');
+    expect(deployWorkflow).toMatch(/cancel-in-progress:\s*false/);
+    expect(deployWorkflow).not.toMatch(/cancel-in-progress:\s*true/);
+  });
+});
+
+describe('Cloud Run deploy', () => {
+  it('reuses existing Secret Manager versions instead of adding a new one on every deploy', () => {
+    expect(deployWorkflow).toContain('Bind existing Secret Manager values');
+    expect(deployWorkflow).toContain('gcloud secrets describe "$name"');
+    expect(deployWorkflow).toContain('${name}=${name}:latest');
+    expect(deployWorkflow).not.toContain('gcloud secrets versions add');
+    expect(deployWorkflow).not.toContain('gcloud secrets create');
+    expect(deployWorkflow).toContain('GATEWAY_DEVICE_SECRET missing in Secret Manager');
+    expect(deployWorkflow).toContain('TSP_INITIAL_ADMIN_PIN missing in Secret Manager');
+  });
+
+  it('keeps the VPC-SC async Cloud Build poll, unpin workaround, and Ready wait-loop', () => {
+    expect(deployWorkflow).toContain('gcloud builds submit');
+    expect(deployWorkflow).toContain('--tag="$image"');
+    expect(deployWorkflow).toContain('--async');
+    expect(deployWorkflow).toContain('--suppress-logs');
+    expect(deployWorkflow).toContain('gcloud builds describe');
+    expect(deployWorkflow).toContain('prepare-cloud-run-revision.mjs');
+    expect(deployWorkflow).toContain('cloud-run-ready-status.mjs');
+    expect(deployWorkflow).toContain('--revision-suffix="n${git_sha}"');
+    expect(deployWorkflow).toContain('--image="${{ steps.image.outputs.name }}"');
+    expect(deployWorkflow).toContain('--no-traffic');
+    expect(deployWorkflow).toContain('gcloud run services update-traffic');
+    expect(deployWorkflow).toContain("gcloud builds describe \"$build_id\"");
+    expect(deployWorkflow).toContain('for _ in $(seq 1 120)');
+    expect(deployWorkflow).toContain('sleep 10');
+    expect(deployWorkflow).toContain('FAILURE|TIMEOUT|CANCELLED|EXPIRED|INTERNAL_ERROR');
+    expect(deployWorkflow).toMatch(/if \[ "\$status" != SUCCESS \]/);
+    expect(deployWorkflow).toContain('Grant Cloud Run access to secrets');
+    expect(deployWorkflow).toContain('roles/secretmanager.secretAccessor');
+    expect(deployWorkflow).toContain('compute@developer.gserviceaccount.com');
+    expect(deployWorkflow).toContain('GCP_PROJECT_NUMBER');
+    expect(deployWorkflow).not.toContain('gcloud projects describe "$GCP_PROJECT_ID"');
+    expect(deployWorkflow).not.toContain('--clear-revision-suffix');
+    expect(deployWorkflow).not.toMatch(/gcloud run deploy[\s\S]*--source \./);
+    expect(deployWorkflow).not.toContain('gcloud run services replace');
+  });
+
+  it('keeps GATEWAY_REAL_PROVIDER_ARMED fail-closed and leaves the service public', () => {
+    expect(deployWorkflow).toContain("vars.GATEWAY_REAL_PROVIDER_ARMED || '0'");
+    expect(deployWorkflow).toContain('--allow-unauthenticated');
+    expect(gatewayConfig).toContain("(env.GATEWAY_REAL_PROVIDER_ARMED ?? '').trim() === '1'");
   });
 
   it('clears a pinned failed revision name and keeps traffic on the last healthy revision', () => {

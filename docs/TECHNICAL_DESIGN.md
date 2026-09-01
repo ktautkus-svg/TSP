@@ -1,5 +1,12 @@
 # Asmeninės logistikos aplikacijos techninis projektas
 
+> **2026-09-01 pastaba.** Šis dokumentas fiksuoja steigiamuosius vieno
+> vairuotojo, local-first invariantus. Dabartinė produkcinė sistema jau yra
+> kelių vaidmenų PWA (`admin` / `dispatcher` / `driver`) su darbuotojų
+> paskyromis, Cloud Run ir maršrutų cloud sync. Invariantai žemiau vis dar
+> galioja SQLite domeno branduoliui ir offline vykdymui, bet nebeaprašo viso
+> produkto. Aktuali būsena: [`docs/CURRENT_STATUS.md`](CURRENT_STATUS.md).
+
 ## 1. Apimtis ir projektavimo principai
 
 Produktas skirtas vienam asmeniniam vairuotojui viename įrenginyje. Nėra
