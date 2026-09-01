@@ -21,8 +21,8 @@ Vienas Google kandidatas parenkamas automatiškai. Keli kandidatai tik parodomi.
 Prioritetas:
 
 1. tas pats užsakymo numeris – siūloma jungti;
-2. tas pats normalizuotas adresas – siūloma jungti;
-3. Levenshtein panašumas `>= 0.82` – siūloma peržiūrėti.
+2. tas pats normalizuotas adresas – siūloma jungti, išskyrus žinomą Smėlynės 25 / Respublikinės Panevėžio ligoninės taisyklę, kai eilutės skiriasi kavinė vs ne-kavinė;
+3. Levenshtein panašumas `>= 0.82` – siūloma peržiūrėti, su ta pačia kavinės išimtimi.
 
 v1 UI dublikatus pažymi, bet automatiškai nejungia.
 

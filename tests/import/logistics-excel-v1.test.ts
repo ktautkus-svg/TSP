@@ -64,6 +64,40 @@ function escapeXml(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+const SMELYNES_25_ADDRESS = 'UAB Lambda LT, VšĮ Respublikinė Panevėžio ligoninė Smėlynės g. 25, Panevėžys';
+
+function smelynes25Workbook(names: { cafeName: string; otherName: string }): Uint8Array {
+  return logisticsWorkbook([
+    ['Užs. Nr.', 'Svoris', 'Stulpelis', 'Adresas', 'Pavadinimas', 'Kryptis'],
+    ['S700001', 18.4, '08:00-16:00', SMELYNES_25_ADDRESS, names.cafeName, 'R11'],
+    ['S700002', 22.1, '08:00-16:00', SMELYNES_25_ADDRESS, names.otherName, 'R11'],
+  ]);
+}
+
+function dainuCafeWorkbook(): Uint8Array {
+  return logisticsWorkbook([
+    ['Užs. Nr.', 'Svoris', 'Stulpelis', 'Adresas', 'Pavadinimas', 'Kryptis'],
+    ['S800001', 10, '08:00-16:00', 'Dainų g. 11, Šiauliai', 'Centras Vienas (kavinė)', 'R56'],
+    ['S800002', 12, '08:00-16:00', 'Dainų g. 11, Šiauliai', 'Centras Vienas', 'R56'],
+  ]);
+}
+
+function logisticsWorkbook(values: (string | number)[][]): Uint8Array {
+  const cell = (column: string, row: number, value: string | number) => typeof value === 'number'
+    ? `<c r="${column}${row}"><v>${value}</v></c>`
+    : `<c r="${column}${row}" t="inlineStr"><is><t>${escapeXml(value)}</t></is></c>`;
+  const padded = values.length >= 4 ? values : [['Maršrutas'], ...values];
+  const rows = padded.map((row, index) => {
+    const rowNumber = index + 1;
+    return `<row r="${rowNumber}">${row.map((value, column) => cell(String.fromCharCode(65 + column), rowNumber, value)).join('')}</row>`;
+  }).join('');
+  return zipSync({
+    'xl/workbook.xml': strToU8('<?xml version="1.0"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="K.Tautkus" sheetId="1" r:id="rId1"/></sheets></workbook>'),
+    'xl/_rels/workbook.xml.rels': strToU8('<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>'),
+    'xl/worksheets/sheet1.xml': strToU8(`<?xml version="1.0"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${rows}</sheetData></worksheet>`),
+  });
+}
+
 describe('LOGISTICS_EXCEL_V1 direct cell parser', () => {
   it('parses the real A-F driver sheet layout with dynamic direction codes and more than 15 stops', () => {
     const preview = parseLogisticsExcelWorkbook(realLayoutFixtureBytes, {
@@ -217,6 +251,49 @@ describe('LOGISTICS_EXCEL_V1 direct cell parser', () => {
     expect(preview.summary.physicalStopCount).toBe(2);
     expect(preview.summary.unconfirmedAddressCount).toBe(0);
   });
+
+  it('keeps Smėlynės 25 kavinė and ne-kavinė as two stops when column E distinguishes them', () => {
+    const preview = parseLogisticsExcelWorkbook(smelynes25Workbook({
+      cafeName: 'UAB Lambda LT, VšĮ Respublikinė Panevėžio ligoninė (kavinė)',
+      otherName: 'UAB Lambda LT, VšĮ Respublikinė Panevėžio ligoninė (ne kavinė)',
+    }), {
+      importId: 'smelynes-25-split', fileName: 'smelynes-25.xlsx', fileHash: 'smelynes-25-hash',
+    });
+    const hospital = preview.groups.filter((group) => group.normalizedAddress.includes('Smėlynės'));
+    expect(hospital).toHaveLength(2);
+    expect(preview.summary.physicalStopCount).toBe(2);
+    expect(hospital.flatMap((group) => group.orderNumbers).sort()).toEqual(['S700001', 'S700002']);
+    expect(hospital.map((group) => group.lineIds.length).sort()).toEqual([1, 1]);
+
+    const sameCoords = confirmAddressesAt(preview, 55.7372, 24.3541);
+    const stops = excelPreviewToDraftStops(preview, sameCoords.deliveries);
+    expect(stops).toHaveLength(2);
+    expect(stops.map((stop) => stop.notes).sort()).toEqual(['Kavinė', 'Ne kavinė']);
+    expect(new Set(stops.map((stop) => `${stop.latitude}:${stop.longitude}`)).size).toBe(1);
+  });
+
+  it('still merges unrelated same-address rows even when one name mentions kavinė', () => {
+    const preview = parseLogisticsExcelWorkbook(dainuCafeWorkbook(), {
+      importId: 'dainu-cafe-control', fileName: 'dainu.xlsx', fileHash: 'dainu-hash',
+    });
+    expect(preview.groups).toHaveLength(1);
+    expect(preview.summary.physicalStopCount).toBe(1);
+    expect(preview.groups[0]!.orderNumbers.sort()).toEqual(['S800001', 'S800002']);
+
+    const sameCoords = confirmAddressesAt(preview, 55.93, 23.31);
+    expect(excelPreviewToDraftStops(preview, sameCoords.deliveries)).toHaveLength(1);
+  });
+
+  it('still merges two Smėlynės 25 lines when column E does not distinguish kavinė vs ne-kavinė', () => {
+    const preview = parseLogisticsExcelWorkbook(smelynes25Workbook({
+      cafeName: 'UAB Lambda LT, VšĮ Respublikinė Panevėžio ligoninė',
+      otherName: 'UAB Lambda LT, VšĮ Respublikinė Panevėžio ligoninė',
+    }), {
+      importId: 'smelynes-25-same', fileName: 'smelynes-25-same.xlsx', fileHash: 'smelynes-25-same-hash',
+    });
+    expect(preview.groups.filter((group) => group.normalizedAddress.includes('Smėlynės'))).toHaveLength(1);
+    expect(preview.summary.physicalStopCount).toBe(1);
+  });
 });
 
 class ExpoLikeDatabase {
@@ -250,6 +327,14 @@ const endpoint = {
 };
 
 function confirmAddresses(preview: ExcelImportPreview) {
+  return confirmAddressesAt(preview, null, null);
+}
+
+function confirmAddressesAt(
+  preview: ExcelImportPreview,
+  latitude: number | null,
+  longitude: number | null,
+) {
   const result = excelPreviewToImportResult(preview);
   return {
     ...result,
@@ -261,8 +346,8 @@ function confirmAddresses(preview: ExcelImportPreview) {
       selectedAddress: {
         placeId: `place-${index}`,
         normalizedAddress: delivery.addressQuery ?? String(delivery.address.value ?? ''),
-        latitude: 55.90 + index * 0.001,
-        longitude: 23.30 + index * 0.001,
+        latitude: latitude ?? (55.90 + index * 0.001),
+        longitude: longitude ?? (23.30 + index * 0.001),
         confidence: 0.99,
         rawProviderData: null,
       },

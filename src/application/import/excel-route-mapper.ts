@@ -2,6 +2,7 @@ import { parseDeliveryTimeWindow } from '@/application/import/logistics-excel-v1
 import type { DraftStopInput } from '@/application/routes/route-commands';
 import type { ExcelDeliveryGroup, ExcelImportPreview, ExcelSourceRow } from '@/domain/import/excel-models';
 import type { ImportResult, ParsedDelivery, ResolvedAddressCandidate } from '@/domain/import/models';
+import { smelynes25UnloadKeyFromRows, smelynes25UnloadLabel } from '@/domain/import/smelynes-25-unloads';
 import type { DraftShipmentLineInput } from '@/domain/shipment-line';
 import type { PlanningMode } from '@/domain/route';
 
@@ -62,7 +63,7 @@ export function excelPreviewToDraftStops(
   const physicalGroups = new Map<string, typeof confirmed>();
   for (const entry of confirmed) {
     const candidate = entry.delivery.selectedAddress!;
-    const key = confirmedAddressKey(candidate);
+    const key = `${confirmedAddressKey(candidate)}${smelynes25UnloadKeyFromRows(entry.rows)}`;
     const bucket = physicalGroups.get(key) ?? [];
     bucket.push(entry);
     physicalGroups.set(key, bucket);
@@ -104,7 +105,7 @@ export function excelPreviewToDraftStops(
       requiredTimeWindow: Boolean(from && to),
       weightKg: correctedWeight ?? (allWeightsUnknown ? null : totalGrams / 1000),
       phone: null,
-      notes: null,
+      notes: smelynes25UnloadLabel(rows),
       shipmentLines: rows.map(rowToShipmentLine),
     } satisfies DraftStopInput;
   });
