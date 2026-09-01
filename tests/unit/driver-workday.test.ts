@@ -786,10 +786,12 @@ describe('navigation URL builder', () => {
   it('builds Waze and Apple Maps URLs on iOS', () => {
     const urls = buildNavigationUrls(target, 'ios');
     expect(urls.waze).toBe('waze://?ll=55.93,23.31&navigate=yes');
+    expect(urls.wazeUniversal).toContain('waze.com/ul');
     expect(urls.fallback).toContain('maps.apple.com');
   });
   it('builds Google Maps fallback on Android and Web', () => {
     expect(buildNavigationUrls(target, 'android').fallback).toContain('google.com/maps/dir');
+    expect(buildNavigationUrls(target, 'web').waze).toBe('waze://?ll=55.93,23.31&navigate=yes');
     expect(buildNavigationUrls({ ...target, latitude: null, longitude: null }, 'web').fallback).toContain(encodeURIComponent(target.normalizedAddress));
   });
   it('rejects an unconfirmed address before opening navigation', () => {

@@ -54,8 +54,16 @@ describe('premium route dashboard', () => {
     expect(road).toContain('Math.round(clamped * 100)');
     expect(road).toContain('Animated.timing');
     expect(road).toContain('<Svg');
-    expect(road).toContain('WHEEL_CIRCUMFERENCE');
-    expect(road).toContain('displayedProgress * WHEEL_CIRCUMFERENCE');
+    // Dashboard half-arc over the windshield — not a tiny disconnected wheel,
+    // and not the opaque blue/metal cowl card that hid the road.
+    expect(road).toContain('const ARC_LENGTH = 470');
+    expect(road).toContain('displayedProgress * ARC_LENGTH');
+    expect(road).toContain('styles.cockpitCowl');
+    expect(road).toContain('M 28 62 Q 215 18 402 62');
+    expect(road).toContain('arcReadability');
+    expect(road).not.toContain('dashboardSurface');
+    expect(road).not.toContain('WHEEL_CIRCUMFERENCE');
+    expect(road).not.toContain('styles.steeringWheelWrap');
     expect(road).toContain('stitch-windshield-01.png');
     expect(road).toContain('stitch-windshield-11.png');
     expect(road).toContain('resizeMode="cover"');
@@ -66,16 +74,11 @@ describe('premium route dashboard', () => {
     expect(road).toContain('setSceneClock(Date.now())');
     expect(road).toContain('testID="route-front-windshield"');
     expect(road).toContain('styles.windshieldShell');
-    expect(road).toContain('styles.steeringWheelWrap');
-    expect(road).not.toContain('styles.cockpitCowl');
-    expect(road).not.toContain('dashboardSurface');
-    expect(road).not.toContain('M 0 70 Q 215 20 430 70');
     expect(road).not.toContain('breakdown');
     expect(road).not.toContain('Taškai {percent');
     expect(road).toContain('readonly compact?: boolean');
     expect(road).toContain('styles.windshieldShellCompact');
     expect(road).toContain('windshieldShellCompact: { aspectRatio: 2.05, maxHeight: 214 }');
-    expect(road).toContain('<G transform="translate(70 70)">');
     expect(road).toContain('styles.progressReadout');
     expect(road).not.toContain('styles.instrumentBridge');
     expect(road).toContain('SCENE_ROTATION_INTERVAL_MS');
@@ -86,6 +89,9 @@ describe('premium route dashboard', () => {
     expect(road).toContain("return ['nightHighway', 'nightTown', 'nightCity']");
     expect(road).not.toContain('<WeatherOverlay');
     expect(road).not.toContain('<TimeOfDayOverlay');
+    // High-contrast weather chips stay readable over bright snow scenes.
+    expect(road).toContain("backgroundColor: 'rgba(8, 13, 18, 0.82)'");
+    expect(road).toContain('backgroundColor: cockpit.background');
     // Each state uses a forward windshield image; no decorative celestial objects.
     expect(road).not.toContain('moonGlow');
   });
@@ -137,7 +143,12 @@ describe('premium route dashboard', () => {
     expect(delivery).toContain('minHeight: 48');
     expect(delivery).not.toContain('minHeight: 94');
     expect(delivery).toContain('Math.min(114, Math.max(100');
-    expect(delivery).toContain('backgroundColor: colors.dangerSoft');
+    // Coherent FiRo cockpit actions: solid Naviguoti/Atlikta, outline Skambinti/Neatlikta.
+    expect(delivery).toContain('backgroundColor: colors.actionRoute');
+    expect(delivery).toContain('backgroundColor: colors.success');
+    expect(delivery).toContain('borderColor: colors.danger');
+    expect(delivery).toContain('borderColor: colors.actionRoute');
+    expect(delivery).toContain('shadowOpacity: 0.12');
     expect(delivery).toContain('dashboard-delivered-button');
     expect(delivery).toContain('dashboard-failed-button');
     expect(delivery).toContain('ATLIKTA');
@@ -172,8 +183,9 @@ describe('premium route dashboard', () => {
     expect(header).toContain('accessibilityLabel="Atgal"');
     expect(brand).toContain("accessibilityLabel={descriptor ? `FiRo – ${descriptor}` : 'FiRo'}");
     expect(brand).toContain('firo-wordmark-color.png');
-    expect(brand).toContain('firo-mark-color.png');
-    expect(brand).toContain('COMPACT_MARK_ASPECT');
+    expect(brand).toContain('BADGE_ASPECT');
+    expect(brand).toMatch(/720\s*\/\s*454/);
+    expect(brand).not.toContain('COMPACT_MARK_ASPECT');
     expect(brand).toContain('readonly descriptor?: string');
     expect(header).not.toContain('brandName');
     expect(header).not.toContain('tsp-logo-mark.png');

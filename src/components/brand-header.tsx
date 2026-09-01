@@ -95,9 +95,9 @@ export function BrandHeader({
 const styles = StyleSheet.create({
   header: {
     width: '100%',
-    minHeight: 72,
+    minHeight: 76,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.sm,
     backgroundColor: colors.surface,
     borderTopWidth: 3,
     borderTopColor: colors.brandBurgundy,
@@ -107,6 +107,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.sm,
+    overflow: 'visible',
   },
   driverHeader: { minHeight: 58, paddingVertical: 4, borderTopWidth: 0 },
   // Equal flex side slots keep the logo visually centered between Atgal and Home.
@@ -122,6 +123,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: spacing.xs,
+    // Keep the wide landscape badge fully visible — never clip the FR border.
+    overflow: 'visible',
   },
   driverBrandCenter: { flex: 0 },
   headerActions: {

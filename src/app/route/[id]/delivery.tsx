@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BackHandler, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { navigationUrlForProvider, openWebNavigationInSameContext } from '@/application/navigation/navigation-launcher';
+import { launchNavigation } from '@/application/navigation/navigation-launcher';
 import { buildNavigationUrls, navigationTargetFromStop } from '@/application/navigation/navigation-url-builder';
 import { callPhone } from '@/application/operations/call-phone';
 import { calculateCompositeRouteProgress } from '@/application/routes/composite-route-progress';
@@ -403,15 +403,13 @@ export default function DeliveryScreen() {
       const platform = Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'web';
       const urls = buildNavigationUrls(target, platform);
       const provider = await new NavigationPreference(db).get();
-      const selectedUrl = navigationUrlForProvider(urls, provider);
-      if (platform === 'web') {
-        // Keep the launch in the current PWA browsing context. Opening a new
-        // context leaves an empty Safari sheet behind on iOS after the
-        // universal link hands control to the navigation app.
-        openWebNavigationInSameContext(selectedUrl);
-        return;
-      }
-      await Linking.openURL(selectedUrl);
+      // Prefer native waze:// (incl. iOS PWA). https://waze.com/ul often stays
+      // in Safari and shows the download landing even when Waze is installed.
+      await launchNavigation(urls, provider, {
+        isWeb: platform === 'web',
+        openUrl: (url) => Linking.openURL(url),
+        canOpenUrl: (url) => Linking.canOpenURL(url),
+      });
     } catch (reason) {
       Alert.alert('Navigacija neatidaryta', reason instanceof Error ? reason.message : 'Adresas netinkamas navigacijai.');
     }
@@ -450,9 +448,11 @@ export default function DeliveryScreen() {
       const platform = Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'web';
       const urls = buildNavigationUrls(target, platform);
       const provider = await new NavigationPreference(db).get();
-      const selectedUrl = navigationUrlForProvider(urls, provider);
-      if (platform === 'web') return openWebNavigationInSameContext(selectedUrl);
-      await Linking.openURL(selectedUrl);
+      await launchNavigation(urls, provider, {
+        isWeb: platform === 'web',
+        openUrl: (url) => Linking.openURL(url),
+        canOpenUrl: (url) => Linking.canOpenURL(url),
+      });
     } catch (reason) {
       Alert.alert('Navigacija neatidaryta', reason instanceof Error ? reason.message : 'Grįžimo adresas netinkamas navigacijai.');
     }
@@ -1377,37 +1377,80 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   arrivalEta: { ...type.cardTitle, color: colors.text, fontSize: 14 },
   arrivalStatusText: { fontFamily: fonts.headingSemiBold, fontSize: 11, textAlign: 'right' },
   // Outcome pair only — NAVIGUOTI sits beside SKAMBINTI in the stop-info row above.
-  dashboardStopActions: { flexDirection: 'row', alignItems: 'stretch', gap: 6, minHeight: 48 },
+  dashboardStopActions: { flexDirection: 'row', alignItems: 'stretch', gap: 8, minHeight: 48 },
   dashboardStopActionsCompact: { marginTop: 'auto' },
-  dashboardOutcomeActions: { flex: 1, flexDirection: 'row', gap: 6 },
+  dashboardOutcomeActions: { flex: 1, flexDirection: 'row', gap: 8 },
   dashboardActionButton: {
     minWidth: 0,
     minHeight: 48,
     borderRadius: radius.md,
-    paddingHorizontal: 8,
+    paddingHorizontal: 10,
     paddingVertical: 0,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
-    gap: 5,
+    gap: 6,
+    // Shared FiRo cockpit chrome — avoids mismatched OS-default button looks.
+    shadowColor: colors.text,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+    elevation: 2,
   },
   dashboardOutcomeButton: { flex: 1, minHeight: 48 },
   dashboardNavigateButton: { backgroundColor: colors.actionRoute },
   dashboardDeliveredButton: { backgroundColor: colors.success },
-  dashboardFailedButton: { backgroundColor: colors.dangerSoft, borderWidth: 1, borderColor: colors.danger },
+  dashboardFailedButton: {
+    backgroundColor: colors.surface,
+    borderWidth: 1.5,
+    borderColor: colors.danger,
+  },
   dashboardActionIcon: { color: colors.textInverse, fontFamily: fonts.headingExtraBold, fontSize: 26, lineHeight: 28 },
-  dashboardActionText: { ...type.button, color: colors.textInverse, fontSize: 12 },
-  dashboardPrimaryActionText: { fontSize: 12 },
-  dashboardFailedActionText: { ...type.button, color: colors.danger, fontSize: 12 },
+  dashboardActionText: {
+    fontFamily: fonts.headingSemiBold,
+    fontSize: 13,
+    lineHeight: 16,
+    letterSpacing: 0.4,
+    color: colors.textInverse,
+  },
+  dashboardPrimaryActionText: { fontSize: 13, letterSpacing: 0.4 },
+  dashboardFailedActionText: {
+    fontFamily: fonts.headingSemiBold,
+    fontSize: 13,
+    lineHeight: 16,
+    letterSpacing: 0.4,
+    color: colors.danger,
+  },
   flex: { flex: 1, minWidth: 0 },
   contactBlock: { gap: 6 },
   contactRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  stopInfoActions: { flexDirection: 'row', alignItems: 'stretch', gap: 6 },
-  stopInfoActionButton: { flex: 1, minHeight: 44 },
-  callButton: { minHeight: 44, borderRadius: radius.md, backgroundColor: colors.actionRoute, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.sm },
-  callButtonDisabled: { backgroundColor: colors.disabledSurface, borderWidth: 1, borderColor: colors.borderStrong },
-  callButtonText: { ...type.button, color: colors.textInverse, fontSize: 12 },
-  callButtonTextDisabled: { color: colors.textSecondary },
+  stopInfoActions: { flexDirection: 'row', alignItems: 'stretch', gap: 8 },
+  stopInfoActionButton: { flex: 1, minHeight: 48 },
+  callButton: {
+    minHeight: 48,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1.5,
+    borderColor: colors.actionRoute,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.sm,
+  },
+  callButtonDisabled: {
+    backgroundColor: colors.disabledSurface,
+    borderWidth: 1.5,
+    borderColor: colors.borderStrong,
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  callButtonText: {
+    fontFamily: fonts.headingSemiBold,
+    fontSize: 13,
+    lineHeight: 16,
+    letterSpacing: 0.4,
+    color: colors.actionRoute,
+  },
+  callButtonTextDisabled: { color: colors.disabledText },
   completeRouteButton: { minHeight: 58, borderRadius: radius.md, backgroundColor: colors.success, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
   returnChoiceRow: { gap: spacing.sm },
   returnChoiceButton: { minHeight: 56, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },

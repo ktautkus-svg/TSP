@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { describe, expect, it, vi } from 'vitest';
 
-import { navigationUrlForProvider, openWebNavigationInSameContext } from '../../src/application/navigation/navigation-launcher';
+import { launchNavigation, navigationUrlForProvider, openWebNavigationInSameContext } from '../../src/application/navigation/navigation-launcher';
 import { buildNavigationUrls } from '../../src/application/navigation/navigation-url-builder';
 import { NavigationPreference } from '../../src/application/settings/navigation-preference';
 
@@ -34,20 +34,31 @@ describe('Daily Use navigation preference', () => {
     expect(await new NavigationPreference(db).get()).toBe('google_maps');
   });
 
-  it('selects the exact requested provider and launches web navigation in the same context', () => {
+  it('selects the exact requested provider and launches web navigation in the same context', async () => {
     const urls = buildNavigationUrls({
       originalAddress: 'Tilžės g. 1, Šiauliai',
       normalizedAddress: 'Tilžės g. 1, Šiauliai, Lietuva',
       latitude: 55.93,
       longitude: 23.31,
     }, 'web');
-    expect(navigationUrlForProvider(urls, 'waze')).toContain('waze.com/ul');
+    // Prefer native waze:// even on web/PWA — https://waze.com/ul often stays
+    // in Safari and shows the download page while the app is installed.
+    expect(navigationUrlForProvider(urls, 'waze')).toBe('waze://?ll=55.93,23.31&navigate=yes');
+    expect(urls.wazeUniversal).toContain('waze.com/ul');
     expect(navigationUrlForProvider(urls, 'apple_maps')).toContain('maps.apple.com');
     expect(navigationUrlForProvider(urls, 'google_maps')).toContain('google.com/maps/dir');
     const assign = vi.fn();
     openWebNavigationInSameContext(urls.waze, assign);
     expect(assign).toHaveBeenCalledOnce();
     expect(assign).toHaveBeenCalledWith(urls.waze);
+    const assignLaunch = vi.fn();
+    await launchNavigation(urls, 'waze', {
+      isWeb: true,
+      openUrl: vi.fn(async () => undefined),
+      canOpenUrl: vi.fn(async () => false),
+      assignWeb: assignLaunch,
+    });
+    expect(assignLaunch).toHaveBeenCalledWith('waze://?ll=55.93,23.31&navigate=yes');
   });
 });
 
@@ -85,10 +96,13 @@ describe('Daily Use menu and Dashboard contract', () => {
   it('does not open a new browser context for PWA navigation', () => {
     const delivery = source('src/app/route/[id]/delivery.tsx');
     const launcher = source('src/application/navigation/navigation-launcher.ts');
-    expect(delivery).toContain('openWebNavigationInSameContext(selectedUrl)');
-    expect(delivery).not.toContain('await Linking.openURL(urls.waze)');
+    expect(delivery).toContain('await launchNavigation(urls, provider,');
+    expect(delivery).toContain("isWeb: platform === 'web'");
+    expect(delivery).not.toContain('await Linking.openURL(selectedUrl)');
     expect(delivery).not.toContain('window.open(');
     expect(launcher).toContain('window.location.assign(nextUrl)');
+    expect(launcher).toContain('urls.waze');
+    expect(launcher).toContain('wazeUniversal');
     expect(launcher).not.toContain('window.open(');
     expect(launcher).not.toContain('_blank');
   });
