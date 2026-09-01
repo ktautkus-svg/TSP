@@ -182,31 +182,38 @@ export function RoadProgressBar({
           </Defs>
           {/* Soft shade only — never an opaque blue card over the gauges. */}
           <Path d="M 0 40 A 200 200 0 0 1 400 40 L 400 240 L 0 240 Z" fill="url(#binnacleShade)" />
-          {/* Outer rim bevel (steering / binnacle frame). */}
+          {/* Thick dark steering / binnacle rim — look-through-the-wheel frame. */}
+          <Path
+            d={RIM_PATH}
+            fill="none"
+            stroke="#1A2233"
+            strokeLinecap="round"
+            strokeOpacity={0.95}
+            strokeWidth={28}
+          />
           <Path
             d={RIM_PATH}
             fill="none"
             stroke={cockpit.metalDark}
             strokeLinecap="round"
-            strokeOpacity={0.92}
-            strokeWidth={22}
+            strokeOpacity={0.9}
+            strokeWidth={20}
           />
           <Path
             d={RIM_PATH}
             fill="none"
             stroke={cockpit.metalMid}
             strokeLinecap="round"
-            strokeOpacity={0.55}
-            strokeWidth={14}
+            strokeOpacity={0.45}
+            strokeWidth={12}
           />
           {/* Progress fills along the rim — the route "fuel" gauge on the wheel. */}
           <Path
             d={RIM_PATH}
             fill="none"
-            stroke={cockpit.metalLight}
+            stroke="rgba(255,255,255,0.28)"
             strokeLinecap="round"
-            strokeOpacity={0.35}
-            strokeWidth={7}
+            strokeWidth={8}
           />
           <Path
             d={RIM_PATH}
@@ -214,7 +221,7 @@ export function RoadProgressBar({
             stroke="url(#steeringProgress)"
             strokeDasharray={`${progressStroke} ${ARC_LENGTH}`}
             strokeLinecap="round"
-            strokeWidth={6}
+            strokeWidth={7}
           />
         </Svg>
         <View pointerEvents="none" style={[styles.progressReadout, compact && styles.progressReadoutCompact]}>
@@ -416,13 +423,18 @@ const createStyles = (cockpit: CockpitPalette) => StyleSheet.create({
     letterSpacing: 1.2,
   },
   percent: {
-    color: cockpit.onSurface,
+    color: cockpit.white,
     fontFamily: fonts.headingExtraBold,
-    fontSize: 20,
-    lineHeight: 22,
-    textShadowColor: 'rgba(255, 255, 255, 0.85)',
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 6,
+    fontSize: 18,
+    lineHeight: 20,
+    backgroundColor: 'rgba(17, 28, 45, 0.78)',
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 999,
+    overflow: 'hidden',
+    textShadowColor: 'rgba(0, 0, 0, 0.45)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
-  percentCompact: { fontSize: 18, lineHeight: 20 },
+  percentCompact: { fontSize: 16, lineHeight: 18, paddingHorizontal: 9, paddingVertical: 2 },
 });
