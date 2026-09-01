@@ -4,9 +4,10 @@ Vidinis projekto pavadinimo kodas remiasi anglišku „Traveling Salesman
 Problem“ terminu. Naudotojui rodomas tik lietuviškas pavadinimas „Tikslus
 siuntų pristatymas“.
 
-Asmeninė, vienam vairuotojui skirta logistikos aplikacija. Dabartinė pilotinė
-versija leidžia importuoti ir suplanuoti maršrutą, krautis, vykdyti pristatymus,
-atkurti būseną iš SQLite, užbaigti Route ir peržiūrėti istoriją.
+Logistikos ir pristatymų aplikacija vienai įmonei: vairuotojas vykdo maršrutą
+telefone, dispečeris ir administratorius planuoja, skiria ir seka darbą PWA.
+Vietinė SQLite lieka darbo kopijos tiesos šaltiniu; darbuotojų paskyros ir
+maršrutų sinchronizacija eina per Cloud Run.
 
 ## Paleidimas
 
@@ -38,11 +39,16 @@ Patikros:
 
 ```bash
 npm run typecheck
+npm run lint
 npm test
 npm run validate:schema
-npm run experiment:routing
-npm run benchmark:routing
+npm run pwa:build
+npm run pwa:test
 ```
+
+Pull request'uose ir `push` į GitHub tas pats rinkinys paleidžiamas workflow
+`.github/workflows/ci.yml`. Cloud Run deploy yra atskiras workflow ir
+nepanaikina jau vykstančio produkcinio deploy.
 
 Aktuali projekto būsena, kanoninio kodo ribos ir paskutinės patikros aprašytos
 [`docs/CURRENT_STATUS.md`](docs/CURRENT_STATUS.md). Produkcinė aplikacija yra pagrindiniame
@@ -83,20 +89,25 @@ vardinti `EXPO_PUBLIC_*` ar įtraukti į Expo konfigūraciją. Išsamiau:
 
 Įgyvendinta:
 
-- Expo SDK 57 / React Native / TypeScript projekto bazė;
-- Expo Router ekranų struktūra;
-- vietinė SQLite duomenų bazė su versijuotomis migracijomis;
-- `Route`, `DeliveryStop`, `ImportSource`, pristatymo bandymų ir atšaukimo žurnalo schema;
-- `Vehicle`, `TripSheet`, `FuelEntry`, optimizavimo rezultatų, apribojimų ir audito schema;
-- domeno būsenos, jų perėjimų apsaugos ir odometro validavimo funkcija;
-- tonkilometrių, daugiakriterio balo, laiko KPI ir pilno bako degalų skaičiavimai;
-- būsimo OCR, maršruto optimizavimo ir krovinio išdėstymo adapterių kontraktai;
-- bazinis, viena ranka valdomas ir planšetei prisitaikantis UI karkasas.
+- Expo SDK 57 / React Native / TypeScript ir produkcinė PWA (Cloud Run);
+- Expo Router ekranai vairuotojui, dispečeriui ir administratoriui;
+- vietinė SQLite su versijuotomis migracijomis (`SCHEMA_VERSION` 27);
+- maršruto kūrimas, importas (nuotrauka, dokumentas, tekstas, rankinis, Excel),
+  planavimas, alternatyvos, rankinis eiliškumas, krovimas ir pristatymas;
+- OCR (Google Vision / mock), geokodavimas ir routing gateway su fail-closed
+  `GATEWAY_REAL_PROVIDER_ARMED`;
+- swipe pristatymo / krovimo veiksmai ir Waze / Apple Maps / Google Maps;
+- kelionės lapai, degalai, dienos kilometrai kaip nuvažiuoti km, Excel eksportas;
+- darbuotojų paskyros (`admin` / `dispatcher` / `driver`) ir maršrutų cloud sync;
+- PWA JSON atsarginė kopija ir atkūrimas.
 
-Dar neįgyvendinta:
+Dar neįgyvendinta arba tik iš dalies:
 
-- pilnas maršruto kūrimas, redagavimas ir vykdymas;
-- OCR, geokodavimas ir optimizavimo tiekėjas;
-- swipe gestai, navigacijos programėlių atidarymas ir eksportas / atsarginės kopijos.
+- fizinis iPhone priėmimo testas be priežiūros;
+- Cloud Sync v2 likusios fazės (ne maršruto entitetai: vietos, nuostatos,
+  atskiri kelionės lapai);
+- keli istoriniame MVP sąraše likę punktai, pvz. dinaminis likusios maršruto
+  dalies perskaičiavimas.
 
-Tai yra numatyta etapais techniniame projekte ir MVP darbų sąraše.
+Aktuali būsena: [`docs/CURRENT_STATUS.md`](docs/CURRENT_STATUS.md). Istorinės
+ataskaitos (`docs/*_REPORT.md`, `docs/MVP_BACKLOG.md`) paliekamos kaip buvo.
