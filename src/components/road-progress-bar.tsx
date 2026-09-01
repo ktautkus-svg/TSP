@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
     AccessibilityInfo,
     Animated,
@@ -16,9 +16,15 @@ import { useTheme } from '@/ui/theme';
 import { fonts } from '@/ui/tokens';
 
 type CockpitPalette = ReturnType<typeof cockpitColorsFor>;
-/** Approximate length of the dashboard half-arc path in the 430-wide viewBox. */
-const ARC_LENGTH = 470;
+/**
+ * Length of the semicircular steering-rim path in the 400×240 viewBox.
+ * Path: left 8-o'clock → top apex → right 4-o'clock (look-through wheel frame).
+ */
+const ARC_LENGTH = 520;
 const SCENE_ROTATION_INTERVAL_MS = 30 * 60 * 1000;
+
+/** Semicircular rim path — frames the instrument bay like looking through a wheel. */
+const RIM_PATH = 'M 28 198 A 172 172 0 0 1 372 198';
 
 const sceneAssets = {
   sunrise: require('../../assets/images/route-scenes/stitch-windshield-01.png'),
@@ -39,6 +45,11 @@ export interface RoadProgressBarProps {
   readonly completed?: boolean;
   readonly compact?: boolean;
   readonly weatherScene?: RouteWeatherScene | null;
+  /**
+   * Instrument cluster (Svoris / Laikas / Rida / Taškai) rendered inside the
+   * steering-rim opening — the product "nails" that must stay large and readable.
+   */
+  readonly children?: ReactNode;
 }
 
 export function RoadProgressBar({
@@ -46,6 +57,7 @@ export function RoadProgressBar({
   completed = false,
   compact = false,
   weatherScene,
+  children,
 }: RoadProgressBarProps) {
   const { scheme } = useTheme();
   const cockpit = cockpitColorsFor(scheme);
@@ -122,6 +134,7 @@ export function RoadProgressBar({
       accessibilityLabel={`Maršruto progresas ${Math.round(clamped * 100)} procentų`}
       style={styles.container}
       testID="route-road-progress">
+      {/* Upper view: road ahead through the wheel. */}
       <View style={[styles.windshieldArea, compact && styles.windshieldAreaCompact]}>
         <View style={[styles.windshieldShell, compact && styles.windshieldShellCompact]} testID="route-front-windshield">
           <Animated.View style={[styles.sceneLayer, { opacity: sceneOpacity }]}>
@@ -140,51 +153,75 @@ export function RoadProgressBar({
               <Text style={styles.sceneBadgeText}>{weatherReadoutLabel(weatherScene)}</Text>
             </View>
           ) : null}
-          {/* Dashboard half-arc along the cowl — instrument-cluster progress without an opaque blue card. */}
-          <Svg
-            pointerEvents="none"
-            style={[styles.cockpitCowl, compact && styles.cockpitCowlCompact]}
-            testID="route-steering-progress"
-            viewBox="0 0 430 100">
-            <Defs>
-              <LinearGradient id="steeringProgress" x1="0" y1="0" x2="1" y2="0">
-                <Stop offset="0" stopColor={cockpit.primaryDark} />
-                <Stop offset="0.55" stopColor={cockpit.primary} />
-                <Stop offset="1" stopColor={cockpit.routeBright} />
-              </LinearGradient>
-              {/* Soft dark wash under the arc so the % stays readable on bright snow. */}
-              <LinearGradient id="arcReadability" x1="0" y1="0" x2="0" y2="1">
-                <Stop offset="0" stopColor="rgba(8, 13, 18, 0)" />
-                <Stop offset="0.35" stopColor="rgba(8, 13, 18, 0.18)" />
-                <Stop offset="1" stopColor="rgba(8, 13, 18, 0.42)" />
-              </LinearGradient>
-            </Defs>
-            <Path d="M 0 48 Q 215 8 430 48 L 430 100 L 0 100 Z" fill="url(#arcReadability)" />
-            <Path
-              d="M 28 62 Q 215 18 402 62"
-              fill="none"
-              stroke={cockpit.metalLight}
-              strokeLinecap="round"
-              strokeOpacity={0.55}
-              strokeWidth={8}
-            />
-            <Path
-              d="M 28 62 Q 215 18 402 62"
-              fill="none"
-              stroke="url(#steeringProgress)"
-              strokeDasharray={`${progressStroke} ${ARC_LENGTH}`}
-              strokeLinecap="round"
-              strokeWidth={5}
-            />
-          </Svg>
-          <View pointerEvents="none" style={[styles.progressReadout, compact && styles.progressReadoutCompact]}>
-            <Text style={[styles.percent, compact && styles.percentCompact]}>{Math.round(clamped * 100)}%</Text>
-          </View>
           {completed ? (
             <View pointerEvents="none" style={styles.completedMessage} testID="route-completed-windshield-message">
               <Text style={styles.completedMessageText}>GERO POILSIO!</Text>
             </View>
           ) : null}
+        </View>
+      </View>
+
+      {/* Instrument bay: look through the semicircular steering rim at the gauges. */}
+      <View style={[styles.clusterBay, compact && styles.clusterBayCompact]} testID="route-instrument-cluster">
+        <Svg
+          pointerEvents="none"
+          style={[styles.steeringRim, compact && styles.steeringRimCompact]}
+          testID="route-steering-progress"
+          viewBox="0 0 400 240">
+          <Defs>
+            <LinearGradient id="steeringProgress" x1="0" y1="0" x2="1" y2="0">
+              <Stop offset="0" stopColor={cockpit.primaryDark} />
+              <Stop offset="0.55" stopColor={cockpit.primary} />
+              <Stop offset="1" stopColor={cockpit.routeBright} />
+            </LinearGradient>
+            <LinearGradient id="binnacleShade" x1="0" y1="0" x2="0" y2="1">
+              <Stop offset="0" stopColor="rgba(17, 28, 45, 0)" />
+              <Stop offset="0.45" stopColor="rgba(17, 28, 45, 0.08)" />
+              <Stop offset="1" stopColor="rgba(17, 28, 45, 0.22)" />
+            </LinearGradient>
+          </Defs>
+          {/* Soft shade only — never an opaque blue card over the gauges. */}
+          <Path d="M 0 40 A 200 200 0 0 1 400 40 L 400 240 L 0 240 Z" fill="url(#binnacleShade)" />
+          {/* Outer rim bevel (steering / binnacle frame). */}
+          <Path
+            d={RIM_PATH}
+            fill="none"
+            stroke={cockpit.metalDark}
+            strokeLinecap="round"
+            strokeOpacity={0.92}
+            strokeWidth={22}
+          />
+          <Path
+            d={RIM_PATH}
+            fill="none"
+            stroke={cockpit.metalMid}
+            strokeLinecap="round"
+            strokeOpacity={0.55}
+            strokeWidth={14}
+          />
+          {/* Progress fills along the rim — the route "fuel" gauge on the wheel. */}
+          <Path
+            d={RIM_PATH}
+            fill="none"
+            stroke={cockpit.metalLight}
+            strokeLinecap="round"
+            strokeOpacity={0.35}
+            strokeWidth={7}
+          />
+          <Path
+            d={RIM_PATH}
+            fill="none"
+            stroke="url(#steeringProgress)"
+            strokeDasharray={`${progressStroke} ${ARC_LENGTH}`}
+            strokeLinecap="round"
+            strokeWidth={6}
+          />
+        </Svg>
+        <View pointerEvents="none" style={[styles.progressReadout, compact && styles.progressReadoutCompact]}>
+          <Text style={[styles.percent, compact && styles.percentCompact]}>{Math.round(clamped * 100)}%</Text>
+        </View>
+        <View style={[styles.gaugeSlot, compact && styles.gaugeSlotCompact]}>
+          {children}
         </View>
       </View>
     </View>
@@ -248,7 +285,6 @@ const createStyles = (cockpit: CockpitPalette) => StyleSheet.create({
   container: {
     width: '100%',
     overflow: 'hidden',
-    // Match the page surface — metalDark here produced black letterbox fringes.
     backgroundColor: cockpit.background,
   },
   windshieldArea: {
@@ -258,20 +294,24 @@ const createStyles = (cockpit: CockpitPalette) => StyleSheet.create({
     paddingHorizontal: 8,
     backgroundColor: cockpit.background,
   },
-  windshieldAreaCompact: { paddingTop: 5, paddingHorizontal: 6 },
+  windshieldAreaCompact: { paddingTop: 4, paddingHorizontal: 6 },
   windshieldShell: {
     width: '100%',
     maxWidth: 720,
-    aspectRatio: 1.95,
+    aspectRatio: 2.35,
     position: 'relative',
     overflow: 'hidden',
-    borderRadius: 12,
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
     borderWidth: 1,
+    borderBottomWidth: 0,
     borderColor: cockpit.outlineVariant,
     backgroundColor: cockpit.surfaceContainer,
   },
-  // Taller hero on phones so the road scene + weather chips read as the focus.
-  windshieldShellCompact: { aspectRatio: 2.05, maxHeight: 214 },
+  // Shorter windshield so the instrument bay (gauges) can stay large.
+  windshieldShellCompact: { aspectRatio: 2.55, maxHeight: 148 },
   sceneLayer: {
     position: 'absolute',
     top: 0,
@@ -281,38 +321,30 @@ const createStyles = (cockpit: CockpitPalette) => StyleSheet.create({
     width: undefined,
     height: undefined,
   },
-  // Slight overscale hides any residual edge pixels without inventing black bars.
   sceneImage: { width: '100%', height: '100%', transform: [{ scale: 1.08 }] },
-  cockpitCowl: {
-    position: 'absolute',
-    right: 0,
-    bottom: 0,
-    left: 0,
-    width: '100%',
-    height: 100,
-  },
-  cockpitCowlCompact: { height: 86 },
   sceneBadge: {
     position: 'absolute',
-    top: 12,
-    left: 12,
+    top: 10,
+    left: 10,
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 8,
     backgroundColor: 'rgba(8, 13, 18, 0.82)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.22)',
+    zIndex: 3,
   },
   weatherBadge: {
     position: 'absolute',
-    top: 12,
-    right: 12,
+    top: 10,
+    right: 10,
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 8,
     backgroundColor: 'rgba(8, 13, 18, 0.82)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.22)',
+    zIndex: 3,
   },
   sceneBadgeCompact: { top: 8, left: 8, paddingHorizontal: 10, paddingVertical: 6 },
   weatherBadgeCompact: { top: 8, right: 8, paddingHorizontal: 10, paddingVertical: 6 },
@@ -325,14 +357,49 @@ const createStyles = (cockpit: CockpitPalette) => StyleSheet.create({
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
   },
+  clusterBay: {
+    width: '100%',
+    position: 'relative',
+    marginTop: -18,
+    paddingTop: 28,
+    paddingBottom: 4,
+    paddingHorizontal: 8,
+    backgroundColor: cockpit.background,
+    minHeight: 168,
+  },
+  clusterBayCompact: {
+    marginTop: -14,
+    paddingTop: 22,
+    paddingBottom: 2,
+    paddingHorizontal: 6,
+    minHeight: 148,
+  },
+  steeringRim: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    width: '100%',
+    height: 168,
+    zIndex: 1,
+  },
+  steeringRimCompact: { height: 148 },
   progressReadout: {
     position: 'absolute',
-    right: 40,
-    bottom: 10,
-    left: 40,
+    top: 8,
+    left: 0,
+    right: 0,
     alignItems: 'center',
+    zIndex: 2,
   },
-  progressReadoutCompact: { right: 28, bottom: 6, left: 28 },
+  progressReadoutCompact: { top: 4 },
+  gaugeSlot: {
+    width: '100%',
+    zIndex: 2,
+    paddingTop: 18,
+    paddingHorizontal: 4,
+  },
+  gaugeSlotCompact: { paddingTop: 12, paddingHorizontal: 2 },
   completedMessage: {
     position: 'absolute',
     inset: 0,
@@ -340,6 +407,7 @@ const createStyles = (cockpit: CockpitPalette) => StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: cockpit.primaryDark,
     opacity: 0.88,
+    zIndex: 4,
   },
   completedMessageText: {
     color: cockpit.white,
@@ -348,13 +416,13 @@ const createStyles = (cockpit: CockpitPalette) => StyleSheet.create({
     letterSpacing: 1.2,
   },
   percent: {
-    color: cockpit.white,
+    color: cockpit.onSurface,
     fontFamily: fonts.headingExtraBold,
-    fontSize: 22,
-    lineHeight: 24,
-    textShadowColor: 'rgba(0, 0, 0, 0.7)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4,
+    fontSize: 20,
+    lineHeight: 22,
+    textShadowColor: 'rgba(255, 255, 255, 0.85)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 6,
   },
-  percentCompact: { fontSize: 20, lineHeight: 22 },
+  percentCompact: { fontSize: 18, lineHeight: 20 },
 });

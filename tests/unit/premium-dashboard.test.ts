@@ -54,13 +54,18 @@ describe('premium route dashboard', () => {
     expect(road).toContain('Math.round(clamped * 100)');
     expect(road).toContain('Animated.timing');
     expect(road).toContain('<Svg');
-    // Dashboard half-arc over the windshield — not a tiny disconnected wheel,
-    // and not the opaque blue/metal cowl card that hid the road.
-    expect(road).toContain('const ARC_LENGTH = 470');
+    // Semicircular steering-rim frame (look through the wheel) — progress fills
+    // along the rim; gauges render as children in the instrument bay. Not a
+    // tiny disconnected ring, and not an opaque blue dashboard card.
+    expect(road).toContain('const ARC_LENGTH = 520');
     expect(road).toContain('displayedProgress * ARC_LENGTH');
-    expect(road).toContain('styles.cockpitCowl');
-    expect(road).toContain('M 28 62 Q 215 18 402 62');
-    expect(road).toContain('arcReadability');
+    expect(road).toContain('const RIM_PATH');
+    expect(road).toContain('M 28 198 A 172 172 0 0 1 372 198');
+    expect(road).toContain('styles.steeringRim');
+    expect(road).toContain('styles.clusterBay');
+    expect(road).toContain('styles.gaugeSlot');
+    expect(road).toContain('readonly children?: ReactNode');
+    expect(road).toContain('binnacleShade');
     expect(road).not.toContain('dashboardSurface');
     expect(road).not.toContain('WHEEL_CIRCUMFERENCE');
     expect(road).not.toContain('styles.steeringWheelWrap');
@@ -73,12 +78,13 @@ describe('premium route dashboard', () => {
     expect(road).toContain('GERO POILSIO!');
     expect(road).toContain('setSceneClock(Date.now())');
     expect(road).toContain('testID="route-front-windshield"');
+    expect(road).toContain('testID="route-instrument-cluster"');
     expect(road).toContain('styles.windshieldShell');
     expect(road).not.toContain('breakdown');
     expect(road).not.toContain('Taškai {percent');
     expect(road).toContain('readonly compact?: boolean');
     expect(road).toContain('styles.windshieldShellCompact');
-    expect(road).toContain('windshieldShellCompact: { aspectRatio: 2.05, maxHeight: 214 }');
+    expect(road).toContain('windshieldShellCompact: { aspectRatio: 2.55, maxHeight: 148 }');
     expect(road).toContain('styles.progressReadout');
     expect(road).not.toContain('styles.instrumentBridge');
     expect(road).toContain('SCENE_ROTATION_INTERVAL_MS');
@@ -105,7 +111,9 @@ describe('premium route dashboard', () => {
     expect(delivery).toContain('viewportHeight < 900');
     expect(delivery).toContain('calculateCompositeRouteProgress');
     expect(delivery).not.toContain('breakdown={compositeProgress ?? undefined}');
+    // Gauges nest inside the steering-rim opening as RoadProgressBar children.
     expect(delivery.indexOf('<RoadProgressBar')).toBeLessThan(delivery.indexOf('<InstrumentGauge'));
+    expect(delivery.indexOf('<InstrumentGauge')).toBeLessThan(delivery.indexOf('</RoadProgressBar>'));
     expect(delivery).toContain('<InstrumentGauge');
     // The instruments expose the two values agreed for the cockpit: remaining
     // cargo weight and remaining stops. Time and kilometres stay between them.
@@ -142,7 +150,9 @@ describe('premium route dashboard', () => {
     expect(delivery.indexOf('NAVIGUOTI')).toBeLessThan(delivery.indexOf('dashboard-delivered-button'));
     expect(delivery).toContain('minHeight: 48');
     expect(delivery).not.toContain('minHeight: 94');
-    expect(delivery).toContain('Math.min(114, Math.max(100');
+    // Larger gauges — product nails inside the rim, not tiny real-car dials.
+    expect(delivery).toContain('Math.min(132, Math.max(118');
+    expect(delivery).toContain('Math.min(140, Math.max(124');
     // Coherent FiRo cockpit actions: solid Naviguoti/Atlikta, outline Skambinti/Neatlikta.
     expect(delivery).toContain('backgroundColor: colors.actionRoute');
     expect(delivery).toContain('backgroundColor: colors.success');
@@ -164,7 +174,7 @@ describe('premium route dashboard', () => {
     expect(delivery).toContain('dashboardSecondaryMobile: { flexGrow: 1, flexShrink: 1');
     expect(delivery).toContain("dashboardStopActionsCompact: { marginTop: 'auto' }");
     expect(delivery).not.toContain('minHeight: 200');
-    expect(delivery).toContain("gap: 14");
+    expect(delivery).toContain("gap: 10");
     const foundation = source('src/components/foundation-screen.tsx');
     expect(foundation).toContain('edgeScroll: { backgroundColor: colors.surface }');
     expect(delivery).toContain('Įtraukti sustojimą');

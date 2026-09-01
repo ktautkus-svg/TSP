@@ -109,7 +109,7 @@ describe('Daily Use menu and Dashboard contract', () => {
 
   it('keeps the active dashboard within the viewport width at narrow breakpoints', () => {
     const delivery = source('src/app/route/[id]/delivery.tsx');
-    expect(delivery).toContain('(Math.min(viewportWidth, 430) - 120) / 2');
+    expect(delivery).toContain('(Math.min(viewportWidth, 430) - 100) / 2');
     expect(delivery).toContain("overflow: 'hidden'");
     expect(source('src/app/+html.tsx')).toContain('overflow-x: hidden');
   });
