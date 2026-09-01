@@ -249,4 +249,21 @@ describe('applyRouteSnapshot — non-destructive apply', () => {
     expect(snapshot.route.cloud_synced_at).toBeNull();
     expect(snapshot.route.vehicle_id).toBeNull();
   });
+
+  it('drops leftover park-memory stop columns when applying onto schema 27', async () => {
+    const { adapter, db } = createDb();
+    seedLocalRoute(adapter);
+
+    await expect(applyRouteSnapshot(db, cloudSnapshot({}, {
+      park_latitude: 55.9,
+      park_longitude: 23.3,
+      park_heading: 180,
+    }), T1)).resolves.toBeUndefined();
+
+    const stop = adapter.raw.prepare('SELECT id, recipient FROM delivery_stops WHERE id = ?').get('stop-1') as { id: string; recipient: string };
+    expect(stop.id).toBe('stop-1');
+    expect(stop.recipient).toBe('Gavėjas');
+    const columns = adapter.raw.prepare('PRAGMA table_info(delivery_stops)').all().map((column) => String(column.name));
+    expect(columns).not.toEqual(expect.arrayContaining(['park_latitude']));
+  });
 });
