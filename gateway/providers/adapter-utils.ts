@@ -42,7 +42,13 @@ export async function fetchProviderJson(input: {
     );
   }
   const responseMs = performance.now() - started;
-  if (!response.ok) throw providerHttpError(input.provider, response.status);
+  if (!response.ok) {
+    // Read the body once so we can map Google reason codes (API_KEY_INVALID,
+    // SERVICE_DISABLED, …) into safe Lithuanian ops guidance. Never forward the
+    // raw body to clients — providerHttpError only keeps reason codes.
+    const responseBody = await response.text().catch(() => '');
+    throw providerHttpError(input.provider, response.status, responseBody);
+  }
   try {
     return {
       payload: await response.json(),

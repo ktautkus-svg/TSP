@@ -105,15 +105,19 @@ jobs:
             echo 'TSP_INITIAL_ADMIN_PIN missing in Secret Manager.' >&2
             exit 1
           fi
-          PROVIDER_FOUND=false
-          for name in GOOGLE_API_KEY GOOGLE_ROUTES_API_KEY GOOGLE_GEOCODING_API_KEY GOOGLE_MAPS_API_KEY GOOGLE_VISION_API_KEY HERE_API_KEY; do
+          # Routes/Matrix planning needs one of these three (same priority as
+          # gateway/config.ts). Vision-only or Geocoding-only is not enough —
+          # that used to let deploy succeed while Maršruto variantai failed with
+          # PROVIDER_AUTH_FAILED / missing Routes key.
+          ROUTES_KEY_FOUND=false
+          for name in GOOGLE_ROUTES_API_KEY GOOGLE_API_KEY GOOGLE_MAPS_API_KEY; do
             if gcloud secrets describe "$name" --project="$GCP_PROJECT_ID" >/dev/null 2>&1; then
-              PROVIDER_FOUND=true
+              ROUTES_KEY_FOUND=true
               break
             fi
           done
-          if [ "$PROVIDER_FOUND" = false ]; then
-            echo 'At least one provider API key is required in Secret Manager.' >&2
+          if [ "$ROUTES_KEY_FOUND" = false ]; then
+            echo 'Secret Manager must contain GOOGLE_ROUTES_API_KEY, GOOGLE_API_KEY, or GOOGLE_MAPS_API_KEY for real route planning.' >&2
             exit 1
           fi
           SECRETS_ARG=$(IFS=,; echo "${PAIRS[*]}")
@@ -186,6 +190,18 @@ jobs:
           WEEKLY_USAGE_UNITS: ${{ vars.GATEWAY_WEEKLY_USAGE_UNITS || '36450' }}
         run: |
           set -euo pipefail
+          # GitHub Variables occasionally paste a leading tab/newline. Trim before
+          # --set-env-vars so Cloud Run never receives GATEWAY_REAL_PROVIDER_ARMED=$'\t1'
+          # (gateway trims too, but deploy logs and console stay unambiguous).
+          ARMED="$(printf '%s' "${ARMED}" | tr -d '[:space:]')"
+          if [ "$ARMED" != "0" ] && [ "$ARMED" != "1" ]; then
+            echo "GATEWAY_REAL_PROVIDER_ARMED must be 0 or 1 after trim (got ${#ARMED} chars)." >&2
+            exit 1
+          fi
+          DAILY_BUDGET_CENTS="$(printf '%s' "${DAILY_BUDGET_CENTS}" | tr -d '[:space:]')"
+          WEEKLY_BUDGET_CENTS="$(printf '%s' "${WEEKLY_BUDGET_CENTS}" | tr -d '[:space:]')"
+          DAILY_USAGE_UNITS="$(printf '%s' "${DAILY_USAGE_UNITS}" | tr -d '[:space:]')"
+          WEEKLY_USAGE_UNITS="$(printf '%s' "${WEEKLY_USAGE_UNITS}" | tr -d '[:space:]')"
           git_sha="${GITHUB_SHA:0:7}"
           new_rev="${CLOUD_RUN_SERVICE}-n${git_sha}"
 
@@ -269,11 +285,42 @@ jobs:
 
       - name: Verify deployment health
         shell: bash
+        env:
+          ARMED: ${{ vars.GATEWAY_REAL_PROVIDER_ARMED || '0' }}
         run: |
           set -euo pipefail
+          ARMED="$(printf '%s' "${ARMED}" | tr -d '[:space:]')"
           revision="$(gcloud run services describe "$CLOUD_RUN_SERVICE" --project="$GCP_PROJECT_ID" --region="$GCP_REGION" --format='value(status.latestCreatedRevisionName)')"
           gcloud run services update-traffic "$CLOUD_RUN_SERVICE" --project="$GCP_PROJECT_ID" --region="$GCP_REGION" --to-revisions="${revision}=100" --quiet
           url="$(gcloud run services describe "$CLOUD_RUN_SERVICE" --project="$GCP_PROJECT_ID" --region="$GCP_REGION" --format='value(status.url)')"
-          status="$(curl --fail --silent --show-error --max-time 30 "$url/health" | node -e "let s=''; process.stdin.on('data', d => s += d).on('end', () => process.stdout.write(JSON.parse(s).status))")"
-          test "$status" = ok
+          health_json="$(curl --fail --silent --show-error --max-time 30 "$url/health")"
+          echo "$health_json" | node -e "
+            let s='';
+            process.stdin.on('data', d => s += d).on('end', () => {
+              const body = JSON.parse(s);
+              if (body.status !== 'ok') {
+                console.error('health status not ok', body);
+                process.exit(1);
+              }
+              const routing = body.routing;
+              if (!routing || typeof routing !== 'object') {
+                console.error('health missing routing readiness block', body);
+                process.exit(1);
+              }
+              if (!routing.googleRoutesKeyConfigured) {
+                console.error('googleRoutesKeyConfigured=false — bind GOOGLE_ROUTES_API_KEY / GOOGLE_API_KEY / GOOGLE_MAPS_API_KEY', routing);
+                process.exit(1);
+              }
+              const armed = process.env.ARMED === '1';
+              if (armed && routing.realProviderArmed !== true) {
+                console.error('GATEWAY_REAL_PROVIDER_ARMED=1 in GitHub Variables but health.realProviderArmed is false', routing);
+                process.exit(1);
+              }
+              if (armed && routing.googleRoutesKeyLooksValid === false) {
+                console.error('Google Routes key is present but does not look like AIza… — update Secret Manager value (no quotes)', routing);
+                process.exit(1);
+              }
+              process.stdout.write('ok');
+            });
+          "
           echo "Cloud Run health: $url/health"
