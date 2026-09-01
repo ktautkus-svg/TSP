@@ -54,7 +54,7 @@ export function BrandHeader({
       <View style={[styles.sideSlot, styles.sideSlotEnd]}>
         {!driver ? (
           <View style={styles.headerActions}>
-            {showSyncStatus && width >= 720 ? <CloudSyncStatus compact /> : null}
+            {showSyncStatus && width >= 720 && !onBackPress ? <CloudSyncStatus compact /> : null}
             {onHomePress ? (
               <Pressable
                 accessibilityLabel="Į pradžią"
@@ -63,7 +63,8 @@ export function BrandHeader({
                 style={styles.navigationButton}
                 testID="brand-header-home">
                 <HomeIcon size={21} color={colors.brandNavy} />
-                {width >= 620 ? <Text style={styles.navigationText}>Pradžia</Text> : null}
+                {/* Keep icon-only when Back is present so the centered logo stays balanced on phone shells. */}
+                {width >= 620 && !onBackPress ? <Text style={styles.navigationText}>Pradžia</Text> : null}
               </Pressable>
             ) : null}
             {showNotifications ? (
