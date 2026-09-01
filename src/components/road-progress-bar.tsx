@@ -20,7 +20,7 @@ type CockpitPalette = ReturnType<typeof cockpitColorsFor>;
  * Length of the semicircular steering-rim path in the 400×240 viewBox.
  * Path: left 8-o'clock → top apex → right 4-o'clock (look-through wheel frame).
  */
-const ARC_LENGTH = 520;
+const ARC_LENGTH = 540;
 const SCENE_ROTATION_INTERVAL_MS = 30 * 60 * 1000;
 
 /** Semicircular rim path — frames the instrument bay like looking through a wheel. */
@@ -164,6 +164,7 @@ export function RoadProgressBar({
       {/* Instrument bay: look through the semicircular steering rim at the gauges. */}
       <View style={[styles.clusterBay, compact && styles.clusterBayCompact]} testID="route-instrument-cluster">
         <Svg
+          preserveAspectRatio="none"
           pointerEvents="none"
           style={[styles.steeringRim, compact && styles.steeringRimCompact]}
           testID="route-steering-progress"
@@ -174,6 +175,12 @@ export function RoadProgressBar({
               <Stop offset="0.55" stopColor={cockpit.primary} />
               <Stop offset="1" stopColor={cockpit.routeBright} />
             </LinearGradient>
+            <LinearGradient id="steeringLeather" x1="0" y1="0" x2="0" y2="1">
+              <Stop offset="0" stopColor={cockpit.metalDark} />
+              <Stop offset="0.32" stopColor={cockpit.shadow} />
+              <Stop offset="0.68" stopColor={cockpit.shadow} />
+              <Stop offset="1" stopColor={cockpit.shadow} />
+            </LinearGradient>
             <LinearGradient id="binnacleShade" x1="0" y1="0" x2="0" y2="1">
               <Stop offset="0" stopColor="rgba(17, 28, 45, 0)" />
               <Stop offset="0.45" stopColor="rgba(17, 28, 45, 0.08)" />
@@ -182,38 +189,39 @@ export function RoadProgressBar({
           </Defs>
           {/* Soft shade only — never an opaque blue card over the gauges. */}
           <Path d="M 0 40 A 200 200 0 0 1 400 40 L 400 240 L 0 240 Z" fill="url(#binnacleShade)" />
-          {/* Thick dark steering / binnacle rim — look-through-the-wheel frame. */}
+          {/* The wheel is a substantial foreground frame, not a thin decorative line. */}
           <Path
             d={RIM_PATH}
             fill="none"
-            stroke="#1A2233"
+            stroke={cockpit.shadow}
             strokeLinecap="round"
-            strokeOpacity={0.95}
-            strokeWidth={28}
+            strokeOpacity={0.22}
+            strokeWidth={50}
+            transform="translate(0 4)"
           />
           <Path
             d={RIM_PATH}
             fill="none"
-            stroke={cockpit.metalDark}
+            stroke="url(#steeringLeather)"
             strokeLinecap="round"
-            strokeOpacity={0.9}
-            strokeWidth={20}
+            strokeWidth={40}
           />
           <Path
             d={RIM_PATH}
             fill="none"
             stroke={cockpit.metalMid}
             strokeLinecap="round"
-            strokeOpacity={0.45}
-            strokeWidth={12}
+            strokeOpacity={0.3}
+            strokeWidth={8}
           />
           {/* Progress fills along the rim — the route "fuel" gauge on the wheel. */}
           <Path
             d={RIM_PATH}
             fill="none"
-            stroke="rgba(255,255,255,0.28)"
+            stroke={cockpit.metalMid}
             strokeLinecap="round"
-            strokeWidth={8}
+            strokeOpacity={0.62}
+            strokeWidth={7}
           />
           <Path
             d={RIM_PATH}
