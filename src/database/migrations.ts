@@ -24,6 +24,14 @@ export function isSupportedLocalSchemaVersion(version: number): boolean {
     || (COMPATIBLE_LEGACY_SCHEMA_VERSIONS as readonly number[]).includes(version);
 }
 
+export function omitLegacyV28StopColumns<T extends Record<string, unknown>>(row: T): T {
+  const next: Record<string, unknown> = { ...row };
+  for (const column of LEGACY_V28_DELIVERY_STOP_COLUMNS) {
+    delete next[column];
+  }
+  return next as T;
+}
+
 const migrationV1 = `
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;

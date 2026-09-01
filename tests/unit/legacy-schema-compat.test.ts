@@ -10,6 +10,7 @@ import {
   parsePwaBackup,
   restorePwaBackup,
 } from '../../src/application/backup/pwa-backup';
+import { applyRouteSnapshot, exportRouteSnapshot } from '../../src/application/auth/route-assignment-sync';
 import {
   COMPATIBLE_LEGACY_SCHEMA_VERSIONS,
   migrateDatabase,
@@ -145,6 +146,57 @@ describe('legacy schema 28 leftover after park-memory rollback', () => {
     const target = schema27();
     await restorePwaBackup(target as unknown as SQLiteDatabase, backup);
     expect(target.raw.prepare('SELECT id FROM routes').get()).toMatchObject({ id: 'route-v28' });
+    expect(target.raw.prepare('PRAGMA table_info(delivery_stops)').all().map((column) => String(column.name)))
+      .not.toEqual(expect.arrayContaining(['park_latitude']));
+  });
+
+  it('does not publish leftover park columns in a cloud snapshot', async () => {
+    const adapter = leftoverV28();
+    const db = adapter as unknown as SQLiteDatabase;
+    await insertDraftRoute(db, 'route-sync');
+    await db.runAsync(
+      "UPDATE delivery_stops SET park_latitude = 55.9, park_longitude = 23.3 WHERE id = 'route-sync-stop'",
+    );
+
+    const snapshot = await exportRouteSnapshot(db, 'route-sync');
+    expect(snapshot.stops[0]).not.toHaveProperty('park_latitude');
+    expect(snapshot.stops[0]).not.toHaveProperty('park_longitude');
+  });
+
+  it('applies a leftover-28 snapshot onto a schema-27 peer', async () => {
+    const target = schema27();
+    const db = target as unknown as SQLiteDatabase;
+    await applyRouteSnapshot(db, {
+      route: {
+        id: 'route-peer',
+        date: '2026-09-01',
+        status: 'loading',
+        total_weight_kg: 40,
+        remaining_weight_kg: 40,
+        total_stops: 1,
+        remaining_stops: 1,
+        created_at: '2026-09-01T15:00:00.000Z',
+        updated_at: '2026-09-01T15:00:00.000Z',
+      },
+      stops: [{
+        id: 'route-peer-stop',
+        route_id: 'route-peer',
+        original_order: 1,
+        recipient: 'Gavėjas',
+        address: 'Vilniaus g. 1, Šiauliai',
+        weight_kg: 40,
+        loading_status: 'pending',
+        delivery_status: 'pending',
+        created_at: '2026-09-01T15:00:00.000Z',
+        updated_at: '2026-09-01T15:00:00.000Z',
+        park_latitude: 55.9,
+        park_longitude: 23.3,
+      }],
+      shipmentLines: [],
+    }, '2026-09-01T16:00:00.000Z');
+
+    expect(target.raw.prepare('SELECT id FROM routes').get()).toMatchObject({ id: 'route-peer' });
+    expect(target.raw.prepare('SELECT id FROM delivery_stops').get()).toMatchObject({ id: 'route-peer-stop' });
     expect(target.raw.prepare('PRAGMA table_info(delivery_stops)').all().map((column) => String(column.name)))
       .not.toEqual(expect.arrayContaining(['park_latitude']));
   });
