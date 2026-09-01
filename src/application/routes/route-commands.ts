@@ -782,11 +782,10 @@ async function insertStop(
       id, source_stop_id, route_id, original_order, active_order, order_number, recipient,
       address, original_address, geocoding_query, normalized_address,
       address_validation_state, geocoding_error, latitude, longitude,
-      park_latitude, park_longitude, park_heading, park_accuracy_m, park_sample_count, park_sampled_at,
       delivery_time_from, delivery_time_to, required_time_window, weight_kg,
       phone, notes, loading_status, delivery_status, service_duration_minutes,
       created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
       'pending', 'pending', ?, ?, ?)`,
     stopId,
     sourceStopIdentity(stop),
@@ -803,12 +802,6 @@ async function insertStop(
     stop.geocodingError ?? null,
     stop.latitude,
     stop.longitude,
-    parkPin?.latitude ?? null,
-    parkPin?.longitude ?? null,
-    parkPin?.heading ?? null,
-    parkPin?.accuracyM ?? null,
-    parkPin?.sampleCount ?? null,
-    parkPin?.lastSampledAt ?? null,
     stop.deliveryTimeFrom,
     stop.deliveryTimeTo,
     stop.requiredTimeWindow ? 1 : 0,
@@ -819,6 +812,22 @@ async function insertStop(
     now,
     now,
   );
+  if (parkPin) {
+    await db.runAsync(
+      `UPDATE delivery_stops
+       SET park_latitude = ?, park_longitude = ?, park_heading = ?, park_accuracy_m = ?,
+           park_sample_count = ?, park_sampled_at = ?, updated_at = ?
+       WHERE id = ?`,
+      parkPin.latitude,
+      parkPin.longitude,
+      parkPin.heading,
+      parkPin.accuracyM,
+      parkPin.sampleCount,
+      parkPin.lastSampledAt,
+      now,
+      stopId,
+    );
+  }
   for (const line of stop.shipmentLines ?? []) {
     await db.runAsync(
       `INSERT INTO shipment_lines (

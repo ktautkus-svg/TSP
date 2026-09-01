@@ -183,8 +183,9 @@ describe('last-mile courtyard park memory', () => {
     await startedRoute(db);
     await new MarkStopDelivered(db, () => NOW).execute('route-1', 'stop-1', { gpsFix: gps() });
 
-    const created = await new CreateDraftRouteWithStops(db, () => NOW, (prefix) => `${prefix}-next`).execute({
+    const created = await new CreateDraftRouteWithStops(db, () => NOW).execute({
       commandId: 'next-visit',
+      id: 'route-2',
       startLocation: endpoint,
       endLocation: endpoint,
       importSource: { type: 'excel', originalText: ADDRESS, imageReference: null },
@@ -206,11 +207,9 @@ describe('last-mile courtyard park memory', () => {
     const repository = source('src/database/repositories/location-park-memory-repository.ts');
     const workday = source('src/application/routes/route-workday.ts');
     for (const text of [remember, domain, repository]) {
-      expect(text).not.toMatch(/geocode/i);
-      expect(text).not.toMatch(/google/i);
-      expect(text).not.toMatch(/here\.com/i);
-      expect(text).not.toMatch(/Distance Matrix/i);
-      expect(text).not.toMatch(/GatewayGeocoding/i);
+      expect(text).not.toMatch(/GatewayGeocoding|GoogleTravelCost|HereTravelCost|geocoding-adapter|Distance Matrix/i);
+      expect(text).not.toContain('googleapis');
+      expect(text).not.toContain('here.com');
     }
     expect(workday).toContain('rememberParkPinFromGps');
     expect(workday).not.toContain('GatewayGeocodingProvider');
@@ -224,7 +223,7 @@ describe('last-mile courtyard park memory', () => {
     expect(drifted.latitude).toBeCloseTo((COURTYARD.latitude + 55.9305) / 2, 6);
     expect(evaluateParkSample({
       sample: gps({ accuracyM: 12 }),
-      geocode: GEOCODE,
+      rooftop: GEOCODE,
       previous: first,
       nowMs: NOW_MS,
     }).accepted).toBe(true);

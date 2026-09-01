@@ -485,7 +485,7 @@ describe('driver workday persistence', () => {
     expect(report).toMatchObject({
       exportType: 'pilot_route_diagnostic',
       applicationVersion: '1.0.0',
-      schemaVersion: 27,
+      schemaVersion: 28,
       route: { id: 'route-1', status: 'in_progress', startOdometer: 1000.5 },
     });
     expect(report.stops).toHaveLength(2);

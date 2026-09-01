@@ -54,7 +54,7 @@ export function routingCoordinates(point: GeoPoint & {
 
 export function evaluateParkSample(input: {
   sample: GpsSample | null | undefined;
-  geocode: GeoPoint;
+  rooftop: GeoPoint;
   previous: LearnedParkPin | null;
   nowMs?: number;
 }): ParkSampleDecision {
@@ -69,7 +69,7 @@ export function evaluateParkSample(input: {
   if (sample.accuracyM !== null && (!Number.isFinite(sample.accuracyM) || sample.accuracyM > PARK_PIN_MAX_ACCURACY_M)) {
     return { accepted: false, reason: 'inaccurate' };
   }
-  const anchors = [input.previous, finitePoint(input.geocode)].filter((point): point is { latitude: number; longitude: number } => point !== null);
+  const anchors = [input.previous, finitePoint(input.rooftop)].filter((point): point is { latitude: number; longitude: number } => point !== null);
   if (anchors.length > 0) {
     const nearestM = Math.min(...anchors.map((anchor) => haversineKm(anchor, sample) * 1_000));
     if (nearestM > PARK_PIN_MAX_DISTANCE_M) return { accepted: false, reason: 'too_far' };

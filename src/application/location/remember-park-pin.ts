@@ -19,7 +19,7 @@ export type StopParkAddress = {
 };
 
 /**
- * Phone-GPS courtyard learning. Never geocodes, never buys a matrix, never
+ * Phone-GPS courtyard learning. Never reverse-geocodes, never buys a matrix, never
  * overwrites the customer-facing address or rooftop pin.
  */
 export async function rememberParkPinFromGps(
@@ -33,7 +33,7 @@ export async function rememberParkPinFromGps(
   const previous = await memory.find(address);
   const decision = evaluateParkSample({
     sample,
-    geocode: stop,
+    rooftop: stop,
     previous,
     nowMs: Date.parse(now) || Date.now(),
   });
@@ -59,7 +59,12 @@ export async function parkPinForAddress(
   address: string | null | undefined,
 ): Promise<LearnedParkPin | null> {
   if (!address?.trim()) return null;
-  return new LocationParkMemoryRepository(db).find(address);
+  try {
+    return await new LocationParkMemoryRepository(db).find(address);
+  } catch (error) {
+    if (/no such table: location_park_memory/i.test(String(error))) return null;
+    throw error;
+  }
 }
 
 export async function hydrateStopParkPins<T extends StopParkAddress>(

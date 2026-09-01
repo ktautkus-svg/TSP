@@ -504,10 +504,9 @@ export class AddStopDuringDelivery extends WorkdayCommand {
         `INSERT INTO delivery_stops (
           id, route_id, original_order, active_order, recipient, address,
           original_address, geocoding_query, normalized_address, address_validation_state,
-          latitude, longitude, park_latitude, park_longitude, park_heading, park_accuracy_m,
-          park_sample_count, park_sampled_at, weight_kg, notes, loading_status, delivery_status,
+          latitude, longitude, weight_kg, notes, loading_status, delivery_status,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'auto_confirmed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'loaded', 'pending', ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'auto_confirmed', ?, ?, ?, ?, 'loaded', 'pending', ?, ?)`,
         stopId,
         routeId,
         originalOrder,
@@ -519,17 +518,27 @@ export class AddStopDuringDelivery extends WorkdayCommand {
         input.normalizedAddress,
         input.latitude,
         input.longitude,
-        parkPin?.latitude ?? null,
-        parkPin?.longitude ?? null,
-        parkPin?.heading ?? null,
-        parkPin?.accuracyM ?? null,
-        parkPin?.sampleCount ?? null,
-        parkPin?.lastSampledAt ?? null,
         input.weightKg,
         input.notes?.trim() || null,
         now,
         now,
       );
+      if (parkPin) {
+        await this.db.runAsync(
+          `UPDATE delivery_stops
+           SET park_latitude = ?, park_longitude = ?, park_heading = ?, park_accuracy_m = ?,
+               park_sample_count = ?, park_sampled_at = ?, updated_at = ?
+           WHERE id = ?`,
+          parkPin.latitude,
+          parkPin.longitude,
+          parkPin.heading,
+          parkPin.accuracyM,
+          parkPin.sampleCount,
+          parkPin.lastSampledAt,
+          now,
+          stopId,
+        );
+      }
       // Recomputed directly from delivery_status, unlike the draft-phase
       // updateRouteTotals() in route-commands.ts which treats every stop as
       // "remaining" — that would be wrong here since some stops are already
