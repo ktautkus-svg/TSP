@@ -13,6 +13,7 @@ import {
   formatDateRange,
   localDateKey,
 } from '@/application/reporting/period-range';
+import { lateDeliveredStops, workQualityPercent } from '@/application/quality/work-quality-kpi';
 import { classifyDeliveryWindow, minutesLate } from '@/domain/delivery-window-timing';
 import { useForegroundInterval } from '@/hooks/use-foreground-interval';
 import { employeeApi, type QualityRouteMonitor, type QualityStopMonitor } from '@/infrastructure/auth/employee-session';
@@ -44,7 +45,7 @@ const STOP_FILTERS: readonly { key: StopFilter; label: string; tone: FilterTone 
   { key: 'delivered', label: 'Įvykdyta', tone: 'success' },
   { key: 'pending', label: 'Neįvykdyta', tone: 'warning' },
   { key: 'failed', label: 'Atmesta', tone: 'danger' },
-  { key: 'late', label: 'KPI', tone: 'info' },
+  { key: 'late', label: 'KPI · laiku', tone: 'info' },
 ];
 
 export default function QualityControlScreen() {
@@ -154,15 +155,16 @@ export default function QualityControlScreen() {
     not_started: notStartedRoutes.length,
   };
 
-  // Row 2 (taškai/užsakymai): stop-level KPIs, pooled across every stop in
+  // Row 2 (taškai/užsakymai): stop-level shares, pooled across every stop in
   // the visible routes so one failed stop out of ten reads as 10%, not as
-  // "1 problem route out of 1" (100%). Clicking a tile opens a combined
-  // cross-route list of the matching stops below, not a route filter.
+  // "1 problem route out of 1" (100%). The KPI tile is darbo kokybė — on-time
+  // delivered / all visible stops — but clicking it still opens the late-stop
+  // problem list. Clicking any other tile opens that matching stop list.
   const allStops: StopWithRoute[] = visible.flatMap((route) => route.stops.map((stop) => withRoute(stop, route)));
   const deliveredStopsList = allStops.filter((stop) => stop.status === 'delivered');
   const pendingStopsList = allStops.filter((stop) => stop.status === 'pending');
   const failedStopsList = allStops.filter((stop) => stop.status === 'failed');
-  const lateStopsList = visible.flatMap((route) => lateStops(route).map((stop) => withRoute(stop, route)));
+  const lateStopsList = lateDeliveredStops(allStops);
   const stopSharePercent = (stopCount: number) => allStops.length === 0 ? 0 : Math.round((stopCount / allStops.length) * 100);
   const stopFilterCounts: Record<StopFilter, number> = {
     all: allStops.length,
@@ -175,7 +177,7 @@ export default function QualityControlScreen() {
     delivered: stopSharePercent(deliveredStopsList.length),
     pending: stopSharePercent(pendingStopsList.length),
     failed: stopSharePercent(failedStopsList.length),
-    late: stopSharePercent(lateStopsList.length),
+    late: workQualityPercent(allStops),
   };
   const stopFilterList: StopWithRoute[] = stopFilter === 'all'
     ? allStops
@@ -430,7 +432,8 @@ function RouteSequenceStop({ stop, nextSequence, styles }: { stop: QualityStopMo
 }
 
 function StatusFilter({ active, label, mode, onPress, percent, tone, value, styles }: { active: boolean; label: string; mode: 'count' | 'percent'; onPress: () => void; percent?: number; tone: FilterTone; value: number; styles: ReturnType<typeof createStyles> }) {
-  return <Pressable accessibilityRole="tab" accessibilityState={{ selected: active }} onPress={onPress} style={({ pressed }) => [styles.filter, styles[`filterTone_${tone}`], active && styles[`filterActive_${tone}`], pressed && styles.filterPressed]}>
+  const accessibilityLabel = mode === 'percent' ? `${label} ${percent ?? 0} procentų` : `${label} ${value}`;
+  return <Pressable accessibilityLabel={accessibilityLabel} accessibilityRole="tab" accessibilityState={{ selected: active }} onPress={onPress} style={({ pressed }) => [styles.filter, styles[`filterTone_${tone}`], active && styles[`filterActive_${tone}`], pressed && styles.filterPressed]}>
     <Text style={[styles.filterValue, styles[`filterValueTone_${tone}`], active && styles.filterValueActive]}>{mode === 'percent' ? `${percent ?? 0}%` : value}</Text>
     <Text numberOfLines={1} style={[styles.filterLabel, active && styles.filterLabelActive]}>{label}</Text>
   </Pressable>;
@@ -504,10 +507,6 @@ function DriverChoice({ active, label, live = false, onPress, styles }: { active
 }
 function filterTitle(filter: RouteFilter): string { return ({ all: 'Visi maršrutai', in_progress: 'Kelyje', completed: 'Įvykdyti maršrutai', not_started: 'Nepradėti maršrutai' })[filter]; }
 function emptyTitle(filter: RouteFilter): string { return ({ all: 'Pasirinktu laikotarpiu maršrutų nėra', in_progress: 'Pasirinktu laikotarpiu vykdomų maršrutų nėra', completed: 'Pasirinktu laikotarpiu įvykdytų maršrutų nėra', not_started: 'Pasirinktu laikotarpiu nepradėtų maršrutų nėra' })[filter]; }
-function lateStops(route: QualityRouteMonitor): QualityStopMonitor[] {
-  return route.stops.filter((stop) => stop.status !== 'failed' && Boolean(stop.deliveredAt)
-    && classifyDeliveryWindow(stop.deliveredAt, stop.deliveryTimeFrom, stop.deliveryTimeTo) === 'late');
-}
 function vehicleLabel(route: QualityRouteMonitor): string { return route.vehicle ? `${route.vehicle.registrationNumber} · ${route.vehicle.model}` : 'Automobilis nepriskirtas'; }
 function regionLabel(codes: string[]): string { return codes.length > 0 ? `Regionai ${codes.join(', ')}` : 'Regionas nenurodytas'; }
 function initials(name: string): string { return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join(''); }

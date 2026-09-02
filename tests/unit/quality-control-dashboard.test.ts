@@ -3,6 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
+import { lateDeliveredStops, workQualityPercent, type WorkQualityStop } from '../../src/application/quality/work-quality-kpi';
 import { buildQualityRouteMonitor, type RouteAssignment } from '../../server/employee-auth-store';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -151,4 +152,81 @@ describe('quality control dashboard', () => {
     expect(dashboardSource).toContain('Pavėlavo');
     expect(dashboardSource).toContain('Vėlavo ${delay} min.');
   });
+
+  it('shows KPI as darbo kokybė (on-time / all stops), not as the late share', () => {
+    expect(dashboardSource).toContain("label: 'KPI · laiku'");
+    expect(dashboardSource).toContain('workQualityPercent(allStops)');
+    expect(dashboardSource).toContain("stopFilter === 'late'");
+    expect(dashboardSource).toContain('late: lateStopsList.length');
+    expect(dashboardSource).not.toContain('late: stopSharePercent(lateStopsList.length)');
+    expect(dashboardSource).not.toContain('assessDeliveryTiming');
+    expect(dashboardSource).toContain('classifyDeliveryWindow');
+  });
+
+  it('scores 14 on-time of 20 stops as 70% even when the other 6 are late', () => {
+    const stops = [...onTimeStops(14), ...lateStops(6)];
+    expect(stops).toHaveLength(20);
+    expect(workQualityPercent(stops)).toBe(70);
+    expect(lateDeliveredStops(stops)).toHaveLength(6);
+  });
+
+  it('scores 100% when every visible stop is delivered on time, and 0% when every stop is late', () => {
+    expect(workQualityPercent(onTimeStops(20))).toBe(100);
+    expect(workQualityPercent(lateStops(20))).toBe(0);
+  });
+
+  it('treats early, failed and pending stops as not pagal reikalavimus', () => {
+    expect(workQualityPercent([...onTimeStops(14), ...earlyStops(6)])).toBe(70);
+    expect(workQualityPercent([...onTimeStops(10), ...pendingStops(5), ...failedStops(5)])).toBe(50);
+    expect(workQualityPercent([])).toBe(0);
+  });
 });
+
+function qualityStop(input: WorkQualityStop): WorkQualityStop {
+  return input;
+}
+
+function onTimeStops(count: number): WorkQualityStop[] {
+  return Array.from({ length: count }, () => qualityStop({
+    status: 'delivered',
+    deliveredAt: '2026-08-12T08:30:00',
+    deliveryTimeFrom: '08:00',
+    deliveryTimeTo: '09:00',
+  }));
+}
+
+function lateStops(count: number): WorkQualityStop[] {
+  return Array.from({ length: count }, () => qualityStop({
+    status: 'delivered',
+    deliveredAt: '2026-08-12T10:15:00',
+    deliveryTimeFrom: '08:00',
+    deliveryTimeTo: '09:00',
+  }));
+}
+
+function earlyStops(count: number): WorkQualityStop[] {
+  return Array.from({ length: count }, () => qualityStop({
+    status: 'delivered',
+    deliveredAt: '2026-08-12T07:10:00',
+    deliveryTimeFrom: '08:00',
+    deliveryTimeTo: '09:00',
+  }));
+}
+
+function pendingStops(count: number): WorkQualityStop[] {
+  return Array.from({ length: count }, () => qualityStop({
+    status: 'pending',
+    deliveredAt: null,
+    deliveryTimeFrom: '08:00',
+    deliveryTimeTo: '09:00',
+  }));
+}
+
+function failedStops(count: number): WorkQualityStop[] {
+  return Array.from({ length: count }, () => qualityStop({
+    status: 'failed',
+    deliveredAt: null,
+    deliveryTimeFrom: '08:00',
+    deliveryTimeTo: '09:00',
+  }));
+}

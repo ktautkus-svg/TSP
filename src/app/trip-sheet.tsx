@@ -1,13 +1,15 @@
 import { Stack, useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View, type StyleProp, type TextStyle } from 'react-native';
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { pushCompletedRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
 import { CompanyProfileSettings, type CompanyProfile } from '@/application/settings/company-profile';
+import { TRIP_SHEET_GRID_COLUMNS, tripSheetColumnLegend } from '@/application/trip-sheet/columns';
 import { buildTripSheetWorkbook, MIME_XLSX } from '@/application/trip-sheet/export-xlsx';
 import { buildFuelLedger, type FuelLedgerDay } from '@/application/trip-sheet/fuel-balance';
+import { buildTripSheetPrintDocument } from '@/application/trip-sheet/print-document';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { PeriodCalendarPicker } from '@/components/period-calendar-picker';
 import { TripSheetRepository, type TripSheetWithRoutes } from '@/database/repositories/trip-sheet-repository';
@@ -78,11 +80,6 @@ export default function TripSheetScreen() {
   const [dateTo, setDateTo] = useState('');
   const [busy, setBusy] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
-  // Hides the shared navigation header for the duration of printing — the
-  // header lives outside this screen's own tree (rendered by Stack.Screen),
-  // so CSS alone can't reach it. Restored on the browser's 'afterprint' event
-  // so it comes back even if the user cancels the print dialog.
-  const [printMode, setPrintMode] = useState(false);
   const [companyProfile, setCompanyProfile] = useState<CompanyProfile>({ name: '', address: '' });
   const [vehicleFuelType, setVehicleFuelType] = useState<FuelType>('diesel');
 
@@ -144,19 +141,41 @@ export default function TripSheetScreen() {
   const selectFilter = (apply: () => void) => { apply(); };
   const setDateRange = (from: string, to: string) => { setDateFrom(from); setDateTo(to); };
   const print = () => {
-    if (Platform.OS !== 'web' || typeof window === 'undefined') {
+    if (Platform.OS !== 'web' || typeof window === 'undefined' || typeof document === 'undefined') {
       setMessage('PDF arba spausdinimą atidarykite interneto naršyklėje.');
       return;
     }
-    setPrintMode(true);
-    // Let the header actually unmount (headerShown: false) before the print
-    // dialog captures the page — a same-tick window.print() would still
-    // catch it mid-render.
-    requestAnimationFrame(() => {
-      window.print();
+    if (monthlyGroups.length === 0) {
+      setMessage('Nėra kelionės lapų spausdinimui.');
+      return;
+    }
+    const html = buildTripSheetPrintDocument({
+      companyName: companyProfile.name,
+      companyAddress: companyProfile.address,
+      periodLabel,
+      fuelType: FUEL_TYPE_LABELS[vehicleFuelType],
+      groups: monthlyGroups.map((group) => ({
+        monthLabel: formatMonth(group.month),
+        registrationNumber: group.vehicle?.registrationNumber ?? 'be-numerio',
+        vehicleModel: group.vehicle?.model ?? 'Automobilis nepriskirtas',
+        driverNames: [...new Set(group.rows.map((row) => row.driverName))].join(', '),
+        fuelNorm: group.rows[0]?.fuelNorm ?? null,
+        rows: group.rows.map((row) => ({
+          date: row.date,
+          driverName: row.driverName,
+          route: tripRouteLabel(row),
+          startOdometer: row.startOdometer,
+          endOdometer: row.endOdometer,
+          distanceKm: row.distanceKm,
+          fuelStart: row.fuelStart,
+          fuelAdded: row.fuelAdded,
+          fuelConsumed: row.fuelConsumed,
+          fuelEnd: row.fuelEnd,
+          receiptNumbers: row.fuelEntries.map((entry) => entry.receiptNumber).filter((value): value is string => Boolean(value)),
+        })),
+      })),
     });
-    const restore = () => { setPrintMode(false); window.removeEventListener('afterprint', restore); };
-    window.addEventListener('afterprint', restore);
+    printHtmlDocument(html);
   };
   const exportExcel = () => {
     if (Platform.OS !== 'web' || typeof window === 'undefined') {
@@ -209,11 +228,10 @@ export default function TripSheetScreen() {
   const showGroups = true;
   return (
     <>
-      <Stack.Screen options={{ gestureEnabled: false, headerShown: !printMode, title: 'Kelionės lapai' }} />
+      <Stack.Screen options={{ gestureEnabled: false, title: 'Kelionės lapai' }} />
       <FoundationScreen showFoundationNotice={false} showHeading={false} title="Kelionės lapai" description="">
-        {/* Everything except the report itself — hidden as one block when
-            printing (see +html.tsx), so a new control added here never needs
-            a matching print-CSS update to stay off the printed page. */}
+        {/* Filters and actions. Spausdinti / PDF builds a dedicated kelionės
+            lapas document; Ctrl+P still hides this toolbar via +html.tsx. */}
         <View style={styles.toolbar} testID="trip-sheet-toolbar">
           <Text style={styles.screenTitle}>Kelionės lapai</Text>
           <Text style={styles.screenDescription}>{profile.role === 'driver'
@@ -250,18 +268,15 @@ export default function TripSheetScreen() {
           {message ? <Text accessibilityRole="alert" style={styles.message}>{message}</Text> : null}
         </View>
         {!busy && showGroups && monthlyGroups.length === 0 ? <View style={styles.empty}><Text style={styles.cardTitle}>Kelionės lapų nerasta</Text><Text style={styles.meta}>Lapas atsiranda užbaigus maršrutą. Pakeiskite automobilį, vairuotoją arba laikotarpį.</Text></View> : null}
-        {showGroups ? monthlyGroups.map((group) => <MonthlyTripSheet companyProfile={companyProfile} group={group} key={group.key} periodLabel={periodLabel} styles={styles} vehicleFuelType={vehicleFuelType} />) : null}
+        {showGroups ? monthlyGroups.map((group) => <MonthlyTripSheet group={group} key={group.key} styles={styles} />) : null}
       </FoundationScreen>
     </>
   );
 }
 
-function MonthlyTripSheet({ group, periodLabel, styles, companyProfile, vehicleFuelType }: {
+function MonthlyTripSheet({ group, styles }: {
   group: MonthlyTripGroup;
-  periodLabel: string;
   styles: ReturnType<typeof createStyles>;
-  companyProfile: CompanyProfile;
-  vehicleFuelType: FuelType;
 }) {
   const totalDistance = group.rows.reduce((sum, row) => sum + (row.distanceKm ?? 0), 0);
   const totalFuel = group.rows.reduce((sum, row) => sum + (row.fuelConsumed ?? 0), 0);
@@ -271,6 +286,18 @@ function MonthlyTripSheet({ group, periodLabel, styles, companyProfile, vehicleF
   const firstFuel = group.rows.find((row) => row.fuelStart !== null)?.fuelStart ?? null;
   const lastFuel = [...group.rows].reverse().find((row) => row.fuelEnd !== null)?.fuelEnd ?? null;
   const driverNames = [...new Set(group.rows.map((row) => row.driverName))].join(', ');
+  const cellStyle = {
+    date: styles.reportDateCell,
+    driver: styles.reportDriverCell,
+    route: styles.reportRouteCell,
+    odoStart: styles.reportNumberCell,
+    odoEnd: styles.reportNumberCell,
+    km: styles.reportNumberCell,
+    consumed: styles.reportNumberCell,
+    added: styles.reportNumberCell,
+    fuelStart: styles.reportNumberCell,
+    fuelEnd: styles.reportNumberCell,
+  } as const;
   return <View style={styles.sheet} testID={`monthly-trip-sheet-${group.key}`}>
     <View style={styles.screenView} testID="trip-sheet-screen-view">
     <View style={styles.sheetHeader}>
@@ -284,7 +311,7 @@ function MonthlyTripSheet({ group, periodLabel, styles, companyProfile, vehicleF
       </View>
     </View>
 
-    <View style={styles.metrics}>
+    <View style={styles.metrics} testID="trip-sheet-metrics">
       <Metric label="PASKUTINIS ODOMETRAS" value={lastOdometer === null ? '—' : `${formatNumber(lastOdometer)} km`} styles={styles} />
       <Metric label="KURO LIKUTIS PRADŽIOJE" value={firstFuel === null ? '—' : `${formatNumber(firstFuel)} l`} styles={styles} />
       <Metric label="ĮPILTA" value={`${formatNumber(totalFuelAdded)} l`} styles={styles} />
@@ -294,16 +321,9 @@ function MonthlyTripSheet({ group, periodLabel, styles, companyProfile, vehicleF
     <ScrollView horizontal showsHorizontalScrollIndicator contentContainerStyle={styles.reportTableScroll}>
     <View style={styles.reportTable} testID="trip-sheet-report-table">
       <View style={[styles.reportTableRow, styles.reportTableHeader]}>
-        <Text style={[styles.reportTableCell, styles.reportDateCell]}>Data</Text>
-        <Text style={[styles.reportTableCell, styles.reportDriverCell]}>Vairuotojas</Text>
-        <Text style={[styles.reportTableCell, styles.reportRouteCell]}>Kur važiuota</Text>
-        <Text style={[styles.reportTableCell, styles.reportNumberCell]}>Odometras pradžioje</Text>
-        <Text style={[styles.reportTableCell, styles.reportNumberCell]}>Odometras pabaigoje</Text>
-        <Text style={[styles.reportTableCell, styles.reportNumberCell]}>Nuvažiuota, km</Text>
-        <Text style={[styles.reportTableCell, styles.reportNumberCell]}>Sunaudota, l</Text>
-        <Text style={[styles.reportTableCell, styles.reportNumberCell]}>Įpilta, l</Text>
-        <Text style={[styles.reportTableCell, styles.reportNumberCell]}>Likutis pradžioje</Text>
-        <Text style={[styles.reportTableCell, styles.reportNumberCell]}>Likutis pabaigoje</Text>
+        {TRIP_SHEET_GRID_COLUMNS.map((column) => (
+          <HeaderCell key={column.key} column={column} style={[styles.reportTableCell, cellStyle[column.key]]} />
+        ))}
       </View>
       {group.rows.map((row) => <View key={row.date} style={styles.reportTableRow}>
         <Text style={[styles.reportTableCell, styles.reportDateCell]}>{row.date}</Text>
@@ -331,91 +351,11 @@ function MonthlyTripSheet({ group, periodLabel, styles, companyProfile, vehicleF
       </View>
     </View>
     </ScrollView>
-    <View style={styles.monthTotal}>
+    <Text style={styles.columnLegend} testID="trip-sheet-column-legend">{tripSheetColumnLegend(TRIP_SHEET_GRID_COLUMNS)}</Text>
+    <View style={styles.monthTotal} testID="trip-sheet-month-total">
       <Text style={styles.monthTotalTitle}>VISO PASIRINKTU LAIKOTARPIU</Text>
       <Text style={styles.monthTotalText}>Nuvaziuota: {formatNumber(totalDistance)} km · Įpilta: {formatNumber(totalFuelAdded)} l · Sunaudota: {formatNumber(totalFuel)} l</Text>
     </View>
-    </View>
-
-    <View style={styles.printSheet} testID="trip-sheet-print-view">
-      <Text style={styles.printTitle}>Kelionės lapų ataskaita</Text>
-      <Text style={styles.printCompanyLine}>{[companyProfile.name, companyProfile.address].filter((part) => part.trim()).join(', ') || ' '}</Text>
-      <View style={styles.printMetaRow}>
-        <Text style={styles.printMetaText}>Transporto priemonė: {group.vehicle?.model ?? '—'}</Text>
-        <Text style={styles.printMetaText}>Degalų norma: {formatFuelNorm(group.rows[0]?.fuelNorm ?? null)}</Text>
-        <Text style={styles.printMetaText}>Kuro tipas: {FUEL_TYPE_LABELS[vehicleFuelType]}</Text>
-      </View>
-      <View style={styles.printMetaRow}>
-        <Text style={styles.printMetaText}>Vairuotojas(-ai): {driverNames}</Text>
-        <Text style={styles.printMetaText}>Laikotarpis: {periodLabel}</Text>
-      </View>
-
-      <View style={styles.printTable}>
-        <View style={[styles.printRow, styles.printHeadRow]}>
-          <Text style={[styles.printCell, styles.printCellDate, styles.printHeadText]}>Data</Text>
-          <Text style={[styles.printCell, styles.printCellDriver, styles.printHeadText]}>Vairuotojas</Text>
-          <Text style={[styles.printCell, styles.printCellRoute, styles.printHeadText]}>Maršrutas</Text>
-          <Text style={[styles.printCell, styles.printCellOdometer, styles.printHeadText]}>Odometras pradžioje</Text>
-          <Text style={[styles.printCell, styles.printCellOdometer, styles.printHeadText]}>Odometras pabaigoje</Text>
-          <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>Atstumas, km</Text>
-          <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>Kuras dienos pradžioje, L</Text>
-          <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>Įpilta kuro, L</Text>
-          <Text style={[styles.printCell, styles.printCellReceipt, styles.printHeadText]}>Kasos čekio Nr.</Text>
-          <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>Degalų sąnaudos pagal normą, L</Text>
-          <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>Kuro likutis, L</Text>
-        </View>
-        {group.rows.map((row) => (
-          <View key={row.date} style={styles.printRow}>
-            <Text style={[styles.printCell, styles.printCellDate]}>{row.date}</Text>
-            <Text style={[styles.printCell, styles.printCellDriver]}>{row.driverName}</Text>
-            <Text style={[styles.printCell, styles.printCellRoute]}>{tripRouteLabel(row)}</Text>
-            <Text style={[styles.printCell, styles.printCellOdometer]}>{formatNumber(row.startOdometer)}</Text>
-            <Text style={[styles.printCell, styles.printCellOdometer]}>{formatNumber(row.endOdometer)}</Text>
-            <Text style={[styles.printCell, styles.printCellNum]}>{formatNumber(row.distanceKm)}</Text>
-            <Text style={[styles.printCell, styles.printCellNum]}>{row.fuelStart === null ? '—' : formatNumber(row.fuelStart)}</Text>
-            <Text style={[styles.printCell, styles.printCellNum]}>{formatNumber(row.fuelAdded)}</Text>
-            <Text style={[styles.printCell, styles.printCellReceipt]}>{row.fuelEntries.map((entry) => entry.receiptNumber).filter(Boolean).join(' / ') || '—'}</Text>
-            <Text style={[styles.printCell, styles.printCellNum]}>{row.fuelConsumed === null ? '0,00' : formatNumber(row.fuelConsumed)}</Text>
-            <Text style={[styles.printCell, styles.printCellNum]}>{row.fuelEnd === null ? '—' : formatNumber(row.fuelEnd)}</Text>
-          </View>
-        ))}
-        <View style={[styles.printRow, styles.printTotalRow]}>
-          <Text style={[styles.printCell, styles.printCellDate]} />
-          <Text style={[styles.printCell, styles.printCellDriver]} />
-          <Text style={[styles.printCell, styles.printCellRoute, styles.printHeadText]}>Iš viso:</Text>
-          <Text style={[styles.printCell, styles.printCellOdometer, styles.printHeadText]}>{formatNumber(firstOdometer)}</Text>
-          <Text style={[styles.printCell, styles.printCellOdometer, styles.printHeadText]}>{formatNumber(lastOdometer)}</Text>
-          <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>{formatNumber(totalDistance)}</Text>
-          <Text style={[styles.printCell, styles.printCellNum]} />
-          <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>{formatNumber(totalFuelAdded)}</Text>
-          <Text style={[styles.printCell, styles.printCellReceipt]} />
-          <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>{formatNumber(totalFuel)}</Text>
-          <Text style={[styles.printCell, styles.printCellNum, styles.printHeadText]}>{lastFuel === null ? '—' : formatNumber(lastFuel)}</Text>
-        </View>
-      </View>
-
-      <View style={styles.printSignatures}>
-        <Text style={styles.printSignatureLine}>Kelionės lapą išdavė ______________________________ (vardas, pavardė, parašas, data)</Text>
-        <Text style={styles.printSignatureLine}>Vadovas ______________________________ (vardas, pavardė, parašas, data)</Text>
-        <Text style={styles.printSignatureLine}>Kelionės lapą priėmė ______________________________ (vardas, pavardė, parašas, data)</Text>
-      </View>
-
-      <View style={styles.printSummaryTable}>
-        <View style={styles.printSummaryRow}>
-          <Text style={styles.printSummaryLabel}>Odometro parodymai</Text>
-          <Text style={styles.printSummaryCell}>Pradžioje: {formatNumber(firstOdometer)}</Text>
-          <Text style={styles.printSummaryCell}>Pabaigoje: {formatNumber(lastOdometer)}</Text>
-          <Text style={styles.printSummaryCell}>Atstumas: {formatNumber(totalDistance)}</Text>
-        </View>
-        <View style={styles.printSummaryRow}>
-          <Text style={styles.printSummaryLabel}>Degalai</Text>
-          <Text style={styles.printSummaryCell}>Likutis pradžioje: {firstFuel === null ? '—' : formatNumber(firstFuel)}</Text>
-          <Text style={styles.printSummaryCell}>Likutis pabaigoje: {lastFuel === null ? '—' : formatNumber(lastFuel)}</Text>
-          <Text style={styles.printSummaryCell}>Įpilta: {formatNumber(totalFuelAdded)}</Text>
-          <Text style={styles.printSummaryCell}>Sunaudota: {formatNumber(totalFuel)}</Text>
-          <Text style={styles.printSummaryCell}>Norma: {formatFuelNorm(group.rows[0]?.fuelNorm ?? null)}</Text>
-        </View>
-      </View>
     </View>
   </View>;
 }
@@ -529,6 +469,41 @@ function Filter({ label, active, onPress, styles }: { label: string; active: boo
   return <Pressable onPress={onPress} style={[styles.filter, active && styles.filterActive]}><Text style={[styles.filterText, active && styles.filterTextActive]}>{label}</Text></Pressable>;
 }
 
+function HeaderCell({ column, style }: { column: (typeof TRIP_SHEET_GRID_COLUMNS)[number]; style: StyleProp<TextStyle> }) {
+  return <Text accessibilityLabel={column.full} style={style}>{column.short}</Text>;
+}
+
+function printHtmlDocument(html: string) {
+  const iframe = document.createElement('iframe');
+  iframe.setAttribute('data-testid', 'trip-sheet-print-frame');
+  iframe.setAttribute('aria-hidden', 'true');
+  iframe.style.position = 'fixed';
+  iframe.style.right = '0';
+  iframe.style.bottom = '0';
+  iframe.style.width = '0';
+  iframe.style.height = '0';
+  iframe.style.border = '0';
+  document.body.appendChild(iframe);
+  const frameWindow = iframe.contentWindow;
+  const frameDocument = iframe.contentDocument;
+  if (!frameWindow || !frameDocument) {
+    iframe.remove();
+    return;
+  }
+  frameDocument.open();
+  frameDocument.write(html);
+  frameDocument.close();
+  const cleanup = () => {
+    iframe.remove();
+    frameWindow.removeEventListener('afterprint', cleanup);
+  };
+  frameWindow.addEventListener('afterprint', cleanup);
+  const trigger = () => frameWindow.print();
+  if (frameDocument.readyState === 'complete') requestAnimationFrame(trigger);
+  else iframe.onload = trigger;
+  window.setTimeout(cleanup, 60_000);
+}
+
 function Metric({ label, value, styles }: { label: string; value: string; styles: ReturnType<typeof createStyles> }) {
   return <View style={styles.metric}><Text style={styles.metricLabel}>{label}</Text><Text style={styles.metricValue}>{value}</Text></View>;
 }
@@ -557,7 +532,6 @@ function tripRouteLabel(row: DailyTripRow): string {
 }
 function formatMonth(value: string): string { const date = new Date(`${value}-15T12:00:00`); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('lt-LT', { year: 'numeric', month: 'long' }).format(date); }
 function formatNumber(value: number | null): string { return value === null ? '—' : new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(value); }
-function formatFuelNorm(value: number | null): string { return value === null ? '—' : `${new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 2 }).format(value)} L/100km`; }
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   headerAction: { minWidth: 120, minHeight: 48, justifyContent: 'center' }, headerText: { ...type.button, color: colors.brandNavy },
   toolbar: { gap: spacing.md, marginBottom: spacing.lg },
@@ -569,32 +543,6 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   message: { ...type.secondary, color: colors.textMuted }, empty: { padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surface, gap: spacing.xs },
   sheet: { padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, gap: spacing.md },
   screenView: { gap: spacing.md },
-  // Print-only accountant report: hidden on screen and shown for @media print
-  // via a data-testid selector in +html.tsx. It contains only measured or
-  // entered operational data; untracked stop/parking placeholders are omitted.
-  printSheet: { display: 'none', gap: 6 },
-  printTitle: { fontSize: 16, fontWeight: '700', color: '#000000', textAlign: 'center' },
-  printCompanyLine: { fontSize: 11, fontWeight: '700', color: '#000000', textAlign: 'center' },
-  printMetaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.lg, justifyContent: 'center' },
-  printMetaText: { fontSize: 10, color: '#000000' },
-  printTable: { borderWidth: 1, borderColor: '#000000', marginTop: 4 },
-  printRow: { flexDirection: 'row' },
-  printHeadRow: { backgroundColor: '#EAEAEA' },
-  printTotalRow: { backgroundColor: '#F3F3F3' },
-  printCell: { fontSize: 8, color: '#000000', paddingHorizontal: 3, paddingVertical: 2, borderRightWidth: 1, borderBottomWidth: 1, borderColor: '#000000' },
-  printHeadText: { fontWeight: '700' },
-  printCellDate: { flexBasis: '7%' },
-  printCellDriver: { flexBasis: '12%' },
-  printCellRoute: { flexBasis: '14%' },
-  printCellNum: { flexBasis: '8%', textAlign: 'right' as const },
-  printCellReceipt: { flexBasis: '9%' },
-  printCellOdometer: { flexBasis: '9%', textAlign: 'right' as const },
-  printSignatures: { marginTop: 8, gap: 6 },
-  printSignatureLine: { fontSize: 9, color: '#000000' },
-  printSummaryTable: { marginTop: 6, borderWidth: 1, borderColor: '#000000' },
-  printSummaryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, paddingHorizontal: 6, paddingVertical: 4, borderBottomWidth: 1, borderColor: '#000000' },
-  printSummaryLabel: { fontSize: 9, fontWeight: '700', color: '#000000', minWidth: 120 },
-  printSummaryCell: { fontSize: 9, color: '#000000' },
   sheetHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md }, flex: { flex: 1, minWidth: 0 }, date: { ...type.sectionTitle, color: colors.text }, driver: { ...type.bodyStrong, color: colors.info, marginTop: 2 },
   vehicleIdentity: { alignItems: 'flex-end', gap: 2 },
   routeBadge: { borderRadius: radius.sm, backgroundColor: colors.infoSoft, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }, routeBadgeText: { ...type.label, color: colors.info },
@@ -606,11 +554,12 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   reportTableHeader: { backgroundColor: colors.surfaceMuted },
   reportTableTotal: { backgroundColor: colors.infoSoft, borderBottomWidth: 0 },
   reportTableCell: { ...type.meta, color: colors.text, paddingHorizontal: spacing.xs, paddingVertical: spacing.xs },
-  reportDateCell: { width: 88 },
-  reportDriverCell: { width: 140 },
+  reportDateCell: { width: 72 },
+  reportDriverCell: { width: 88 },
   reportRouteCell: { flex: 1, minWidth: 72 },
-  reportNumberCell: { width: 92, textAlign: 'right' },
+  reportNumberCell: { width: 68, textAlign: 'right' },
   reportTotalText: { ...type.secondaryStrong },
+  columnLegend: { ...type.meta, color: colors.textMuted },
   compensation: { padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.success, backgroundColor: colors.surfaceSubtle, gap: spacing.sm }, compensationHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm }, compensationEyebrow: { ...type.label, color: colors.success }, compensationTotal: { ...type.readout, color: colors.text, marginTop: 2 }, compensationSource: { ...type.secondary, color: colors.textMuted }, compensationRows: { gap: 3 }, compensationLine: { ...type.secondary, color: colors.textSecondary },
   routeBlock: { borderLeftWidth: 3, borderLeftColor: colors.info, paddingLeft: spacing.sm, gap: 2 }, routeLabel: { ...type.label, color: colors.textMuted }, routeAddress: { ...type.body, color: colors.text }, cardTitle: { ...type.sectionTitle, color: colors.text }, meta: { ...type.secondary, color: colors.textMuted },
   tableHeader: { minHeight: 48, paddingHorizontal: spacing.sm, borderRadius: radius.sm, backgroundColor: colors.surfaceMuted, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
