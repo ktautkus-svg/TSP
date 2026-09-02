@@ -529,7 +529,7 @@ export default function RouteManagementScreen() {
           <View>
             <Text style={styles.eyebrow}>DARBO VALDYMAS</Text>
             <Text style={styles.pageTitle}>Redaguoti maršrutus</Text>
-            <Text style={styles.subtitle}>Pirmiausia pasirinkite maršrutą, tada jį peržiūrėkite, koreguokite arba priskirkite.</Text>
+            <Text style={styles.subtitle}>Čia tik kabantys darbai: nepriskirti, nepradėti ar vykdomi. Užbaigti ir atšaukti reisai lieka istorijoje, kokybės kontrolėje ir finansuose.</Text>
           </View>
           <View style={styles.topActions}>
             <Pressable style={styles.secondaryButton} onPress={() => void load()}><Text style={styles.secondaryText}>Atnaujinti</Text></Pressable>
@@ -585,9 +585,14 @@ export default function RouteManagementScreen() {
             <Text style={styles.stepBadge}>{operationalRoutes.length} maršrutai</Text>
           </View>
 
-          {operationalRoutes.length === 0 ? <View style={styles.empty}>
-            <Text style={styles.emptyTitle}>Maršrutų nėra</Text>
-            <Text style={styles.panelHint}>Sukurkite pirmą maršrutą.</Text>
+          {operationalRoutes.length === 0 ? <View style={styles.empty} testID="route-management-empty-routes">
+            <Text style={styles.emptyTitle}>Kabančių maršrutų nėra</Text>
+            <Text style={styles.panelHint}>
+              {activeAssignments.length > 0
+                ? 'Vietinių nepriskirtų maršrutų nėra. Peržiūrėkite skiltį „Aktyvūs priskyrimai“ — ten gali būti kituose įrenginiuose sukurti darbai.'
+                : 'Nėra nebaigtų ar nepriskirtų maršrutų. Užbaigti reisai matomi Kokybės kontrolėje, Istorijoje ir Finansuose (Reiso kaina), o ne čia.'}
+            </Text>
+            {activeAssignments.length === 0 ? <Text style={styles.panelHint}>Jei reikia naujo darbo — spauskite „+ Planuoti maršrutą“.</Text> : null}
           </View> : <View style={[styles.routeChoiceGrid, desktop && styles.routeChoiceGridDesktop]}>
             {operationalRoutes.map((route) => {
               const assignment = activeAssignments.find((item) => item.routeId === route.id);
@@ -662,9 +667,13 @@ export default function RouteManagementScreen() {
             </View>
             <Text style={styles.stepBadge}>{activeAssignments.length}</Text>
           </View>
-          {activeAssignments.length === 0 ? <View style={styles.empty}>
+          {activeAssignments.length === 0 ? <View style={styles.empty} testID="route-management-empty-assignments">
             <Text style={styles.emptyTitle}>Aktyvių priskyrimų nėra</Text>
-            <Text style={styles.panelHint}>Priskirkite maršrutą vairuotojui skiltyje „Maršrutai“.</Text>
+            <Text style={styles.panelHint}>
+              {operationalRoutes.length > 0
+                ? 'Priskirkite maršrutą vairuotojui skiltyje „Maršrutai“.'
+                : 'Nėra kabančių priskyrimų. Užbaigti reisai lieka Kokybės kontrolėje ir Finansuose — redagavimo sąrašas skirtas tik nebaigtiems darbams.'}
+            </Text>
           </View> : <View style={styles.activeAssignmentList}>
             {activeAssignments.map((assignment) => {
               const localRoute = routes.find((route) => route.id === assignment.routeId);
