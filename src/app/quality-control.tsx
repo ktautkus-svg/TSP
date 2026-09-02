@@ -358,7 +358,13 @@ function RouteCard({ route, desktop, mobile, styles, defaultExpanded = false }: 
       {route.failedStops > 0 ? <Text style={styles.failedBadge}>{route.failedStops} {route.failedStops === 1 ? 'taškas' : 'taškai'} nepristatyta</Text> : null}
 
       <View style={styles.progressGrid}>
-        <ProgressReadout label="TAŠKAI ATLIKTI" primary={`${route.deliveredStops} / ${route.totalStops}`} secondary={`${route.remainingStops} liko`} percent={route.progressPercent} styles={styles} tone="points" />
+        <ProgressReadout
+          label="TAŠKAI ATLIKTI"
+          primary={`${route.deliveredStops} / ${route.totalStops}`}
+          secondary={`${route.remainingStops} liko`}
+          percent={route.totalStops > 0 ? Math.round((route.deliveredStops / route.totalStops) * 100) : 0}
+          styles={styles}
+          tone="points" />
         <ProgressReadout label="SVORIS ATIDUOTAS" primary={`${formatWeightKg(deliveredWeightKg)} / ${formatWeightKg(route.totalWeightKg)} kg`} secondary={`${formatWeightKg(route.remainingWeightKg)} kg liko`} percent={weightPercent} styles={styles} tone="weight" />
       </View>
       <View style={styles.startReadout}>

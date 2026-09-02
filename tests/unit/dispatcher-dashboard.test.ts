@@ -59,6 +59,15 @@ describe('dispatcher desktop workspace', () => {
     expect(dispatcherSource).toContain("routes.filter((route) => !['completed', 'cancelled'].includes(route.status))");
   });
 
+  it('explains that the editor only shows hanging work when the list is empty', () => {
+    expect(dispatcherSource).toContain('Kabančių maršrutų nėra');
+    expect(dispatcherSource).toContain('testID="route-management-empty-routes"');
+    expect(dispatcherSource).toContain('testID="route-management-empty-assignments"');
+    expect(dispatcherSource).toContain('Čia tik kabantys darbai');
+    expect(dispatcherSource).toContain('Kokybės kontrolėje');
+    expect(dispatcherSource).toContain('Finansuose');
+  });
+
   it('uses the shared assignment API and clearly reports the assigned driver', () => {
     expect(dispatcherSource).toContain("employeeApi<{ assignments: ServerRouteAssignment[] }>('/api/admin/assignments')");
     expect(dispatcherSource).toContain('assignRouteToDriver(db, selectedRoute.id, selectedDriver.id, selectedVehicle.id)');

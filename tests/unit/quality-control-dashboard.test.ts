@@ -54,6 +54,30 @@ describe('quality control dashboard', () => {
     expect(route.stops[0]).toMatchObject({ sequence: 1, status: 'delivered', deliveredAt: '2026-08-12T08:05:00.000Z' });
   });
 
+  it('does not claim 100% points progress when a completed route still has unmarked stops', () => {
+    // Management complete zeros remaining_* without marking deliveries — the
+    // quality card must show honest 0/N progress, not a forced 100% bar.
+    const closed = assignment();
+    closed.status = 'completed';
+    closed.routeSnapshot.route.status = 'completed';
+    closed.routeSnapshot.route.remaining_stops = 0;
+    closed.routeSnapshot.route.remaining_weight_kg = 0;
+    closed.routeSnapshot.route.completed_at = '2026-08-12T12:00:00.000Z';
+    for (const stop of closed.routeSnapshot.stops) {
+      stop.delivery_status = 'pending';
+      stop.delivered_at = null;
+    }
+    const route = buildQualityRouteMonitor(closed, closed.vehicle);
+    expect(route).toMatchObject({
+      deliveredStops: 0,
+      remainingStops: 10,
+      progressPercent: 0,
+      totalWeightKg: 1000,
+      remainingWeightKg: 1000,
+    });
+    expect(dashboardSource).toContain('route.deliveredStops / route.totalStops');
+  });
+
   it('reports the day the route actually completed, not the day the draft happened to be created on', () => {
     // route.date defaults to the creation day when nobody sets an explicit
     // delivery date — a route drafted the evening before and driven the next

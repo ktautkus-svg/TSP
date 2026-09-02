@@ -179,6 +179,7 @@ export default function RootLayout() {
               <Stack.Screen name="finance" options={{ title: 'Finansai' }} />
               <Stack.Screen name="finance/wages" options={{ title: 'Darbuotojų atlygis' }} />
               <Stack.Screen name="finance/route-price" options={{ title: 'Reiso kaina' }} />
+              <Stack.Screen name="finance/calculator" options={{ title: 'Skaičiuoklė' }} />
               <Stack.Screen name="fleet" options={{ title: 'Automobiliai' }} />
               <Stack.Screen name="loading-schema-preview" options={{ title: 'Krovimo schema (peržiūra)' }} />
               <Stack.Screen name="directory" options={{ title: 'Kontaktai' }} />

@@ -171,6 +171,189 @@ export function estimatePreliminaryRoutePrice(
   };
 }
 
+/** Final trip cost only when the route is completed and actual odometer distance is known. */
+export function isFinalTripCost(sheet: {
+  status: string;
+  actualDistanceKm: number | null;
+  startOdometer?: number | null;
+  endOdometer?: number | null;
+}): boolean {
+  if (sheet.status !== 'completed') return false;
+  if (sheet.actualDistanceKm === null || !Number.isFinite(sheet.actualDistanceKm)) return false;
+  // Prefer explicit odometer pair when present; some sheets only carry actualDistanceKm.
+  if (sheet.startOdometer != null && sheet.endOdometer != null) {
+    return Number.isFinite(sheet.startOdometer) && Number.isFinite(sheet.endOdometer);
+  }
+  return true;
+}
+
+export type AverageVehicleDayCosts = {
+  roadCostEur: number;
+  insuranceCostEur: number;
+  fuelNormLitersPer100Km: number;
+  vehicleCount: number;
+};
+
+/** Mean road/insurance (and fuel norm) across stored vehicle tariffs for the given month. */
+export function averageVehicleDayCosts(
+  date: string,
+  settings: RoutePriceSettings = DEFAULT_ROUTE_PRICE_SETTINGS,
+): AverageVehicleDayCosts {
+  const normalized = normalizeRoutePriceSettings(settings);
+  const workingDays = normalized.workingDaysByMonth[routeMonthIndex(date)];
+  const profiles = Object.values(normalized.vehicleCosts);
+  const source = profiles.length > 0
+    ? profiles
+    : [normalized.fallbackVehicleCosts.small, normalized.fallbackVehicleCosts.medium, normalized.fallbackVehicleCosts.large];
+  const count = source.length;
+  const road = source.reduce((sum, profile) => sum + profile.monthlyRoadTaxEur / workingDays, 0) / count;
+  const insurance = source.reduce((sum, profile) => sum + (profile.annualInsuranceEur / 12) / workingDays, 0) / count;
+  const fuelNorm = source.reduce((sum, profile) => sum + profile.fuelNormLitersPer100Km, 0) / count;
+  return {
+    roadCostEur: money(road),
+    insuranceCostEur: money(insurance),
+    fuelNormLitersPer100Km: money(fuelNorm),
+    vehicleCount: count,
+  };
+}
+
+export type CalculatorWageMode = 'fixed' | 'variable' | 'manual';
+
+export type CalculatorRoutePriceInput = {
+  date: string;
+  distanceKm: number;
+  weightKg: number;
+  stops: number;
+  /** When set, uses that vehicle's tariff profile. */
+  vehicle?: RoutePriceVehicle | null;
+  /** Used when vehicle is omitted; falls back to fleet average fuel norm. */
+  fuelNormLitersPer100Km?: number | null;
+  wageMode: CalculatorWageMode;
+  /** Required for fixed mode (daily neto) and used as profile lookup for variable. */
+  driverName?: string;
+  /** Manual neto the dispatcher intends to pay (before employer tax). */
+  manualDriverNetEur?: number | null;
+  /** Fixed daily neto override when wageMode is fixed and no named profile applies. */
+  fixedDailyNetEur?: number | null;
+};
+
+export function estimateCalculatorRoutePrice(
+  input: CalculatorRoutePriceInput,
+  settings: RoutePriceSettings = DEFAULT_ROUTE_PRICE_SETTINGS,
+): PreliminaryRoutePrice | null {
+  if (!Number.isFinite(input.distanceKm) || input.distanceKm < 0) return null;
+  const normalized = normalizeRoutePriceSettings(settings);
+  const monthIndex = routeMonthIndex(input.date);
+  const fuelPrice = normalized.fuelPriceByMonth[monthIndex];
+  const workingDays = normalized.workingDaysByMonth[monthIndex];
+  const averages = averageVehicleDayCosts(input.date, normalized);
+  const taxMultiplier = 1 + normalized.payrollTaxPercent / 100;
+  const distance = finiteNonNegative(input.distanceKm);
+  const weight = finiteNonNegative(input.weightKg);
+  const stops = finiteNonNegative(input.stops);
+
+  let fuelNorm: number;
+  let roadCostEur: number;
+  let insuranceCostEur: number;
+  let source: PreliminaryRoutePrice['source'];
+  const assumptions: string[] = [
+    `Kuro kaina ${fuelPrice.toFixed(2)} €/l`,
+    `${workingDays} darbo d.`,
+    `darbdavio koef. ${taxMultiplier.toFixed(2)}`,
+    `${formatNumber(normalized.overheadPercent)} % rezervas`,
+  ];
+
+  if (input.vehicle) {
+    const registration = input.vehicle.registrationNumber.trim().toUpperCase();
+    const exactVehicle = normalized.vehicleCosts[registration];
+    const vehicleCosts = exactVehicle ?? estimatedVehicleCosts(input.vehicle.maximumPayloadKg, normalized);
+    fuelNorm = vehicleCosts.fuelNormLitersPer100Km;
+    roadCostEur = vehicleCosts.monthlyRoadTaxEur / workingDays;
+    insuranceCostEur = (vehicleCosts.annualInsuranceEur / 12) / workingDays;
+    source = exactVehicle ? 'excel-vehicle' : 'payload-estimate';
+  } else {
+    fuelNorm = input.fuelNormLitersPer100Km != null && Number.isFinite(input.fuelNormLitersPer100Km)
+      ? finiteNonNegative(input.fuelNormLitersPer100Km)
+      : averages.fuelNormLitersPer100Km;
+    roadCostEur = averages.roadCostEur;
+    insuranceCostEur = averages.insuranceCostEur;
+    source = 'payload-estimate';
+    assumptions.push(`kelių+draud. vidurkis iš ${averages.vehicleCount} automobilių`);
+  }
+
+  const fuelCostEur = distance / 100 * fuelNorm * fuelPrice;
+  let driverNet: number;
+  if (input.wageMode === 'manual') {
+    if (input.manualDriverNetEur == null || !Number.isFinite(input.manualDriverNetEur)) return null;
+    driverNet = finiteNonNegative(input.manualDriverNetEur);
+    assumptions.push('vairuotojo neto įvestas ranka');
+  } else if (input.wageMode === 'fixed') {
+    const profile = input.driverName ? driverCostProfile(input.driverName, normalized) : null;
+    if (profile?.type === 'fixed') driverNet = profile.dailyNetEur;
+    else if (input.fixedDailyNetEur != null && Number.isFinite(input.fixedDailyNetEur)) driverNet = finiteNonNegative(input.fixedDailyNetEur);
+    else return null;
+    assumptions.push('fiksuotas dienos neto');
+  } else {
+    const earnings = estimateVariableDriverEarnings({
+      distanceKm: distance,
+      weightKg: weight,
+      stops,
+      driverName: input.driverName,
+    }, normalized);
+    driverNet = earnings.totalNetEur;
+    assumptions.push('kintamas atlygis');
+  }
+
+  const driverCostEur = driverNet * taxMultiplier;
+  const baseCostEur = fuelCostEur + roadCostEur + insuranceCostEur + driverCostEur;
+  const overheadEur = baseCostEur * normalized.overheadPercent / 100;
+
+  return {
+    totalEur: money(baseCostEur + overheadEur),
+    baseCostEur: money(baseCostEur),
+    fuelCostEur: money(fuelCostEur),
+    roadCostEur: money(roadCostEur),
+    insuranceCostEur: money(insuranceCostEur),
+    driverCostEur: money(driverCostEur),
+    overheadEur: money(overheadEur),
+    source,
+    assumptions,
+  };
+}
+
+export type VariableDriverEarnings = {
+  totalNetEur: number;
+  baseNetEur: number;
+  distanceAmountEur: number;
+  weightAmountEur: number;
+  stopsAmountEur: number;
+  rates: VariableDriverCostProfile;
+};
+
+/** Variable-pay driver earnings estimate (neto), reusing route-price tariff rules. */
+export function estimateVariableDriverEarnings(
+  input: { distanceKm: number; weightKg: number; stops: number; driverName?: string },
+  settings: RoutePriceSettings = DEFAULT_ROUTE_PRICE_SETTINGS,
+): VariableDriverEarnings {
+  const normalized = normalizeRoutePriceSettings(settings);
+  const profile = input.driverName ? driverCostProfile(input.driverName, normalized) : normalized.defaultDriverCost;
+  const rates = profile.type === 'variable' ? profile : normalized.defaultDriverCost;
+  const distance = finiteNonNegative(input.distanceKm);
+  const weight = finiteNonNegative(input.weightKg);
+  const stops = finiteNonNegative(input.stops);
+  const distanceAmountEur = money(rates.perKmEur * distance);
+  const weightAmountEur = money(rates.perKgEur * weight);
+  const stopsAmountEur = money(rates.perStopEur * stops);
+  return {
+    totalNetEur: money(rates.baseNetEur + distanceAmountEur + weightAmountEur + stopsAmountEur),
+    baseNetEur: money(rates.baseNetEur),
+    distanceAmountEur,
+    weightAmountEur,
+    stopsAmountEur,
+    rates,
+  };
+}
+
 function driverCostProfile(name: string, settings: RoutePriceSettings): DriverCostProfile {
   return settings.driverCosts[normalizeName(name)] ?? settings.defaultDriverCost;
 }

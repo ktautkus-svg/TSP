@@ -25,7 +25,7 @@ export default function FinanceHubScreen() {
     <Stack.Screen options={{ title: 'Finansai' }} />
     <FoundationScreen
       contentMaxWidth={900}
-      description="Pasirinkite, ką norite peržiūrėti: vairuotojų atlygį ar reiso savikainą."
+      description="Pasirinkite, ką norite peržiūrėti: vairuotojų atlygį, reiso savikainą ar skaičiuoklę."
       showFoundationNotice={false}
       title="Finansai">
       <View style={styles.cards} testID="finance-hub-menu">
@@ -37,12 +37,19 @@ export default function FinanceHubScreen() {
           testID="finance-open-wages"
           title="Darbuotojų atlygis" />
         <FinanceCard
-          description="Kiekvieno reiso savikaina: kuras, kelių mokestis, draudimas ir vairuotojo dalis."
+          description="Kiekvieno reiso savikaina: kuras, kelių mokestis, draudimas ir vairuotojo dalis. Preliminarinė arba galutinė."
           icon="statistics"
           onPress={() => open({ pathname: '/finance/route-price', params: { returnTo: 'finance' } } as unknown as Href)}
           styles={styles}
           testID="finance-open-route-price"
           title="Reiso kaina" />
+        <FinanceCard
+          description="Greitas preliminarus reiso kainos ir kintamo atlygio skaičiavimas be kelionės lapo."
+          icon="finance"
+          onPress={() => open({ pathname: '/finance/calculator', params: { returnTo: 'finance' } } as unknown as Href)}
+          styles={styles}
+          testID="finance-open-calculator"
+          title="Skaičiuoklė" />
       </View>
     </FoundationScreen>
   </>;

@@ -2735,7 +2735,11 @@ export function buildQualityRouteMonitor(assignment: RouteAssignment, vehicle: F
   const deliveredStops = stops.filter((stop) => stop.delivery_status === 'delivered').length;
   const failedStops = stops.filter((stop) => stop.delivery_status === 'failed').length;
   const totalStops = finiteNumber(route.total_stops, stops.length);
-  const remainingStops = Math.max(0, finiteNumber(route.remaining_stops, totalStops - deliveredStops - failedStops));
+  // Prefer stop delivery_status over snapshot remaining_* counters. Management
+  // complete zeros remaining_stops/weight without marking pending stops
+  // delivered, which otherwise produces "0/14 · 100%" quality cards.
+  const honestRemainingStops = Math.max(0, totalStops - deliveredStops - failedStops);
+  const pendingStops = honestRemainingStops;
   const nextIndex = stops.findIndex((stop) => !['delivered', 'failed'].includes(String(stop.delivery_status ?? 'pending')));
   const next = nextIndex >= 0 ? stops[nextIndex] : null;
   const routeNumbers = uniqueRegionCodes(shipmentLines);
@@ -2765,21 +2769,30 @@ export function buildQualityRouteMonitor(assignment: RouteAssignment, vehicle: F
     };
   });
   const totalWeightKg = finiteNumber(route.total_weight_kg, 0);
-  const remainingWeightKg = nullableNumber(route.remaining_weight_kg) ?? stops
+  const pendingWeightKg = stops
     .filter((stop) => !['delivered', 'failed'].includes(String(stop.delivery_status ?? 'pending')))
     .reduce((total, stop) => total + finiteNumber(stop.weight_kg, 0), 0);
+  const snapshotRemainingWeight = nullableNumber(route.remaining_weight_kg);
+  const remainingWeightKg = pendingStops > 0
+    ? pendingWeightKg
+    : (snapshotRemainingWeight ?? pendingWeightKg);
+  const deliveredWeightKg = Math.max(0, totalWeightKg - remainingWeightKg);
   const hasPlannedLegDistances = stops.some((stop) => nullableNumber(stop.leg_distance_km) !== null);
   const completedPlannedDistanceKm = stops
     .filter((stop) => ['delivered', 'failed'].includes(String(stop.delivery_status ?? 'pending')))
     .reduce((total, stop) => total + finiteNumber(stop.leg_distance_km, 0), 0);
+  const processedStops = deliveredStops + failedStops;
+  // Force 100% only when the route is closed AND every stop was actually marked.
+  // Closing from management without deliveries must not look fully done.
+  const fullySettled = assignment.status === 'completed' && honestRemainingStops === 0 && processedStops >= totalStops && totalStops > 0;
   const compositeProgress = calculateCompositeRouteProgress({
-    completedStops: totalStops - remainingStops,
+    completedStops: processedStops,
     totalStops,
-    processedWeightKg: totalWeightKg - remainingWeightKg,
+    processedWeightKg: deliveredWeightKg,
     totalWeightKg,
     completedDistanceKm: hasPlannedLegDistances ? completedPlannedDistanceKm : null,
     totalDistanceKm: hasPlannedLegDistances ? nullableNumber(route.estimated_distance_km) : null,
-    completed: assignment.status === 'completed',
+    completed: fullySettled,
   });
   return {
     id: assignment.id,
@@ -2803,7 +2816,7 @@ export function buildQualityRouteMonitor(assignment: RouteAssignment, vehicle: F
     totalStops,
     deliveredStops,
     failedStops,
-    remainingStops,
+    remainingStops: honestRemainingStops,
     progressPercent: Math.round(compositeProgress.fraction * 100),
     totalWeightKg,
     remainingWeightKg,
