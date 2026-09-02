@@ -1,4 +1,4 @@
-import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -6,7 +6,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { pushRouteAssignmentProgress, pushRouteAssignmentRevision } from '@/application/auth/route-assignment-sync';
 import { roleHomePath } from '@/application/navigation/role-home';
-import { CancelDraftRoute, SaveSelectedRouteCandidate } from '@/application/routes/route-commands';
+import { CancelDraftRoute, PruneUncommittedDraftRoutes, SaveSelectedRouteCandidate } from '@/application/routes/route-commands';
 import { resolveRoute, type ResolvedRouteDestination } from '@/application/routes/route-navigation';
 import { hydrateStopParkPins } from '@/application/location/remember-park-pin';
 import { buildOptimizationRequestFromRoute } from '@/application/routes/route-request-builder';
@@ -37,6 +37,7 @@ import { radius, spacing, type } from '@/ui/tokens';
 
 export default function RouteAlternativesScreen() {
   const router = useRouter();
+  const navigation = useNavigation();
   const db = useSQLiteContext();
   const { requestSync, revision: syncRevision } = useRouteCloudSync();
   const { profile } = useLocalAccess();
@@ -74,6 +75,7 @@ export default function RouteAlternativesScreen() {
   // /history. Without this flag the screen's own status guard races the
   // intended navigation and sometimes dumps the driver into history instead.
   const selfCancelled = useRef(false);
+  const stayInPlanning = useRef(false);
   const screenFocused = useRef(false);
 
   const calculate = useCallback(async () => {
@@ -137,6 +139,20 @@ export default function RouteAlternativesScreen() {
       devWarn('ALTERNATIVES_SYNC_GUARD_FAILED', reason);
     });
   }, [repository, routeId, router, syncRevision]);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', () => {
+      if (stayInPlanning.current || selfCancelled.current) return;
+      void new PruneUncommittedDraftRoutes(db).execute()
+        .then((pruned) => {
+          if (pruned.cancelledRouteIds.length > 0) return requestSync('mutation');
+        })
+        .catch((reason) => {
+          devWarn('UNCOMMITTED_DRAFT_PRUNE_FAILED', reason);
+        });
+    });
+    return unsubscribe;
+  }, [db, navigation, requestSync]);
 
   const defaultCandidate = result?.recommended ?? result?.diagnosticCandidate ?? labeledAlternatives[0]?.candidate ?? result?.candidates[0];
   const candidates = labeledAlternatives.length > 0
@@ -502,7 +518,10 @@ export default function RouteAlternativesScreen() {
         <View style={{ gap: spacing.md, marginTop: spacing.md }}>
           <Pressable
             style={styles.primaryButton}
-            onPress={() => router.replace({ pathname: '/route/[id]/review', params: { id: routeId } })}>
+            onPress={() => {
+              stayInPlanning.current = true;
+              router.replace({ pathname: '/route/[id]/review', params: { id: routeId } });
+            }}>
             <Text style={styles.primaryText}>Grįžti į adresų patikrą</Text>
           </Pressable>
           <Pressable
@@ -529,7 +548,10 @@ export default function RouteAlternativesScreen() {
           <Pressable
             disabled={saving || cancelling}
             style={[styles.secondaryButton, (saving || cancelling) && styles.disabled]}
-            onPress={() => router.replace({ pathname: '/route/[id]/review', params: { id: routeId } })}
+            onPress={() => {
+              stayInPlanning.current = true;
+              router.replace({ pathname: '/route/[id]/review', params: { id: routeId } });
+            }}
             testID="change-warehouse-or-stops">
             <Text style={styles.secondaryText}>Keisti sandėlį arba taškus</Text>
           </Pressable>

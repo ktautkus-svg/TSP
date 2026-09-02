@@ -1,4 +1,4 @@
-import { Stack, useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
+import { Stack, useFocusEffect, useLocalSearchParams, useNavigation, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -12,6 +12,7 @@ import {
 import { parseCoordinateInput } from '@/application/import/address-resolver';
 import {
     DeleteDraftStop,
+    PruneUncommittedDraftRoutes,
     ReorderDraftStops,
     ReplaceDraftStops,
     SetStopPriority,
@@ -47,6 +48,7 @@ import { radius, spacing, type } from '@/ui/tokens';
 
 export default function RouteReviewScreen() {
   const router = useRouter();
+  const navigation = useNavigation();
   const db = useSQLiteContext();
   const { requestSync, revision: syncRevision } = useRouteCloudSync();
   const { id: routeId = '' } = useLocalSearchParams<{ id: string }>();
@@ -64,6 +66,7 @@ export default function RouteReviewScreen() {
   const [newAddress, setNewAddress] = useState('');
   const [error, setError] = useState<string | null>(null);
   const screenFocused = useRef(false);
+  const stayInPlanning = useRef(false);
   const automaticValidationRoute = useRef<string | null>(null);
 
   const redirectStalePlanningScreen = useCallback(async (): Promise<boolean> => {
@@ -122,6 +125,20 @@ export default function RouteReviewScreen() {
     void reload();
     return () => { screenFocused.current = false; };
   }, [reload]));
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', () => {
+      if (stayInPlanning.current) return;
+      void new PruneUncommittedDraftRoutes(db).execute()
+        .then((pruned) => {
+          if (pruned.cancelledRouteIds.length > 0) return requestSync('mutation');
+        })
+        .catch((reason) => {
+          devWarn('UNCOMMITTED_DRAFT_PRUNE_FAILED', reason);
+        });
+    });
+    return unsubscribe;
+  }, [db, navigation, requestSync]);
 
   useEffect(() => {
     if (syncRevision > 0 && screenFocused.current) void reload();
@@ -434,6 +451,7 @@ export default function RouteReviewScreen() {
       Alert.alert('Dar liko nepatvirtintų adresų', 'Pirmiausia patikrinkite tik pažymėtus probleminius adresus.');
       return;
     }
+    stayInPlanning.current = true;
     router.push({ pathname: '/route/[id]/alternatives', params: { id: routeId } });
   };
 

@@ -16,6 +16,7 @@ import type { CandidateLeg, CandidateStopSchedule } from '@/domain/routing/model
 import { persistCandidateEtas } from './route-eta';
 import { firstBlockerMessage, loadDepartureReadiness } from '@/application/operations/departure-readiness';
 import { parkPinForAddress } from '@/application/location/remember-park-pin';
+import { markRouteDeletedForCloud } from '@/application/sync/route-cloud-sync';
 import { isUsablePhone, normalizePhone } from '@/domain/phone';
 import { addressMemoryKey } from '@/database/repositories/address-resolution-memory-repository';
 
@@ -339,6 +340,11 @@ export class CreateDraftRouteWithStops extends RouteCommandBase {
           { routeId: result.routeId },
         );
       }
+      // Starting another import must not leave the previous unfinished
+      // Ruošiamas card hanging in the dispatcher list.
+      await new PruneUncommittedDraftRoutes(this.db, this.clock, this.idFactory).execute({
+        keepRouteId: result.routeId,
+      });
       return result;
     });
   }
@@ -774,6 +780,67 @@ export class CancelDraftRoute extends RouteCommandBase {
     });
   }
 }
+
+export type PruneUncommittedDraftsInput = {
+  /** Leave this draft alone — it is the one currently being planned. */
+  keepRouteId?: string | null;
+};
+
+/**
+ * Cancels leftover Ruošiamas routes that never became a real plan.
+ *
+ * Kept:
+ * - the optional `keepRouteId` (active planning session);
+ * - drafts that already have an optimized snapshot (confirmed, or reopened
+ *   from planned/loading via ReopenRouteForPlanning);
+ * - drafts linked to a driver assignment (`route_sync_state`);
+ * - any non-draft status, including the assigned/downloaded working route.
+ *
+ * Removed:
+ * - status=draft with no selected candidate, no estimated distance, no
+ *   optimized snapshot and no assignment — the hanging cards created when
+ *   the user enters import/manual creation and leaves before confirming.
+ */
+export class PruneUncommittedDraftRoutes extends RouteCommandBase {
+  async execute(input: PruneUncommittedDraftsInput = {}): Promise<{ cancelledRouteIds: string[] }> {
+    const keepRouteId = input.keepRouteId ?? null;
+    const rows = keepRouteId
+      ? await this.db.getAllAsync<{ id: string }>(
+        `${UNCOMMITTED_DRAFT_SQL} AND id <> ? ORDER BY created_at ASC, id`,
+        keepRouteId,
+      )
+      : await this.db.getAllAsync<{ id: string }>(
+        `${UNCOMMITTED_DRAFT_SQL} ORDER BY created_at ASC, id`,
+      );
+    const cancelledRouteIds: string[] = [];
+    const cancel = new CancelDraftRoute(this.db, this.clock, this.idFactory);
+    for (const row of rows) {
+      await cancel.execute(row.id);
+      await markRouteDeletedForCloud(this.db, row.id);
+      cancelledRouteIds.push(row.id);
+    }
+    return { cancelledRouteIds };
+  }
+}
+
+const UNCOMMITTED_DRAFT_SQL = `
+  SELECT id FROM routes
+  WHERE status = 'draft'
+    AND selected_candidate_id IS NULL
+    AND estimated_distance_km IS NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM route_order_snapshots
+      WHERE route_id = routes.id AND kind = 'optimized'
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM action_journal
+      WHERE route_id = routes.id AND action_type = 'route_reopened_for_planning'
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM route_sync_state
+      WHERE route_id = routes.id
+    )
+`;
 
 async function rememberedContactPhone(db: SQLiteDatabase, address: string): Promise<string | null> {
   const key = addressMemoryKey(address);

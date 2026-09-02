@@ -101,6 +101,12 @@ describe('dispatcher desktop workspace', () => {
     expect(dispatcherSource).toContain('Prisijungus ištrynimas bus sinchronizuotas');
   });
 
+  it('auto-prunes leftover Ruošiamas drafts when the dispatcher opens the list', () => {
+    expect(dispatcherSource).toContain('PruneUncommittedDraftRoutes');
+    expect(dispatcherSource).toContain('await new PruneUncommittedDraftRoutes(db).execute()');
+    expect(dispatcherSource).toContain("await requestSync('mutation')");
+  });
+
   it('shows the Excel-derived preliminary route price before assignment', () => {
     expect(dispatcherSource).toContain("estimatePreliminaryRoutePrice");
     expect(dispatcherSource).toContain('testID="preliminary-route-price"');

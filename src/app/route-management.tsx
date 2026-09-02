@@ -7,7 +7,7 @@ import { useLocalAccess } from '@/application/auth/local-access-context';
 import { effectiveAssignmentStatus, isActiveAssignment } from '@/application/auth/route-assignment-status';
 import { assignRouteToDriver, completeAssignedRoute } from '@/application/auth/route-assignment-sync';
 import { roleHomePath } from '@/application/navigation/role-home';
-import { CancelDraftRoute, ReopenRouteForPlanning } from '@/application/routes/route-commands';
+import { CancelDraftRoute, PruneUncommittedDraftRoutes, ReopenRouteForPlanning } from '@/application/routes/route-commands';
 import {
     DEFAULT_ROUTE_PRICE_SETTINGS,
     estimatePreliminaryRoutePrice,
@@ -92,6 +92,9 @@ export default function RouteManagementScreen() {
         : null);
     };
 
+    // Drop leftover Ruošiamas cards from abandoned planning before the list
+    // paints. The assigned/working route is never a never-confirmed draft.
+    const pruned = await new PruneUncommittedDraftRoutes(db).execute();
     // The route that was just planned is already in SQLite. Show it before a
     // potentially slow cloud refresh so the assignment screen never flashes as
     // empty or loses the route when opened from the loading page.
@@ -104,6 +107,10 @@ export default function RouteManagementScreen() {
     // second pass concurrently with a lifecycle one, and its outcome shows up in
     // the shared status indicator.
     await requestSync('dispatcher-refresh');
+    const prunedAfterSync = await new PruneUncommittedDraftRoutes(db).execute();
+    if (pruned.cancelledRouteIds.length + prunedAfterSync.cancelledRouteIds.length > 0) {
+      await requestSync('mutation');
+    }
     await loadLocalRoutes();
     if (!online) return;
     const [userResponse, assignmentResponse, vehicleResponse, priceSettingsResponse] = await Promise.allSettled([
