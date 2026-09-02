@@ -119,7 +119,7 @@ describe('dispatcher desktop workspace', () => {
     expect(dispatcherSource).toContain("employeeApi(`/api/admin/assignments/${encodeURIComponent(assignment.id)}/cancel`");
     expect(dispatcherSource).toContain('Jau pažymėti pristatymai išsaugomi, nepristatyti taškai liks nepažymėti');
     expect(dispatcherSource).toContain('const canCancel = ');
-    expect(dispatcherSource).toContain('testID={`cancel-working-route-${route.id}`}');
+    expect(dispatcherSource).toContain('testID={action.key === \'cancel\' ? `cancel-working-route-${route.id}` : undefined}');
     expect(dispatcherSource).not.toContain('Vykdomo maršruto ištrinti negalima');
     expect(dispatcherSource).toContain('operationalRoutes.map');
   });
