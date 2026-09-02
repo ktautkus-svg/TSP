@@ -155,11 +155,18 @@ describe('durable route workflow', () => {
     expect(request.endLocation).toMatchObject({ address: klaipedaEndpoint.normalizedAddress, latitude: 55.7103, longitude: 21.1281 });
   });
 
-  it('allows several draft routes so another driver route can be prepared in parallel', async () => {
+  it('keeps a planned route when another driver route is prepared in parallel', async () => {
     const { adapter, db } = createDb();
     await draftWithStops(db);
+    adapter.raw.prepare(
+      "UPDATE routes SET status = 'planned', estimated_distance_km = 12, selected_candidate_id = 'cand-1' WHERE id = 'route-1'",
+    ).run();
+    adapter.raw.prepare(
+      "INSERT INTO route_order_snapshots (id, route_id, kind, ordered_stop_ids_json, created_at) VALUES ('snap-1', 'route-1', 'optimized', '[]', '2026-08-03T08:02:00.000Z')",
+    ).run();
     await expect(new CreateDraftRoute(db).execute({ id: 'route-2', startLocation: endpoint })).resolves.toEqual({ routeId: 'route-2' });
-    expect(adapter.raw.prepare("SELECT COUNT(*) AS count FROM routes WHERE status = 'draft'").get()).toMatchObject({ count: 2 });
+    expect(adapter.raw.prepare("SELECT status FROM routes WHERE id = 'route-1'").get()).toMatchObject({ status: 'planned' });
+    expect(adapter.raw.prepare("SELECT status FROM routes WHERE id = 'route-2'").get()).toMatchObject({ status: 'draft' });
   });
 
   it('edits, reorders and deletes draft stops transactionally', async () => {

@@ -186,6 +186,14 @@ describe('compact daily Excel UI', () => {
     expect(alternativesScreen).toContain('testID="cancel-route-and-new-file"');
     expect(alternativesScreen).toContain('Atšaukti ir pasirinkti kitą failą');
     expect(alternativesScreen).toContain('new CancelDraftRoute(db).execute(routeId)');
+    expect(alternativesScreen).toContain('PruneUncommittedDraftRoutes');
+    expect(alternativesScreen).toContain('keepRouteId: routeId');
+    expect(alternativesScreen).toContain("stayInPlanning.current = true");
+    expect(alternativesScreen).toContain("navigation.addListener('beforeRemove'");
+    expect(reviewScreen).toContain('PruneUncommittedDraftRoutes');
+    expect(reviewScreen).toContain('keepRouteId: routeId');
+    expect(reviewScreen).toContain("stayInPlanning.current = true");
+    expect(reviewScreen).toContain("navigation.addListener('beforeRemove'");
     expect(alternativesScreen).toContain('Rodyti eiliškumą');
     expect(alternativesScreen).toContain('expandedCandidateId');
     expect(alternativesScreen).toContain('ManualRouteOrderList');
