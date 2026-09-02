@@ -12,7 +12,7 @@ export const SCHEMA_VERSION = 28;
  */
 export const COMPATIBLE_LEGACY_SCHEMA_VERSIONS = [27] as const;
 
-export const PARK_STOP_COLUMNS: ReadonlyArray<{ name: string; sqlType: string }> = [
+export const PARK_STOP_COLUMNS: readonly { name: string; sqlType: string }[] = [
   { name: 'park_latitude', sqlType: 'REAL' },
   { name: 'park_longitude', sqlType: 'REAL' },
   { name: 'park_heading', sqlType: 'REAL' },
@@ -1288,6 +1288,8 @@ COMMIT;
 // No BEGIN/COMMIT wrapper: a failed statement must not leave the connection
 // inside an uncommitted transaction (expo-sqlite then masks later writes as
 // "Error finalizing statement").
+// Kept as source-inspected migration documentation for validate-schema tests.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const migrationV28 = `
 CREATE TABLE IF NOT EXISTS location_park_memory (
   address_key TEXT PRIMARY KEY NOT NULL,
