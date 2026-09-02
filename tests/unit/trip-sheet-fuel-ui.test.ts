@@ -31,8 +31,9 @@ describe('trip sheet fuel workflow', () => {
     expect(source).not.toContain('trip-sheet-odometer-entry');
     expect(source).not.toContain('/api/trip-sheets/day-readings');
     expect(source).not.toContain('ATLYGIS');
-    expect(source).toContain('Kuro tipas:');
-    expect(source).toContain('Nuvažiuota, km');
+    expect(source).toContain('L. d.d.p.');
+    expect(source).toContain('trip-sheet-column-legend');
+    expect(source).toContain('buildTripSheetPrintDocument');
     expect(source).toContain('Eksportuoti Excel');
     expect(source).not.toContain('Sustojimo trukmė');
     expect(source).not.toContain('Stovėjimo laikas');

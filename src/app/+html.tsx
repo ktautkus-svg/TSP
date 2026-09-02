@@ -45,8 +45,8 @@ export default function RootHtml({ children }: PropsWithChildren) {
             @page { size: A4 landscape; margin: 10mm; }
             html, body, #root { background: #FFFFFF !important; overflow: visible !important; }
             [data-testid="trip-sheet-toolbar"],
-            [data-testid="trip-sheet-screen-view"] { display: none !important; }
-            [data-testid="trip-sheet-print-view"] { display: flex !important; }
+            [data-testid="trip-sheet-metrics"],
+            [data-testid="trip-sheet-month-total"] { display: none !important; }
             [data-testid^="monthly-trip-sheet-"] { break-after: page; page-break-after: always; }
             [data-testid^="monthly-trip-sheet-"]:last-of-type { break-after: auto; page-break-after: auto; }
           }
