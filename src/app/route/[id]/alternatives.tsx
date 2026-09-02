@@ -143,7 +143,7 @@ export default function RouteAlternativesScreen() {
   useEffect(() => {
     const unsubscribe = navigation.addListener('beforeRemove', () => {
       if (stayInPlanning.current || selfCancelled.current) return;
-      void new PruneUncommittedDraftRoutes(db).execute()
+      void new PruneUncommittedDraftRoutes(db).execute({ keepRouteId: routeId })
         .then((pruned) => {
           if (pruned.cancelledRouteIds.length > 0) return requestSync('mutation');
         })
@@ -152,7 +152,7 @@ export default function RouteAlternativesScreen() {
         });
     });
     return unsubscribe;
-  }, [db, navigation, requestSync]);
+  }, [db, navigation, requestSync, routeId]);
 
   const defaultCandidate = result?.recommended ?? result?.diagnosticCandidate ?? labeledAlternatives[0]?.candidate ?? result?.candidates[0];
   const candidates = labeledAlternatives.length > 0

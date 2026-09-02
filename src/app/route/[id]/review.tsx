@@ -129,7 +129,7 @@ export default function RouteReviewScreen() {
   useEffect(() => {
     const unsubscribe = navigation.addListener('beforeRemove', () => {
       if (stayInPlanning.current) return;
-      void new PruneUncommittedDraftRoutes(db).execute()
+      void new PruneUncommittedDraftRoutes(db).execute({ keepRouteId: routeId })
         .then((pruned) => {
           if (pruned.cancelledRouteIds.length > 0) return requestSync('mutation');
         })
@@ -138,7 +138,7 @@ export default function RouteReviewScreen() {
         });
     });
     return unsubscribe;
-  }, [db, navigation, requestSync]);
+  }, [db, navigation, requestSync, routeId]);
 
   useEffect(() => {
     if (syncRevision > 0 && screenFocused.current) void reload();
