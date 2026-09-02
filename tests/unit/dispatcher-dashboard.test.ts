@@ -53,9 +53,10 @@ describe('dispatcher desktop workspace', () => {
   });
 
   it('keeps driver-owned route copies out of the dispatcher cleanup list', () => {
-    expect(dispatcherSource).toContain("WHERE status <> 'cancelled'");
+    expect(dispatcherSource).toContain("WHERE status NOT IN ('completed', 'cancelled')");
     expect(dispatcherSource).toContain("AND (owner_employee_id IS NULL OR owner_employee_id = ?)");
     expect(dispatcherSource).toContain('profile.id,');
+    expect(dispatcherSource).toContain("routes.filter((route) => !['completed', 'cancelled'].includes(route.status))");
   });
 
   it('uses the shared assignment API and clearly reports the assigned driver', () => {
@@ -78,6 +79,7 @@ describe('dispatcher desktop workspace', () => {
     expect(dispatcherSource).toContain('AdminCompleteRoute');
     expect(dispatcherSource).toContain('testID={`complete-assignment-${assignment.id}`}');
     expect(dispatcherSource).toContain('Užbaigti šį maršrutą?');
+    expect(dispatcherSource).toContain('Nepristatyti taškai liks nepažymėti');
     expect(dispatcherSource).toContain('activeAssignmentCard');
     expect(dispatcherSource).toContain('routeCompleteAction');
     expect(dispatcherSource).toContain('routeEditAction');
@@ -97,8 +99,42 @@ describe('dispatcher desktop workspace', () => {
     expect(dispatcherSource).toContain("await new CancelDraftRoute(db).execute(route.id)");
     expect(dispatcherSource).toContain('await markRouteDeletedForCloud(db, route.id)');
     expect(dispatcherSource).toContain("['loading', 'loaded', 'in_progress'].includes(route.status)");
-    expect(dispatcherSource).toContain('Vykdomo maršruto ištrinti negalima');
     expect(dispatcherSource).toContain('Prisijungus ištrynimas bus sinchronizuotas');
+  });
+
+  it('completes a working route from management without odometer or marking remaining stops delivered', () => {
+    expect(dispatcherSource).toContain('testID="manual-route-completion"');
+    expect(dispatcherSource).toContain('testID="confirm-manual-completion"');
+    expect(dispatcherSource).toContain('Galutinis odometras (neprivaloma)');
+    expect(dispatcherSource).toContain('Nepristatyti taškai liko nepažymėti.');
+    expect(dispatcherSource).not.toContain('markAllDelivered: true');
+    expect(dispatcherSource).not.toContain('visi taškai pažymėti pristatytais');
+    expect(dispatcherSource).not.toContain('!completionOdometer.trim()');
+    expect(dispatcherSource).toContain('completeAssignedRoute(db, linkedAssignment, completingRoute.id)');
+  });
+
+  it('lets the dispatcher cancel or complete an in-progress route so it leaves the working list', () => {
+    expect(dispatcherSource).toContain('Atšaukti šį maršrutą?');
+    expect(dispatcherSource).toContain('Atšaukti maršrutą');
+    expect(dispatcherSource).toContain("employeeApi(`/api/admin/assignments/${encodeURIComponent(assignment.id)}/cancel`");
+    expect(dispatcherSource).toContain('Jau pažymėti pristatymai išsaugomi, nepristatyti taškai liks nepažymėti');
+    expect(dispatcherSource).toContain('const canCancel = ');
+    expect(dispatcherSource).toContain('testID={action.key === \'cancel\' ? `cancel-working-route-${route.id}` : undefined}');
+    expect(dispatcherSource).not.toContain('Vykdomo maršruto ištrinti negalima');
+    expect(dispatcherSource).toContain('operationalRoutes.map');
+  });
+
+  it('keeps phone route cards compact so overflow menus remain usable', () => {
+    expect(dispatcherSource).toContain('routeChoiceCardDesktop');
+    expect(dispatcherSource).toContain('cardMenuOpen');
+    expect(dispatcherSource).not.toContain('minHeight: 174');
+    expect(dispatcherSource).not.toContain("routeChoiceCard: { minHeight: 174, flexGrow: 1, flexBasis: 360");
+    expect(dispatcherSource).not.toContain("cardActionsWrap: { marginTop: 'auto'");
+    expect(dispatcherSource).not.toContain("activeAssignmentCard: { overflow: 'hidden'");
+    expect(dispatcherSource).toContain("overflow: 'visible'");
+    expect(dispatcherSource).toContain('zIndex: 30');
+    expect(dispatcherSource).toContain("flexWrap: 'nowrap'");
+    expect(dispatcherSource).toContain('flexShrink: 1, minWidth: 0');
   });
 
   it('auto-prunes leftover Ruošiamas drafts when the dispatcher opens the list', () => {
