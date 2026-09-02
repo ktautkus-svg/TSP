@@ -14,8 +14,15 @@ export type UsageGuardConfig = {
   weeklyBudgetCents: number | null;
 };
 
+export type UsageScope = 'routing' | 'geocoding' | 'ocr';
+
 export interface GatewayUsageGuard {
-  reserve(units: number, estimatedCostCents: number | null, now?: Date): Promise<void>;
+  reserve(
+    units: number,
+    estimatedCostCents: number | null,
+    now?: Date,
+    scope?: UsageScope,
+  ): Promise<void>;
 }
 
 export class FileGatewayUsageGuard implements GatewayUsageGuard {
@@ -24,7 +31,12 @@ export class FileGatewayUsageGuard implements GatewayUsageGuard {
     private readonly config: UsageGuardConfig,
   ) {}
 
-  async reserve(units: number, estimatedCostCents: number | null, now = new Date()): Promise<void> {
+  async reserve(
+    units: number,
+    estimatedCostCents: number | null,
+    now = new Date(),
+    scope: UsageScope = 'routing',
+  ): Promise<void> {
     if (!this.config.armed) {
       throw new GatewayError(
         'REAL_PROVIDER_DISABLED',
@@ -34,22 +46,22 @@ export class FileGatewayUsageGuard implements GatewayUsageGuard {
       );
     }
     const state = await this.read();
-    const daily = periodKey(now, 'day');
-    const weekly = periodKey(now, 'week');
+    const daily = periodKey(now, 'day', scope);
+    const weekly = periodKey(now, 'week', scope);
     const dailyUsage = usageFor(state, daily);
     const weeklyUsage = usageFor(state, weekly);
     const cost = Math.max(0, estimatedCostCents ?? 0);
     if (dailyUsage.units + units > this.config.dailyUnits) {
-      throw budgetError('dienos', this.config.dailyUnits);
+      throw budgetError(scope, 'dienos', this.config.dailyUnits);
     }
     if (weeklyUsage.units + units > this.config.weeklyUnits) {
-      throw budgetError('savaitės', this.config.weeklyUnits);
+      throw budgetError(scope, 'savaitės', this.config.weeklyUnits);
     }
     if (this.config.dailyBudgetCents !== null && dailyUsage.estimatedCostCents + cost > this.config.dailyBudgetCents) {
-      throw budgetError('dienos pinigų', this.config.dailyBudgetCents);
+      throw budgetError(scope, 'dienos pinigų', this.config.dailyBudgetCents);
     }
     if (this.config.weeklyBudgetCents !== null && weeklyUsage.estimatedCostCents + cost > this.config.weeklyBudgetCents) {
-      throw budgetError('savaitės pinigų', this.config.weeklyBudgetCents);
+      throw budgetError(scope, 'savaitės pinigų', this.config.weeklyBudgetCents);
     }
     addUsage(state, daily, units, cost);
     addUsage(state, weekly, units, cost);
@@ -72,15 +84,20 @@ export class MemoryGatewayUsageGuard implements GatewayUsageGuard {
 
   constructor(private readonly config: UsageGuardConfig) {}
 
-  async reserve(units: number, estimatedCostCents: number | null, now = new Date()): Promise<void> {
+  async reserve(
+    units: number,
+    estimatedCostCents: number | null,
+    now = new Date(),
+    scope: UsageScope = 'routing',
+  ): Promise<void> {
     if (!this.config.armed) throw new GatewayError('REAL_PROVIDER_DISABLED', 'Realūs maršrutų provideriai išjungti.', 503, false);
     const cost = Math.max(0, estimatedCostCents ?? 0);
-    const daily = this.period(periodKey(now, 'day'));
-    const weekly = this.period(periodKey(now, 'week'));
-    if (daily.units + units > this.config.dailyUnits) throw budgetError('dienos', this.config.dailyUnits);
-    if (weekly.units + units > this.config.weeklyUnits) throw budgetError('savaitės', this.config.weeklyUnits);
-    if (this.config.dailyBudgetCents !== null && daily.estimatedCostCents + cost > this.config.dailyBudgetCents) throw budgetError('dienos pinigų', this.config.dailyBudgetCents);
-    if (this.config.weeklyBudgetCents !== null && weekly.estimatedCostCents + cost > this.config.weeklyBudgetCents) throw budgetError('savaitės pinigų', this.config.weeklyBudgetCents);
+    const daily = this.period(periodKey(now, 'day', scope));
+    const weekly = this.period(periodKey(now, 'week', scope));
+    if (daily.units + units > this.config.dailyUnits) throw budgetError(scope, 'dienos', this.config.dailyUnits);
+    if (weekly.units + units > this.config.weeklyUnits) throw budgetError(scope, 'savaitės', this.config.weeklyUnits);
+    if (this.config.dailyBudgetCents !== null && daily.estimatedCostCents + cost > this.config.dailyBudgetCents) throw budgetError(scope, 'dienos pinigų', this.config.dailyBudgetCents);
+    if (this.config.weeklyBudgetCents !== null && weekly.estimatedCostCents + cost > this.config.weeklyBudgetCents) throw budgetError(scope, 'savaitės pinigų', this.config.weeklyBudgetCents);
     daily.units += units; daily.estimatedCostCents += cost;
     weekly.units += units; weekly.estimatedCostCents += cost;
   }
@@ -100,20 +117,25 @@ export class FirestoreGatewayUsageGuard implements GatewayUsageGuard {
 
   constructor(private readonly config: UsageGuardConfig) {}
 
-  async reserve(units: number, estimatedCostCents: number | null, now = new Date()): Promise<void> {
+  async reserve(
+    units: number,
+    estimatedCostCents: number | null,
+    now = new Date(),
+    scope: UsageScope = 'routing',
+  ): Promise<void> {
     if (!this.config.armed) throw new GatewayError('REAL_PROVIDER_DISABLED', 'Realūs maršrutų provideriai išjungti.', 503, false);
     const cost = Math.max(0, estimatedCostCents ?? 0);
-    const dailyKey = periodKey(now, 'day');
-    const weeklyKey = periodKey(now, 'week');
+    const dailyKey = periodKey(now, 'day', scope);
+    const weeklyKey = periodKey(now, 'week', scope);
     await this.db.runTransaction(async (transaction) => {
       const snapshot = await transaction.get(this.reference);
       const periods = (snapshot.data()?.periods ?? {}) as Record<string, UsagePeriod>;
       const daily = periods[dailyKey] ?? { key: dailyKey, units: 0, estimatedCostCents: 0 };
       const weekly = periods[weeklyKey] ?? { key: weeklyKey, units: 0, estimatedCostCents: 0 };
-      if (daily.units + units > this.config.dailyUnits) throw budgetError('dienos', this.config.dailyUnits);
-      if (weekly.units + units > this.config.weeklyUnits) throw budgetError('savaitės', this.config.weeklyUnits);
-      if (this.config.dailyBudgetCents !== null && daily.estimatedCostCents + cost > this.config.dailyBudgetCents) throw budgetError('dienos pinigų', this.config.dailyBudgetCents);
-      if (this.config.weeklyBudgetCents !== null && weekly.estimatedCostCents + cost > this.config.weeklyBudgetCents) throw budgetError('savaitės pinigų', this.config.weeklyBudgetCents);
+      if (daily.units + units > this.config.dailyUnits) throw budgetError(scope, 'dienos', this.config.dailyUnits);
+      if (weekly.units + units > this.config.weeklyUnits) throw budgetError(scope, 'savaitės', this.config.weeklyUnits);
+      if (this.config.dailyBudgetCents !== null && daily.estimatedCostCents + cost > this.config.dailyBudgetCents) throw budgetError(scope, 'dienos pinigų', this.config.dailyBudgetCents);
+      if (this.config.weeklyBudgetCents !== null && weekly.estimatedCostCents + cost > this.config.weeklyBudgetCents) throw budgetError(scope, 'savaitės pinigų', this.config.weeklyBudgetCents);
       transaction.set(this.reference, {
         periods: {
           ...periods,
@@ -136,15 +158,27 @@ function addUsage(state: UsageState, key: string, units: number, cost: number): 
   state.periods.push({ key, units, estimatedCostCents: cost });
 }
 
-function periodKey(date: Date, period: 'day' | 'week'): string {
-  const iso = date.toISOString().slice(0, 10);
-  if (period === 'day') return `day:${iso}`;
-  const start = new Date(date);
+function periodKey(date: Date, period: 'day' | 'week', scope: UsageScope): string {
+  const iso = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Vilnius',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+  if (period === 'day') return `${scope}:day:${iso}`;
+  const [year, month, dayOfMonth] = iso.split('-').map(Number);
+  const start = new Date(Date.UTC(year!, month! - 1, dayOfMonth));
   const day = start.getUTCDay() || 7;
   start.setUTCDate(start.getUTCDate() - day + 1);
-  return `week:${start.toISOString().slice(0, 10)}`;
+  return `${scope}:week:${start.toISOString().slice(0, 10)}`;
 }
 
-function budgetError(period: string, limit: number): GatewayError {
-  return new GatewayError('ROUTING_BUDGET_EXCEEDED', `Viršytas ${period} routing biudžetas (${limit} vienetų).`, 429, false, { limit, period });
+function budgetError(scope: UsageScope, period: string, limit: number): GatewayError {
+  return new GatewayError(
+    'ROUTING_BUDGET_EXCEEDED',
+    `Viršytas ${scope === 'routing' ? 'maršrutų' : scope === 'geocoding' ? 'adresų tikrinimo' : 'dokumentų atpažinimo'} ${period} biudžetas (${limit} vienetų).`,
+    429,
+    false,
+    { limit, period, scope },
+  );
 }

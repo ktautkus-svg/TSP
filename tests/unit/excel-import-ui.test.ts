@@ -22,7 +22,10 @@ describe('compact daily Excel UI', () => {
     expect(importScreen).toContain('testID="excel-problems-filter"');
     expect(importScreen).toContain('Peržiūrėti visus taškus');
     expect(importScreen).toContain('testID="excel-problem-navigator"');
-    expect(importScreen).toContain('onBlurAddress={() => void revalidate()}');
+    expect(importScreen).toContain('onBlurAddress={() => void revalidateDelivery(delivery.id)}');
+    expect(importScreen).toContain("testID={`revalidate-address-${props.delivery.id}`}");
+    expect(importScreen).toContain('Tikrinti dabar');
+    expect(importScreen).toContain('koordinates arba Google Maps nuorodą');
     expect(importScreen).not.toContain('revalidate-visible-address');
     expect(importScreen).toContain('Taisyti šį adresą');
     expect(importScreen).toContain('showHeading={!result}');

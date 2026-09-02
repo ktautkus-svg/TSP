@@ -11,10 +11,16 @@ class MemoryDatabase {
       address_key TEXT PRIMARY KEY, source_address TEXT NOT NULL, normalized_address TEXT NOT NULL,
       latitude REAL NOT NULL, longitude REAL NOT NULL, place_id TEXT, confidence REAL NOT NULL,
       use_count INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    );
+    CREATE TABLE delivery_stops (
+      address TEXT NOT NULL, original_address TEXT NOT NULL, geocoding_query TEXT,
+      normalized_address TEXT, latitude REAL, longitude REAL,
+      address_validation_state TEXT NOT NULL, delivered_at TEXT, updated_at TEXT NOT NULL
     )`);
   }
   async runAsync(sql: string, ...params: unknown[]) { return this.raw.prepare(sql).run(...params as never[]); }
   async getFirstAsync<T>(sql: string, ...params: unknown[]): Promise<T | null> { return (this.raw.prepare(sql).get(...params as never[]) as T | undefined) ?? null; }
+  async getAllAsync<T>(sql: string, ...params: unknown[]): Promise<T[]> { return this.raw.prepare(sql).all(...params as never[]) as T[]; }
 }
 
 describe('address correction memory', () => {
@@ -44,5 +50,34 @@ describe('address correction memory', () => {
     await memory.remember('Pajuosčio pl.73 Dembavos k. Velžio sen.', candidate);
     expect(addressMemoryKeys('Pajuosčio pl. 73, Panevėžio r.')).toContain('street:pajuoscio:pl:73');
     await expect(memory.find('Pajuosčio pl. 73, Panevėžio r.')).resolves.toMatchObject(candidate);
+  });
+
+  it('recovers a repeatedly driven address from confirmed route history', async () => {
+    const database = new MemoryDatabase();
+    database.raw.prepare(
+      `INSERT INTO delivery_stops (
+         address, original_address, geocoding_query, normalized_address,
+         latitude, longitude, address_validation_state, delivered_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, 'auto_confirmed', ?, ?)`,
+    ).run(
+      'P. Puzino g. 12, Panevėžys',
+      'P. Puzino g. 12, 35169 Panevėžys, Lietuva',
+      'P. Puzino g. 12, Panevėžys',
+      'P. Puzino g. 12, 35169 Panevėžys, Lietuva',
+      55.734,
+      24.357,
+      '2026-09-01T08:00:00.000Z',
+      '2026-09-01T08:00:00.000Z',
+    );
+    const memory = new AddressResolutionMemoryRepository(database as never);
+
+    await expect(memory.find('P.Puzino g.12 Panevėžys LT-97123, Lietuva')).resolves.toMatchObject({
+      latitude: 55.734,
+      longitude: 24.357,
+    });
+    await expect(memory.find('P. Puzino g. 12, Panevėžys')).resolves.toMatchObject({
+      latitude: 55.734,
+      longitude: 24.357,
+    });
   });
 });

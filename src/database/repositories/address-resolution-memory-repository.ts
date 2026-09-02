@@ -10,6 +10,15 @@ type AddressMemoryRow = {
   confidence: number;
 };
 
+type HistoricalStopRow = {
+  address: string;
+  original_address: string;
+  geocoding_query: string | null;
+  normalized_address: string | null;
+  latitude: number;
+  longitude: number;
+};
+
 export class AddressResolutionMemoryRepository {
   constructor(private readonly db: SQLiteDatabase) {}
 
@@ -26,7 +35,12 @@ export class AddressResolutionMemoryRepository {
       );
       if (row) { matchedKey = key; break; }
     }
-    if (!row || !matchedKey) return null;
+    if (!row || !matchedKey) {
+      const historical = await this.findInRouteHistory(keys);
+      if (!historical) return null;
+      await this.remember(sourceAddress, historical);
+      return historical;
+    }
     await this.db.runAsync(
       'UPDATE address_resolution_memory SET use_count = use_count + 1, updated_at = ? WHERE address_key = ?',
       new Date().toISOString(),
@@ -71,6 +85,42 @@ export class AddressResolutionMemoryRepository {
       );
     }
   }
+
+  private async findInRouteHistory(keys: string[]): Promise<ResolvedAddressCandidate | null> {
+    try {
+      const expected = new Set(keys);
+      const rows = await this.db.getAllAsync<HistoricalStopRow>(
+        `SELECT address, original_address, geocoding_query, normalized_address,
+                latitude, longitude
+         FROM delivery_stops
+         WHERE latitude IS NOT NULL
+           AND longitude IS NOT NULL
+           AND address_validation_state = 'auto_confirmed'
+         ORDER BY COALESCE(delivered_at, updated_at) DESC
+         LIMIT 1000`,
+      );
+      for (const row of rows) {
+        const aliases = [
+          row.address,
+          row.original_address,
+          row.geocoding_query,
+          row.normalized_address,
+        ].filter((value): value is string => Boolean(value));
+        if (!aliases.some((alias) => addressMemoryKeys(alias).some((key) => expected.has(key)))) continue;
+        return {
+          normalizedAddress: row.normalized_address ?? row.address ?? row.original_address,
+          latitude: row.latitude,
+          longitude: row.longitude,
+          placeId: null,
+          confidence: 1,
+        };
+      }
+    } catch {
+      // Older/minimal databases may not have route history yet. In that case
+      // the normal provider lookup remains available.
+    }
+    return null;
+  }
 }
 
 export function addressMemoryKey(value: string): string {
@@ -91,7 +141,10 @@ export function addressMemoryKeys(value: string): string[] {
 }
 
 function semanticStreetKey(value: string): string | null {
-  const match = value.match(/([a-z0-9ąćęėįšųūž.'’-]{2,})\s+(g(?:atve)?|pr(?:ospektas)?|pl(?:entas)?|al(?:eja)?|skg|kelias)\.?\s*(\d+[a-z]?)/iu);
+  // Initials are formatted inconsistently in source files ("P.Puzino" vs
+  // "P. Puzino"). They are not part of the street identity.
+  const withoutInitials = value.replace(/\b[\p{L}]\.\s*(?=[\p{L}])/gu, '');
+  const match = withoutInitials.match(/([a-z0-9ąćęėįšųūž.'’-]{2,})\s+(g(?:atve)?|pr(?:ospektas)?|pl(?:entas)?|al(?:eja)?|skg|kelias)\.?\s*(\d+[a-z]?)/iu);
   if (!match) return null;
   return `street:${match[1]!.replace(/[^a-z0-9ąćęėįšųūž]/giu, '')}:${match[2]!.slice(0, 2)}:${match[3]}`;
 }

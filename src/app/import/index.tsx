@@ -636,34 +636,45 @@ export default function ImportScreen() {
     });
   };
 
-  const revalidate = async () => {
-    if (!result) return;
+  const revalidateDelivery = async (deliveryId: string) => {
+    if (!result || busy) return;
+    const currentDelivery = result.deliveries.find((delivery) => delivery.id === deliveryId);
+    if (!currentDelivery) return;
     setBusy(true);
     try {
-      const deliveries = await resolveDeliveryAddresses(result.deliveries, addressResolver);
+      const [resolved] = await resolveDeliveryAddresses([currentDelivery], addressResolver);
+      if (!resolved) return;
+      if (resolved.selectedAddress && currentDelivery.address.value) {
+        await addressMemory.remember(currentDelivery.address.value, resolved.selectedAddress);
+      }
+      const deliveries = result.deliveries.map((delivery) => delivery.id === deliveryId ? resolved : delivery);
       const next = {
         ...result,
         deliveries,
         requiresReview:
-          deliveries.some((item) => item.validationState !== 'valid') ||
-          result.duplicates.length > 0,
+          deliveries.some((item) => item.validationState !== 'valid' || !item.selectedAddress)
+          || result.duplicates.length > 0,
       };
       setResult(next);
       persistExcelResult(next);
-      if (excelPreview) {
-        setExpandedExcelGroups([]);
-        setShowOnlyExcelProblems(true);
-        setExcelProblemIndex(0);
-      }
-      setMessage(null);
+      setMessage(resolved.validationState === 'valid' && resolved.selectedAddress
+        ? `Adresas patvirtintas: ${resolved.selectedAddress.normalizedAddress}`
+        : 'Automatiškai patvirtinti nepavyko. Įveskite koordinates arba Google Maps nuorodą ir spauskite „Tikrinti dabar“.');
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Adresų patikra nepavyko.');
+      setMessage(error instanceof Error ? error.message : 'Adreso patikra nepavyko.');
     } finally {
       setBusy(false);
     }
   };
 
   const chooseAddress = (deliveryId: string, candidateIndex: number) => {
+    const delivery = result?.deliveries.find((item) => item.id === deliveryId);
+    const candidate = delivery?.addressCandidates[candidateIndex];
+    if (candidate && delivery?.address.value) {
+      void addressMemory.remember(delivery.address.value, candidate).catch((reason) => {
+        devWarn('ADDRESS_MEMORY_SAVE_FAILED', reason);
+      });
+    }
     setResult((current) => {
       if (!current) return current;
       const next = {
@@ -1382,7 +1393,18 @@ export default function ImportScreen() {
                     <Text style={styles.secondaryText}>{expanded ? 'Uždaryti taisymą' : needsAction ? 'Taisyti šį adresą' : 'Peržiūrėti'}</Text>
                   </Pressable>
                   {expanded && delivery ? (
-                    <DeliveryEditor styles={styles} colors={colors} delivery={delivery} index={excelPreview.groups.indexOf(group)} onChange={updateField} onChooseAddress={chooseAddress} onBlurAddress={() => void revalidate()} compact />
+                    <DeliveryEditor
+                      styles={styles}
+                      colors={colors}
+                      delivery={delivery}
+                      index={excelPreview.groups.indexOf(group)}
+                      onChange={updateField}
+                      onChooseAddress={chooseAddress}
+                      onBlurAddress={() => void revalidateDelivery(delivery.id)}
+                      onRevalidateAddress={() => void revalidateDelivery(delivery.id)}
+                      checkingAddress={busy}
+                      compact
+                    />
                   ) : null}
                   {expanded && showExcelOptions ? rows.map((row) => (
                     <View key={row.id} style={[styles.excelRow, row.excluded && styles.excludedRow]}>
@@ -1436,7 +1458,9 @@ export default function ImportScreen() {
                 index={index}
                 onChange={updateField}
                 onChooseAddress={chooseAddress}
-                onBlurAddress={() => void revalidate()}
+                onBlurAddress={() => void revalidateDelivery(delivery.id)}
+                onRevalidateAddress={() => void revalidateDelivery(delivery.id)}
+                checkingAddress={busy}
               />
             )) : null}
             {!excelPreview && result.duplicates.length ? (
@@ -1460,6 +1484,8 @@ function DeliveryEditor(props: {
   onChange: (id: string, field: EditableField, value: string) => void;
   onChooseAddress: (id: string, index: number) => void;
   onBlurAddress?: () => void;
+  onRevalidateAddress?: () => void;
+  checkingAddress?: boolean;
   compact?: boolean;
 }) {
   const { styles, colors } = props;
@@ -1530,6 +1556,21 @@ function DeliveryEditor(props: {
           </View>
         );
       })}
+      {props.delivery.validationState !== 'valid' && props.delivery.address.value ? (
+        <View style={styles.addressCheckActions}>
+          <Pressable
+            accessibilityRole="button"
+            testID={`revalidate-address-${props.delivery.id}`}
+            disabled={props.checkingAddress}
+            style={[styles.secondaryButton, props.checkingAddress && styles.disabled]}
+            onPress={props.onRevalidateAddress}>
+            <Text style={styles.secondaryText}>{props.checkingAddress ? 'Tikrinama…' : 'Tikrinti dabar'}</Text>
+          </Pressable>
+          <Text style={styles.helper}>
+            Jei automatinė patikra nepavyksta, į adreso lauką įklijuokite koordinates arba Google Maps nuorodą ir tikrinkite dar kartą.
+          </Text>
+        </View>
+      ) : null}
       {props.compact ? (
         <Pressable
           accessibilityRole="button"
@@ -2023,6 +2064,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   importantMeta: { ...type.bodyStrong, color: colors.text },
   compactButton: { minHeight: 44, alignSelf: 'flex-start', justifyContent: 'center', paddingHorizontal: spacing.xs },
   compactEditor: { gap: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm },
+  addressCheckActions: { gap: spacing.xs },
   endpointText: { ...type.bodyStrong, color: colors.text, paddingVertical: spacing.xs },
   confirmedEndpoint: { ...type.meta, color: colors.success },
   changeFileButton: { minHeight: 44, alignSelf: 'center', justifyContent: 'center', paddingHorizontal: spacing.sm },
