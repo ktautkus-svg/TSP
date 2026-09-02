@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, SafeAreaView, ScrollView, StyleSheet, Tex
 import { Stack, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
-import { importAssignmentSnapshot } from '@/application/auth/route-assignment-sync';
+import { importAssignmentSnapshot, prepareAssignmentSnapshotImport } from '@/application/auth/route-assignment-sync';
 import { effectiveAssignmentStatus, isActiveAssignment } from '@/application/auth/route-assignment-status';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { roleHomePath } from '@/application/navigation/role-home';
@@ -66,6 +66,7 @@ export default function ExecuteRouteScreen() {
     setBusy(true);
     setError(null);
     try {
+      await prepareAssignmentSnapshotImport(db, selectedAssignment, assignments);
       await importAssignmentSnapshot(db, selectedAssignment, selectedAssignment.driverId);
       // Marks this device as "driving as" the selected driver, the same
       // signal the home-screen picker sets — otherwise every driver-only

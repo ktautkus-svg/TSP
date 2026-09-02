@@ -6,13 +6,15 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { describe, expect, it } from 'vitest';
 
 import { buildQualityRouteMonitor, type RouteAssignment } from '../../server/employee-auth-store';
-import { importAssignmentSnapshot } from '../../src/application/auth/route-assignment-sync';
+import { importAssignmentSnapshot, prepareAssignmentSnapshotImport } from '../../src/application/auth/route-assignment-sync';
 
 class ExpoLikeDatabase {
   readonly raw = new DatabaseSync(':memory:');
   async runAsync(sql: string, ...params: unknown[]) { return this.raw.prepare(sql).run(...params as never[]); }
   async getFirstAsync<T>(sql: string, ...params: unknown[]): Promise<T | null> { return (this.raw.prepare(sql).get(...params as never[]) as T | undefined) ?? null; }
   async getAllAsync<T>(sql: string, ...params: unknown[]): Promise<T[]> { return this.raw.prepare(sql).all(...params as never[]) as T[]; }
+  async execAsync(sql: string) { this.raw.exec(sql); }
+  async isInTransactionAsync() { return this.raw.isTransaction; }
   async withTransactionAsync(operation: () => Promise<void>) {
     this.raw.exec('BEGIN IMMEDIATE');
     try { await operation(); this.raw.exec('COMMIT'); } catch (error) { this.raw.exec('ROLLBACK'); throw error; }
@@ -104,6 +106,55 @@ function assignments(): RouteAssignment[] {
 }
 
 describe('30-route multi-driver assignment load', () => {
+  it('removes a stale assigned working copy before importing the selected working route', async () => {
+    const target = assignments()[0]!;
+    target.routeSnapshot.route.status = 'loading';
+    const { adapter, db } = database();
+    const now = new Date().toISOString();
+    adapter.raw.prepare(
+      `INSERT INTO routes (id, date, status, total_weight_kg, remaining_weight_kg,
+       total_stops, remaining_stops, created_at, updated_at, owner_employee_id)
+       VALUES (?, ?, 'loaded', 0, 0, 0, 0, ?, ?, ?)`,
+    ).run('stale-route', '2026-08-16', now, now, target.driverId);
+    adapter.raw.prepare(
+      `INSERT INTO route_sync_state (
+       assignment_id, route_id, employee_id, server_revision, sync_status,
+       last_synced_at, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, 'synced', ?, ?, ?)`,
+    ).run('stale-assignment', 'stale-route', target.driverId, now, now, now, now);
+
+    await prepareAssignmentSnapshotImport(db, target, [target]);
+    await importAssignmentSnapshot(db, target, target.driverId);
+
+    expect(adapter.raw.prepare('SELECT id FROM routes WHERE id = ?').get('stale-route')).toBeUndefined();
+    expect(adapter.raw.prepare('SELECT status FROM routes WHERE id = ?').get(target.routeId))
+      .toMatchObject({ status: 'loading' });
+  });
+
+  it('keeps a genuinely active conflicting route and explains what blocks the switch', async () => {
+    const [target, active] = assignments();
+    target!.routeSnapshot.route.status = 'loading';
+    active!.routeId = 'active-route';
+    const { adapter, db } = database();
+    const now = new Date().toISOString();
+    adapter.raw.prepare(
+      `INSERT INTO routes (id, date, status, total_weight_kg, remaining_weight_kg,
+       total_stops, remaining_stops, created_at, updated_at, owner_employee_id)
+       VALUES (?, ?, 'in_progress', 0, 0, 0, 0, ?, ?, ?)`,
+    ).run('active-route', '2026-08-16', now, now, target!.driverId);
+    adapter.raw.prepare(
+      `INSERT INTO route_sync_state (
+       assignment_id, route_id, employee_id, server_revision, sync_status,
+       last_synced_at, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, 'synced', ?, ?, ?)`,
+    ).run(active!.id, 'active-route', target!.driverId, now, now, now, now);
+
+    await expect(prepareAssignmentSnapshotImport(db, target!, [target!, active!]))
+      .rejects.toThrow('jau vykdomas kitas maršrutas');
+    expect(adapter.raw.prepare('SELECT status FROM routes WHERE id = ?').get('active-route'))
+      .toMatchObject({ status: 'in_progress' });
+  });
+
   it('keeps five current/future routes for every driver without overwriting another assignment', async () => {
     const all = assignments();
     expect(all).toHaveLength(30);

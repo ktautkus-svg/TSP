@@ -72,6 +72,7 @@ describe('administrator workspace navigation', () => {
     expect(execute).toContain("employeeApi<{ assignments: ServerRouteAssignment[] }>('/api/admin/assignments')");
     expect(execute).toContain('setSelectedDriverId');
     expect(execute).toContain('importAssignmentSnapshot(db, selectedAssignment, selectedAssignment.driverId)');
+    expect(execute).toContain('prepareAssignmentSnapshotImport(db, selectedAssignment, assignments)');
     expect(execute).toContain('Vykdyti pasirinktą maršrutą');
   });
 

@@ -1,7 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { LocalAccessService } from '@/application/auth/local-access';
-import { omitUnavailableParkStopColumns } from '@/database/migrations';
+import { ensureParkMemorySchema, omitUnavailableParkStopColumns } from '@/database/migrations';
 import { AdminCompleteRoute } from '@/application/routes/route-workday';
 import {
   EmployeeClientError,
@@ -14,6 +14,13 @@ import {
 
 const SNAPSHOT_TABLES = ['routes', 'delivery_stops', 'shipment_lines'] as const;
 type WritableTable = typeof SNAPSHOT_TABLES[number] | 'delivery_attempts';
+const WORKING_ROUTE_STATUSES = ['loading', 'loaded', 'in_progress'] as const;
+
+type LocalWorkingRoute = {
+  id: string;
+  date: string;
+  status: string;
+};
 
 // Local bookkeeping that must never travel inside a snapshot: it describes this
 // device's relationship with the cloud, not the route. `vehicle_id` is stripped
@@ -392,6 +399,50 @@ export async function importAssignmentSnapshot(db: SQLiteDatabase, assignment: S
       assignment.id, assignment.routeId, employeeId, assignment.updatedAt, now, now, now,
     );
   });
+}
+
+/**
+ * Repairs a partially migrated browser database and frees the single local
+ * working-route slot only when the conflicting route is an assigned copy that
+ * is no longer active on the server. Live or unassigned local work is never
+ * removed automatically.
+ */
+export async function prepareAssignmentSnapshotImport(
+  db: SQLiteDatabase,
+  assignment: ServerRouteAssignment,
+  activeAssignments: readonly ServerRouteAssignment[],
+): Promise<void> {
+  await ensureParkMemorySchema(db);
+  const incomingStatus = String(assignment.routeSnapshot.route.status ?? '');
+  if (!(WORKING_ROUTE_STATUSES as readonly string[]).includes(incomingStatus)) return;
+
+  const conflict = await db.getFirstAsync<LocalWorkingRoute>(
+    `SELECT id, date, status FROM routes
+     WHERE id <> ? AND status IN ('loading', 'loaded', 'in_progress')
+     ORDER BY updated_at DESC LIMIT 1`,
+    assignment.routeId,
+  );
+  if (!conflict) return;
+
+  const sync = await db.getFirstAsync<{ assignment_id: string }>(
+    'SELECT assignment_id FROM route_sync_state WHERE route_id = ?',
+    conflict.id,
+  );
+  const stillActiveOnServer = activeAssignments.some((item) =>
+    item.id === sync?.assignment_id || item.routeId === conflict.id,
+  );
+  if (sync && !stillActiveOnServer) {
+    await purgeAssignedRouteCopy(db, conflict.id);
+    return;
+  }
+
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(conflict.date)
+    ? new Intl.DateTimeFormat('lt-LT', { dateStyle: 'long' }).format(new Date(`${conflict.date}T12:00:00`))
+    : conflict.date;
+  throw new Error(
+    `Šiame įrenginyje jau vykdomas kitas maršrutas${date ? ` (${date})` : ''}. `
+    + 'Pirmiausia jį užbaikite arba atšaukite; vietiniai nebaigti duomenys nebuvo ištrinti.',
+  );
 }
 
 export async function insertRow(db: SQLiteDatabase, table: WritableTable, row: Record<string, unknown>): Promise<void> {
