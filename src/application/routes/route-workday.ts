@@ -988,9 +988,9 @@ export class CompleteRoute extends WorkdayCommand {
   }
 }
 
-/** Dispatcher/admin override for closing a non-terminal route. Legacy callers
- * may keep pending stops untouched; the explicit manual-close flow records the
- * final odometer and marks remaining stops delivered. */
+/** Dispatcher/admin override for closing a non-terminal route.
+ * Pending stops stay unmarked unless markAllDelivered is explicitly true.
+ * End odometer is optional. */
 export class AdminCompleteRoute extends WorkdayCommand {
   async execute(
     routeId: string,

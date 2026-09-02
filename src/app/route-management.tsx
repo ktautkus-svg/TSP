@@ -81,7 +81,7 @@ export default function RouteManagementScreen() {
                  FROM shipment_lines sl
                  WHERE sl.route_id = routes.id AND sl.route_code IS NOT NULL AND TRIM(sl.route_code) <> '') AS route_codes
          FROM routes
-         WHERE status <> 'cancelled'
+         WHERE status NOT IN ('completed', 'cancelled')
            AND (owner_employee_id IS NULL OR owner_employee_id = ?)
          ORDER BY created_at DESC`,
         profile.id,
@@ -156,6 +156,10 @@ export default function RouteManagementScreen() {
   }, [load, profile.role, router]);
 
   const activeAssignments = useMemo(() => assignments.filter(isActiveAssignment), [assignments]);
+  const operationalRoutes = useMemo(
+    () => routes.filter((route) => !['completed', 'cancelled'].includes(route.status)),
+    [routes],
+  );
   const freeDrivers = useMemo(
     () => drivers.filter((driver) => !activeAssignments.some((assignment) => assignment.driverId === driver.id)),
     [activeAssignments, drivers],
@@ -214,14 +218,50 @@ export default function RouteManagementScreen() {
     }
   };
 
+  const cancelRoute = (route: LocalRoute) => {
+    const linkedAssignments = assignments.filter((assignment) => assignment.routeId === route.id && isActiveAssignment(assignment));
+    if (linkedAssignments.length > 0 && !online) {
+      Alert.alert(
+        'Reikia interneto ryšio',
+        'Šis maršrutas jau priskirtas vairuotojui. Prisijunkite prie interneto, kad kartu būtų atšauktas ir priskyrimas.',
+      );
+      return;
+    }
+    Alert.alert(
+      'Atšaukti šį maršrutą?',
+      `${formatDate(route.date)} · ${route.total_stops} taškų · ${Math.round(route.total_weight_kg)} kg. Maršrutas bus atšauktas ir dings iš aktyvių darbų. Jau pažymėti pristatymai išsaugomi, nepristatyti taškai liks nepažymėti.`,
+      [
+        { text: 'Palikti', style: 'cancel' },
+        {
+          text: 'Atšaukti maršrutą',
+          style: 'destructive',
+          onPress: () => { void (async () => {
+            setBusy(true);
+            setMessage(null);
+            try {
+              for (const assignment of linkedAssignments) {
+                await employeeApi(`/api/admin/assignments/${encodeURIComponent(assignment.id)}/cancel`, { method: 'POST' });
+              }
+              await new CancelDraftRoute(db).execute(route.id);
+              await requestSync('mutation');
+              setSelectedRouteId((current) => current === route.id ? null : current);
+              setMessage('Maršrutas atšauktas. Jis nebebus rodomas kaip aktyvus darbas.');
+              await load();
+            } catch (error) {
+              setMessage(error instanceof Error ? error.message : 'Maršruto atšaukti nepavyko.');
+            } finally {
+              setBusy(false);
+            }
+          })(); },
+        },
+      ],
+    );
+  };
+
   const deleteRoute = (route: LocalRoute) => {
     const linkedAssignments = assignments.filter((assignment) => assignment.routeId === route.id);
-    const isWorking = ['loading', 'loaded', 'in_progress'].includes(route.status);
-    if (isWorking) {
-      Alert.alert(
-        'Vykdomo maršruto ištrinti negalima',
-        'Pirmiausia užbaikite arba atšaukite vykdomą darbą. Taip apsaugomi vairuotojo pristatymo duomenys.',
-      );
+    if (['loading', 'loaded', 'in_progress'].includes(route.status)) {
+      cancelRoute(route);
       return;
     }
     if (linkedAssignments.length > 0 && !online) {
@@ -300,20 +340,31 @@ export default function RouteManagementScreen() {
 
   const saveManualCompletion = async () => {
     if (!completingRoute || busy) return;
-    const endOdometer = Number(completionOdometer.trim().replace(',', '.'));
-    if (!Number.isFinite(endOdometer) || endOdometer < 0) {
-      setMessage('Įveskite teisingą galutinį odometro rodmenį.');
-      return;
+    const rawOdometer = completionOdometer.trim();
+    let endOdometer: number | undefined;
+    if (rawOdometer) {
+      const parsed = Number(rawOdometer.replace(',', '.'));
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        setMessage('Įveskite teisingą galutinį odometro rodmenį arba palikite tuščią.');
+        return;
+      }
+      endOdometer = parsed;
     }
     setBusy(true);
     setMessage(null);
     try {
-      await new AdminCompleteRoute(db).execute(completingRoute.id, { endOdometer, markAllDelivered: true });
+      await new AdminCompleteRoute(db).execute(completingRoute.id, {
+        ...(endOdometer !== undefined ? { endOdometer } : {}),
+      });
+      const linkedAssignment = assignments.find((assignment) => assignment.routeId === completingRoute.id && isActiveAssignment(assignment));
+      if (linkedAssignment) {
+        await completeAssignedRoute(db, linkedAssignment, completingRoute.id);
+      }
       await requestSync('mutation');
       setSelectedRouteId((current) => current === completingRoute.id ? null : current);
       setCompletingRoute(null);
       setCompletionOdometer('');
-      setMessage('Maršrutas užbaigtas: visi taškai pažymėti pristatytais, odometras išsaugotas.');
+      setMessage('Maršrutas užbaigtas. Nepristatyti taškai liko nepažymėti.');
       await load();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Maršruto užbaigti nepavyko.');
@@ -345,6 +396,46 @@ export default function RouteManagementScreen() {
         setBusy(false);
       }
     })();
+  };
+
+  const cancelAssignment = (assignment: ServerRouteAssignment) => {
+    const localRoute = routes.find((route) => route.id === assignment.routeId);
+    if (localRoute) {
+      cancelRoute(localRoute);
+      return;
+    }
+    if (!online) {
+      Alert.alert(
+        'Reikia interneto ryšio',
+        'Prisijunkite prie interneto, kad būtų atšauktas vairuotojo priskyrimas.',
+      );
+      return;
+    }
+    Alert.alert(
+      'Atšaukti šį maršrutą?',
+      `${assignmentRouteLabel(assignment)} · ${assignment.driverName}. Priskyrimas bus atšauktas ir dings iš aktyvių darbų. Nepristatyti taškai liks nepažymėti.`,
+      [
+        { text: 'Palikti', style: 'cancel' },
+        {
+          text: 'Atšaukti maršrutą',
+          style: 'destructive',
+          onPress: () => { void (async () => {
+            setBusy(true);
+            setMessage(null);
+            try {
+              await employeeApi(`/api/admin/assignments/${encodeURIComponent(assignment.id)}/cancel`, { method: 'POST' });
+              await requestSync('mutation');
+              setMessage('Maršrutas atšauktas. Jis nebebus rodomas kaip aktyvus priskyrimas.');
+              await load();
+            } catch (error) {
+              setMessage(error instanceof Error ? error.message : 'Maršruto atšaukti nepavyko.');
+            } finally {
+              setBusy(false);
+            }
+          })(); },
+        },
+      ],
+    );
   };
 
   const removeAssignment = (assignment: ServerRouteAssignment) => {
@@ -491,17 +582,33 @@ export default function RouteManagementScreen() {
               <Text style={styles.panelTitle}>Pasirinkite maršrutą</Text>
               <Text style={styles.panelHint}>Pirmiausia pasirinkite darbą. Vairuotoją ir automobilį priskirsite kitame žingsnyje.</Text>
             </View>
-            <Text style={styles.stepBadge}>{routes.length} maršrutai</Text>
+            <Text style={styles.stepBadge}>{operationalRoutes.length} maršrutai</Text>
           </View>
 
-          {routes.length === 0 ? <View style={styles.empty}>
+          {operationalRoutes.length === 0 ? <View style={styles.empty}>
             <Text style={styles.emptyTitle}>Maršrutų nėra</Text>
             <Text style={styles.panelHint}>Sukurkite pirmą maršrutą.</Text>
           </View> : <View style={[styles.routeChoiceGrid, desktop && styles.routeChoiceGridDesktop]}>
-            {routes.map((route) => {
+            {operationalRoutes.map((route) => {
               const assignment = activeAssignments.find((item) => item.routeId === route.id);
               const canAssign = route.status === 'planned' && !assignment;
-              return <View key={route.id} style={styles.routeChoiceCard}>
+              const canReorder = ['draft', 'planned', 'in_progress'].includes(route.status);
+              const canComplete = ['loading', 'loaded', 'in_progress'].includes(route.status);
+              const canDelete = ['draft', 'planned'].includes(route.status);
+              const canCancel = ['loading', 'loaded', 'in_progress'].includes(route.status);
+              const menuOpen = openCardMenuId === route.id;
+              const primary = canAssign
+                ? { key: 'assign', label: 'Priskirti', onPress: () => selectRoute(route.id) }
+                : canComplete
+                  ? { key: 'complete', label: 'Užbaigti', onPress: () => completeLocalRoute(route) }
+                  : { key: 'view', label: 'Peržiūrėti', onPress: () => router.push({ pathname: '/route/[id]/overview', params: { id: route.id, mode: 'management' } } as Href) };
+              const overflow: { key: string; label: string; danger?: boolean; onPress: () => void }[] = [];
+              if (primary.key !== 'view') overflow.push({ key: 'view', label: 'Peržiūrėti', onPress: () => router.push({ pathname: '/route/[id]/overview', params: { id: route.id, mode: 'management' } } as Href) });
+              if (canReorder) overflow.push({ key: 'reorder', label: 'Keisti eiliškumą', onPress: () => editSequence(route) });
+              if (primary.key !== 'complete' && canComplete) overflow.push({ key: 'complete', label: 'Užbaigti', onPress: () => completeLocalRoute(route) });
+              if (canCancel) overflow.push({ key: 'cancel', label: 'Atšaukti maršrutą', danger: true, onPress: () => cancelRoute(route) });
+              if (canDelete) overflow.push({ key: 'delete', label: 'Ištrinti', danger: true, onPress: () => deleteRoute(route) });
+              return <View key={route.id} style={[styles.routeChoiceCard, desktop && styles.routeChoiceCardDesktop, menuOpen && styles.cardMenuOpen]} testID={`route-choice-card-${route.id}`}>
                 <View style={styles.routeCardTop}>
                   <View style={styles.routeTitleBlock}>
                     <Text style={styles.routeCode}>{routeCodesLabel(route.route_codes)}</Text>
@@ -511,52 +618,37 @@ export default function RouteManagementScreen() {
                 </View>
                 <Text style={styles.routeNumbers}>{route.total_stops} taškų · {Math.round(route.total_weight_kg)} kg · {formatKm(route.estimated_distance_km)}</Text>
                 {assignment ? <Text style={styles.assignmentMeta}>{assignment.driverName}{assignment.vehicle ? ` · ${assignment.vehicle.registrationNumber}` : ' · automobilis nepriskirtas'}{assignmentLoadLabel(assignment, route.total_weight_kg)}</Text> : null}
-                {(() => {
-                  const canReorder = ['draft', 'planned', 'in_progress'].includes(route.status);
-                  const canComplete = ['loading', 'loaded', 'in_progress'].includes(route.status);
-                  const canDelete = ['draft', 'planned'].includes(route.status);
-                  const primary = canAssign
-                    ? { key: 'assign', label: 'Priskirti', onPress: () => selectRoute(route.id) }
-                    : canComplete
-                      ? { key: 'complete', label: 'Užbaigti', onPress: () => completeLocalRoute(route) }
-                      : { key: 'view', label: 'Peržiūrėti', onPress: () => router.push({ pathname: '/route/[id]/overview', params: { id: route.id, mode: 'management' } } as Href) };
-                  const overflow: { key: string; label: string; danger?: boolean; onPress: () => void }[] = [];
-                  if (primary.key !== 'view') overflow.push({ key: 'view', label: 'Peržiūrėti', onPress: () => router.push({ pathname: '/route/[id]/overview', params: { id: route.id, mode: 'management' } } as Href) });
-                  if (canReorder) overflow.push({ key: 'reorder', label: 'Keisti eiliškumą', onPress: () => editSequence(route) });
-                  if (primary.key !== 'complete' && canComplete) overflow.push({ key: 'complete', label: 'Užbaigti', onPress: () => completeLocalRoute(route) });
-                  if (canDelete) overflow.push({ key: 'delete', label: 'Ištrinti', danger: true, onPress: () => deleteRoute(route) });
-                  const menuOpen = openCardMenuId === route.id;
-                  return <View style={styles.cardActionsWrap}>
-                    <View style={styles.routeCardActions}>
+                <View style={styles.cardActionsWrap}>
+                  <View style={styles.routeCardActions}>
+                    <Pressable
+                      disabled={busy}
+                      onPress={primary.onPress}
+                      style={[canAssign ? styles.routePrimaryAction : styles.routeSecondaryAction, busy && styles.disabled]}>
+                      <Text style={canAssign ? styles.routePrimaryActionText : styles.routeSecondaryActionText}>{primary.label}</Text>
+                      {canAssign ? <ChevronRightIcon size={18} color={colors.textInverse} /> : null}
+                    </Pressable>
+                    {overflow.length > 0 ? <Pressable
+                      accessibilityLabel="Daugiau veiksmų"
+                      onPress={() => setOpenCardMenuId((current) => current === route.id ? null : route.id)}
+                      style={styles.cardMenuButton}
+                      testID={`route-card-menu-${route.id}`}>
+                      <Text style={styles.cardMenuButtonText}>⋯</Text>
+                    </Pressable> : null}
+                  </View>
+                  {menuOpen ? <View style={styles.cardMenuList} testID={`route-card-menu-list-${route.id}`}>
+                    {overflow.map((action) => (
                       <Pressable
                         disabled={busy}
-                        onPress={primary.onPress}
-                        style={[canAssign ? styles.routePrimaryAction : styles.routeSecondaryAction, busy && styles.disabled]}>
-                        <Text style={canAssign ? styles.routePrimaryActionText : styles.routeSecondaryActionText}>{primary.label}</Text>
-                        {canAssign ? <ChevronRightIcon size={18} color={colors.textInverse} /> : null}
+                        key={action.key}
+                        onPress={() => { setOpenCardMenuId(null); action.onPress(); }}
+                        style={[styles.cardMenuItem, busy && styles.disabled]}
+                        testID={action.key === 'cancel' ? `cancel-working-route-${route.id}` : undefined}>
+                        {action.key === 'delete' || action.key === 'cancel' ? <TrashIcon size={16} color={colors.danger} /> : null}
+                        <Text style={action.danger ? styles.cardMenuItemDangerText : styles.cardMenuItemText}>{action.label}</Text>
                       </Pressable>
-                      {overflow.length > 0 ? <Pressable
-                        accessibilityLabel="Daugiau veiksmų"
-                        onPress={() => setOpenCardMenuId((current) => current === route.id ? null : route.id)}
-                        style={styles.cardMenuButton}
-                        testID={`route-card-menu-${route.id}`}>
-                        <Text style={styles.cardMenuButtonText}>⋯</Text>
-                      </Pressable> : null}
-                    </View>
-                    {menuOpen ? <View style={styles.cardMenuList} testID={`route-card-menu-list-${route.id}`}>
-                      {overflow.map((action) => (
-                        <Pressable
-                          disabled={busy}
-                          key={action.key}
-                          onPress={() => { setOpenCardMenuId(null); action.onPress(); }}
-                          style={[styles.cardMenuItem, busy && styles.disabled]}>
-                          {action.key === 'delete' ? <TrashIcon size={16} color={colors.danger} /> : null}
-                          <Text style={action.danger ? styles.cardMenuItemDangerText : styles.cardMenuItemText}>{action.label}</Text>
-                        </Pressable>
-                      ))}
-                    </View> : null}
-                  </View>;
-                })()}
+                    ))}
+                  </View> : null}
+                </View>
               </View>;
             })}
           </View>}
@@ -577,7 +669,13 @@ export default function RouteManagementScreen() {
             {activeAssignments.map((assignment) => {
               const localRoute = routes.find((route) => route.id === assignment.routeId);
               const status = effectiveAssignmentStatus(assignment);
-              return <View key={assignment.id} style={styles.activeAssignmentCard}>
+              const menuOpen = openCardMenuId === assignment.id;
+              const overflow: { key: string; label: string; danger?: boolean; onPress: () => void }[] = [];
+              if (localRoute) overflow.push({ key: 'view', label: 'Peržiūrėti', onPress: () => router.push({ pathname: '/route/[id]/overview', params: { id: localRoute.id, mode: 'management' } } as Href) });
+              overflow.push({ key: 'edit', label: 'Redaguoti', onPress: () => openAssignmentEditor(assignment) });
+              overflow.push({ key: 'cancel', label: 'Atšaukti maršrutą', danger: true, onPress: () => cancelAssignment(assignment) });
+              overflow.push({ key: 'remove', label: 'Pašalinti priskyrimą', danger: true, onPress: () => removeAssignment(assignment) });
+              return <View key={assignment.id} style={[styles.activeAssignmentCard, menuOpen && styles.cardMenuOpen]}>
                 <View style={[styles.assignmentStatusBar, statusBarStyle(status, colors)]} />
                 <View style={styles.assignmentContent}>
                   <View style={styles.assignmentTitleRow}>
@@ -587,45 +685,38 @@ export default function RouteManagementScreen() {
                   <Text style={styles.assignmentMeta}>{assignment.driverName}{assignment.vehicle ? ` · ${assignment.vehicle.registrationNumber} · ${assignment.vehicle.model}` : ' · automobilis nepriskirtas'}{assignmentLoadLabel(assignment, Number(assignment.routeSnapshot.route.total_weight_kg) || localRoute?.total_weight_kg || 0)}</Text>
                   <Text style={styles.routeEndpoint}>{localRoute ? 'Maršrutas yra šiame įrenginyje' : 'Vietinio maršruto šiame įrenginyje nėra'}</Text>
                 </View>
-                {(() => {
-                  const overflow: { key: string; label: string; danger?: boolean; onPress: () => void }[] = [];
-                  if (localRoute) overflow.push({ key: 'view', label: 'Peržiūrėti', onPress: () => router.push({ pathname: '/route/[id]/overview', params: { id: localRoute.id, mode: 'management' } } as Href) });
-                  overflow.push({ key: 'edit', label: 'Redaguoti', onPress: () => openAssignmentEditor(assignment) });
-                  overflow.push({ key: 'remove', label: 'Pašalinti priskyrimą', danger: true, onPress: () => removeAssignment(assignment) });
-                  const menuOpen = openCardMenuId === assignment.id;
-                  return <View style={styles.cardActionsWrap}>
-                    <View style={styles.activeAssignmentActions}>
+                <View style={styles.cardActionsWrap}>
+                  <View style={styles.activeAssignmentActions}>
+                    <Pressable
+                      disabled={busy || !online}
+                      onPress={() => localRoute ? completeLocalRoute(localRoute) : completeAssignment(assignment)}
+                      style={[styles.routeCompleteAction, (busy || !online) && styles.disabled]}
+                      testID={`complete-assignment-${assignment.id}`}>
+                      <CheckIcon size={17} color={colors.textInverse} />
+                      <Text style={styles.routeCompleteActionText}>Užbaigti</Text>
+                    </Pressable>
+                    <Pressable
+                      accessibilityLabel="Daugiau veiksmų"
+                      disabled={!online}
+                      onPress={() => setOpenCardMenuId((current) => current === assignment.id ? null : assignment.id)}
+                      style={[styles.cardMenuButton, !online && styles.disabled]}
+                      testID={`assignment-card-menu-${assignment.id}`}>
+                      <Text style={styles.cardMenuButtonText}>⋯</Text>
+                    </Pressable>
+                  </View>
+                  {menuOpen ? <View style={styles.cardMenuList} testID={`assignment-card-menu-list-${assignment.id}`}>
+                    {overflow.map((action) => (
                       <Pressable
                         disabled={busy || !online}
-                        onPress={() => localRoute ? completeLocalRoute(localRoute) : completeAssignment(assignment)}
-                        style={[styles.routeCompleteAction, (busy || !online) && styles.disabled]}
-                        testID={`complete-assignment-${assignment.id}`}>
-                        <CheckIcon size={17} color={colors.textInverse} />
-                        <Text style={styles.routeCompleteActionText}>Užbaigti</Text>
+                        key={action.key}
+                        onPress={() => { setOpenCardMenuId(null); action.onPress(); }}
+                        style={[styles.cardMenuItem, (busy || !online) && styles.disabled]}>
+                        {action.key === 'remove' || action.key === 'cancel' ? <TrashIcon size={16} color={colors.danger} /> : null}
+                        <Text style={action.danger ? styles.cardMenuItemDangerText : styles.cardMenuItemText}>{action.label}</Text>
                       </Pressable>
-                      <Pressable
-                        accessibilityLabel="Daugiau veiksmų"
-                        disabled={!online}
-                        onPress={() => setOpenCardMenuId((current) => current === assignment.id ? null : assignment.id)}
-                        style={[styles.cardMenuButton, !online && styles.disabled]}
-                        testID={`assignment-card-menu-${assignment.id}`}>
-                        <Text style={styles.cardMenuButtonText}>⋯</Text>
-                      </Pressable>
-                    </View>
-                    {menuOpen ? <View style={styles.cardMenuList} testID={`assignment-card-menu-list-${assignment.id}`}>
-                      {overflow.map((action) => (
-                        <Pressable
-                          disabled={busy || !online}
-                          key={action.key}
-                          onPress={() => { setOpenCardMenuId(null); action.onPress(); }}
-                          style={[styles.cardMenuItem, (busy || !online) && styles.disabled]}>
-                          {action.key === 'remove' ? <TrashIcon size={16} color={colors.danger} /> : null}
-                          <Text style={action.danger ? styles.cardMenuItemDangerText : styles.cardMenuItemText}>{action.label}</Text>
-                        </Pressable>
-                      ))}
-                    </View> : null}
-                  </View>;
-                })()}
+                    ))}
+                  </View> : null}
+                </View>
               </View>;
             })}
           </View>}
@@ -753,16 +844,16 @@ export default function RouteManagementScreen() {
               <Pressable accessibilityLabel="Uždaryti" onPress={() => setCompletingRoute(null)} style={styles.modalClose}><Text style={styles.modalCloseText}>×</Text></Pressable>
             </View>
             <View style={styles.completionNotice}>
-              <Text style={styles.completionNoticeTitle}>Bus pažymėta</Text>
-              <Text style={styles.panelHint}>Visi dar neapdoroti taškai – pristatyti. Maršrutas – baigtas.</Text>
+              <Text style={styles.completionNoticeTitle}>Kas bus padaryta</Text>
+              <Text style={styles.panelHint}>Maršrutas bus pažymėtas kaip baigtas ir dings iš aktyvių darbų. Nepristatyti taškai liks nepažymėti.</Text>
             </View>
             <View style={styles.modalField}>
-              <Text style={styles.selectorLabel}>Galutinis odometras</Text>
-              <TextInput value={completionOdometer} onChangeText={(value) => setCompletionOdometer(value.replace(/[^\d.,]/g, '').slice(0, 10))} keyboardType="decimal-pad" placeholder="Pvz. 675628" style={styles.modalInput} testID="manual-completion-odometer" />
+              <Text style={styles.selectorLabel}>Galutinis odometras (neprivaloma)</Text>
+              <TextInput value={completionOdometer} onChangeText={(value) => setCompletionOdometer(value.replace(/[^\d.,]/g, '').slice(0, 10))} keyboardType="decimal-pad" placeholder="Jei žinote, pvz. 675628" style={styles.modalInput} testID="manual-completion-odometer" />
             </View>
             <View style={styles.modalActions}>
               <Pressable disabled={busy} onPress={() => setCompletingRoute(null)} style={styles.secondaryButton}><Text style={styles.secondaryText}>Atšaukti</Text></Pressable>
-              <Pressable disabled={busy || !completionOdometer.trim()} onPress={() => { void saveManualCompletion(); }} style={[styles.primaryButton, (busy || !completionOdometer.trim()) && styles.disabled]} testID="confirm-manual-completion">{busy ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.primaryText}>Patvirtinti užbaigimą</Text>}</Pressable>
+              <Pressable disabled={busy} onPress={() => { void saveManualCompletion(); }} style={[styles.primaryButton, busy && styles.disabled]} testID="confirm-manual-completion">{busy ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.primaryText}>Patvirtinti užbaigimą</Text>}</Pressable>
             </View>
           </View>
         </View>
@@ -830,7 +921,7 @@ function assignmentRouteLabel(assignment: ServerRouteAssignment): string {
   return `${regionCodes.join(' · ') || 'Regiono kodas nenurodytas'} · ${formatDate(date)} · ${stops} taškų`;
 }
 function formatKm(value: number | null): string { return value === null ? 'atstumas dar neskaičiuotas' : `${new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(value)} km`; }
-function statusLabel(status: string): string { return ({ draft: 'Ruošiamas', planned: 'Paruoštas', assigned: 'Laukia vairuotojo', downloaded: 'Gautas įrenginyje', in_progress: 'Vykdomas', loading: 'Kraunamas', loaded: 'Pakrautas', completed: 'Baigtas' } as Record<string, string>)[status] ?? status; }
+function statusLabel(status: string): string { return ({ draft: 'Ruošiamas', planned: 'Paruoštas', assigned: 'Laukia vairuotojo', downloaded: 'Gautas įrenginyje', in_progress: 'Vykdomas', loading: 'Kraunamas', loaded: 'Pakrautas', completed: 'Baigtas', cancelled: 'Atšauktas' } as Record<string, string>)[status] ?? status; }
 function statusTone(status: string): 'info' | 'warning' | 'success' | 'neutral' {
   if (status === 'completed') return 'success';
   if (['in_progress', 'loading', 'loaded'].includes(status)) return 'warning';
@@ -871,8 +962,8 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   modalClose: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border },
   modalCloseText: { fontSize: 26, lineHeight: 28, color: colors.textMuted },
   modalField: { gap: spacing.xs },
-  completionNotice: { padding: spacing.md, borderRadius: radius.md, borderLeftWidth: 4, borderLeftColor: colors.success, backgroundColor: colors.accentSoft, gap: 2 },
-  completionNoticeTitle: { ...type.bodyStrong, color: colors.success },
+  completionNotice: { padding: spacing.md, borderRadius: radius.md, borderLeftWidth: 4, borderLeftColor: colors.info, backgroundColor: colors.infoSoft, gap: 2 },
+  completionNoticeTitle: { ...type.bodyStrong, color: colors.info },
   modalInput: { minHeight: 50, paddingHorizontal: spacing.md, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surfaceSubtle, color: colors.text, ...type.bodyStrong },
   modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.sm },
   scroll: { flex: 1, minWidth: 0 },
@@ -908,25 +999,26 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   activeAssignmentsPanel: { padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderStrong, gap: spacing.md },
   activeAssignmentList: { gap: spacing.sm },
   activeAssignmentRow: { minHeight: 86, paddingVertical: spacing.md, borderTopWidth: 1, borderTopColor: colors.borderSubtle, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.md },
-  activeAssignmentCard: { overflow: 'hidden', padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surfaceSubtle, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.md },
+  activeAssignmentCard: { padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surfaceSubtle, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: spacing.md, overflow: 'visible', zIndex: 1 },
   assignmentStatusBar: { width: 4, alignSelf: 'stretch', minHeight: 48, borderRadius: radius.sm },
   assignmentTitleRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
   activeAssignmentTitle: { ...type.cardTitle, color: colors.text, flexShrink: 1 },
-  activeAssignmentActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
-  routeChoiceGrid: { gap: spacing.md },
-  routeChoiceGridDesktop: { flexDirection: 'row', flexWrap: 'wrap' },
-  routeChoiceCard: { minHeight: 174, flexGrow: 1, flexBasis: 360, padding: spacing.lg, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, gap: spacing.sm },
+  activeAssignmentActions: { flexDirection: 'row', flexWrap: 'nowrap', alignItems: 'center', gap: spacing.sm, width: '100%' },
+  routeChoiceGrid: { gap: spacing.md, width: '100%' },
+  routeChoiceGridDesktop: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start' },
+  routeChoiceCard: { width: '100%', maxWidth: '100%', padding: spacing.lg, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, gap: spacing.sm, overflow: 'visible', zIndex: 1 },
+  routeChoiceCardDesktop: { flexGrow: 1, flexBasis: 360, minWidth: 280, width: 'auto' },
   routeTitleBlock: { flex: 1, minWidth: 0, gap: 2 },
   routeCode: { ...type.sectionTitle, color: colors.text },
   newRouteBadge: { ...type.meta, paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.pill, overflow: 'hidden', backgroundColor: colors.infoSoft, color: colors.info },
-  routeCardActions: { marginTop: 'auto', paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.borderSubtle, flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  routeSecondaryAction: { minHeight: 44, flexGrow: 1, paddingHorizontal: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+  routeCardActions: { paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.borderSubtle, flexDirection: 'row', flexWrap: 'nowrap', alignItems: 'center', gap: spacing.sm, width: '100%' },
+  routeSecondaryAction: { minHeight: 44, flexGrow: 1, flexShrink: 1, minWidth: 0, paddingHorizontal: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
   routeSecondaryActionText: { ...type.button, color: colors.text },
-  routeEditAction: { minHeight: 44, flexGrow: 1, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.infoSoft, borderWidth: 1, borderColor: colors.info, alignItems: 'center', justifyContent: 'center' },
+  routeEditAction: { minHeight: 44, flexGrow: 1, flexShrink: 1, minWidth: 0, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.infoSoft, borderWidth: 1, borderColor: colors.info, alignItems: 'center', justifyContent: 'center' },
   routeEditActionText: { ...type.button, color: colors.info },
-  routeCompleteAction: { minHeight: 44, flexGrow: 1, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.success, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs },
+  routeCompleteAction: { minHeight: 44, flexGrow: 1, flexShrink: 1, minWidth: 0, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.success, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs },
   routeCompleteActionText: { ...type.button, color: colors.textInverse },
-  routePrimaryAction: { minHeight: 44, flexGrow: 1, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.actionPrimary, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs },
+  routePrimaryAction: { minHeight: 44, flexGrow: 1, flexShrink: 1, minWidth: 0, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.actionPrimary, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs },
   routePrimaryActionText: { ...type.button, color: colors.textInverse },
   routeDeleteAction: { minHeight: 44, paddingHorizontal: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.danger, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs },
   routeDeleteActionText: { ...type.button, color: colors.danger },
@@ -935,10 +1027,11 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   segmentButtonActive: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderStrong },
   segmentText: { ...type.button, color: colors.textMuted },
   segmentTextActive: { color: colors.text },
-  cardActionsWrap: { marginTop: 'auto', gap: spacing.xs },
-  cardMenuButton: { minWidth: 44, minHeight: 44, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+  cardActionsWrap: { width: '100%', flexBasis: '100%', gap: spacing.xs, position: 'relative', zIndex: 2 },
+  cardMenuButton: { minWidth: 44, minHeight: 44, flexGrow: 0, flexShrink: 0, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
   cardMenuButtonText: { ...type.sectionTitle, color: colors.textSecondary, lineHeight: 20 },
-  cardMenuList: { borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, overflow: 'hidden' },
+  cardMenuList: { borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, overflow: 'hidden', zIndex: 30, elevation: 8 },
+  cardMenuOpen: { zIndex: 20, elevation: 12 },
   cardMenuItem: { minHeight: 44, paddingHorizontal: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.xs, borderBottomWidth: 1, borderBottomColor: colors.borderSubtle },
   cardMenuItemText: { ...type.button, color: colors.text },
   cardMenuItemDangerText: { ...type.button, color: colors.danger },

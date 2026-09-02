@@ -6,7 +6,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { describe, expect, it, vi } from 'vitest';
 
 import { buildNavigationUrls, navigationTargetFromStop, NavigationTargetError } from '../../src/application/navigation/navigation-url-builder';
-import { CreateDraftRoute, ReopenRouteForPlanning, ReplaceDraftStops, SetStopPriority, type DraftStopInput } from '../../src/application/routes/route-commands';
+import { CreateDraftRoute, CancelDraftRoute, ReopenRouteForPlanning, ReplaceDraftStops, SetStopPriority, type DraftStopInput } from '../../src/application/routes/route-commands';
 import { ExportPilotRouteDiagnostic } from '../../src/application/routes/pilot-route-export';
 import { buildOptimizationRequestFromRoute } from '../../src/application/routes/route-request-builder';
 import { GetDefaultLocations, PlanningModePreference, ResolveRouteLocations, RouteEndPreference, SaveDefaultLocation, type EndLocationChoice, type StartLocationChoice } from '../../src/application/routes/saved-locations';
@@ -452,6 +452,38 @@ describe('driver workday persistence', () => {
     expect(await new RouteRepository(db).getActive()).toBeNull();
     expect((await new RouteRepository(db).getById('route-1'))?.status).toBe('completed');
     expect(adapter.raw.prepare("SELECT COUNT(*) AS count FROM action_journal WHERE action_type='route_completed_by_admin'").get()).toMatchObject({ count: 1 });
+  });
+
+  it('records optional admin end odometer without marking remaining stops delivered', async () => {
+    const { db } = createDb();
+    await startedRoute(db);
+    await new MarkStopDelivered(db).execute('route-1', 'stop-1');
+    const completed = await new AdminCompleteRoute(db).execute('route-1', { endOdometer: 1040.5 });
+    expect(completed).toMatchObject({
+      idempotent: false,
+      summary: { deliveredStops: 1, unmarkedStops: 1, failedStops: 0, totalStops: 2 },
+    });
+    expect(await new RouteRepository(db).getById('route-1')).toMatchObject({
+      status: 'completed',
+      endOdometer: 1040.5,
+    });
+    const stops = await new RouteRepository(db).getStops('route-1');
+    expect(stops.find((stop) => stop.id === 'stop-1')?.deliveryStatus).toBe('delivered');
+    expect(stops.find((stop) => stop.id === 'stop-2')?.deliveryStatus).toBe('pending');
+    expect(await new RouteRepository(db).listOperational()).toEqual([]);
+  });
+
+  it('lets an administrator cancel an in-progress route without wiping delivery rows', async () => {
+    const { db } = createDb();
+    await startedRoute(db);
+    await new MarkStopDelivered(db).execute('route-1', 'stop-1');
+    await new CancelDraftRoute(db).execute('route-1');
+    expect(await new RouteRepository(db).getById('route-1')).toMatchObject({ status: 'cancelled' });
+    const stops = await new RouteRepository(db).getStops('route-1');
+    expect(stops.find((stop) => stop.id === 'stop-1')?.deliveryStatus).toBe('delivered');
+    expect(stops.find((stop) => stop.id === 'stop-2')?.deliveryStatus).toBe('pending');
+    expect(await new RouteRepository(db).listOperational()).toEqual([]);
+    expect((await new RouteRepository(db).listHistory())[0]).toMatchObject({ id: 'route-1', status: 'cancelled' });
   });
 
   it('lists completed history and restores the complete detail from a new repository', async () => {
