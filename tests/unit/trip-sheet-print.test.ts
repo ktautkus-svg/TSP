@@ -74,7 +74,7 @@ describe('trip sheet print document', () => {
     expect(html).not.toMatch(/<th[^>]*>Kuras dienos pradžioje/);
     expect(html).not.toMatch(/<th[^>]*>Degalų sąnaudos pagal normą/);
 
-    expect(tripSheetSource).toContain('L. d.d.p.');
+    expect(tripSheetSource).toContain('TRIP_SHEET_GRID_COLUMNS');
     expect(tripSheetSource).toContain('trip-sheet-column-legend');
     expect(tripSheetColumnLegend(TRIP_SHEET_GRID_COLUMNS)).toContain('L. d.d.p. — Likutis dienos pradžioje');
     expect(TRIP_SHEET_PRINT_COLUMNS.some((column) => column.short === 'L. d.d.p.')).toBe(true);
