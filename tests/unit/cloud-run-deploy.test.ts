@@ -184,6 +184,7 @@ describe('Cloud Run deploy', () => {
   it('keeps August 2026 Excel backfill catalog on a relative import in the server graph', () => {
     expect(employeeStore).toContain("from '../src/domain/august-2026-excel-backfill.js'");
     expect(employeeStore).not.toContain("@/domain/august-2026-excel-backfill");
+    expect(employeeStore).toContain('async applyAugust2026ExcelBackfillV2');
     expect(productionServer).toContain('await ensureAugust2026ExcelBackfillMigrated()');
   });
 });

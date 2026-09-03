@@ -1,8 +1,11 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { bodyKindFromPalletCapacity, fleetTankCapacity, resolveVehicleCargo } from './fleet-cargo-specs';
 import { lithuanianClockOnReferenceDay, lithuanianDateKey } from './lithuanian-time';
 import { knownAddressCorrection } from './import/known-address-corrections';
+import { normalizeRegionCode, uniqueRegionCodes, type RouteCodeSource } from './route-code';
+import { AUGUST_2026_TRIP_SHEET_VEHICLE_FIXES } from './trip-sheet-august-2026-vehicle-fix';
 
 /**
  * One-shot Firestore tsp_settings flag. First Cloud Run boot with the flag
@@ -10,6 +13,21 @@ import { knownAddressCorrection } from './import/known-address-corrections';
  * payloads, then no-ops forever.
  */
 export const AUGUST_2026_EXCEL_BACKFILL_ID = 'august-2026-excel-backfill-v1';
+
+/**
+ * Follow-up one-shot after v1. Fills verification gaps: missing LRI plates
+ * (snapshot or unassigned fleet row), Aleksandras 08-11 LRI741, Aleksandras
+ * 08-19 MET630, Karolis 08-09 LRI740 stub, and Karolis 08-19 R54;R11 still
+ * sitting on MET630 (vehicleId PATCH only — stops untouched).
+ */
+export const AUGUST_2026_EXCEL_BACKFILL_V2_ID = 'august-2026-excel-backfill-v2';
+
+export const AUGUST_2026_SNAPSHOT_VEHICLE_MODEL = 'Renault Master';
+export const AUGUST_2026_SNAPSHOT_PAYLOAD_KG = 1500;
+export const AUGUST_2026_ENSURE_FLEET_PLATES = ['LRI740', 'LRI741'] as const;
+export const AUGUST_2026_DUAL_SHEET_DATE = '2026-08-19';
+export const AUGUST_2026_KAROLIS_0819_ROUTES = ['R54', 'R11'] as const;
+export const AUGUST_2026_ALEKSANDRAS_0819_ROUTES = ['R14', 'R27', 'R28', 'R51'] as const;
 
 export const EXISTING_UI_ROUTE_ID = 'route-1788407220642-xh5w5ldr';
 export const EXISTING_UI_ROUTE_DATE = '2026-08-03';
@@ -108,6 +126,19 @@ export type AugustAssignmentLite = {
   workDate: string | null;
   orderNumbers: string[];
   stopCount: number;
+  routeCodes: string[];
+};
+
+export type AugustBackfillVehicleRef = {
+  id: string;
+  registrationNumber: string;
+  model: string;
+  maximumPayloadKg: number;
+  cargoBodyKind: 'van_long' | 'van_8pll';
+  palletCapacity: 5 | 8;
+  hasSideDoor: boolean;
+  fuelNormLPer100Km: number | null;
+  fuelTankCapacityLiters: number | null;
 };
 
 export type AugustBackfillDecision =
@@ -242,8 +273,122 @@ export function matchVehicleByPlate<T extends { registrationNumber: string }>(
   vehicles: readonly T[],
   plate: string,
 ): T | null {
-  const target = plate.trim().toUpperCase().replace(/\s+/g, '');
-  return vehicles.find((vehicle) => vehicle.registrationNumber.toUpperCase().replace(/\s+/g, '') === target) ?? null;
+  const target = normalizePlate(plate);
+  if (!target) return null;
+  return vehicles.find((vehicle) => normalizePlate(vehicle.registrationNumber) === target) ?? null;
+}
+
+export function normalizePlate(plate: string): string {
+  return plate.trim().toUpperCase().replace(/\s+/g, '');
+}
+
+export function shouldEnsureAugustBackfillFleetPlate(plate: string): boolean {
+  const normalized = normalizePlate(plate);
+  return (AUGUST_2026_ENSURE_FLEET_PLATES as readonly string[]).includes(normalized);
+}
+
+/**
+ * When the live fleet has no row for an Excel plate (LRI740 / LRI741 in
+ * production), still produce a snapshot the assignment can store. Does not
+ * invent a live assignVehicle binding.
+ */
+export function snapshotFleetVehicleFromPlate(plate: string): AugustBackfillVehicleRef | null {
+  const registrationNumber = normalizePlate(plate);
+  if (!registrationNumber) return null;
+  const cargo = resolveVehicleCargo({ registrationNumber });
+  return {
+    id: registrationNumber,
+    registrationNumber,
+    model: AUGUST_2026_SNAPSHOT_VEHICLE_MODEL,
+    maximumPayloadKg: AUGUST_2026_SNAPSHOT_PAYLOAD_KG,
+    cargoBodyKind: bodyKindFromPalletCapacity(cargo.palletCapacity),
+    palletCapacity: cargo.palletCapacity,
+    hasSideDoor: cargo.hasSideDoor,
+    fuelNormLPer100Km: null,
+    fuelTankCapacityLiters: fleetTankCapacity(registrationNumber),
+  };
+}
+
+export function resolveAugustBackfillVehicle<T extends { id: string; registrationNumber: string }>(
+  vehicles: readonly T[],
+  plate: string,
+): { vehicle: T | AugustBackfillVehicleRef; source: 'fleet' | 'snapshot' } | null {
+  const fleet = matchVehicleByPlate(vehicles, plate);
+  if (fleet) return { vehicle: fleet, source: 'fleet' };
+  const snapshot = snapshotFleetVehicleFromPlate(plate);
+  if (!snapshot) return null;
+  return { vehicle: snapshot, source: 'snapshot' };
+}
+
+export function isAugust2026ExcelBackfillV2GapDay(day: Pick<AugustExcelDay, 'date' | 'driver' | 'kind' | 'sourceFile' | 'vehicle'>): boolean {
+  if (day.sourceFile === 'aleksandras-11.json') return true;
+  if (day.sourceFile === 'aleksandras-19.json') return true;
+  return day.kind === 'stub'
+    && day.date === '2026-08-09'
+    && normalizePersonName(day.driver).startsWith('karolis')
+    && normalizePlate(day.vehicle) === 'LRI740';
+}
+
+export function karolisAugust19Nll182VehicleFix() {
+  const fix = AUGUST_2026_TRIP_SHEET_VEHICLE_FIXES.find((item) => (
+    item.factDate === AUGUST_2026_DUAL_SHEET_DATE
+    && item.registrationNumber === 'NLL182'
+    && item.factRouteNumbers.includes('R54')
+    && item.factRouteNumbers.includes('R11')
+  ));
+  if (!fix) {
+    throw new Error('Karolis 2026-08-19 NLL182 R54;R11 vehicle-fix row is missing.');
+  }
+  return fix;
+}
+
+export function assignmentHasAllRouteCodes(
+  codes: readonly string[],
+  required: readonly string[],
+): boolean {
+  const set = new Set(codes.map((code) => code.trim().toUpperCase()).filter(Boolean));
+  return required.every((code) => set.has(code.toUpperCase()));
+}
+
+export function assignmentHasAnyRouteCodes(
+  codes: readonly string[],
+  forbidden: readonly string[],
+): boolean {
+  const set = new Set(codes.map((code) => code.trim().toUpperCase()).filter(Boolean));
+  return forbidden.some((code) => set.has(code.toUpperCase()));
+}
+
+export function isKarolis0819R54R11Assignment(assignment: Pick<
+  AugustAssignmentLite,
+  'id' | 'driverId' | 'driverName' | 'workDate' | 'routeDate' | 'routeCodes'
+>): boolean {
+  const fix = karolisAugust19Nll182VehicleFix();
+  if (assignment.id === fix.assignmentId) return true;
+  const onDate = assignmentMatchesWorkDate(assignment, AUGUST_2026_DUAL_SHEET_DATE);
+  const karolis = assignment.driverId === fix.driverId
+    || normalizePersonName(assignment.driverName).startsWith('karolis');
+  return onDate
+    && karolis
+    && assignmentHasAllRouteCodes(assignment.routeCodes, AUGUST_2026_KAROLIS_0819_ROUTES)
+    && !assignmentHasAnyRouteCodes(assignment.routeCodes, AUGUST_2026_ALEKSANDRAS_0819_ROUTES);
+}
+
+export function karolis0819NeedsNll182Move(assignment: Pick<AugustAssignmentLite, 'vehiclePlate' | 'vehicleId'>): boolean {
+  const plate = normalizePlate(assignment.vehiclePlate ?? assignment.vehicleId ?? '');
+  return plate !== 'NLL182';
+}
+
+export function routeCodesFromAssignmentSnapshot(
+  stops: readonly Record<string, unknown>[],
+  shipmentLines: readonly Record<string, unknown>[] = [],
+): string[] {
+  const fromLines = uniqueRegionCodes(shipmentLines as RouteCodeSource[]);
+  const fromNotes: string[] = [];
+  for (const stop of stops) {
+    const note = typeof stop.notes === 'string' ? normalizeRegionCode(stop.notes) : null;
+    if (note) fromNotes.push(note);
+  }
+  return [...new Set([...fromLines, ...fromNotes])];
 }
 
 /**
@@ -537,6 +682,34 @@ export function decideAugustBackfillDayAction(input: {
   return { action: 'create', reason: isExistingUiDay ? 'existing_ui_missing_create_from_excel' : 'create_from_excel', routeId: augustBackfillRouteId(input.day) };
 }
 
+/**
+ * v2 gap days reuse v1 decisions, except 2026-08-19 must keep BOTH sheets
+ * (Karolis NLL182 R54;R11 and Aleksandras MET630 R14;R27;R28;R51). A completed
+ * other-driver sheet on that date must not block create.
+ */
+export function decideAugustBackfillV2GapAction(input: {
+  day: AugustExcelDay;
+  skips: readonly AugustBackfillSkip[];
+  existingUiRoute: AugustExistingUiRoute;
+  driverId: string | null;
+  vehicleId: string | null;
+  assignments: readonly AugustAssignmentLite[];
+}): AugustBackfillDecision {
+  const decision = decideAugustBackfillDayAction(input);
+  if (
+    decision.action === 'skip'
+    && decision.reason.startsWith('wrong_driver_completed_sheet')
+    && input.day.date === AUGUST_2026_DUAL_SHEET_DATE
+  ) {
+    return {
+      action: 'create',
+      reason: 'create_dual_sheet_2026_08_19',
+      routeId: augustBackfillRouteId(input.day),
+    };
+  }
+  return decision;
+}
+
 export function replaceLiteAssignment(assignments: AugustAssignmentLite[], next: AugustAssignmentLite): void {
   const index = assignments.findIndex((item) => item.id === next.id);
   if (index >= 0) assignments[index] = next;
@@ -552,6 +725,7 @@ export function liteAssignmentFromSnapshot(input: {
   vehicle: { id?: string | null; registrationNumber?: string | null } | null;
   route: Record<string, unknown>;
   stops: Record<string, unknown>[];
+  shipmentLines?: Record<string, unknown>[];
 }): AugustAssignmentLite {
   const startedAt = optionalText(input.route.started_at);
   const completedAt = optionalText(input.route.completed_at);
@@ -568,6 +742,7 @@ export function liteAssignmentFromSnapshot(input: {
     workDate: workReference ? lithuanianDateKey(workReference) : optionalText(input.route.date),
     orderNumbers: assignmentOrderNumbers(input.stops),
     stopCount: input.stops.length,
+    routeCodes: routeCodesFromAssignmentSnapshot(input.stops, input.shipmentLines ?? []),
   };
 }
 
