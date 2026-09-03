@@ -2083,7 +2083,7 @@ export class EmployeeAuthStore {
       await document.ref.delete();
     }
 
-    const readingId = `${met.id}:${MET630_AUGUST_03_2026_DATE}`;
+    const readingId = vehicleDayReadingDocId(met.id, MET630_AUGUST_03_2026_DATE);
     const existingReading = (await this.vehicleDayReadings.doc(readingId).get()).data() as VehicleDayReading | undefined;
     let startHint: number | null = existingReading?.startOdometer ?? null;
     if (startHint === null) {
