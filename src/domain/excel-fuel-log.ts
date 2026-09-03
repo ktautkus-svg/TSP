@@ -28,13 +28,44 @@ export const MET630_OPENING_FUEL_EFFECTIVE_AT = '2026-08-01';
 export const MET630_OPENING_FUEL_REPORT_ID = 'open-MET630-20260801';
 export const MET630_OPENING_FUEL_NOTE = 'Rugpjūčio 1 d. bako likutis pagal administratoriaus nurodymą.';
 
-/** Firestore tsp_settings doc — one-shot production migration flag. */
+/** Firestore tsp_settings doc — one-shot production migration flag (full August reset). */
 export const FUEL_AUGUST_2026_MIGRATION_ID = 'fuel-august-2026-v2';
+
+/**
+ * Follow-up one-shot flag: remove two erroneous MET630 fills and correct
+ * MET630 2026-08-03 day kilometres to 617. Runs after v2 on boot.
+ */
+export const FUEL_AUGUST_2026_V3_MIGRATION_ID = 'fuel-august-2026-v3';
 
 export const FUEL_AUGUST_2026_NORMS = {
   MET630: 12,
   NLL182: 13.9,
 } as const;
+
+/** Authoritative MET630 day distance for 2026-08-03 (prior faulty reading ~217). */
+export const MET630_AUGUST_03_2026_DATE = '2026-08-03';
+export const MET630_AUGUST_03_2026_DISTANCE_KM = 617;
+
+/**
+ * MET630 fills removed in v3 (Circle K transaction id + receipt).
+ * Matched in live store by xlsx document id, receipt number, or transaction id.
+ */
+export const FUEL_AUGUST_2026_V3_REMOVED_FILLS = [
+  {
+    registrationNumber: 'MET630' as const,
+    localDate: '2026-08-09',
+    receiptNumber: '242/426',
+    liters: 46.01,
+    transactionId: '42655388',
+  },
+  {
+    registrationNumber: 'MET630' as const,
+    localDate: '2026-08-29',
+    receiptNumber: '89/1222',
+    liters: 30.00,
+    transactionId: '42959044',
+  },
+] as const;
 
 /** Previous NLL opener id/date that must be removed when the Aug 13 opener replaces it. */
 export const STALE_AUGUST_OPENING_REPORT_IDS = [
@@ -43,9 +74,9 @@ export const STALE_AUGUST_OPENING_REPORT_IDS = [
 
 export const EXCEL_FUEL_LOG: readonly ExcelFuelFill[] = [
   // MET630 — times reused from prior catalog when receipt matched; else 12:00.
+  // v3 removed 242/426 (trn 42655388) and 89/1222 (trn 42959044).
   { registrationNumber: 'MET630', localDate: '2026-08-04', localTime: '09:01', receiptNumber: '135/1193', liters: 104.00 },
   { registrationNumber: 'MET630', localDate: '2026-08-05', localTime: '18:14', receiptNumber: '230/419', liters: 107.98 },
-  { registrationNumber: 'MET630', localDate: '2026-08-09', localTime: '19:53', receiptNumber: '242/426', liters: 46.01 },
   { registrationNumber: 'MET630', localDate: '2026-08-09', localTime: '23:23', receiptNumber: '476/1159', liters: 10.00 },
   { registrationNumber: 'MET630', localDate: '2026-08-09', localTime: '23:38', receiptNumber: '325/1158', liters: 95.00 },
   { registrationNumber: 'MET630', localDate: '2026-08-11', localTime: '09:34', receiptNumber: '148/1145', liters: 100.00 },
@@ -57,7 +88,6 @@ export const EXCEL_FUEL_LOG: readonly ExcelFuelFill[] = [
   { registrationNumber: 'MET630', localDate: '2026-08-26', localTime: '12:00', receiptNumber: '362/1165', liters: 90.00 },
   { registrationNumber: 'MET630', localDate: '2026-08-27', localTime: '12:00', receiptNumber: '271/1215', liters: 86.10 },
   { registrationNumber: 'MET630', localDate: '2026-08-29', localTime: '12:00', receiptNumber: '834/1206', liters: 9.50 },
-  { registrationNumber: 'MET630', localDate: '2026-08-29', localTime: '12:00', receiptNumber: '89/1222', liters: 30.00 },
   { registrationNumber: 'MET630', localDate: '2026-08-30', localTime: '12:00', receiptNumber: '151/563', liters: 102.00 },
   // NLL182 — no fills before 2026-08-13.
   { registrationNumber: 'NLL182', localDate: '2026-08-13', localTime: '04:13', receiptNumber: '47/1188', liters: 59.99 },
@@ -193,4 +223,48 @@ export function parseVehicleDateKey(key: string): { vehicleId: string; date: str
   const date = key.slice(separator + 1);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
   return { vehicleId: key.slice(0, separator), date };
+}
+
+/** Live fuel rows that v3 must delete (trn id preferred, then xlsx id / receipt). */
+export function isFuelAugust2026V3RemovedEntry(entry: {
+  id: string;
+  registrationNumber?: string | null;
+  receiptNumber?: string | null;
+  notes?: string | null;
+  filledAt?: string | null;
+}): boolean {
+  for (const target of FUEL_AUGUST_2026_V3_REMOVED_FILLS) {
+    const haystack = `${entry.id}\n${entry.notes ?? ''}\n${entry.receiptNumber ?? ''}`;
+    if (haystack.includes(target.transactionId)) return true;
+
+    const expectedId = excelFuelDocumentId({
+      registrationNumber: target.registrationNumber,
+      localDate: target.localDate,
+      receiptNumber: target.receiptNumber,
+    });
+    if (entry.id === expectedId) return true;
+
+    const plate = String(entry.registrationNumber ?? '').trim().toUpperCase();
+    if (plate !== target.registrationNumber) continue;
+    if (entry.receiptNumber === target.receiptNumber) return true;
+  }
+  return false;
+}
+
+/**
+ * Correct MET630 2026-08-03 day kilometres to 617 while preserving an absolute
+ * odometer start when one already exists (or is supplied from a trip sheet).
+ */
+export function correctedMet630August03Odometers(existing: {
+  startOdometer: number | null;
+  endOdometer?: number | null;
+} | null): { startOdometer: number; endOdometer: number; distanceKm: number } {
+  const distanceKm = MET630_AUGUST_03_2026_DISTANCE_KM;
+  const start = existing?.startOdometer;
+  if (typeof start === 'number' && Number.isFinite(start)) {
+    const endOdometer = Math.round((start + distanceKm) * 10) / 10;
+    return { startOdometer: start, endOdometer, distanceKm };
+  }
+  // Day-distance only — no absolute chain available.
+  return { startOdometer: 0, endOdometer: distanceKm, distanceKm };
 }

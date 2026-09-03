@@ -55,15 +55,25 @@ function ensureLegacyAdminMigrated(): Promise<void> {
   return legacyAdminMigration;
 }
 
-/** One-shot August 2026 MET/NLL fuel reset — runs once per process, idempotent via Firestore flag. */
+/**
+ * One-shot August 2026 MET/NLL fuel migrations — v2 (full reset) then v3
+ * (remove two MET fills + fix 2026-08-03 day km). Each is idempotent via its
+ * own Firestore tsp_settings flag.
+ */
 export function ensureFuelAugust2026Migrated(): Promise<void> {
   if (!fuelAugust2026Migration) {
-    fuelAugust2026Migration = store.applyFuelAugust2026V2Migration().then((result) => {
+    fuelAugust2026Migration = (async () => {
+      const v2 = await store.applyFuelAugust2026V2Migration();
       process.stdout.write(`${JSON.stringify({
         event: 'fuel_august_2026_v2_migration',
-        ...result,
+        ...v2,
       })}\n`);
-    }).catch((error) => {
+      const v3 = await store.applyFuelAugust2026V3Migration();
+      process.stdout.write(`${JSON.stringify({
+        event: 'fuel_august_2026_v3_migration',
+        ...v3,
+      })}\n`);
+    })().catch((error) => {
       fuelAugust2026Migration = null;
       throw error;
     });
