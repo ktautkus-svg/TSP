@@ -51,11 +51,12 @@ describe('chronologicalVehicleFuelEntries', () => {
 
   it('does not invent a page that still hides later August fills', () => {
     const source = readFileSync(resolve(import.meta.dirname, '../../src/app/vehicle.tsx'), 'utf8');
+    expect(source).toContain('chronologicalVehicleFuelEntries');
     const fuelEditor = source.slice(
       source.indexOf('testID="vehicle-fuel-editor"'),
       source.indexOf('testID="vehicle-opening-fuel-balance"'),
     );
-    expect(fuelEditor).toContain('chronologicalVehicleFuelEntries');
+    expect(fuelEditor).toContain('vehicleFuelEntries.map');
     expect(fuelEditor).not.toContain('slice(0, 8)');
     expect(fuelEditor).toContain('Redaguoti kuro pylimą');
     expect(fuelEditor).toContain('Ištrinti kuro pylimą');
