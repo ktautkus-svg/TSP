@@ -5,7 +5,11 @@ import { bodyKindFromPalletCapacity, fleetTankCapacity, resolveVehicleCargo } fr
 import { lithuanianClockOnReferenceDay, lithuanianDateKey } from './lithuanian-time';
 import { knownAddressCorrection } from './import/known-address-corrections';
 import { normalizeRegionCode, uniqueRegionCodes, type RouteCodeSource } from './route-code';
-import { AUGUST_2026_TRIP_SHEET_VEHICLE_FIXES } from './trip-sheet-august-2026-vehicle-fix';
+import {
+  AUGUST_2026_TRIP_SHEET_VEHICLE_FIXES,
+  ERIKAS_ASKELOVICIUS_DISPLAY_NAME,
+  ERIKAS_ASKELOVICIUS_DRIVER_ID,
+} from './trip-sheet-august-2026-vehicle-fix';
 
 /**
  * One-shot Firestore tsp_settings flag. First Cloud Run boot with the flag
@@ -29,6 +33,15 @@ export const AUGUST_2026_EXCEL_BACKFILL_V2_ID = 'august-2026-excel-backfill-v2';
  * v3 must actually persist unassigned LRI741 and the remaining gaps.
  */
 export const AUGUST_2026_EXCEL_BACKFILL_V3_ID = 'august-2026-excel-backfill-v3';
+
+/**
+ * Follow-up one-shot after v3. v3 PATCHed assignment.driverId for MET630
+ * 08-19, but GET /api/trip-sheets overlays vehicle-day reading.driverName
+ * via applyDayReading — so the kelionės lapas could still show Karolis.
+ * v4 syncs that listed driver (PATCH driverId only) and does not rewrite
+ * stops, delivered_at, windows, odometer, or vehicle.
+ */
+export const AUGUST_2026_EXCEL_BACKFILL_V4_ID = 'august-2026-excel-backfill-v4';
 
 export const AUGUST_2026_SNAPSHOT_VEHICLE_MODEL = 'Renault Master';
 export const AUGUST_2026_SNAPSHOT_PAYLOAD_KG = 1500;
@@ -54,6 +67,12 @@ export const AUGUST_2026_ALEKSANDRAS_NAME_CANDIDATES = [
   'Aleksandras Arsenijus',
   'Aleksandras',
 ] as const;
+/** Live Cloud Run 2026-09-03: route-aug2026-aleks-0819-xlsx on GET /api/admin/assignments. */
+export const AUGUST_2026_ALEKSANDRAS_0819_ASSIGNMENT_ID = 'eafe0680-649b-44d6-87ee-3cca734ae9ce';
+export const AUGUST_2026_ALEKSANDRAS_DRIVER_ID = '3ad054df-6d40-4279-9037-6b0e5c7abb9f';
+export const AUGUST_2026_PROTECTED_STUB_DATES = ['2026-08-09', '2026-08-13', '2026-08-16'] as const;
+export const AUGUST_2026_ERIKAS_0831_DATE = '2026-08-31';
+export const AUGUST_2026_ERIKAS_0831_ROUTES = ['R88', 'R86'] as const;
 
 export const EXISTING_UI_ROUTE_ID = 'route-1788407220642-xh5w5ldr';
 export const EXISTING_UI_ROUTE_DATE = '2026-08-03';
@@ -297,14 +316,25 @@ export function matchDriverByName<T extends { displayName: string; role?: string
   return prefixed.length === 1 ? prefixed[0]! : null;
 }
 
-export function matchAleksandrasDriver<T extends { displayName: string; role?: string; disabled?: boolean }>(
+export function matchAleksandrasDriver<T extends { id: string; displayName: string; role?: string; disabled?: boolean }>(
   users: readonly T[],
 ): T | null {
   for (const name of AUGUST_2026_ALEKSANDRAS_NAME_CANDIDATES) {
     const match = matchDriverByName(users, name);
     if (match) return match;
   }
-  return null;
+  const byId = users.find((user) => (
+    user.id === AUGUST_2026_ALEKSANDRAS_DRIVER_ID && !user.disabled
+  ));
+  return byId ?? null;
+}
+
+export function matchErikasDriver<T extends { id: string; displayName: string; role?: string; disabled?: boolean }>(
+  users: readonly T[],
+): T | null {
+  const byId = users.find((user) => user.id === ERIKAS_ASKELOVICIUS_DRIVER_ID && !user.disabled);
+  if (byId) return byId;
+  return matchDriverByName(users, ERIKAS_ASKELOVICIUS_DISPLAY_NAME);
 }
 
 export function matchVehicleByPlate<T extends { registrationNumber: string }>(
@@ -527,6 +557,117 @@ export function isKarolis0819R54R11Assignment(assignment: Pick<
     && karolis
     && assignmentHasAllRouteCodes(assignment.routeCodes, AUGUST_2026_KAROLIS_0819_ROUTES)
     && !assignmentHasAnyRouteCodes(assignment.routeCodes, AUGUST_2026_ALEKSANDRAS_0819_ROUTES);
+}
+
+export function isAleksandras0819Met630Target(assignment: Pick<
+  AugustAssignmentLite,
+  'id' | 'status' | 'workDate' | 'routeDate' | 'vehiclePlate' | 'vehicleId' | 'routeCodes'
+>): boolean {
+  if (assignment.status !== 'completed') return false;
+  if (assignment.id === AUGUST_2026_ALEKSANDRAS_0819_ASSIGNMENT_ID) {
+    const onDate = assignmentMatchesWorkDate(assignment, AUGUST_2026_DUAL_SHEET_DATE);
+    const plate = assignmentPlate(assignment);
+    return onDate && (plate === 'MET630' || plate === '');
+  }
+  return isAleksandras0819Met630RouteSet(assignment);
+}
+
+export function isAugust2026ProtectedR56StubAssignment(assignment: Pick<
+  AugustAssignmentLite,
+  'status' | 'workDate' | 'routeDate' | 'routeCodes' | 'orderNumbers' | 'visibleStopCount' | 'stopCount'
+>): boolean {
+  if (assignment.status !== 'completed') return false;
+  const onProtectedDate = AUGUST_2026_PROTECTED_STUB_DATES.some((date) => (
+    assignmentMatchesWorkDate(assignment, date)
+  ));
+  if (!onProtectedDate) return false;
+  const stubOrder = assignment.orderNumbers.some((order) => order.startsWith('STUB-R56-'));
+  const oneStop = assignment.visibleStopCount <= 1 && assignment.stopCount <= 1;
+  const r56 = assignment.routeCodes.length === 0
+    || assignmentHasAllRouteCodes(assignment.routeCodes, ['R56']);
+  return stubOrder || (oneStop && r56);
+}
+
+export function isErikas0831Nll182Assignment(assignment: Pick<
+  AugustAssignmentLite,
+  'status' | 'workDate' | 'routeDate' | 'vehiclePlate' | 'vehicleId' | 'driverName' | 'driverId' | 'routeCodes'
+>, erikasId?: string | null): boolean {
+  if (assignment.status !== 'completed') return false;
+  if (!assignmentMatchesWorkDate(assignment, AUGUST_2026_ERIKAS_0831_DATE)) return false;
+  if (assignmentPlate(assignment) !== 'NLL182') return false;
+  const erikas = (erikasId && assignment.driverId === erikasId)
+    || normalizePersonName(assignment.driverName).startsWith('erikas');
+  if (!erikas) return false;
+  if (assignment.routeCodes.length === 0) return true;
+  return assignmentHasAllRouteCodes(assignment.routeCodes, AUGUST_2026_ERIKAS_0831_ROUTES);
+}
+
+export function driverSnapshotMatchesTarget(
+  snapshot: { driverId: string; driverName: string },
+  targetId: string,
+  namePrefix: string,
+): boolean {
+  return snapshot.driverId === targetId
+    && normalizePersonName(snapshot.driverName).startsWith(namePrefix);
+}
+
+export function needsTripSheetListedDriverSync(
+  assignment: { driverId: string; driverName: string },
+  listed: { driverId: string; driverName: string },
+  targetId: string,
+  namePrefix: string,
+): boolean {
+  return !driverSnapshotMatchesTarget(assignment, targetId, namePrefix)
+    || !driverSnapshotMatchesTarget(listed, targetId, namePrefix);
+}
+
+export type AugustBackfillV4Decision =
+  | { action: 'sync_listed_driver'; targetDriverId: string; reason: string }
+  | { action: 'skip'; reason: string };
+
+/**
+ * v4 never creates/rewrites routes. It only PATCHes driverId when the
+ * assignment/list overlay is the leftover MET630 08-19 or NLL182 08-31
+ * driver snapshot. Protected R56 stubs and Karolis 08-19 R54;R11 are skip.
+ */
+export function decideAugustBackfillV4DriverSync(input: {
+  assignment: AugustAssignmentLite;
+  listedDriverId: string;
+  listedDriverName: string;
+  aleksandrasId: string | null;
+  erikasId: string | null;
+}): AugustBackfillV4Decision {
+  if (isKarolis0819R54R11Assignment(input.assignment)) {
+    return { action: 'skip', reason: 'karolis_0819_nll182_r54_r11' };
+  }
+  if (isAugust2026ProtectedR56StubAssignment(input.assignment)) {
+    return { action: 'skip', reason: 'protected_r56_stub' };
+  }
+  if (isAleksandras0819Met630Target(input.assignment)) {
+    if (!input.aleksandrasId) return { action: 'skip', reason: 'aleksandras_missing' };
+    const listed = { driverId: input.listedDriverId, driverName: input.listedDriverName };
+    if (needsTripSheetListedDriverSync(input.assignment, listed, input.aleksandrasId, 'aleksandras')) {
+      return {
+        action: 'sync_listed_driver',
+        targetDriverId: input.aleksandrasId,
+        reason: 'met630_0819_listed_driver_not_aleksandras',
+      };
+    }
+    return { action: 'skip', reason: 'met630_0819_already_aleksandras' };
+  }
+  if (isErikas0831Nll182Assignment(input.assignment, input.erikasId)) {
+    if (!input.erikasId) return { action: 'skip', reason: 'erikas_missing' };
+    const listed = { driverId: input.listedDriverId, driverName: input.listedDriverName };
+    if (needsTripSheetListedDriverSync(input.assignment, listed, input.erikasId, 'erikas')) {
+      return {
+        action: 'sync_listed_driver',
+        targetDriverId: input.erikasId,
+        reason: 'nll182_0831_listed_driver_not_erikas',
+      };
+    }
+    return { action: 'skip', reason: 'nll182_0831_already_erikas' };
+  }
+  return { action: 'skip', reason: 'not_v4_target' };
 }
 
 export function karolis0819NeedsNll182Move(assignment: Pick<AugustAssignmentLite, 'vehiclePlate' | 'vehicleId'>): boolean {

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { attachDailyCompensation, applyDayReading, applyTripSheetCorrectionToDayReading, applyTripSheetVehicleDriverCorrection, buildFuelDayTripSheet, buildServerTripSheet, buildVehicleDayTripSheet, odometerReadingCoveredBySheet, tripSheetFuelNorm, tripSheetWorkDate, type RouteAssignment, type VehicleDayReading } from '../../server/employee-auth-store';
+import { attachDailyCompensation, applyDayReading, applyTripSheetCorrectionToDayReading, applyTripSheetDriverCorrectionToDayReading, applyTripSheetVehicleDriverCorrection, buildFuelDayTripSheet, buildServerTripSheet, buildVehicleDayTripSheet, listedTripSheetDriver, odometerReadingCoveredBySheet, tripSheetFuelNorm, tripSheetWorkDate, type RouteAssignment, type VehicleDayReading } from '../../server/employee-auth-store';
 import { DEFAULT_ROUTE_PRICE_SETTINGS } from '../../src/application/routes/route-price';
 
 const storeSource = readFileSync(resolve(import.meta.dirname, '../../server/employee-auth-store.ts'), 'utf8');
@@ -396,6 +396,76 @@ describe('server trip sheet', () => {
       actualDistanceKm: 300,
       extraDistanceKm: 615.5,
     });
+  });
+
+  it('overlays the vehicle-day driver onto GET /api/trip-sheets and driver-only PATCH keeps odometer', () => {
+    const assignment: RouteAssignment = {
+      id: 'eafe0680-649b-44d6-87ee-3cca734ae9ce',
+      routeId: 'route-aug2026-aleks-0819-xlsx',
+      driverId: '3ad054df-6d40-4279-9037-6b0e5c7abb9f',
+      driverName: 'Aleksandras Arsenij',
+      status: 'completed',
+      progress: null,
+      createdBy: 'august-2026-excel-backfill-v3',
+      assignedAt: '2026-08-19T03:00:00.000Z',
+      updatedAt: '2026-08-19T13:30:00.000Z',
+      vehicle: { id: 'MET630', registrationNumber: 'MET630', model: 'Renault Master', maximumPayloadKg: 1500 },
+      routeSnapshot: {
+        route: {
+          id: 'route-aug2026-aleks-0819-xlsx',
+          date: '2026-08-19',
+          status: 'completed',
+          start_odometer: 279000,
+          end_odometer: 279400,
+          actual_distance_km: 400,
+          started_at: '2026-08-19T03:00:00.000Z',
+          completed_at: '2026-08-19T13:30:00.000Z',
+        },
+        stops: [{ order_number: 'S1', delivery_status: 'delivered', delivered_at: '2026-08-19T08:12:00.000Z' }],
+        shipmentLines: [{ route_code: 'R14' }],
+      },
+    };
+    const reading: VehicleDayReading = {
+      id: 'MET630:2026-08-19',
+      vehicleId: 'MET630',
+      registrationNumber: 'MET630',
+      date: '2026-08-19',
+      startOdometer: 278900,
+      endOdometer: 279348,
+      distanceKm: 448,
+      driverId: 'a7bce619-ad14-4dda-9780-f130a79ab998',
+      driverName: 'Karolis Tautkus',
+      createdAt: '2026-08-19T00:00:00.000Z',
+      updatedAt: '2026-08-19T00:00:00.000Z',
+      createdBy: 'gps-import',
+    };
+    expect(listedTripSheetDriver(assignment, [reading])).toEqual({
+      driverId: 'a7bce619-ad14-4dda-9780-f130a79ab998',
+      driverName: 'Karolis Tautkus',
+    });
+    const synced = applyTripSheetDriverCorrectionToDayReading(reading, {
+      driverId: '3ad054df-6d40-4279-9037-6b0e5c7abb9f',
+      driverName: 'Aleksandras Arsenij',
+      updatedAt: '2026-09-03T07:15:00.000Z',
+    });
+    expect(synced).toMatchObject({
+      startOdometer: 278900,
+      endOdometer: 279348,
+      distanceKm: 448,
+      driverId: '3ad054df-6d40-4279-9037-6b0e5c7abb9f',
+      driverName: 'Aleksandras Arsenij',
+    });
+    expect(listedTripSheetDriver(assignment, [synced])).toEqual({
+      driverId: '3ad054df-6d40-4279-9037-6b0e5c7abb9f',
+      driverName: 'Aleksandras Arsenij',
+    });
+
+    const updateBlock = storeSource.slice(
+      storeSource.indexOf('async updateTripSheet'),
+      storeSource.indexOf('async updateFuelEntry'),
+    );
+    expect(updateBlock).toContain('odometerTouched');
+    expect(updateBlock).toContain('applyTripSheetDriverCorrectionToDayReading');
   });
 
   it('wires updateTripSheet to the stop-preserving helper and the new vehicle id', () => {

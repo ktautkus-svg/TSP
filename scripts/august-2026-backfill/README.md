@@ -80,3 +80,10 @@ v2 does not call Google Distance Matrix and does not call `assignVehicle`.
   - **2026-08-09 LRI740** R56 stub must have a real stop (Vilniaus g. 125, Šiauliai), `markAllDelivered` historically. Opening **13 L** on **2026-08-08** is unchanged.
 
 v3 does not call Google Distance Matrix and does not call `assignVehicle`. If a required outcome is missing, the boot migration throws and does **not** set the flag.
+
+- `august-2026-excel-backfill-v4` — after v3. Syncs the driver GET `/api/trip-sheets` actually lists (`applyDayReading` overlays `vehicleDayReadings.driverName`). Required outcomes before the flag is written:
+  - **2026-08-19 MET630** `R14;R27;R28;R51` (assignment `eafe0680-649b-44d6-87ee-3cca734ae9ce` if still present): both assignment **and** trip-sheet list driver must be Aleksandras. Stops / delivered_at / windows / odometer / vehicle untouched. Karolis NLL182 `R54;R11` that day is left alone;
+  - **2026-08-31 NLL182** `R88;R86` if assignment driver is Erikas but the listed trip-sheet driver is still Karolis: sync listed driver to Erikas the same way. Routes/stops untouched;
+  - **2026-08-09 / 08-13 / 08-16** one-stop R56 stubs are not rewritten.
+
+v4 does not call Google Distance Matrix and does not call `assignVehicle`. A driver-only `PATCH /api/trip-sheets/:assignmentId` `{ driverId }` updates the day-reading driver snapshot without copying assignment odometer onto the GPS/fact reading. If a required outcome is missing, the boot migration throws and does **not** set the flag.
