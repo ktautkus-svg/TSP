@@ -87,3 +87,10 @@ v3 does not call Google Distance Matrix and does not call `assignVehicle`. If a 
   - **2026-08-09 / 08-13 / 08-16** one-stop R56 stubs are not rewritten.
 
 v4 does not call Google Distance Matrix and does not call `assignVehicle`. A driver-only `PATCH /api/trip-sheets/:assignmentId` `{ driverId }` updates the day-reading driver snapshot without copying assignment odometer onto the GPS/fact reading. If a required outcome is missing, the boot migration throws and does **not** set the flag.
+
+- `august-2026-excel-backfill-v5` — after v4. Corrects the v4 08-31 Erikas mistake. Required outcomes before the flag is written:
+  - **2026-08-31 NLL182** vehicle-day (`vehicle-day-NLL182-2026-08-31` or the live fuel/odo row for that plate+day): listed driver UNASSIGNED / `Nepriskirtas` (not Karolis, not Erikas). Day km **13.35**. No invented stops or routes;
+  - **Erikas R88;R86** assignment `22b81ff2-0f67-4ab3-9bee-8ce8deb8b755` must not appear as 08-31 work. Prefer the existing **2026-08-29** listed sheet (complete timestamps). If `assignment.route.date` is still 08-31, align it to that listed day. Stops / delivered_at / windows / KPI untouched;
+  - **2026-08-19** Aleksandras MET630 `R14;R27;R28;R51` and Karolis NLL182 `R54;R11` are left alone.
+
+v5 does not call Google Distance Matrix and does not call `assignVehicle`. If a required outcome is missing, the boot migration throws and does **not** set the flag.

@@ -26,9 +26,10 @@ async function start(): Promise<void> {
   // touching stop punctuality.
   await ensureTripSheetAugust2026VehicleFixMigrated();
   // Then materialize missing August 2026 Excel trip sheets (historical complete,
-  // no provider matrix). v1 then v2 then v3 then v4. v3 does not swallow fleet-create
+  // no provider matrix). v1 then v2 then v3 then v4 then v5. v3 does not swallow fleet-create
   // failures. v4 syncs listed trip-sheet driver snapshots and does not swallow
-  // errors. Runs after fuel + vehicle-fix so odometer overlays apply.
+  // errors. v5 unassigns 08-31 NLL182 (13.35 km, no driver) and keeps Erikas
+  // R88;R86 off that day. Runs after fuel + vehicle-fix so odometer overlays apply.
   await ensureAugust2026ExcelBackfillMigrated();
   const server = createServer(async (request, response) => {
     const requestId = header(request, 'x-request-id') ?? randomUUID();
