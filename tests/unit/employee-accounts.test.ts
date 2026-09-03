@@ -93,6 +93,7 @@ describe('employee server session', () => {
     );
     expect(productionServerSource).toContain('await ensureFuelAugust2026Migrated()');
     expect(productionServerSource).toContain('await ensureTripSheetAugust2026VehicleFixMigrated()');
+    expect(productionServerSource).toContain('await ensureAugust2026ExcelBackfillMigrated()');
     expect(employeeStoreSource).toMatch(/async listTripSheets[\s\S]*?^ {2}async /m);
     const listTripSheetsBlock = employeeStoreSource.slice(
       employeeStoreSource.indexOf('async listTripSheets'),
@@ -103,6 +104,7 @@ describe('employee server session', () => {
     expect(listTripSheetsBlock).not.toContain('applyFuelAugust2026V2Migration');
     expect(listTripSheetsBlock).not.toContain('applyFuelAugust2026V3Migration');
     expect(listTripSheetsBlock).not.toContain('applyFuelAugust2026V4Migration');
+    expect(listTripSheetsBlock).not.toContain('applyAugust2026ExcelBackfill');
   });
 
   it('requires the PIN on every launch even when a session is cached, and keeps logout explicit', () => {

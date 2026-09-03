@@ -3,7 +3,7 @@ import { createReadStream, existsSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { createServer, request as httpRequest, type IncomingMessage, type ServerResponse } from 'node:http';
 import { extname, join, normalize, resolve } from 'node:path';
-import { authenticateApiRequest, ensureFuelAugust2026Migrated, ensureTripSheetAugust2026VehicleFixMigrated, handleEmployeeApi, requireProductionAdminPin } from './employee-api.js';
+import { authenticateApiRequest, ensureAugust2026ExcelBackfillMigrated, ensureFuelAugust2026Migrated, ensureTripSheetAugust2026VehicleFixMigrated, handleEmployeeApi, requireProductionAdminPin } from './employee-api.js';
 import { EmployeeApiError } from './employee-auth-store.js';
 
 const publicPort = numberFromEnv('PORT', 8080);
@@ -25,6 +25,9 @@ async function start(): Promise<void> {
   // Then correct completed August 2026 vehicle/driver on trip sheets without
   // touching stop punctuality.
   await ensureTripSheetAugust2026VehicleFixMigrated();
+  // Then materialize missing August 2026 Excel trip sheets (historical complete,
+  // no provider matrix). Runs after fuel + vehicle-fix so odometer overlays apply.
+  await ensureAugust2026ExcelBackfillMigrated();
   const server = createServer(async (request, response) => {
     const requestId = header(request, 'x-request-id') ?? randomUUID();
     response.setHeader('x-request-id', requestId);

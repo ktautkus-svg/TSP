@@ -22,6 +22,7 @@ const loginAttempts = new Map<string, number[]>();
 let legacyAdminMigration: Promise<void> | null = null;
 let fuelAugust2026Migration: Promise<void> | null = null;
 let tripSheetAugust2026VehicleFix: Promise<void> | null = null;
+let august2026ExcelBackfill: Promise<void> | null = null;
 
 const TRIVIAL_ADMIN_PINS = new Set(['12345', '123456', '000000', '111111']);
 
@@ -103,6 +104,22 @@ export function ensureTripSheetAugust2026VehicleFixMigrated(): Promise<void> {
   return tripSheetAugust2026VehicleFix;
 }
 
+/** One-shot August 2026 Excel trip-sheet backfill — after fuel + vehicle-fix. */
+export function ensureAugust2026ExcelBackfillMigrated(): Promise<void> {
+  if (!august2026ExcelBackfill) {
+    august2026ExcelBackfill = store.applyAugust2026ExcelBackfill().then((result) => {
+      process.stdout.write(`${JSON.stringify({
+        event: 'august_2026_excel_backfill',
+        ...result,
+      })}\n`);
+    }).catch((error) => {
+      august2026ExcelBackfill = null;
+      throw error;
+    });
+  }
+  return august2026ExcelBackfill;
+}
+
 export async function handleEmployeeApi(
   request: IncomingMessage,
   response: ServerResponse,
@@ -114,6 +131,7 @@ export async function handleEmployeeApi(
     await ensureLegacyAdminMigrated();
     await ensureFuelAugust2026Migrated();
     await ensureTripSheetAugust2026VehicleFixMigrated();
+    await ensureAugust2026ExcelBackfillMigrated();
     if (request.method === 'GET' && pathname === '/api/auth/status') {
       return send(response, 200, { initialized: await store.hasUsers() }, requestId);
     }

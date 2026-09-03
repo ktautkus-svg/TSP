@@ -40,6 +40,8 @@ Each `karolis-DD.json` / `aleksandras-DD.json` is a **single-day object** with `
 - 2026-08-13 Aleksandras Arsenij NLL182 R56 (1 stop)
 - 2026-08-16 Aleksandras Arsenij NLL182 R56 (1 stop; Karolis nedirbo)
 
+Stub address (invented, documented): **Vilniaus g. 125, Šiauliai** — `UAB Lambda LT, Šiaulių ilgalaikio gydymo ir geriatrijos centras`. This is a stable R56 stop already present on Karolis 2026-08-04 Excel. Warehouse / Kretinga were not used because these days are coded R56.
+
 Also includes `skip` and `existingUiRoute` in the same file.
 
 ### existingUiRoute
