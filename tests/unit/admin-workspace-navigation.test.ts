@@ -101,10 +101,39 @@ describe('administrator workspace navigation', () => {
   });
 
   it('keeps the administrator home groups in the requested responsive grids', () => {
-    expect(home).toContain('<GroupedMenuSection columns label="SKUBŪS DARBAI"');
+    expect(home).toContain('<GroupedMenuSection columns label="MARŠRUTIZAVIMAS"');
+    expect(home).not.toContain('SKUBŪS DARBAI');
     expect(home).toContain('<GroupedMenuSection columns label="STEBĖJIMAS IR APSKAITA"');
     expect(home).toContain('<GroupedMenuSection columns label="SISTEMA"');
     expect(home.indexOf('title="Kokybės kontrolė"')).toBeLessThan(home.indexOf('label="STEBĖJIMAS IR APSKAITA"'));
+  });
+
+  it('uses the SVG valdymo centro hero instead of stacked admin titles', () => {
+    expect(home).toContain('<AdminHomeHero');
+    expect(home).toContain('testID="admin-home-menu"');
+    expect(home).not.toContain('ADMINISTRATORIAUS MENIU');
+    expect(home).not.toContain('FiRo valdymo centras');
+    const hero = readFileSync(resolve(root, 'src/components/admin-home-hero.tsx'), 'utf8');
+    expect(hero).toContain('Valdymo centras');
+    expect(hero).toContain('<FiroRoadMark');
+    expect(hero).toContain('<FiroWordmarkSvg');
+    expect(hero).not.toContain('FIBONACCI');
+    // Road tile and wordmark stay separate — never fused into F.
+    expect(hero).toContain('admin-home-road-mark');
+    expect(hero).toContain('admin-home-wordmark');
+    expect(hero).toContain('lockupGap');
+  });
+
+  it('gives Vairuotojai and Vykdyti vairuotojo maršrutą distinct icons', () => {
+    expect(home).toContain('kind="driveRoute"');
+    expect(home).toContain('title="Vykdyti vairuotojo maršrutą"');
+    expect(home).toContain('title="Vairuotojai"');
+    expect(home).toContain('kind="drivers"');
+    const artwork = readFileSync(resolve(root, 'src/components/menu-artwork.tsx'), 'utf8');
+    expect(artwork).toContain("drivers: 'employees'");
+    expect(artwork).toContain("driveRoute: 'steering'");
+    expect(artwork).toContain('EmployeesIcon');
+    expect(artwork).toContain('SteeringWheelIcon');
   });
 
   it('keeps the quality-control period input on the native calendar even with an external keyboard', () => {

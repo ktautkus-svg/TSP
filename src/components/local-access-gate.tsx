@@ -288,7 +288,6 @@ export function LocalAccessGate({ children }: LocalAccessGateProps) {
             {busy ? <ActivityIndicator color={colors.textInverse} /> : <Text style={[styles.buttonText, !bootstrap && styles.loginButtonText]}>{bootstrap ? 'Aktyvuoti ir tęsti' : 'PRISIJUNGTI →'}</Text>}
           </Pressable>
         </View>
-        {!bootstrap ? <Text style={styles.loginFooter}>FIRO · FIBONACCI + ROAD</Text> : null}
       </View>
     );
   }
@@ -349,6 +348,5 @@ const createStyles = (colors: ColorPalette, login: LoginPalette) => StyleSheet.c
   buttonText: { ...type.button, fontSize: 16, color: colors.textInverse },
   loginButtonText: { fontSize: 17, letterSpacing: 0.2 },
   error: { ...type.secondary, fontFamily: fonts.headingSemiBold, color: login.error },
-  loginFooter: { ...type.label, color: login.muted, letterSpacing: 0.9, textAlign: 'center', zIndex: 1 },
   disabled: { opacity: 0.55 },
 });
