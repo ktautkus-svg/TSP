@@ -354,6 +354,50 @@ describe('server trip sheet', () => {
     expect(odometerReadingCoveredBySheet(nll182, [metSheet])).toBe(false);
   });
 
+  it('does not overlay MET630 extraDistanceKm onto Karolis’s 300 km wage sheet', () => {
+    const metAssignment: RouteAssignment = {
+      id: 'a6f3ea27-0e1b-474f-ba45-f77266ea1ce4', routeId: 'route-31', driverId: 'a7bce619-ad14-4dda-9780-f130a79ab998',
+      driverName: 'Karolis Tautkus', status: 'completed', progress: null, createdBy: 'admin',
+      assignedAt: '2026-08-31T05:00:00.000Z', updatedAt: '2026-08-31T16:00:00.000Z',
+      vehicle: { id: 'MET630', registrationNumber: 'MET630', model: 'Renault Master', maximumPayloadKg: 1500 },
+      routeSnapshot: {
+        route: {
+          id: 'route-31', date: '2026-08-31', status: 'completed',
+          start_odometer: 283151, end_odometer: 283451, actual_distance_km: 300,
+          started_at: '2026-08-31T05:30:00.000Z', completed_at: '2026-08-31T15:00:00.000Z',
+        },
+        stops: [], shipmentLines: [{ route_code: 'R54' }, { route_code: 'R11' }],
+      },
+    };
+    const fullDayReading: VehicleDayReading = {
+      id: 'MET630:2026-08-31', vehicleId: 'MET630', registrationNumber: 'MET630', date: '2026-08-31',
+      startOdometer: 283151, endOdometer: 284066.5, distanceKm: 915.5, extraDistanceKm: 615.5,
+      driverId: 'other-unassigned', driverName: 'Nepriskirtas',
+      createdAt: '2026-08-31T00:00:00.000Z', updatedAt: '2026-08-31T00:00:00.000Z', createdBy: 'fuel-august-2026-v4',
+    };
+    const sheet = applyDayReading(buildServerTripSheet(metAssignment, metAssignment.vehicle), [fullDayReading]);
+    expect(sheet).toMatchObject({
+      assignmentId: 'a6f3ea27-0e1b-474f-ba45-f77266ea1ce4',
+      startOdometer: 283151,
+      endOdometer: 283451,
+      actualDistanceKm: 300,
+      extraDistanceKm: 615.5,
+      driverId: 'a7bce619-ad14-4dda-9780-f130a79ab998',
+      driverName: 'Karolis Tautkus',
+    });
+    const [paid] = attachDailyCompensation([{ ...sheet, totalWeightKg: 0, totalStops: 0 }]);
+    expect(paid.compensation).toMatchObject({ distanceKm: 300 });
+    expect(buildVehicleDayTripSheet({
+      ...fullDayReading,
+      startOdometer: 283151,
+      endOdometer: 283451,
+      distanceKm: 300,
+    }, metAssignment.vehicle)).toMatchObject({
+      actualDistanceKm: 300,
+      extraDistanceKm: 615.5,
+    });
+  });
+
   it('wires updateTripSheet to the stop-preserving helper and the new vehicle id', () => {
     const updateBlock = storeSource.slice(
       storeSource.indexOf('async updateTripSheet'),

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildFuelLedger, type FuelLedgerInputDay } from '@/application/trip-sheet/fuel-balance';
+import { buildFuelLedger, vehicleDayFuelDistanceKm, type FuelLedgerInputDay } from '@/application/trip-sheet/fuel-balance';
 
 function day(date: string, distanceKm: number | null, addedLiters = 0, norm: number | null = 12): FuelLedgerInputDay {
   return { date, distanceKm, fuelNormLPer100Km: norm, addedLiters };
@@ -65,5 +65,13 @@ describe('kuro likučio grandinė', () => {
   it('pažymi trūkstamą normą ir trūkstamą pradinį likutį', () => {
     expect(buildFuelLedger([day('2026-01-02', 100, 0, null)], 110)[0].missing).toBe('no_norm');
     expect(buildFuelLedger([day('2026-01-02', 100)], null)[0].missing).toBe('no_opening');
+  });
+
+  it('adds non-assigned extra kilometres only to fuel consumption, not as a missing odometer', () => {
+    expect(vehicleDayFuelDistanceKm(300, 615.5)).toBe(915.5);
+    const ledger = buildFuelLedger([day('2026-08-31', vehicleDayFuelDistanceKm(300, 615.5), 95.07, 12)], 110);
+    expect(ledger[0].distanceKm).toBe(915.5);
+    expect(ledger[0].consumedLiters).toBe(109.86);
+    expect(ledger[0].missing).toBeNull();
   });
 });

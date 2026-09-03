@@ -11,8 +11,14 @@ import {
     FUEL_AUGUST_2026_MIGRATION_ID,
     FUEL_AUGUST_2026_NORMS,
     FUEL_AUGUST_2026_V3_MIGRATION_ID,
+    FUEL_AUGUST_2026_V4_MIGRATION_ID,
     MET630_AUGUST_03_2026_DATE,
     MET630_AUGUST_03_2026_DISTANCE_KM,
+    MET630_AUGUST_31_2026_ASSIGNED_DISTANCE_KM,
+    MET630_AUGUST_31_2026_ASSIGNMENT_ID,
+    MET630_AUGUST_31_2026_DATE,
+    MET630_AUGUST_31_2026_MANUAL_FILL,
+    MET630_AUGUST_31_2026_VEHICLE_DISTANCE_KM,
     MET630_OPENING_FUEL_EFFECTIVE_AT,
     MET630_OPENING_FUEL_LITERS,
     MET630_OPENING_FUEL_NOTE,
@@ -26,11 +32,15 @@ import {
     correctedMet630August03Odometers,
     excelFuelDocumentId,
     excelFuelOdometer,
+    extraDistanceKmOf,
     isFuelAugust2026V3RemovedEntry,
+    isFuelAugust2026V4ManualFillEntry,
     isStaleAugust2026FuelEntry,
     isStaleAugustOpeningReport,
     lithuaniaLocalToIso,
+    met630August31AssignedOdometers,
     parseVehicleDateKey,
+    shouldRestoreMet630August31AssignedDistance,
     uncoveredFuelDayKeys,
 } from '../src/domain/excel-fuel-log.js';
 import {
@@ -57,6 +67,7 @@ import {
     AUGUST_2026_TRIP_SHEET_VEHICLE_FIXES,
     ERIKAS_ASKELOVICIUS_DISPLAY_NAME,
     ERIKAS_ASKELOVICIUS_DRIVER_ID,
+    KAROLIS_TAUTKUS_DRIVER_ID,
     NLL182_AUGUST_2026_ODOMETER_CORRECTIONS,
     TRIP_SHEET_AUGUST_2026_VEHICLE_FIX_ID,
     canUpdateAssignmentScheduleDate,
@@ -321,6 +332,12 @@ export type VehicleDayReading = {
   startOdometer: number;
   endOdometer: number;
   distanceKm: number;
+  /**
+   * Kilometres driven on this vehicle-day that are not part of any completed
+   * driver assignment. Used only in fuel/ledger consumption. Never added to
+   * driver trip-sheet `actualDistanceKm` or wage distance.
+   */
+  extraDistanceKm?: number;
   driverId: string | null;
   driverName: string | null;
   createdAt: string;
@@ -344,6 +361,8 @@ export type ServerTripSheet = {
   startOdometer: number | null;
   endOdometer: number | null;
   actualDistanceKm: number | null;
+  /** Fuel-only remainder km (other/unassigned). Not wage distance. */
+  extraDistanceKm?: number | null;
   plannedDistanceKm: number | null;
   startedAt: string | null;
   completedAt: string | null;
@@ -1736,6 +1755,7 @@ export class EmployeeAuthStore {
       startOdometer,
       endOdometer,
       distanceKm: odometerDistanceKm(startOdometer, endOdometer),
+      ...(extraDistanceKmOf(existing) > 0 ? { extraDistanceKm: extraDistanceKmOf(existing) } : {}),
       driverId: driver.id,
       driverName: driver.name,
       createdAt: existing?.createdAt ?? now,
@@ -2135,6 +2155,158 @@ export class EmployeeAuthStore {
       deletedEntryIds: removedEntries.map((document) => document.id),
       met630August03DistanceKm: MET630_AUGUST_03_2026_DISTANCE_KM,
       met630August03ReadingId: readingId,
+    });
+    return { applied: true, reason: 'applied' };
+  }
+
+  /**
+   * One-shot follow-up after fuel-august-2026-v3:
+   * - Upserts MET630 2026-08-31 fill čekis 08/52 (95.07 L) under a stable
+   *   synthetic document id (`xlsx-manual-08-52`).
+   * - Records 615.50 km as vehicle-day `extraDistanceKm` so fuel/ledger uses
+   *   915.50 while Karolis’s assignment `actualDistanceKm` stays 300.
+   * Gated by tsp_settings `fuel-august-2026-v4`. Does not reseed the catalog,
+   * openings, norms, NLL fills, or stop punctuality.
+   */
+  async applyFuelAugust2026V4Migration(): Promise<{ applied: boolean; reason: string }> {
+    const flagRef = this.settings.doc(FUEL_AUGUST_2026_V4_MIGRATION_ID);
+    const existingFlag = await flagRef.get();
+    if (existingFlag.exists && existingFlag.data()?.status === 'applied') {
+      return { applied: false, reason: 'already_applied' };
+    }
+
+    const vehiclesSnapshot = await this.vehicles.get();
+    const vehicles = vehiclesSnapshot.docs.map((document) => normalizeVehicle(document.data() as FleetVehicle));
+    const met = vehicles.find((vehicle) => vehicle.registrationNumber.toUpperCase() === 'MET630');
+    if (!met) {
+      return { applied: false, reason: 'target_vehicle_missing' };
+    }
+
+    const now = new Date().toISOString();
+    const fill = MET630_AUGUST_31_2026_MANUAL_FILL;
+    const fuelSnapshot = await this.fuelEntries.get();
+    const matchingEntries = fuelSnapshot.docs.filter((document) => {
+      const entry = document.data() as ServerFuelEntry;
+      return isFuelAugust2026V4ManualFillEntry({
+        id: entry.id ?? document.id,
+        registrationNumber: entry.registrationNumber,
+        receiptNumber: entry.receiptNumber,
+        notes: entry.notes,
+      });
+    });
+    for (const document of matchingEntries) {
+      await document.ref.delete();
+    }
+
+    const karolisDocument = await this.users.doc(KAROLIS_TAUTKUS_DRIVER_ID).get();
+    const karolis = karolisDocument.data() as StoredUser | undefined;
+    const driver = karolis && !karolis.disabled
+      ? { id: karolis.id, name: karolis.displayName }
+      : await this.resolveReadingDriver(met, met.assignedDriverId);
+    const fillDriverId = driver.id ?? '';
+    const fillDriverName = driver.name && driver.name !== 'Nepriskirtas' ? driver.name : 'K.Tautkus';
+    const assignmentId = vehicleDayAssignmentId(met.id, fill.localDate);
+    const fillId = excelFuelDocumentId(fill);
+    const entry: ServerFuelEntry = {
+      id: fillId,
+      tripSheetId: `trip-sheet-${assignmentId}`,
+      assignmentId,
+      routeId: assignmentId,
+      driverId: fillDriverId,
+      driverName: fillDriverName,
+      vehicleId: met.id,
+      registrationNumber: met.registrationNumber,
+      filledAt: lithuaniaLocalToIso(fill.localDate, fill.localTime),
+      odometer: excelFuelOdometer(fill.registrationNumber, fill.localDate),
+      liters: fill.liters,
+      pricePerLiter: null,
+      totalCost: null,
+      station: null,
+      receiptNumber: fill.receiptNumber,
+      notes: null,
+      createdAt: now,
+      createdBy: 'fuel-august-2026-v4',
+    };
+    await this.fuelEntries.doc(fillId).set(entry);
+
+    const readingId = vehicleDayReadingDocId(met.id, MET630_AUGUST_31_2026_DATE);
+    const existingReading = (await this.vehicleDayReadings.doc(readingId).get()).data() as VehicleDayReading | undefined;
+    let startHint: number | null = existingReading?.startOdometer ?? null;
+    const assignmentDocument = await this.assignments.doc(MET630_AUGUST_31_2026_ASSIGNMENT_ID).get();
+    const assignment = assignmentDocument.data() as RouteAssignment | undefined;
+    let assignmentActualRestored = false;
+    if (assignment && assignment.status === 'completed') {
+      const route = assignment.routeSnapshot.route;
+      const assignmentStart = nullableNumber(route.start_odometer);
+      if (startHint === null) startHint = assignmentStart;
+      const restore = shouldRestoreMet630August31AssignedDistance({
+        actualDistanceKm: nullableNumber(route.actual_distance_km),
+        startOdometer: assignmentStart,
+        endOdometer: nullableNumber(route.end_odometer),
+      });
+      if (restore.restoreActual || restore.restoreOdometerSpan) {
+        const assignedOdometers = met630August31AssignedOdometers(
+          assignmentStart === null ? null : { startOdometer: assignmentStart },
+        );
+        const updatedAt = now;
+        const updated: RouteAssignment = {
+          ...assignment,
+          updatedAt,
+          routeSnapshot: {
+            ...assignment.routeSnapshot,
+            route: {
+              ...route,
+              actual_distance_km: assignedOdometers.distanceKm,
+              ...(restore.restoreOdometerSpan
+                ? { start_odometer: assignedOdometers.startOdometer, end_odometer: assignedOdometers.endOdometer }
+                : {}),
+              updated_at: updatedAt,
+            },
+          },
+        };
+        await this.assignments.doc(MET630_AUGUST_31_2026_ASSIGNMENT_ID).set(updated);
+        assignmentActualRestored = true;
+      }
+    }
+
+    const odometers = met630August31AssignedOdometers(
+      startHint === null ? null : { startOdometer: startHint },
+    );
+    const readingDriver = existingReading
+      ? { id: existingReading.driverId, name: existingReading.driverName }
+      : assignment
+        ? { id: assignment.driverId, name: assignment.driverName }
+        : { id: driver.id, name: fillDriverName };
+    const reading: VehicleDayReading = {
+      id: readingId,
+      vehicleId: met.id,
+      registrationNumber: met.registrationNumber,
+      date: MET630_AUGUST_31_2026_DATE,
+      startOdometer: odometers.startOdometer,
+      endOdometer: odometers.endOdometer,
+      distanceKm: odometers.distanceKm,
+      extraDistanceKm: odometers.extraDistanceKm,
+      driverId: readingDriver.id,
+      driverName: readingDriver.name,
+      createdAt: existingReading?.createdAt ?? now,
+      updatedAt: now,
+      createdBy: existingReading?.createdBy ?? 'fuel-august-2026-v4',
+    };
+    await this.vehicleDayReadings.doc(readingId).set(reading);
+
+    await flagRef.set({
+      id: FUEL_AUGUST_2026_V4_MIGRATION_ID,
+      status: 'applied',
+      appliedAt: now,
+      deletedFuelEntries: matchingEntries.length,
+      deletedEntryIds: matchingEntries.map((document) => document.id),
+      insertedFillId: fillId,
+      insertedLiters: fill.liters,
+      met630August31AssignedDistanceKm: MET630_AUGUST_31_2026_ASSIGNED_DISTANCE_KM,
+      met630August31ExtraDistanceKm: odometers.extraDistanceKm,
+      met630August31VehicleDistanceKm: MET630_AUGUST_31_2026_VEHICLE_DISTANCE_KM,
+      met630August31ReadingId: readingId,
+      assignmentActualRestored,
     });
     return { applied: true, reason: 'applied' };
   }
@@ -2998,6 +3170,12 @@ export function applyDayReading(sheet: ServerTripSheet, readings: VehicleDayRead
   if (!vehicleId) return sheet;
   const reading = readings.find((item) => item.vehicleId === vehicleId && item.date === sheet.date);
   if (!reading) return sheet;
+  const extraDistanceKm = extraDistanceKmOf(reading);
+  if (extraDistanceKm > 0) {
+    // Remainder km is fuel-only. Overlaying the vehicle-day total onto a
+    // completed assignment would rewrite driver wage/quality distance.
+    return { ...sheet, extraDistanceKm };
+  }
   return {
     ...sheet,
     startOdometer: reading.startOdometer,
@@ -3024,6 +3202,7 @@ export function buildVehicleDayTripSheet(reading: VehicleDayReading, vehicle: Fl
     startOdometer: reading.startOdometer,
     endOdometer: reading.endOdometer,
     actualDistanceKm: reading.distanceKm,
+    extraDistanceKm: extraDistanceKmOf(reading) > 0 ? extraDistanceKmOf(reading) : undefined,
     plannedDistanceKm: null,
     startedAt: `${reading.date}T00:00:00.000Z`,
     completedAt: `${reading.date}T23:59:59.000Z`,

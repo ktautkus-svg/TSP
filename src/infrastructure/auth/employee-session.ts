@@ -211,6 +211,8 @@ export type ServerTripSheet = {
   startOdometer: number | null;
   endOdometer: number | null;
   actualDistanceKm: number | null;
+  /** Fuel-only remainder km (other/unassigned). Not wage distance. */
+  extraDistanceKm?: number | null;
   plannedDistanceKm: number | null;
   startedAt: string | null;
   completedAt: string | null;
