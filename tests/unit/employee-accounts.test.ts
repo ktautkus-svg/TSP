@@ -108,12 +108,15 @@ describe('employee server session', () => {
     expect(employeeApiSource).toContain('applyAugust2026ExcelBackfillV2');
     expect(employeeApiSource).toContain('applyAugust2026ExcelBackfillV3');
     expect(employeeApiSource).toContain('applyAugust2026ExcelBackfillV4');
+    expect(employeeApiSource).toContain('applyAugust2026ExcelBackfillV5');
     expect(employeeApiSource.indexOf('applyAugust2026ExcelBackfill()'))
       .toBeLessThan(employeeApiSource.indexOf('applyAugust2026ExcelBackfillV2()'));
     expect(employeeApiSource.indexOf('applyAugust2026ExcelBackfillV2()'))
       .toBeLessThan(employeeApiSource.indexOf('applyAugust2026ExcelBackfillV3()'));
     expect(employeeApiSource.indexOf('applyAugust2026ExcelBackfillV3()'))
       .toBeLessThan(employeeApiSource.indexOf('applyAugust2026ExcelBackfillV4()'));
+    expect(employeeApiSource.indexOf('applyAugust2026ExcelBackfillV4()'))
+      .toBeLessThan(employeeApiSource.indexOf('applyAugust2026ExcelBackfillV5()'));
   });
 
   it('requires the PIN on every launch even when a session is cached, and keeps logout explicit', () => {

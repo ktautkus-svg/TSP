@@ -43,6 +43,16 @@ export const AUGUST_2026_EXCEL_BACKFILL_V3_ID = 'august-2026-excel-backfill-v3';
  */
 export const AUGUST_2026_EXCEL_BACKFILL_V4_ID = 'august-2026-excel-backfill-v4';
 
+/**
+ * Follow-up one-shot after v4. v4 treated Erikas R88;R86 as 08-31 work
+ * because assignment.route.date was 08-31, even though GET /api/trip-sheets
+ * lists that assignment on 08-29 (complete timestamps). Live 08-31 NLL182
+ * is a 0-stop vehicle-day (13.35 km) with no driver — not Karolis, not Erikas.
+ * v5 unassigns that vehicle-day listed driver, keeps 13.35 km, and aligns
+ * route.date off the 31st. Stops / windows / KPI are not rewritten.
+ */
+export const AUGUST_2026_EXCEL_BACKFILL_V5_ID = 'august-2026-excel-backfill-v5';
+
 export const AUGUST_2026_SNAPSHOT_VEHICLE_MODEL = 'Renault Master';
 export const AUGUST_2026_SNAPSHOT_PAYLOAD_KG = 1500;
 export const AUGUST_2026_ENSURE_FLEET_PLATES = ['LRI740', 'LRI741'] as const;
@@ -73,6 +83,13 @@ export const AUGUST_2026_ALEKSANDRAS_DRIVER_ID = '3ad054df-6d40-4279-9037-6b0e5c
 export const AUGUST_2026_PROTECTED_STUB_DATES = ['2026-08-09', '2026-08-13', '2026-08-16'] as const;
 export const AUGUST_2026_ERIKAS_0831_DATE = '2026-08-31';
 export const AUGUST_2026_ERIKAS_0831_ROUTES = ['R88', 'R86'] as const;
+/** Live Cloud Run after v4: GET /api/trip-sheets 2026-08-31 NLL182 vehicle-day. */
+export const AUGUST_2026_NLL182_0831_DATE = AUGUST_2026_ERIKAS_0831_DATE;
+export const AUGUST_2026_NLL182_0831_DAY_KM = 13.35;
+/** Live Cloud Run after v4: Erikas R88;R86, 6 stops, listed on 2026-08-29. */
+export const AUGUST_2026_ERIKAS_R88_R86_ASSIGNMENT_ID = '22b81ff2-0f67-4ab3-9bee-8ce8deb8b755';
+export const AUGUST_2026_ERIKAS_R88_R86_LISTED_DATE = '2026-08-29';
+export const AUGUST_2026_ERIKAS_R88_R86_ROUTES = AUGUST_2026_ERIKAS_0831_ROUTES;
 
 export const EXISTING_UI_ROUTE_ID = 'route-1788407220642-xh5w5ldr';
 export const EXISTING_UI_ROUTE_DATE = '2026-08-03';
@@ -668,6 +685,130 @@ export function decideAugustBackfillV4DriverSync(input: {
     return { action: 'skip', reason: 'nll182_0831_already_erikas' };
   }
   return { action: 'skip', reason: 'not_v4_target' };
+}
+
+export function isUnassignedListedDriver(snapshot: {
+  driverId: string | null | undefined;
+  driverName: string | null | undefined;
+}): boolean {
+  const id = (snapshot.driverId ?? '').trim().toLowerCase();
+  const name = normalizePersonName(snapshot.driverName ?? '');
+  if (name.startsWith('karolis') || name.startsWith('erikas') || name.startsWith('aleksandras')) {
+    return false;
+  }
+  return id === '' || id === 'unassigned' || name === '' || name === 'nepriskirtas';
+}
+
+export function nll1820831DayKmMatches(distanceKm: number | null | undefined): boolean {
+  return typeof distanceKm === 'number'
+    && Number.isFinite(distanceKm)
+    && Math.abs(distanceKm - AUGUST_2026_NLL182_0831_DAY_KM) < 0.001;
+}
+
+export function isNll1820831VehicleDayReading(reading: {
+  date: string;
+  registrationNumber?: string | null;
+  vehicleId?: string | null;
+}): boolean {
+  if (reading.date !== AUGUST_2026_NLL182_0831_DATE) return false;
+  return normalizePlate(reading.registrationNumber ?? reading.vehicleId ?? '') === 'NLL182';
+}
+
+export function isErikasR88R86Assignment(
+  assignment: Pick<AugustAssignmentLite, 'id' | 'status' | 'driverId' | 'driverName' | 'routeCodes'>,
+  erikasId?: string | null,
+): boolean {
+  if (assignment.status !== 'completed') return false;
+  if (assignment.id === AUGUST_2026_ERIKAS_R88_R86_ASSIGNMENT_ID) return true;
+  const erikas = (erikasId && assignment.driverId === erikasId)
+    || normalizePersonName(assignment.driverName).startsWith('erikas');
+  if (!erikas) return false;
+  return assignmentHasAllRouteCodes(assignment.routeCodes, AUGUST_2026_ERIKAS_R88_R86_ROUTES);
+}
+
+export function needsErikasR88R86RouteDateAlignment(
+  assignment: Pick<AugustAssignmentLite, 'id' | 'status' | 'driverId' | 'driverName' | 'routeCodes' | 'routeDate' | 'workDate'>,
+  erikasId?: string | null,
+): boolean {
+  if (!isErikasR88R86Assignment(assignment, erikasId)) return false;
+  return assignment.routeDate === AUGUST_2026_NLL182_0831_DATE
+    || assignment.workDate === AUGUST_2026_NLL182_0831_DATE;
+}
+
+/** Prefer the existing listed complete-timestamp day; never 08-31. */
+export function erikasR88R86AlignedDate(assignment: Pick<AugustAssignmentLite, 'workDate'>): string {
+  if (assignment.workDate && assignment.workDate !== AUGUST_2026_NLL182_0831_DATE) {
+    return assignment.workDate;
+  }
+  return AUGUST_2026_ERIKAS_R88_R86_LISTED_DATE;
+}
+
+export type AugustBackfillV5Decision =
+  | { action: 'unassign_vehicle_day'; reason: string; distanceKm: number }
+  | { action: 'align_route_date'; targetDate: string; reason: string }
+  | { action: 'skip'; reason: string };
+
+/**
+ * v5 never creates routes or stops. The 08-31 NLL182 row is a vehicle-day
+ * fuel/odo sheet: listed driver must be UNASSIGNED and day km 13.35.
+ */
+export function decideAugustBackfillV5VehicleDay(input: {
+  reading: {
+    date: string;
+    registrationNumber?: string | null;
+    vehicleId?: string | null;
+    driverId: string | null;
+    driverName: string | null;
+    distanceKm: number;
+  };
+}): AugustBackfillV5Decision {
+  if (!isNll1820831VehicleDayReading(input.reading)) {
+    return { action: 'skip', reason: 'not_v5_target' };
+  }
+  const listed = {
+    driverId: input.reading.driverId ?? 'unassigned',
+    driverName: input.reading.driverName ?? 'Nepriskirtas',
+  };
+  const kmOk = nll1820831DayKmMatches(input.reading.distanceKm);
+  const unassigned = isUnassignedListedDriver(listed);
+  if (unassigned && kmOk) {
+    return { action: 'skip', reason: 'nll182_0831_already_unassigned_1335' };
+  }
+  return {
+    action: 'unassign_vehicle_day',
+    reason: unassigned ? 'nll182_0831_km_not_1335' : 'nll182_0831_listed_driver_assigned',
+    distanceKm: AUGUST_2026_NLL182_0831_DAY_KM,
+  };
+}
+
+/**
+ * v5 never rewrites Erikas R88;R86 stops. If route.date (or workDate) is
+ * still 08-31, align it to the existing listed 08-29 sheet.
+ */
+export function decideAugustBackfillV5ErikasR88R86(input: {
+  assignment: AugustAssignmentLite;
+  erikasId?: string | null;
+}): AugustBackfillV5Decision {
+  if (isKarolis0819R54R11Assignment(input.assignment)) {
+    return { action: 'skip', reason: 'karolis_0819_nll182_r54_r11' };
+  }
+  if (isAleksandras0819Met630Target(input.assignment)) {
+    return { action: 'skip', reason: 'aleksandras_0819_met630' };
+  }
+  if (isAugust2026ProtectedR56StubAssignment(input.assignment)) {
+    return { action: 'skip', reason: 'protected_r56_stub' };
+  }
+  if (!needsErikasR88R86RouteDateAlignment(input.assignment, input.erikasId)) {
+    if (isErikasR88R86Assignment(input.assignment, input.erikasId)) {
+      return { action: 'skip', reason: 'erikas_r88_r86_already_off_0831' };
+    }
+    return { action: 'skip', reason: 'not_v5_target' };
+  }
+  return {
+    action: 'align_route_date',
+    targetDate: erikasR88R86AlignedDate(input.assignment),
+    reason: 'erikas_r88_r86_route_date_still_0831',
+  };
 }
 
 export function karolis0819NeedsNll182Move(assignment: Pick<AugustAssignmentLite, 'vehiclePlate' | 'vehicleId'>): boolean {

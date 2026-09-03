@@ -65,11 +65,16 @@ import {
     AUGUST_2026_EXCEL_BACKFILL_V2_ID,
     AUGUST_2026_EXCEL_BACKFILL_V3_ID,
     AUGUST_2026_EXCEL_BACKFILL_V4_ID,
+    AUGUST_2026_EXCEL_BACKFILL_V5_ID,
     AUGUST_2026_ENSURE_FLEET_PLATES,
     AUGUST_2026_LRI740_OPENING_DATE,
     AUGUST_2026_LRI740_OPENING_LITERS,
     AUGUST_2026_LRI740_OPENING_NOTE,
     AUGUST_2026_LRI740_OPENING_REPORT_ID,
+    AUGUST_2026_ERIKAS_R88_R86_ASSIGNMENT_ID,
+    AUGUST_2026_ERIKAS_R88_R86_LISTED_DATE,
+    AUGUST_2026_NLL182_0831_DATE,
+    AUGUST_2026_NLL182_0831_DAY_KM,
     AUGUST_2026_SNAPSHOT_PAYLOAD_KG,
     AUGUST_2026_SNAPSHOT_VEHICLE_MODEL,
     assignmentNeedsStubStopRewrite,
@@ -80,6 +85,8 @@ import {
     decideAugustBackfillV2GapAction,
     decideAugustBackfillV3GapAction,
     decideAugustBackfillV4DriverSync,
+    decideAugustBackfillV5ErikasR88R86,
+    decideAugustBackfillV5VehicleDay,
     geocodeQueriesCached,
     historicalWorkdayTimestamps,
     isAleksandras0819Met630RouteSet,
@@ -88,8 +95,11 @@ import {
     isAugust2026ExcelBackfillV3GapDay,
     isAugust2026ProtectedR56StubAssignment,
     isErikas0831Nll182Assignment,
+    isErikasR88R86Assignment,
     isKarolis0809Lri740Assignment,
     isKarolis0819R54R11Assignment,
+    isNll1820831VehicleDayReading,
+    isUnassignedListedDriver,
     karolis0819NeedsNll182Move,
     liteAssignmentFromSnapshot,
     loadAugust2026ExcelBackfillCatalog,
@@ -98,6 +108,7 @@ import {
     matchErikasDriver,
     matchVehicleByPlate,
     normalizePersonName,
+    nll1820831DayKmMatches,
     needsAleksandras0819DriverPatch,
     needsTripSheetListedDriverSync,
     replaceLiteAssignment,
@@ -3427,6 +3438,274 @@ export class EmployeeAuthStore {
     };
   }
 
+  /**
+   * One-shot August 2026 Excel backfill v5 — after v4. Unassigns the 08-31
+   * NLL182 vehicle-day listed driver (13.35 km, no stops) and aligns Erikas
+   * R88;R86 route.date off 08-31 so GET /api/trip-sheets keeps that work on
+   * 08-29. Does not rewrite stops, delivered_at, windows, or KPI. Does not
+   * swallow errors and still mark the flag applied.
+   * Gated by tsp_settings `august-2026-excel-backfill-v5`.
+   */
+  async applyAugust2026ExcelBackfillV5(input: {
+    nowIso?: string;
+  } = {}): Promise<{
+    applied: boolean;
+    reason: string;
+    unassignedNll1820831: number;
+    alignedErikasR88R86: number;
+    skipped: number;
+    outcomes: { date: string; driver: string; vehicle: string; action: string; reason: string }[];
+  }> {
+    const flagRef = this.settings.doc(AUGUST_2026_EXCEL_BACKFILL_V5_ID);
+    const existingFlag = await flagRef.get();
+    if (existingFlag.exists && existingFlag.data()?.status === 'applied') {
+      process.stdout.write(`${JSON.stringify({
+        event: 'august_2026_excel_backfill_v5_skip',
+        reason: 'already_applied',
+      })}\n`);
+      return {
+        applied: false,
+        reason: 'already_applied',
+        unassignedNll1820831: 0,
+        alignedErikasR88R86: 0,
+        skipped: 0,
+        outcomes: [],
+      };
+    }
+
+    const users = await this.listUsers();
+    const nowIso = input.nowIso ?? new Date().toISOString();
+    const aleksandras = matchAleksandrasDriver(users);
+    const erikas = matchErikasDriver(users);
+    const karolis = matchDriverByName(users, 'Karolis Tautkus');
+
+    process.stdout.write(`${JSON.stringify({
+      event: 'august_2026_excel_backfill_v5_start',
+      aleksandras: aleksandras ? { id: aleksandras.id, name: aleksandras.displayName } : null,
+      erikas: erikas ? { id: erikas.id, name: erikas.displayName } : null,
+      karolis: karolis ? { id: karolis.id, name: karolis.displayName } : null,
+      at: nowIso,
+    })}\n`);
+
+    const assignmentSnapshot = await this.assignments.get();
+    const rawAssignments = assignmentSnapshot.docs.map((document) => document.data() as RouteAssignment);
+    const readings = (await this.vehicleDayReadings.get()).docs.map((document) => document.data() as VehicleDayReading);
+    const aleks19Before = rawAssignments.find((assignment) => (
+      isAleksandras0819Met630Target(this.liteFromRouteAssignment(assignment))
+    ));
+    const karolis0819Before = rawAssignments.find((assignment) => (
+      isKarolis0819R54R11Assignment(this.liteFromRouteAssignment(assignment))
+    ));
+    const aleks19Fingerprint = aleks19Before ? august2026AssignmentFingerprint(aleks19Before) : null;
+    const karolis0819Fingerprint = karolis0819Before ? august2026AssignmentFingerprint(karolis0819Before) : null;
+    const erikasStopsBefore = new Map(
+      rawAssignments
+        .filter((assignment) => isErikasR88R86Assignment(this.liteFromRouteAssignment(assignment), erikas?.id ?? null))
+        .map((assignment) => [assignment.id, august2026AssignmentFingerprint(assignment)]),
+    );
+
+    const outcomes: { date: string; driver: string; vehicle: string; action: string; reason: string }[] = [];
+    let unassignedNll1820831 = 0;
+    let alignedErikasR88R86 = 0;
+    let skipped = 0;
+
+    const nll0831Reading = readings.find((reading) => isNll1820831VehicleDayReading(reading));
+    if (!nll0831Reading) {
+      process.stdout.write(`${JSON.stringify({
+        event: 'august_2026_excel_backfill_v5_verify_failed',
+        missing: 'nll182_2026_08_31_vehicle_day',
+      })}\n`);
+      throw new Error('August 2026 excel backfill v5: 2026-08-31 NLL182 vehicle-day reading is still missing; refusing to no-op.');
+    }
+
+    const vehicleDayDecision = decideAugustBackfillV5VehicleDay({ reading: nll0831Reading });
+    if (vehicleDayDecision.action === 'unassign_vehicle_day') {
+      process.stdout.write(`${JSON.stringify({
+        event: 'august_2026_excel_backfill_v5_unassign_vehicle_day',
+        readingId: nll0831Reading.id,
+        fromDriverId: nll0831Reading.driverId,
+        fromDriverName: nll0831Reading.driverName,
+        fromDistanceKm: nll0831Reading.distanceKm,
+        toDistanceKm: vehicleDayDecision.distanceKm,
+        reason: vehicleDayDecision.reason,
+      })}\n`);
+      await this.vehicleDayReadings.doc(nll0831Reading.id).set(
+        applyUnassignedDriverToVehicleDayReading(nll0831Reading, {
+          updatedAt: nowIso,
+          distanceKm: vehicleDayDecision.distanceKm,
+        }),
+      );
+      unassignedNll1820831 += 1;
+      outcomes.push({
+        date: AUGUST_2026_NLL182_0831_DATE,
+        driver: 'Nepriskirtas',
+        vehicle: 'NLL182',
+        action: 'unassign_vehicle_day',
+        reason: vehicleDayDecision.reason,
+      });
+    } else {
+      skipped += 1;
+      outcomes.push({
+        date: AUGUST_2026_NLL182_0831_DATE,
+        driver: nll0831Reading.driverName ?? 'Nepriskirtas',
+        vehicle: 'NLL182',
+        action: 'skip',
+        reason: vehicleDayDecision.reason,
+      });
+    }
+
+    for (const assignment of rawAssignments) {
+      const lite = this.liteFromRouteAssignment(assignment);
+      const decision = decideAugustBackfillV5ErikasR88R86({
+        assignment: lite,
+        erikasId: erikas?.id ?? null,
+      });
+      if (decision.action !== 'align_route_date') {
+        if (decision.reason !== 'not_v5_target') {
+          skipped += 1;
+          outcomes.push({
+            date: lite.workDate ?? lite.routeDate ?? '',
+            driver: assignment.driverName,
+            vehicle: lite.vehiclePlate ?? '',
+            action: 'skip',
+            reason: decision.reason,
+          });
+        }
+        continue;
+      }
+
+      process.stdout.write(`${JSON.stringify({
+        event: 'august_2026_excel_backfill_v5_align_route_date',
+        assignmentId: assignment.id,
+        fromRouteDate: lite.routeDate,
+        fromWorkDate: lite.workDate,
+        toDate: decision.targetDate,
+        reason: decision.reason,
+        routes: lite.routeCodes,
+        stops: lite.visibleStopCount,
+      })}\n`);
+      const updated = applyCompletedAssignmentRouteDateAlignment(assignment, decision.targetDate, nowIso, {
+        shiftWorkClocksFromDate: AUGUST_2026_NLL182_0831_DATE,
+      });
+      await this.assignments.doc(assignment.id).set(updated);
+      alignedErikasR88R86 += 1;
+      outcomes.push({
+        date: decision.targetDate,
+        driver: assignment.driverName,
+        vehicle: lite.vehiclePlate ?? 'NLL182',
+        action: 'align_route_date',
+        reason: decision.reason,
+      });
+    }
+
+    const refreshedRaw = (await this.assignments.get()).docs.map((document) => document.data() as RouteAssignment);
+    const refreshedReadings = (await this.vehicleDayReadings.get()).docs.map((document) => document.data() as VehicleDayReading);
+    const refreshedNll0831 = refreshedReadings.find((reading) => isNll1820831VehicleDayReading(reading));
+    if (!refreshedNll0831) {
+      throw new Error('August 2026 excel backfill v5: 2026-08-31 NLL182 vehicle-day reading disappeared.');
+    }
+    const listed0831 = buildVehicleDayTripSheet(refreshedNll0831, null);
+    if (!isUnassignedListedDriver(listed0831)) {
+      process.stdout.write(`${JSON.stringify({
+        event: 'august_2026_excel_backfill_v5_verify_failed',
+        missing: 'nll182_2026_08_31_unassigned_driver',
+        listedDriverId: listed0831.driverId,
+        listedDriverName: listed0831.driverName,
+      })}\n`);
+      throw new Error('August 2026 excel backfill v5: GET /api/trip-sheets 2026-08-31 NLL182 driver is still assigned.');
+    }
+    if (!nll1820831DayKmMatches(refreshedNll0831.distanceKm) || !nll1820831DayKmMatches(listed0831.actualDistanceKm)) {
+      process.stdout.write(`${JSON.stringify({
+        event: 'august_2026_excel_backfill_v5_verify_failed',
+        missing: 'nll182_2026_08_31_1335_km',
+        distanceKm: refreshedNll0831.distanceKm,
+        actualDistanceKm: listed0831.actualDistanceKm,
+      })}\n`);
+      throw new Error(`August 2026 excel backfill v5: GET /api/trip-sheets 2026-08-31 NLL182 day km is not ${AUGUST_2026_NLL182_0831_DAY_KM}.`);
+    }
+    if (listed0831.totalStops !== 0) {
+      throw new Error('August 2026 excel backfill v5: refused to invent 2026-08-31 NLL182 stops.');
+    }
+
+    const erikasStill0831 = refreshedRaw.find((assignment) => (
+      isErikas0831Nll182Assignment(this.liteFromRouteAssignment(assignment), erikas?.id ?? null)
+    ));
+    if (erikasStill0831) {
+      process.stdout.write(`${JSON.stringify({
+        event: 'august_2026_excel_backfill_v5_verify_failed',
+        missing: 'erikas_r88_r86_not_on_0831',
+        assignmentId: erikasStill0831.id,
+        routeDate: erikasStill0831.routeSnapshot.route.date,
+        workDate: tripSheetWorkDate(erikasStill0831),
+      })}\n`);
+      throw new Error('August 2026 excel backfill v5: Erikas R88;R86 is still attributed to 2026-08-31.');
+    }
+
+    const erikasR88R86 = refreshedRaw.find((assignment) => assignment.id === AUGUST_2026_ERIKAS_R88_R86_ASSIGNMENT_ID)
+      ?? refreshedRaw.find((assignment) => (
+        isErikasR88R86Assignment(this.liteFromRouteAssignment(assignment), erikas?.id ?? null)
+        && tripSheetWorkDate(assignment) === AUGUST_2026_ERIKAS_R88_R86_LISTED_DATE
+      ));
+    if (!erikasR88R86) {
+      process.stdout.write(`${JSON.stringify({
+        event: 'august_2026_excel_backfill_v5_verify_failed',
+        missing: 'erikas_r88_r86_assignment',
+      })}\n`);
+      throw new Error('August 2026 excel backfill v5: Erikas R88;R86 assignment is still missing; refusing to no-op.');
+    }
+    if (tripSheetWorkDate(erikasR88R86) === AUGUST_2026_NLL182_0831_DATE) {
+      throw new Error('August 2026 excel backfill v5: GET /api/trip-sheets still lists Erikas R88;R86 on 2026-08-31.');
+    }
+    const erikasLite = this.liteFromRouteAssignment(erikasR88R86);
+    if (erikasLite.routeDate === AUGUST_2026_NLL182_0831_DATE) {
+      throw new Error('August 2026 excel backfill v5: Erikas R88;R86 route.date is still 2026-08-31.');
+    }
+    const erikasStopsAfter = august2026AssignmentFingerprint(erikasR88R86);
+    const erikasStopsExpected = erikasStopsBefore.get(erikasR88R86.id);
+    if (erikasStopsExpected && erikasStopsAfter !== erikasStopsExpected) {
+      throw new Error('August 2026 excel backfill v5: Erikas R88;R86 stops/windows/KPI were rewritten.');
+    }
+
+    const aleks19After = refreshedRaw.find((assignment) => isAleksandras0819Met630Target(this.liteFromRouteAssignment(assignment)));
+    if (!aleks19After) {
+      throw new Error('August 2026 excel backfill v5: 2026-08-19 MET630 R14;R27;R28;R51 sheet is still missing.');
+    }
+    if (aleks19Fingerprint && august2026AssignmentFingerprint(aleks19After) !== aleks19Fingerprint) {
+      throw new Error('August 2026 excel backfill v5: Aleksandras 2026-08-19 MET630 sheet was rewritten.');
+    }
+
+    const karolis0819After = refreshedRaw.find((assignment) => isKarolis0819R54R11Assignment(this.liteFromRouteAssignment(assignment)));
+    if (karolis0819Fingerprint && karolis0819After && august2026AssignmentFingerprint(karolis0819After) !== karolis0819Fingerprint) {
+      throw new Error('August 2026 excel backfill v5: Karolis 2026-08-19 NLL182 R54;R11 sheet was rewritten.');
+    }
+
+    await flagRef.set({
+      id: AUGUST_2026_EXCEL_BACKFILL_V5_ID,
+      status: 'applied',
+      appliedAt: nowIso,
+      unassignedNll1820831,
+      alignedErikasR88R86,
+      skipped,
+      nll1820831ReadingId: refreshedNll0831.id,
+      erikasR88R86AssignmentId: erikasR88R86.id,
+      outcomes,
+    });
+    process.stdout.write(`${JSON.stringify({
+      event: 'august_2026_excel_backfill_v5_applied',
+      unassignedNll1820831,
+      alignedErikasR88R86,
+      skipped,
+    })}\n`);
+    return {
+      applied: true,
+      reason: 'applied',
+      unassignedNll1820831,
+      alignedErikasR88R86,
+      skipped,
+      outcomes,
+    };
+  }
+
   private liteFromRouteAssignment(assignment: RouteAssignment): AugustAssignmentLite {
     return liteAssignmentFromSnapshot({
       id: assignment.id,
@@ -4448,6 +4727,68 @@ export function applyTripSheetDriverCorrectionToDayReading(
     driverId: input.driverId,
     driverName: input.driverName,
     updatedAt: input.updatedAt,
+  };
+}
+
+/** Clears the listed driver on a vehicle-day reading without touching odometers. */
+export function applyUnassignedDriverToVehicleDayReading(
+  existing: VehicleDayReading,
+  input: {
+    updatedAt: string;
+    distanceKm?: number;
+  },
+): VehicleDayReading {
+  return {
+    ...existing,
+    driverId: null,
+    driverName: null,
+    ...(input.distanceKm !== undefined ? { distanceKm: input.distanceKm } : {}),
+    updatedAt: input.updatedAt,
+  };
+}
+
+/**
+ * Aligns a completed assignment's stored route.date. Stops, shipment lines,
+ * delivered_at, windows, odometer and driver stay by object spread. Work
+ * clocks (started_at / completed_at) shift only when they still fall on
+ * `shiftWorkClocksFromDate`.
+ */
+export function applyCompletedAssignmentRouteDateAlignment(
+  assignment: RouteAssignment,
+  date: string,
+  updatedAt: string,
+  options: { shiftWorkClocksFromDate?: string } = {},
+): RouteAssignment {
+  const route = assignment.routeSnapshot.route;
+  const withPrefix = (value: unknown): string | undefined => {
+    const text = optionalText(value);
+    if (!text || !/^\d{4}-\d{2}-\d{2}T/.test(text)) return undefined;
+    return `${date}${text.slice(10)}`;
+  };
+  const plannedDepartureAt = withPrefix(route.planned_departure_at);
+  const shiftWorkClock = (value: unknown): string | undefined => {
+    if (!options.shiftWorkClocksFromDate) return undefined;
+    const text = optionalText(value);
+    if (!text || !/^\d{4}-\d{2}-\d{2}T/.test(text)) return undefined;
+    if (lithuanianDateKey(text) !== options.shiftWorkClocksFromDate) return undefined;
+    return `${date}${text.slice(10)}`;
+  };
+  const shiftedStarted = shiftWorkClock(route.started_at);
+  const shiftedCompleted = shiftWorkClock(route.completed_at);
+  return {
+    ...assignment,
+    updatedAt,
+    routeSnapshot: {
+      ...assignment.routeSnapshot,
+      route: {
+        ...route,
+        date,
+        ...(plannedDepartureAt ? { planned_departure_at: plannedDepartureAt } : {}),
+        ...(shiftedStarted ? { started_at: shiftedStarted } : {}),
+        ...(shiftedCompleted ? { completed_at: shiftedCompleted } : {}),
+        updated_at: updatedAt,
+      },
+    },
   };
 }
 

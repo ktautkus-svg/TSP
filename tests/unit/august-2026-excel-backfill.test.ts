@@ -10,6 +10,8 @@ import {
   AUGUST_2026_DUAL_SHEET_DATE,
   AUGUST_2026_ERIKAS_0831_DATE,
   AUGUST_2026_ERIKAS_0831_ROUTES,
+  AUGUST_2026_ERIKAS_R88_R86_ASSIGNMENT_ID,
+  AUGUST_2026_ERIKAS_R88_R86_LISTED_DATE,
   AUGUST_2026_ENSURE_FLEET_PLATES,
   AUGUST_2026_LRI740_FUEL_NORM_L_PER_100KM,
   AUGUST_2026_LRI740_OPENING_DATE,
@@ -18,6 +20,8 @@ import {
   AUGUST_2026_LRI740_TANK_LITERS,
   AUGUST_2026_LRI741_FUEL_NORM_L_PER_100KM,
   AUGUST_2026_LRI741_TANK_LITERS,
+  AUGUST_2026_NLL182_0831_DATE,
+  AUGUST_2026_NLL182_0831_DAY_KM,
   assignmentNeedsStubStopRewrite,
   august2026EnsureFleetPlateSpecs,
   august2026EnsureFleetVehicleCreateInput,
@@ -25,6 +29,7 @@ import {
   AUGUST_2026_EXCEL_BACKFILL_V2_ID,
   AUGUST_2026_EXCEL_BACKFILL_V3_ID,
   AUGUST_2026_EXCEL_BACKFILL_V4_ID,
+  AUGUST_2026_EXCEL_BACKFILL_V5_ID,
   AUGUST_2026_EXCEL_DAY_FILES,
   AUGUST_2026_KAROLIS_0819_ROUTES,
   AUGUST_2026_LEGACY_COMBINED_FILES,
@@ -40,6 +45,9 @@ import {
   decideAugustBackfillV2GapAction,
   decideAugustBackfillV3GapAction,
   decideAugustBackfillV4DriverSync,
+  decideAugustBackfillV5ErikasR88R86,
+  decideAugustBackfillV5VehicleDay,
+  erikasR88R86AlignedDate,
   excelAddressToGeocodeQuery,
   geocodeQueriesCached,
   historicalWorkdayTimestamps,
@@ -51,8 +59,11 @@ import {
   isAugust2026ProtectedR56StubAssignment,
   isAugust2026SkipDay,
   isErikas0831Nll182Assignment,
+  isErikasR88R86Assignment,
   isKarolis0809Lri740Assignment,
   isKarolis0819R54R11Assignment,
+  isNll1820831VehicleDayReading,
+  isUnassignedListedDriver,
   karolis0819NeedsNll182Move,
   karolisAugust19Nll182VehicleFix,
   liteAssignmentFromSnapshot,
@@ -60,7 +71,9 @@ import {
   matchAleksandrasDriver,
   matchDriverByName,
   matchErikasDriver,
+  needsErikasR88R86RouteDateAlignment,
   needsTripSheetListedDriverSync,
+  nll1820831DayKmMatches,
   matchVehicleByPlate,
   needsAleksandras0819DriverPatch,
   resolveAugustBackfillDirectory,
@@ -71,10 +84,13 @@ import {
   visibleBackfillStopCount,
 } from '../../src/domain/august-2026-excel-backfill';
 import {
+  applyCompletedAssignmentRouteDateAlignment,
   applyDayReading,
   applyTripSheetDriverCorrectionToDayReading,
   applyTripSheetVehicleDriverCorrection,
+  applyUnassignedDriverToVehicleDayReading,
   buildServerTripSheet,
+  buildVehicleDayTripSheet,
   listedTripSheetDriver,
   tripSheetWorkDate,
   type RouteAssignment,
@@ -128,6 +144,8 @@ describe('August 2026 Excel trip-sheet backfill catalog', () => {
     expect(AUGUST_2026_EXCEL_BACKFILL_V3_ID).toBe('august-2026-excel-backfill-v3');
     expect(AUGUST_2026_EXCEL_BACKFILL_V2_ID).not.toBe(AUGUST_2026_EXCEL_BACKFILL_ID);
     expect(AUGUST_2026_EXCEL_BACKFILL_V3_ID).not.toBe(AUGUST_2026_EXCEL_BACKFILL_V2_ID);
+    expect(AUGUST_2026_EXCEL_BACKFILL_V4_ID).not.toBe(AUGUST_2026_EXCEL_BACKFILL_V3_ID);
+    expect(AUGUST_2026_EXCEL_BACKFILL_V5_ID).not.toBe(AUGUST_2026_EXCEL_BACKFILL_V4_ID);
     expect(AUGUST_2026_EXCEL_BACKFILL_ID).not.toBe(FUEL_AUGUST_2026_MIGRATION_ID);
     expect(AUGUST_2026_EXCEL_BACKFILL_ID).not.toBe(TRIP_SHEET_AUGUST_2026_VEHICLE_FIX_ID);
     expect(EXISTING_UI_ROUTE_ID).toBe('route-1788407220642-xh5w5ldr');
@@ -458,6 +476,7 @@ describe('August 2026 Excel backfill decisions and snapshots', () => {
       expect(backfillBlock).toContain('async applyAugust2026ExcelBackfillV2');
       expect(backfillBlock).toContain('async applyAugust2026ExcelBackfillV3');
       expect(backfillBlock).toContain('async applyAugust2026ExcelBackfillV4');
+      expect(backfillBlock).toContain('async applyAugust2026ExcelBackfillV5');
       expect(backfillBlock).not.toMatch(/distancematrix|\/v1\/matrix|computeRouteMatrix/i);
       expect(backfillBlock).not.toContain('this.assignVehicle');
       expect(backfillBlock).not.toContain('await this.assignVehicle');
@@ -471,10 +490,12 @@ describe('August 2026 Excel backfill Cloud Run wiring', () => {
     expect(storeSource).toContain('async applyAugust2026ExcelBackfillV2');
     expect(storeSource).toContain('async applyAugust2026ExcelBackfillV3');
     expect(storeSource).toContain('async applyAugust2026ExcelBackfillV4');
+    expect(storeSource).toContain('async applyAugust2026ExcelBackfillV5');
     expect(storeSource).toContain('AUGUST_2026_EXCEL_BACKFILL_ID');
     expect(storeSource).toContain('AUGUST_2026_EXCEL_BACKFILL_V2_ID');
     expect(storeSource).toContain('AUGUST_2026_EXCEL_BACKFILL_V3_ID');
     expect(storeSource).toContain('AUGUST_2026_EXCEL_BACKFILL_V4_ID');
+    expect(storeSource).toContain('AUGUST_2026_EXCEL_BACKFILL_V5_ID');
     expect(storeSource).toContain("from '../src/domain/august-2026-excel-backfill.js'");
     expect(storeSource).toContain('do not call assignVehicle');
     expect(storeSource).toContain('markAllDelivered: true');
@@ -490,12 +511,15 @@ describe('August 2026 Excel backfill Cloud Run wiring', () => {
     expect(apiSource).toContain('await store.applyAugust2026ExcelBackfillV2()');
     expect(apiSource).toContain('await store.applyAugust2026ExcelBackfillV3()');
     expect(apiSource).toContain('await store.applyAugust2026ExcelBackfillV4()');
+    expect(apiSource).toContain('await store.applyAugust2026ExcelBackfillV5()');
     expect(apiSource.indexOf('await store.applyAugust2026ExcelBackfill()'))
       .toBeLessThan(apiSource.indexOf('await store.applyAugust2026ExcelBackfillV2()'));
     expect(apiSource.indexOf('await store.applyAugust2026ExcelBackfillV2()'))
       .toBeLessThan(apiSource.indexOf('await store.applyAugust2026ExcelBackfillV3()'));
     expect(apiSource.indexOf('await store.applyAugust2026ExcelBackfillV3()'))
       .toBeLessThan(apiSource.indexOf('await store.applyAugust2026ExcelBackfillV4()'));
+    expect(apiSource.indexOf('await store.applyAugust2026ExcelBackfillV4()'))
+      .toBeLessThan(apiSource.indexOf('await store.applyAugust2026ExcelBackfillV5()'));
     expect(apiSource).toContain('await ensureAugust2026ExcelBackfillMigrated()');
     expect(productionServer).toContain('await ensureAugust2026ExcelBackfillMigrated()');
     expect(productionServer.indexOf('await ensureFuelAugust2026Migrated()'))
@@ -512,6 +536,7 @@ describe('August 2026 Excel backfill Cloud Run wiring', () => {
     expect(listTripSheetsBlock).not.toContain('applyAugust2026ExcelBackfillV2');
     expect(listTripSheetsBlock).not.toContain('applyAugust2026ExcelBackfillV3');
     expect(listTripSheetsBlock).not.toContain('applyAugust2026ExcelBackfillV4');
+    expect(listTripSheetsBlock).not.toContain('applyAugust2026ExcelBackfillV5');
     expect(listTripSheetsBlock).not.toContain('ensureLri740AugustOpeningFuel');
     expect(listTripSheetsBlock).not.toContain('applyFuelAugust2026V2Migration');
     expect(listTripSheetsBlock).not.toContain('applyTripSheetAugust2026VehicleFix');
@@ -1271,7 +1296,7 @@ describe('August 2026 Excel backfill v4 listed-driver sync', () => {
 
     const v4Block = storeSource.slice(
       storeSource.indexOf('async applyAugust2026ExcelBackfillV4'),
-      storeSource.indexOf('private liteFromRouteAssignment'),
+      storeSource.indexOf('async applyAugust2026ExcelBackfillV5'),
     );
     expect(v4Block).not.toContain('rewriteAugustBackfillEmptyStub');
     expect(v4Block).not.toContain('inventStubStop');
@@ -1292,6 +1317,296 @@ describe('August 2026 Excel backfill v4 listed-driver sync', () => {
     expect(apiSource).toContain('await store.applyAugust2026ExcelBackfillV4()');
     expect(apiSource.indexOf('await store.applyAugust2026ExcelBackfillV3()'))
       .toBeLessThan(apiSource.indexOf('await store.applyAugust2026ExcelBackfillV4()'));
+    expect(apiSource.indexOf('await store.applyAugust2026ExcelBackfillV4()'))
+      .toBeLessThan(apiSource.indexOf('await store.applyAugust2026ExcelBackfillV5()'));
     expect(productionServer).toContain('v4 syncs listed trip-sheet driver');
+    expect(productionServer).toContain('v5 unassigns 08-31 NLL182');
+  });
+});
+
+describe('August 2026 Excel backfill v5 NLL182 08-31 unassign', () => {
+  const catalog = loadAugust2026ExcelBackfillCatalog();
+  const aleks19 = catalog.days.find((day) => day.sourceFile === 'aleksandras-19.json')!;
+
+  function nll1820831Reading(driverId: string | null, driverName: string | null, distanceKm = AUGUST_2026_NLL182_0831_DAY_KM): VehicleDayReading {
+    return {
+      id: 'NLL182:2026-08-31',
+      vehicleId: 'NLL182',
+      registrationNumber: 'NLL182',
+      date: AUGUST_2026_NLL182_0831_DATE,
+      startOdometer: 283151,
+      endOdometer: 283165,
+      distanceKm,
+      driverId,
+      driverName,
+      createdAt: NOW,
+      updatedAt: NOW,
+      createdBy: 'gps-import',
+    };
+  }
+
+  function erikasR88R86Assignment(input: {
+    id?: string;
+    routeDate: string;
+    startedAt: string;
+    completedAt: string;
+  }): RouteAssignment {
+    const stops = Array.from({ length: 6 }, (_, index) => ({
+      order_number: `R88-${index + 1}`,
+      notes: index < 3 ? 'R88' : 'R86',
+      delivered_at: '2026-08-29T08:12:00.000Z',
+      delivery_status: 'delivered',
+      delivery_time_from: '08:00',
+      delivery_time_to: '15:00',
+      weight_kg: 120,
+    }));
+    return {
+      id: input.id ?? AUGUST_2026_ERIKAS_R88_R86_ASSIGNMENT_ID,
+      routeId: 'route-erikas-r88-r86',
+      driverId: ERIKAS_ASKELOVICIUS_DRIVER_ID,
+      driverName: ERIKAS_ASKELOVICIUS_DISPLAY_NAME,
+      status: 'completed',
+      progress: { totalStops: 6, completedStops: 6, remainingStops: 0, percent: 100 },
+      createdBy: 'live',
+      assignedAt: '2026-08-29T03:00:00.000Z',
+      updatedAt: '2026-08-29T13:30:00.000Z',
+      vehicle: { id: 'NLL182', registrationNumber: 'NLL182', model: 'Renault Master', maximumPayloadKg: 1500 },
+      routeSnapshot: {
+        route: {
+          id: 'route-erikas-r88-r86',
+          date: input.routeDate,
+          status: 'completed',
+          start_odometer: 283141,
+          end_odometer: 283141,
+          actual_distance_km: 0,
+          started_at: input.startedAt,
+          completed_at: input.completedAt,
+        },
+        stops,
+        shipmentLines: [
+          { route_code: 'R88', order_number: 'R88-1' },
+          { route_code: 'R86', order_number: 'R86-1' },
+        ],
+      },
+    };
+  }
+
+  it('keeps a distinct v5 flag after v4', () => {
+    expect(AUGUST_2026_EXCEL_BACKFILL_V5_ID).toBe('august-2026-excel-backfill-v5');
+    expect(AUGUST_2026_EXCEL_BACKFILL_V5_ID).not.toBe(AUGUST_2026_EXCEL_BACKFILL_ID);
+    expect(AUGUST_2026_EXCEL_BACKFILL_V5_ID).not.toBe(AUGUST_2026_EXCEL_BACKFILL_V2_ID);
+    expect(AUGUST_2026_EXCEL_BACKFILL_V5_ID).not.toBe(AUGUST_2026_EXCEL_BACKFILL_V3_ID);
+    expect(AUGUST_2026_EXCEL_BACKFILL_V5_ID).not.toBe(AUGUST_2026_EXCEL_BACKFILL_V4_ID);
+    expect(AUGUST_2026_ERIKAS_R88_R86_ASSIGNMENT_ID).toBe('22b81ff2-0f67-4ab3-9bee-8ce8deb8b755');
+    expect(AUGUST_2026_ERIKAS_R88_R86_LISTED_DATE).toBe('2026-08-29');
+    expect(AUGUST_2026_NLL182_0831_DATE).toBe('2026-08-31');
+    expect(AUGUST_2026_NLL182_0831_DAY_KM).toBe(13.35);
+    expect(readme).toContain('august-2026-excel-backfill-v5');
+    expect(readme).toContain('13.35');
+    expect(readme).toContain('22b81ff2-0f67-4ab3-9bee-8ce8deb8b755');
+  });
+
+  it('lists 08-31 NLL182 as unassigned 13.35 km with no invented stops', () => {
+    const live = nll1820831Reading(KAROLIS_TAUTKUS_DRIVER_ID, 'Karolis Tautkus', 13.35);
+    expect(isNll1820831VehicleDayReading(live)).toBe(true);
+    expect(nll1820831DayKmMatches(live.distanceKm)).toBe(true);
+    expect(buildVehicleDayTripSheet(live, {
+      id: 'NLL182', registrationNumber: 'NLL182', model: 'Renault Master', maximumPayloadKg: 1500,
+    })).toMatchObject({
+      assignmentId: 'vehicle-day-NLL182-2026-08-31',
+      date: '2026-08-31',
+      driverId: KAROLIS_TAUTKUS_DRIVER_ID,
+      driverName: 'Karolis Tautkus',
+      actualDistanceKm: 13.35,
+      totalStops: 0,
+      routeNumbers: [],
+    });
+    expect(decideAugustBackfillV5VehicleDay({ reading: live })).toMatchObject({
+      action: 'unassign_vehicle_day',
+      reason: 'nll182_0831_listed_driver_assigned',
+      distanceKm: 13.35,
+    });
+
+    const unassigned = applyUnassignedDriverToVehicleDayReading(live, {
+      updatedAt: NOW,
+      distanceKm: AUGUST_2026_NLL182_0831_DAY_KM,
+    });
+    expect(unassigned).toMatchObject({
+      driverId: null,
+      driverName: null,
+      startOdometer: 283151,
+      endOdometer: 283165,
+      distanceKm: 13.35,
+    });
+    expect(isUnassignedListedDriver(unassigned)).toBe(true);
+    const listed = buildVehicleDayTripSheet(unassigned, {
+      id: 'NLL182', registrationNumber: 'NLL182', model: 'Renault Master', maximumPayloadKg: 1500,
+    });
+    expect(listed).toMatchObject({
+      assignmentId: 'vehicle-day-NLL182-2026-08-31',
+      driverId: 'unassigned',
+      driverName: 'Nepriskirtas',
+      actualDistanceKm: 13.35,
+      totalStops: 0,
+    });
+    expect(isUnassignedListedDriver(listed)).toBe(true);
+    expect(decideAugustBackfillV5VehicleDay({ reading: unassigned })).toMatchObject({
+      action: 'skip',
+      reason: 'nll182_0831_already_unassigned_1335',
+    });
+  });
+
+  it('does not put Erikas R88;R86 on 08-31 and keeps the 08-29 listed sheet', () => {
+    const live = erikasR88R86Assignment({
+      routeDate: '2026-08-31',
+      startedAt: '2026-08-29T06:00:00.000+03:00',
+      completedAt: '2026-08-29T16:30:00.000+03:00',
+    });
+    const lite = liteAssignmentFromSnapshot({
+      id: live.id,
+      routeId: live.routeId,
+      driverId: live.driverId,
+      driverName: live.driverName,
+      status: live.status,
+      vehicle: live.vehicle,
+      route: live.routeSnapshot.route,
+      stops: live.routeSnapshot.stops,
+      shipmentLines: live.routeSnapshot.shipmentLines,
+    });
+    expect(isErikasR88R86Assignment(lite, ERIKAS_ASKELOVICIUS_DRIVER_ID)).toBe(true);
+    expect(isErikas0831Nll182Assignment(lite, ERIKAS_ASKELOVICIUS_DRIVER_ID)).toBe(true);
+    expect(tripSheetWorkDate(live)).toBe(AUGUST_2026_ERIKAS_R88_R86_LISTED_DATE);
+    expect(needsErikasR88R86RouteDateAlignment(lite, ERIKAS_ASKELOVICIUS_DRIVER_ID)).toBe(true);
+    expect(erikasR88R86AlignedDate(lite)).toBe('2026-08-29');
+    expect(decideAugustBackfillV5ErikasR88R86({
+      assignment: lite,
+      erikasId: ERIKAS_ASKELOVICIUS_DRIVER_ID,
+    })).toMatchObject({
+      action: 'align_route_date',
+      targetDate: '2026-08-29',
+      reason: 'erikas_r88_r86_route_date_still_0831',
+    });
+
+    const aligned = applyCompletedAssignmentRouteDateAlignment(live, '2026-08-29', NOW, {
+      shiftWorkClocksFromDate: '2026-08-31',
+    });
+    expect(aligned.routeSnapshot.route.date).toBe('2026-08-29');
+    expect(aligned.routeSnapshot.route.started_at).toBe('2026-08-29T06:00:00.000+03:00');
+    expect(aligned.routeSnapshot.route.completed_at).toBe('2026-08-29T16:30:00.000+03:00');
+    expect(aligned.routeSnapshot.stops).toBe(live.routeSnapshot.stops);
+    expect(aligned.routeSnapshot.shipmentLines).toBe(live.routeSnapshot.shipmentLines);
+    expect(aligned.routeSnapshot.stops[0]).toMatchObject({
+      delivered_at: '2026-08-29T08:12:00.000Z',
+      delivery_status: 'delivered',
+      delivery_time_from: '08:00',
+      delivery_time_to: '15:00',
+    });
+    expect(aligned.driverId).toBe(ERIKAS_ASKELOVICIUS_DRIVER_ID);
+    expect(tripSheetWorkDate(aligned)).toBe('2026-08-29');
+    const alignedLite = liteAssignmentFromSnapshot({
+      id: aligned.id,
+      routeId: aligned.routeId,
+      driverId: aligned.driverId,
+      driverName: aligned.driverName,
+      status: aligned.status,
+      vehicle: aligned.vehicle,
+      route: aligned.routeSnapshot.route,
+      stops: aligned.routeSnapshot.stops,
+      shipmentLines: aligned.routeSnapshot.shipmentLines,
+    });
+    expect(isErikas0831Nll182Assignment(alignedLite, ERIKAS_ASKELOVICIUS_DRIVER_ID)).toBe(false);
+    expect(needsErikasR88R86RouteDateAlignment(alignedLite, ERIKAS_ASKELOVICIUS_DRIVER_ID)).toBe(false);
+    expect(decideAugustBackfillV5ErikasR88R86({
+      assignment: alignedLite,
+      erikasId: ERIKAS_ASKELOVICIUS_DRIVER_ID,
+    })).toMatchObject({ action: 'skip', reason: 'erikas_r88_r86_already_off_0831' });
+  });
+
+  it('leaves 08-19 Aleks MET and Karolis NLL, and the 08-26 Erikas R88;R86, alone', () => {
+    const met630 = liteAssignmentFromSnapshot({
+      id: AUGUST_2026_ALEKSANDRAS_0819_ASSIGNMENT_ID,
+      routeId: 'route-aug2026-aleks-0819-xlsx',
+      driverId: AUGUST_2026_ALEKSANDRAS_DRIVER_ID,
+      driverName: 'Aleksandras Arsenij',
+      status: 'completed',
+      vehicle: { id: 'MET630', registrationNumber: 'MET630' },
+      route: { id: 'route-aug2026-aleks-0819-xlsx', date: '2026-08-19', started_at: '2026-08-19T06:00:00.000+03:00' },
+      stops: aleks19.stops.map((stop) => ({ order_number: stop.orderNo, notes: stop.routeCode })),
+      shipmentLines: aleks19.stops.map((stop) => ({ route_code: stop.routeCode, order_number: stop.orderNo })),
+    });
+    expect(decideAugustBackfillV5ErikasR88R86({
+      assignment: met630,
+      erikasId: ERIKAS_ASKELOVICIUS_DRIVER_ID,
+    })).toMatchObject({ action: 'skip', reason: 'aleksandras_0819_met630' });
+
+    const karolisNll = liteAssignmentFromSnapshot({
+      id: karolisAugust19Nll182VehicleFix().assignmentId,
+      routeId: 'route-karolis-0819-nll',
+      driverId: KAROLIS_TAUTKUS_DRIVER_ID,
+      driverName: 'Karolis Tautkus',
+      status: 'completed',
+      vehicle: { id: 'NLL182', registrationNumber: 'NLL182' },
+      route: { id: 'route-karolis-0819-nll', date: '2026-08-19', started_at: '2026-08-19T06:00:00.000+03:00' },
+      stops: [
+        { order_number: 'R54-1', notes: 'R54' },
+        { order_number: 'R11-1', notes: 'R11' },
+      ],
+      shipmentLines: [
+        { route_code: 'R54', order_number: 'R54-1' },
+        { route_code: 'R11', order_number: 'R11-1' },
+      ],
+    });
+    expect(decideAugustBackfillV5ErikasR88R86({
+      assignment: karolisNll,
+      erikasId: ERIKAS_ASKELOVICIUS_DRIVER_ID,
+    })).toMatchObject({ action: 'skip', reason: 'karolis_0819_nll182_r54_r11' });
+
+    const erikas0826 = liteAssignmentFromSnapshot({
+      id: 'e6f915ef-fb5e-4487-a455-5016921ce41f',
+      routeId: 'route-erikas-0826',
+      driverId: ERIKAS_ASKELOVICIUS_DRIVER_ID,
+      driverName: ERIKAS_ASKELOVICIUS_DISPLAY_NAME,
+      status: 'completed',
+      vehicle: { id: 'NLL182', registrationNumber: 'NLL182' },
+      route: { id: 'route-erikas-0826', date: '2026-08-26', started_at: '2026-08-26T06:00:00.000+03:00' },
+      stops: Array.from({ length: 6 }, (_, index) => ({
+        order_number: `R88-${index + 1}`,
+        notes: index < 3 ? 'R88' : 'R86',
+      })),
+      shipmentLines: [
+        { route_code: 'R88', order_number: 'R88-1' },
+        { route_code: 'R86', order_number: 'R86-1' },
+      ],
+    });
+    expect(isErikasR88R86Assignment(erikas0826, ERIKAS_ASKELOVICIUS_DRIVER_ID)).toBe(true);
+    expect(needsErikasR88R86RouteDateAlignment(erikas0826, ERIKAS_ASKELOVICIUS_DRIVER_ID)).toBe(false);
+    expect(decideAugustBackfillV5ErikasR88R86({
+      assignment: erikas0826,
+      erikasId: ERIKAS_ASKELOVICIUS_DRIVER_ID,
+    })).toMatchObject({ action: 'skip', reason: 'erikas_r88_r86_already_off_0831' });
+  });
+
+  it('does not rewrite stops, call Google matrix, or assignVehicle, and awaits v5 after v4', () => {
+    const v5Block = storeSource.slice(
+      storeSource.indexOf('async applyAugust2026ExcelBackfillV5'),
+      storeSource.indexOf('private liteFromRouteAssignment'),
+    );
+    expect(v5Block).not.toContain('rewriteAugustBackfillEmptyStub');
+    expect(v5Block).not.toContain('inventStubStop');
+    expect(v5Block).not.toContain('geocodeQueriesCached');
+    expect(v5Block).not.toContain('this.assignVehicle');
+    expect(v5Block).not.toContain('markAllDelivered');
+    expect(v5Block).not.toContain('createAugustBackfillCompletedAssignment');
+    expect(v5Block).toContain('applyUnassignedDriverToVehicleDayReading');
+    expect(v5Block).toContain('applyCompletedAssignmentRouteDateAlignment');
+    expect(v5Block).toContain('refusing to no-op');
+    expect(v5Block).toContain('Erikas R88;R86 is still attributed to 2026-08-31');
+    expect(v5Block).toContain('GET /api/trip-sheets 2026-08-31 NLL182 driver is still assigned');
+    expect(storeSource).toContain('Aleksandras 2026-08-19 MET630 sheet was rewritten');
+    expect(storeSource).toContain('Karolis 2026-08-19 NLL182 R54;R11 sheet was rewritten');
+    expect(apiSource).toContain('await store.applyAugust2026ExcelBackfillV5()');
+    expect(apiSource.indexOf('await store.applyAugust2026ExcelBackfillV4()'))
+      .toBeLessThan(apiSource.indexOf('await store.applyAugust2026ExcelBackfillV5()'));
+    expect(productionServer).toContain('v5 unassigns 08-31 NLL182');
   });
 });
