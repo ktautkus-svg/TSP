@@ -21,9 +21,9 @@ describe('menu artwork semantics', () => {
   });
 
   it('keeps Vairuotojai and drive-route actions on distinct SVG glyphs', () => {
-    expect(source).toContain("drivers: 'employees'");
+    expect(source).toContain("drivers: 'people'");
     expect(source).toContain("driveRoute: 'steering'");
-    expect(source).toContain('EmployeesIcon');
+    expect(source).toContain('DriversPeopleIcon');
     expect(source).toContain('SteeringWheelIcon');
     // Retired sprite cell that looked like eyes must not drive these actions.
     expect(source).not.toContain('drivers: { column: 1, row: 0 }');

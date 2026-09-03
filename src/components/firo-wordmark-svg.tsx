@@ -8,14 +8,16 @@ export interface FiroWordmarkSvgProps {
   readonly inverse?: boolean;
 }
 
-const VIEW_W = 340;
-const VIEW_H = 96;
+const VIEW_W = 360;
+const VIEW_H = 100;
 const ASPECT = VIEW_W / VIEW_H;
 
 /**
  * Clean FiRo letterforms matching the approved valdymo centro hero direction:
  * F navy with red bottom bar, i red, R navy with red crossbar, o navy.
  * Pair with {@link FiroRoadMark} as a separate tile — never fuse the road into F.
+ *
+ * Letters are built from simple solid shapes so counters stay open at all scales.
  */
 export function FiroWordmarkSvg({ height = 44, inverse = false }: Readonly<FiroWordmarkSvgProps>) {
   const width = Math.round(height * ASPECT);
@@ -29,27 +31,32 @@ export function FiroWordmarkSvg({ height = 44, inverse = false }: Readonly<FiroW
       role="img"
       viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
       width={width}>
-      {/* F — navy body */}
-      <Path d="M4 6h66v16H28v12h36v16H28v18H4z" fill={navy} />
-      {/* F — red bottom bar */}
-      <Rect fill={accent} height={11} rx={2} width={58} x={4} y={80} />
+      {/* F — stem + top bar + mid bar + red bottom accent */}
+      <Rect fill={navy} height={72} width={22} x={6} y={6} />
+      <Rect fill={navy} height={16} width={70} x={6} y={6} />
+      <Rect fill={navy} height={14} width={54} x={6} y={36} />
+      <Rect fill={accent} height={12} rx={2} width={62} x={6} y={84} />
 
-      {/* i — fully red */}
-      <Circle cx={104} cy={14} fill={accent} r={9} />
-      <Rect fill={accent} height={58} rx={3} width={16} x={96} y={32} />
+      {/* i — red stem + red dot */}
+      <Circle cx={108} cy={14} fill={accent} r={9} />
+      <Rect fill={accent} height={58} rx={3} width={16} x={100} y={32} />
 
-      {/* R — navy body with open counter */}
+      {/* R — stem */}
+      <Rect fill={navy} height={86} width={22} x={140} y={6} />
+      {/* R — bowl (outer then cut with white/background via overlapping? use path with evenodd) */}
       <Path
-        d="M132 6h58c26 0 44 15 44 40 0 18-11 32-30 37l32 13h-26l-34-13h-18v13h-26V6zm26 18v30h30c12 0 22-7 22-15s-10-15-22-15H158z"
+        d="M162 6 H214 A36 36 0 0 1 214 78 H162 Z M184 26 H210 A16 16 0 0 1 210 58 H184 Z"
         fill={navy}
         fillRule="evenodd"
       />
+      {/* R — leg */}
+      <Path d="M188 70 L236 92 L214 92 L170 70 Z" fill={navy} />
       {/* R — red crossbar */}
-      <Rect fill={accent} height={11} rx={2} width={52} x={158} y={42} />
+      <Rect fill={accent} height={12} rx={2} width={58} x={162} y={42} />
 
-      {/* o — navy ring */}
+      {/* o — ring via evenodd circle pair */}
       <Path
-        d="M268 30c32 0 54 15 54 34s-22 34-54 34-54-15-54-34 22-34 54-34zm0 16c-16 0-28 7-28 18s12 18 28 18 28-7 28-18-12-18-28-18z"
+        d="M292 28 A34 34 0 1 1 292 96 A34 34 0 1 1 292 28 Z M292 46 A16 16 0 1 0 292 78 A16 16 0 1 0 292 46 Z"
         fill={navy}
         fillRule="evenodd"
       />

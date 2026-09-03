@@ -92,11 +92,9 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: HERO_GRADIENT_START,
   },
-  heroWeb: {
-    // RN Web accepts CSS gradients; native uses the SVG fallback above.
-    // @ts-expect-error — web-only CSS background image
-    backgroundImage: HERO_GRADIENT_CSS,
-  },
+  heroWeb: Platform.OS === 'web'
+    ? ({ backgroundImage: HERO_GRADIENT_CSS } as Record<string, string>)
+    : {},
   topRow: {
     minHeight: 48,
     flexDirection: 'row',
@@ -141,11 +139,16 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.borderSubtle,
-    shadowColor: colors.brandNavy,
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 3,
+    ...Platform.select({
+      web: { boxShadow: '0 3px 10px rgba(21, 23, 76, 0.10)' },
+      default: {
+        shadowColor: colors.brandNavy,
+        shadowOpacity: 0.1,
+        shadowRadius: 10,
+        shadowOffset: { width: 0, height: 3 },
+        elevation: 3,
+      },
+    }),
   },
   lockupGap: {
     width: spacing.lg,

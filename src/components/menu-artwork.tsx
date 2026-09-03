@@ -1,6 +1,6 @@
 import { Image, StyleSheet, View } from 'react-native';
 
-import { EmployeesIcon } from '@/components/app-icons';
+import { DriversPeopleIcon } from '@/components/drivers-people-icon';
 import { SteeringWheelIcon } from '@/components/steering-wheel-icon';
 import { colors, radius } from '@/ui/tokens';
 
@@ -50,10 +50,10 @@ const secondaryArtwork = {
 
 type DirectArtworkKind = 'service' | 'fuel';
 
-/** Vector menu glyphs kept distinct from the 3D sprite sheet. */
+  /** Vector menu glyphs kept distinct from the 3D sprite sheet. */
 const svgArtwork = {
-  /** People / users — Vairuotojai */
-  drivers: 'employees',
+  /** People / users — Vairuotojai (filled silhouettes, not outline “eyes”) */
+  drivers: 'people',
   /** Steering wheel — Vykdyti vairuotojo maršrutą */
   driveRoute: 'steering',
 } as const;
@@ -80,8 +80,8 @@ export function MenuArtwork({ kind, size = 58 }: { kind: MenuArtworkKind; size?:
     const iconSize = Math.round(size * 0.55);
     return (
       <View style={[styles.frame, styles.svgFrame, { width: size, height: size }]}>
-        {glyph === 'employees'
-          ? <EmployeesIcon color={colors.brandNavy} size={iconSize} />
+        {glyph === 'people'
+          ? <DriversPeopleIcon color={colors.brandNavy} size={iconSize} />
           : <SteeringWheelIcon color={colors.brandNavy} size={iconSize} />}
       </View>
     );

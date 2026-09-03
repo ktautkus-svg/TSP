@@ -130,9 +130,9 @@ describe('administrator workspace navigation', () => {
     expect(home).toContain('title="Vairuotojai"');
     expect(home).toContain('kind="drivers"');
     const artwork = readFileSync(resolve(root, 'src/components/menu-artwork.tsx'), 'utf8');
-    expect(artwork).toContain("drivers: 'employees'");
+    expect(artwork).toContain("drivers: 'people'");
     expect(artwork).toContain("driveRoute: 'steering'");
-    expect(artwork).toContain('EmployeesIcon');
+    expect(artwork).toContain('DriversPeopleIcon');
     expect(artwork).toContain('SteeringWheelIcon');
   });
 
