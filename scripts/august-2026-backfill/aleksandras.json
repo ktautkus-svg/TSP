@@ -1,1 +1,324 @@
-PLACEHOLDER_ALEKS_TOO_LARGE
+{
+  "25": {
+    "sheet": "25",
+    "date": "2026-08-25",
+    "metaWeight": 2922.678,
+    "metaStops": 2,
+    "metaRoutes": "R32",
+    "driver": "Aleksandras Arsenij",
+    "vehicle": "NLL182",
+    "stops": [
+      {
+        "orderNo": "S611912š",
+        "weightKg": 2580.35,
+        "timeWindow": "06:00-15:00",
+        "address": "UAB CNC catering\nVytauto g.47\n\nRokiškis LT-PN \nLietuva",
+        "name": "UAB CNC catering, VŠĮ Rokiškio psichiatrinės ligoninės padalinys",
+        "routeCode": "R32"
+      },
+      {
+        "orderNo": "S611483š",
+        "weightKg": 342.328,
+        "timeWindow": "08:00-11:00",
+        "address": "UAB Lambda LT\nKlevų g.10\n\nSkemų k.Rokiškio r.  \nLietuva",
+        "name": "UAB Lambda LT, Skemų socialinės globos namai",
+        "routeCode": "R32"
+      }
+    ]
+  },
+  "21": {
+    "sheet": "21",
+    "date": "2026-08-21",
+    "metaWeight": 2015.82,
+    "metaStops": 2,
+    "metaRoutes": "R32",
+    "driver": "Aleksandras Arsenij",
+    "vehicle": "NLL182",
+    "stops": [
+      {
+        "orderNo": "S610507š",
+        "weightKg": 1779.02,
+        "timeWindow": "06:00-15:00",
+        "address": "UAB CNC catering\nVytauto g.47\n\nRokiškis LT-PN \nLietuva",
+        "name": "UAB CNC catering, VŠĮ Rokiškio psichiatrinės ligoninės padalinys",
+        "routeCode": "R32"
+      },
+      {
+        "orderNo": "S610481",
+        "weightKg": 236.8,
+        "timeWindow": "08:00-11:00",
+        "address": "UAB Lambda LT\nKlevų g.10\n\nSkemų k.Rokiškio r.  \nLietuva",
+        "name": "UAB Lambda LT, Skemų socialinės globos namai",
+        "routeCode": "R32"
+      }
+    ]
+  },
+  "19": {
+    "sheet": "19",
+    "date": "2026-08-19",
+    "metaWeight": 1137.3,
+    "metaStops": 12,
+    "metaRoutes": "R14;R27;R28;R51",
+    "driver": "Aleksandras Arsenij",
+    "vehicle": "MET630",
+    "stops": [
+      {
+        "orderNo": "S610561",
+        "weightKg": 31.28,
+        "timeWindow": "08:00-16:00",
+        "address": "Trakų r. Rūdiškių vaikų lopšelis - darželis Pasaka\nTrakų g.69 Rūdiškės, Lietuva\n\nRūdiškės  \nLietuva",
+        "name": "Trakų r. Rūdiškių vaikų lopšelis - darželis Pasaka, Trakų g.69",
+        "routeCode": "R14"
+      },
+      {
+        "orderNo": "S610520",
+        "weightKg": 60.81,
+        "timeWindow": "06:00-09:00",
+        "address": "UAB Lambda LT\nTrakų g.69\n\nRūdiškės  \nLietuva",
+        "name": "UAB Lambda LT, Trakų r. Rūdiškių vaikų lopšelis darželis Pasaka",
+        "routeCode": "R14"
+      },
+      {
+        "orderNo": "S610485š",
+        "weightKg": 75.953,
+        "timeWindow": "06:00-15:00",
+        "address": "UAB CNC catering\nMokyklos g. 3A,\n\nPivašiūnai LT-AL \nLietuva",
+        "name": "UAB CNC catering, Alytaus r. Pivašiūnų globos namai",
+        "routeCode": "R27"
+      },
+      {
+        "orderNo": "S610466",
+        "weightKg": 25.0,
+        "timeWindow": "06:00-12:00",
+        "address": "UAB Lambda LT\nVilties g. 2\n\nNaujieji Valkininkai  \nLietuva",
+        "name": "UAB Lambda LT, VŠĮ VUL Santaros klinikos, Vilties g. 2",
+        "routeCode": "R27"
+      },
+      {
+        "orderNo": "S610348",
+        "weightKg": 63.66,
+        "timeWindow": "06:00-15:00",
+        "address": "UAB \"Sotega\"\nPergalės 2\n\nDaugai LT-AL \nLietuva",
+        "name": "UAB \"Sotega\", Daugų V.Mirono gimnazijos padalinys",
+        "routeCode": "R28"
+      },
+      {
+        "orderNo": "S610570š",
+        "weightKg": 45.065,
+        "timeWindow": "06:00-15:00",
+        "address": "UAB \"Sotega\"\nŠaltinių g. 1,\n\nAlytus  \nLietuva",
+        "name": "UAB \"Sotega\", Alytaus Putinų gimnazija",
+        "routeCode": "R28"
+      },
+      {
+        "orderNo": "S610599š",
+        "weightKg": 182.05,
+        "timeWindow": "06:00-15:00",
+        "address": "UAB \"Sotega\"\nVlado Mirono g. 9.\n\nDaugai, Alytaus r.  \nLietuva",
+        "name": "UAB \"Sotega\", Alytaus rajono savivaldybės pirminės sveikatos priežiūros centras",
+        "routeCode": "R28"
+      },
+      {
+        "orderNo": "S610442š",
+        "weightKg": 187.55,
+        "timeWindow": "06:00-15:00",
+        "address": "UAB CNC catering\nDainavos g.3\n\nMiroslavo k. LT-AL \nLietuva",
+        "name": "UAB CNC catering, Alytaus r. Miroslavo globos namai",
+        "routeCode": "R28"
+      },
+      {
+        "orderNo": "S610893",
+        "weightKg": 28.84,
+        "timeWindow": "07:00-15:00",
+        "address": "UAB Lambda LT\nJaunystės g. 1\n\nDaugai  \nLietuva",
+        "name": "UAB Lambda LT, VŠĮ Daugų technologijos ir verslo mokykla",
+        "routeCode": "R28"
+      },
+      {
+        "orderNo": "S610328",
+        "weightKg": 32.32,
+        "timeWindow": "09:00-14:00",
+        "address": "UAB Lambda LT\nLigoninės g. 12\n\nAlytus  \nLietuva",
+        "name": "UAB Lambda LT, VŠĮ Alytaus apsk.S.Kudirkos ligoninė",
+        "routeCode": "R28"
+      },
+      {
+        "orderNo": "S610043",
+        "weightKg": 204.522,
+        "timeWindow": "09:00-14:00",
+        "address": "UAB Lambda LT\nLigoninės g. 12\n\nAlytus  \nLietuva",
+        "name": "UAB Lambda LT, VŠĮ Alytaus apsk.S.Kudirkos ligoninė",
+        "routeCode": "R28"
+      },
+      {
+        "orderNo": "S610902",
+        "weightKg": 180.0,
+        "timeWindow": "06:00-09:00",
+        "address": "UAB Lambda LT\nB.Sruogos g.6\n\nBirštonas  \nLietuva",
+        "name": "UAB Lambda LT, Birštono sanatorija Versmė,AB",
+        "routeCode": "R51"
+      },
+      {
+        "orderNo": "S610575",
+        "weightKg": 15.25,
+        "timeWindow": "08:00-14:00",
+        "address": "UAB Lambda LT\nPušyno g.2\n\nPrienai, Kauno apskritis  \nLietuva",
+        "name": "UAB Lambda LT, VŠĮ Prienų ligoninė",
+        "routeCode": "R51"
+      },
+      {
+        "orderNo": "S610579",
+        "weightKg": 5.0,
+        "timeWindow": "08:00-14:00",
+        "address": "UAB Lambda LT\nPušyno g.2\n\nPrienai, Kauno apskritis  \nLietuva",
+        "name": "UAB Lambda LT, VŠĮ Prienų ligoninė",
+        "routeCode": "R51"
+      }
+    ]
+  },
+  "18": {
+    "sheet": "18",
+    "date": "2026-08-18",
+    "metaWeight": 3066.6,
+    "metaStops": 2,
+    "metaRoutes": "R32",
+    "driver": "Aleksandras Arsenij",
+    "vehicle": "NLL182",
+    "stops": [
+      {
+        "orderNo": "S609690",
+        "weightKg": 43.25,
+        "timeWindow": "06:00-15:00",
+        "address": "UAB CNC catering\nVytauto g.47\n\nRokiškis LT-PN \nLietuva",
+        "name": "UAB CNC catering, VŠĮ Rokiškio psichiatrinės ligoninės padalinys",
+        "routeCode": "R32"
+      },
+      {
+        "orderNo": "S610546",
+        "weightKg": 95.0,
+        "timeWindow": "06:00-15:00",
+        "address": "UAB CNC catering\nVytauto g.47\n\nRokiškis LT-PN \nLietuva",
+        "name": "UAB CNC catering, VŠĮ Rokiškio psichiatrinės ligoninės padalinys",
+        "routeCode": "R32"
+      },
+      {
+        "orderNo": "S610545",
+        "weightKg": 92.4,
+        "timeWindow": "06:00-15:00",
+        "address": "UAB CNC catering\nVytauto g.47\n\nRokiškis LT-PN \nLietuva",
+        "name": "UAB CNC catering, VŠĮ Rokiškio psichiatrinės ligoninės padalinys",
+        "routeCode": "R32"
+      },
+      {
+        "orderNo": "S610004š",
+        "weightKg": 2547.95,
+        "timeWindow": "06:00-15:00",
+        "address": "UAB CNC catering\nVytauto g.47\n\nRokiškis LT-PN \nLietuva",
+        "name": "UAB CNC catering, VŠĮ Rokiškio psichiatrinės ligoninės padalinys",
+        "routeCode": "R32"
+      },
+      {
+        "orderNo": "S609687",
+        "weightKg": 288.0,
+        "timeWindow": "08:00-11:00",
+        "address": "UAB Lambda LT\nKlevų g.10\n\nSkemų k.Rokiškio r.  \nLietuva",
+        "name": "UAB Lambda LT, Skemų socialinės globos namai",
+        "routeCode": "R32"
+      }
+    ]
+  },
+  "14": {
+    "sheet": "14",
+    "date": "2026-08-14",
+    "metaWeight": 2298.8900000000003,
+    "metaStops": 2,
+    "metaRoutes": "R32",
+    "driver": "Aleksandras Arsenij",
+    "vehicle": "NLL182",
+    "stops": [
+      {
+        "orderNo": "S608990",
+        "weightKg": 23.0,
+        "timeWindow": "06:00-15:00",
+        "address": "UAB CNC catering\nVytauto g.47\n\nRokiškis LT-PN \nLietuva",
+        "name": "UAB CNC catering, VŠĮ Rokiškio psichiatrinės ligoninės padalinys",
+        "routeCode": "R32"
+      },
+      {
+        "orderNo": "S609071",
+        "weightKg": 60.0,
+        "timeWindow": "06:00-15:00",
+        "address": "UAB CNC catering\nVytauto g.47\n\nRokiškis LT-PN \nLietuva",
+        "name": "UAB CNC catering, VŠĮ Rokiškio psichiatrinės ligoninės padalinys",
+        "routeCode": "R32"
+      },
+      {
+        "orderNo": "S609813",
+        "weightKg": 50.5,
+        "timeWindow": "06:00-15:00",
+        "address": "UAB CNC catering\nVytauto g.47\n\nRokiškis LT-PN \nLietuva",
+        "name": "UAB CNC catering, VŠĮ Rokiškio psichiatrinės ligoninės padalinys",
+        "routeCode": "R32"
+      },
+      {
+        "orderNo": "S608907š",
+        "weightKg": 1850.65,
+        "timeWindow": "06:00-15:00",
+        "address": "UAB CNC catering\nVytauto g.47\n\nRokiškis LT-PN \nLietuva",
+        "name": "UAB CNC catering, VŠĮ Rokiškio psichiatrinės ligoninės padalinys",
+        "routeCode": "R32"
+      },
+      {
+        "orderNo": "S608584",
+        "weightKg": 314.74,
+        "timeWindow": "08:00-11:00",
+        "address": "UAB Lambda LT\nKlevų g.10\n\nSkemų k.Rokiškio r.  \nLietuva",
+        "name": "UAB Lambda LT, Skemų socialinės globos namai",
+        "routeCode": "R32"
+      }
+    ]
+  },
+  "11": {
+    "sheet": "11",
+    "date": "2026-08-11",
+    "metaWeight": 2021.69,
+    "metaStops": 2,
+    "metaRoutes": "-",
+    "driver": "Aleksandras Arsenij",
+    "vehicle": "LRI741",
+    "stops": [
+      {
+        "orderNo": "S607679",
+        "weightKg": 21.45,
+        "timeWindow": "06:00-15:00",
+        "address": "UAB CNC catering\nVytauto g.47\n\nRokiškis LT-PN \nLietuva",
+        "name": "UAB CNC catering, VŠĮ Rokiškio psichiatrinės ligoninės padalinys",
+        "routeCode": "R32"
+      },
+      {
+        "orderNo": "S608420",
+        "weightKg": 38.2,
+        "timeWindow": "06:00-15:00",
+        "address": "UAB CNC catering\nVytauto g.47\n\nRokiškis LT-PN \nLietuva",
+        "name": "UAB CNC catering, VŠĮ Rokiškio psichiatrinės ligoninės padalinys",
+        "routeCode": "R32"
+      },
+      {
+        "orderNo": "S608152š",
+        "weightKg": 1681.2,
+        "timeWindow": "06:00-15:00",
+        "address": "UAB CNC catering\nVytauto g.47\n\nRokiškis LT-PN \nLietuva",
+        "name": "UAB CNC catering, VŠĮ Rokiškio psichiatrinės ligoninės padalinys",
+        "routeCode": "R32"
+      },
+      {
+        "orderNo": "S607647",
+        "weightKg": 280.84,
+        "timeWindow": "08:00-11:00",
+        "address": "UAB Lambda LT\nKlevų g.10\n\nSkemų k.Rokiškio r.  \nLietuva",
+        "name": "UAB Lambda LT, Skemų socialinės globos namai",
+        "routeCode": "R32"
+      }
+    ]
+  }
+}
