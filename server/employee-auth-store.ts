@@ -12,6 +12,7 @@ import {
     FUEL_AUGUST_2026_NORMS,
     FUEL_AUGUST_2026_V3_MIGRATION_ID,
     FUEL_AUGUST_2026_V4_MIGRATION_ID,
+    FUEL_AUGUST_2026_V5_MIGRATION_ID,
     MET630_AUGUST_03_2026_DATE,
     MET630_AUGUST_03_2026_DISTANCE_KM,
     MET630_AUGUST_31_2026_ASSIGNED_DISTANCE_KM,
@@ -35,6 +36,7 @@ import {
     extraDistanceKmOf,
     isFuelAugust2026V3RemovedEntry,
     isFuelAugust2026V4ManualFillEntry,
+    isFuelAugust2026V5RemovedEntry,
     isStaleAugust2026FuelEntry,
     isStaleAugustOpeningReport,
     lithuaniaLocalToIso,
@@ -2355,6 +2357,67 @@ export class EmployeeAuthStore {
       assignmentActualRestored,
     });
     return { applied: true, reason: 'applied' };
+  }
+
+  /**
+   * One-shot follow-up after fuel-august-2026-v4:
+   * Deletes the two MET630 phantom fills if they are still present
+   * (trn 42655388 / ~46.08 L on 2026-08-09, and 30 L on 2026-08-29).
+   * Does not touch 08-09 10 L + 95 L or 08-29 9.5 L.
+   * Verifies absence before writing tsp_settings/fuel-august-2026-v5;
+   * throws if a matching row remains so the next boot retries.
+   */
+  async applyFuelAugust2026V5Migration(): Promise<{ applied: boolean; reason: string }> {
+    const flagRef = this.settings.doc(FUEL_AUGUST_2026_V5_MIGRATION_ID);
+    const existingFlag = await flagRef.get();
+    if (existingFlag.exists && existingFlag.data()?.status === 'applied') {
+      return { applied: false, reason: 'already_applied' };
+    }
+
+    const now = new Date().toISOString();
+    const fuelSnapshot = await this.fuelEntries.get();
+    const matching = fuelSnapshot.docs.filter((document) => {
+      const entry = document.data() as ServerFuelEntry;
+      return isFuelAugust2026V5RemovedEntry({
+        id: entry.id ?? document.id,
+        registrationNumber: entry.registrationNumber,
+        receiptNumber: entry.receiptNumber,
+        notes: entry.notes,
+        filledAt: entry.filledAt,
+        liters: entry.liters,
+      });
+    });
+    for (const document of matching) {
+      await document.ref.delete();
+    }
+
+    const remainingSnapshot = await this.fuelEntries.get();
+    const remaining = remainingSnapshot.docs.filter((document) => {
+      const entry = document.data() as ServerFuelEntry;
+      return isFuelAugust2026V5RemovedEntry({
+        id: entry.id ?? document.id,
+        registrationNumber: entry.registrationNumber,
+        receiptNumber: entry.receiptNumber,
+        notes: entry.notes,
+        filledAt: entry.filledAt,
+        liters: entry.liters,
+      });
+    });
+    if (remaining.length > 0) {
+      const leftover = remaining.map((document) => document.id).join(', ');
+      throw new Error(
+        `fuel-august-2026-v5: MET630 phantom fills still present after delete: ${leftover}`,
+      );
+    }
+
+    await flagRef.set({
+      id: FUEL_AUGUST_2026_V5_MIGRATION_ID,
+      status: 'applied',
+      appliedAt: now,
+      deletedFuelEntries: matching.length,
+      deletedEntryIds: matching.map((document) => document.id),
+    });
+    return { applied: true, reason: matching.length > 0 ? 'applied' : 'already_absent' };
   }
 
   /**

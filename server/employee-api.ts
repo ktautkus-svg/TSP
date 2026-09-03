@@ -59,7 +59,8 @@ function ensureLegacyAdminMigrated(): Promise<void> {
 /**
  * One-shot August 2026 MET/NLL fuel migrations — v2 (full reset) then v3
  * (remove two MET fills + fix 2026-08-03 day km) then v4 (08/52 fill +
- * 2026-08-31 extraDistanceKm). Each is idempotent via its own Firestore
+ * 2026-08-31 extraDistanceKm) then v5 (delete phantom 08-09 ~46 L and
+ * 08-29 30 L if they reappeared). Each is idempotent via its own Firestore
  * tsp_settings flag.
  */
 export function ensureFuelAugust2026Migrated(): Promise<void> {
@@ -79,6 +80,11 @@ export function ensureFuelAugust2026Migrated(): Promise<void> {
       process.stdout.write(`${JSON.stringify({
         event: 'fuel_august_2026_v4_migration',
         ...v4,
+      })}\n`);
+      const v5 = await store.applyFuelAugust2026V5Migration();
+      process.stdout.write(`${JSON.stringify({
+        event: 'fuel_august_2026_v5_migration',
+        ...v5,
       })}\n`);
     })().catch((error) => {
       fuelAugust2026Migration = null;
