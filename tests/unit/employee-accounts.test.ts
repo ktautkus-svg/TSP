@@ -161,10 +161,16 @@ describe('employee server session', () => {
 
   it('lets an administrator close a hanging assignment as completed', () => {
     expect(employeeApiSource).toContain("pathname.match(/^\\/api\\/admin\\/assignments\\/([^/]+)\\/complete$/)");
+    expect(employeeApiSource).toContain('optionalIsoTimestamp(body, \'startedAt\')');
+    expect(employeeApiSource).toContain('optionalIsoTimestamp(body, \'completedAt\')');
+    expect(employeeApiSource).toContain('optionalBoolean(body, \'markAllDelivered\')');
+    expect(employeeApiSource).toContain('const body = rawBody.trim() ? parseObject(rawBody) : {}');
     expect(employeeStoreSource).toContain('async completeAssignment');
+    expect(employeeStoreSource).toContain('applyAdminAssignmentComplete(assignment.routeSnapshot, input');
     expect(employeeStoreSource).toContain("ASSIGNMENT_CANCELLED");
     expect(assignmentSyncSource).toContain('export async function completeAssignedRoute');
     expect(assignmentSyncSource).toContain('AdminCompleteRoute');
+    expect(assignmentSyncSource).toContain("employeeApi(`/api/admin/assignments/${encodeURIComponent(assignment.id)}/complete`, { method: 'POST' })");
     expect(adminSource).toContain('completeLocalRoute');
     expect(adminSource).toContain('completeServerAssignment');
   });
@@ -173,12 +179,13 @@ describe('employee server session', () => {
     // completeAssignment used to hardcode onTimeStops/lateStops to 0, which
     // silently zeroed the on-time rate in statistics for any route closed
     // via this admin path instead of the normal driver completion flow.
+    const historicalCompleteSource = readFileSync(resolve(import.meta.dirname, '../../src/domain/historical-assignment-complete.ts'), 'utf8');
     expect(employeeStoreSource).not.toContain('onTimeStops: 0,\n      lateStops: 0,');
-    expect(employeeStoreSource).toContain('const punctuality = stopPunctuality(stop)');
-    expect(employeeStoreSource).toContain("if (punctuality === 'on_time') onTimeStops += 1");
-    expect(employeeStoreSource).toContain('function stopPunctuality');
-    expect(employeeStoreSource).toContain('completionPunctuality, lithuanianDateKey');
+    expect(historicalCompleteSource).toContain("if (punctuality === 'on_time') onTimeStops += 1");
+    expect(historicalCompleteSource).toContain("if (punctuality === 'late') lateStops += 1");
+    expect(historicalCompleteSource).toContain('completionPunctuality');
     expect(employeeStoreSource).toContain("from '../src/domain/lithuanian-time.js'");
+    expect(employeeStoreSource).toContain("from '../src/domain/historical-assignment-complete.js'");
   });
 
   it('publishes completed driver routes as role-scoped trip sheets', () => {
