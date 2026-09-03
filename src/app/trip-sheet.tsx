@@ -8,7 +8,7 @@ import { pushCompletedRouteAssignmentProgress } from '@/application/auth/route-a
 import { CompanyProfileSettings, type CompanyProfile } from '@/application/settings/company-profile';
 import { TRIP_SHEET_GRID_COLUMNS, tripSheetColumnLegend } from '@/application/trip-sheet/columns';
 import { buildTripSheetWorkbook, MIME_XLSX } from '@/application/trip-sheet/export-xlsx';
-import { buildFuelLedger, type FuelLedgerDay } from '@/application/trip-sheet/fuel-balance';
+import { buildFuelLedger, vehicleDayFuelDistanceKm, type FuelLedgerDay } from '@/application/trip-sheet/fuel-balance';
 import { buildTripSheetPrintDocument } from '@/application/trip-sheet/print-document';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { PeriodCalendarPicker } from '@/components/period-calendar-picker';
@@ -402,7 +402,8 @@ function buildDailyRows(sheets: DisplayTripSheet[]): DailyTripRow[] {
       .map((sheet) => sheet.actualDistanceKm ?? sheet.plannedDistanceKm)
       .filter((value): value is number => value !== null);
     const plannedKm = plannedValues.length > 0 ? plannedValues.reduce((sum, value) => sum + value, 0) : null;
-    const distanceKm = odometerKm ?? plannedKm;
+    const extraKm = daySheets.reduce((sum, sheet) => sum + (sheet.extraDistanceKm ?? 0), 0);
+    const distanceKm = vehicleDayFuelDistanceKm(odometerKm ?? plannedKm, extraKm);
     const fuelNorm = daySheets.find((sheet) => sheet.fuelNormLitersPer100Km !== null)?.fuelNormLitersPer100Km ?? null;
     const fuelEntries = daySheets.flatMap((sheet) => sheet.fuelEntries).sort((left, right) => left.filledAt.localeCompare(right.filledAt));
     const compensation = daySheets.find((sheet) => sheet.compensation)?.compensation ?? null;

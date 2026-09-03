@@ -14,6 +14,8 @@ export type ExcelFuelFill = {
   localTime: string;
   receiptNumber: string;
   liters: number;
+  /** Stable Firestore id when Circle K trn is missing; otherwise derived. */
+  documentId?: string;
 };
 
 /** NLL182 tank opening — first operational day with fills is Aug 13. */
@@ -37,6 +39,13 @@ export const FUEL_AUGUST_2026_MIGRATION_ID = 'fuel-august-2026-v2';
  */
 export const FUEL_AUGUST_2026_V3_MIGRATION_ID = 'fuel-august-2026-v3';
 
+/**
+ * Follow-up one-shot flag after v3: add MET630 2026-08-31 fill 08/52 (95.07 L)
+ * and record 615.50 km of non-assigned remainder so fuel uses 915.50 while
+ * Karolis’s completed assignment stays 300 km. Runs after v3 on boot.
+ */
+export const FUEL_AUGUST_2026_V4_MIGRATION_ID = 'fuel-august-2026-v4';
+
 export const FUEL_AUGUST_2026_NORMS = {
   MET630: 12,
   NLL182: 13.9,
@@ -45,6 +54,27 @@ export const FUEL_AUGUST_2026_NORMS = {
 /** Authoritative MET630 day distance for 2026-08-03 (prior faulty reading ~217). */
 export const MET630_AUGUST_03_2026_DATE = '2026-08-03';
 export const MET630_AUGUST_03_2026_DISTANCE_KM = 617;
+
+/**
+ * MET630 2026-08-31: vehicle drove 915.50 km. Karolis’s completed assignment
+ * (R54;R11) is 300 km for wages. The 615.50 remainder is other-driver /
+ * unassigned km used only in fuel consumption — never a fake second user.
+ */
+export const MET630_AUGUST_31_2026_DATE = '2026-08-31';
+export const MET630_AUGUST_31_2026_VEHICLE_DISTANCE_KM = 915.5;
+export const MET630_AUGUST_31_2026_ASSIGNED_DISTANCE_KM = 300;
+export const MET630_AUGUST_31_2026_EXTRA_DISTANCE_KM = 615.5;
+export const MET630_AUGUST_31_2026_ASSIGNMENT_ID = 'a6f3ea27-0e1b-474f-ba45-f77266ea1ce4';
+export const MET630_AUGUST_31_2026_MANUAL_FILL_DOCUMENT_ID = 'xlsx-manual-08-52';
+export const MET630_AUGUST_31_2026_MANUAL_FILL_ALT_DOCUMENT_ID = 'manual-08-52';
+export const MET630_AUGUST_31_2026_MANUAL_FILL: ExcelFuelFill = {
+  registrationNumber: 'MET630',
+  localDate: MET630_AUGUST_31_2026_DATE,
+  localTime: '12:00',
+  receiptNumber: '08/52',
+  liters: 95.07,
+  documentId: MET630_AUGUST_31_2026_MANUAL_FILL_DOCUMENT_ID,
+};
 
 /**
  * MET630 fills removed in v3 (Circle K transaction id + receipt).
@@ -89,6 +119,7 @@ export const EXCEL_FUEL_LOG: readonly ExcelFuelFill[] = [
   { registrationNumber: 'MET630', localDate: '2026-08-27', localTime: '12:00', receiptNumber: '271/1215', liters: 86.10 },
   { registrationNumber: 'MET630', localDate: '2026-08-29', localTime: '12:00', receiptNumber: '834/1206', liters: 9.50 },
   { registrationNumber: 'MET630', localDate: '2026-08-30', localTime: '12:00', receiptNumber: '151/563', liters: 102.00 },
+  MET630_AUGUST_31_2026_MANUAL_FILL,
   // NLL182 — no fills before 2026-08-13.
   { registrationNumber: 'NLL182', localDate: '2026-08-13', localTime: '04:13', receiptNumber: '47/1188', liters: 59.99 },
   { registrationNumber: 'NLL182', localDate: '2026-08-16', localTime: '04:30', receiptNumber: '5/1173', liters: 60.00 },
@@ -111,7 +142,13 @@ const FIRESTORE_ID = /^[a-zA-Z0-9_-]{8,80}$/;
 const AUGUST_2026_PLATES = new Set(['MET630', 'NLL182']);
 
 /** Circle K receipt numbers use `/`; Firestore ids cannot. */
-export function excelFuelDocumentId(fill: Pick<ExcelFuelFill, 'registrationNumber' | 'localDate' | 'receiptNumber'>): string {
+export function excelFuelDocumentId(fill: Pick<ExcelFuelFill, 'registrationNumber' | 'localDate' | 'receiptNumber' | 'documentId'>): string {
+  if (fill.documentId) {
+    if (!FIRESTORE_ID.test(fill.documentId)) {
+      throw new Error(`Excel fuel document id is not a valid Firestore id: ${fill.documentId}`);
+    }
+    return fill.documentId;
+  }
   const date = fill.localDate.replaceAll('-', '');
   const receipt = fill.receiptNumber.replaceAll('/', '-');
   const id = `xlsx-${fill.registrationNumber}-${date}-${receipt}`;
@@ -267,4 +304,85 @@ export function correctedMet630August03Odometers(existing: {
   }
   // Day-distance only — no absolute chain available.
   return { startOdometer: 0, endOdometer: distanceKm, distanceKm };
+}
+
+const MET630_AUGUST_31_MANUAL_FILL_IDS = new Set([
+  MET630_AUGUST_31_2026_MANUAL_FILL_DOCUMENT_ID,
+  MET630_AUGUST_31_2026_MANUAL_FILL_ALT_DOCUMENT_ID,
+  `xlsx-MET630-20260831-08-52`,
+]);
+
+/** Live fuel rows that v4 must delete before upserting čekis 08/52. */
+export function isFuelAugust2026V4ManualFillEntry(entry: {
+  id: string;
+  registrationNumber?: string | null;
+  receiptNumber?: string | null;
+  notes?: string | null;
+}): boolean {
+  if (MET630_AUGUST_31_MANUAL_FILL_IDS.has(entry.id)) return true;
+  const haystack = `${entry.id}\n${entry.notes ?? ''}\n${entry.receiptNumber ?? ''}`;
+  if (haystack.includes(MET630_AUGUST_31_2026_MANUAL_FILL_DOCUMENT_ID)) return true;
+  if (haystack.includes(MET630_AUGUST_31_2026_MANUAL_FILL_ALT_DOCUMENT_ID)) return true;
+
+  const plate = String(entry.registrationNumber ?? '').trim().toUpperCase();
+  if (plate !== 'MET630') return false;
+  return entry.receiptNumber === MET630_AUGUST_31_2026_MANUAL_FILL.receiptNumber;
+}
+
+/**
+ * Assigned (driver-wage) odometers for MET630 2026-08-31. Extra 615.50 km is
+ * stored separately so applyDayReading cannot overlay 915.50 onto Karolis.
+ */
+export function met630August31AssignedOdometers(existing: {
+  startOdometer: number | null;
+  endOdometer?: number | null;
+} | null): {
+  startOdometer: number;
+  endOdometer: number;
+  distanceKm: number;
+  extraDistanceKm: number;
+} {
+  const distanceKm = MET630_AUGUST_31_2026_ASSIGNED_DISTANCE_KM;
+  const extraDistanceKm = MET630_AUGUST_31_2026_EXTRA_DISTANCE_KM;
+  const start = existing?.startOdometer;
+  if (typeof start === 'number' && Number.isFinite(start)) {
+    const endOdometer = Math.round((start + distanceKm) * 10) / 10;
+    return { startOdometer: start, endOdometer, distanceKm, extraDistanceKm };
+  }
+  return { startOdometer: 0, endOdometer: distanceKm, distanceKm, extraDistanceKm };
+}
+
+export function extraDistanceKmOf(value: { extraDistanceKm?: number | null } | null | undefined): number {
+  const extra = value?.extraDistanceKm;
+  return typeof extra === 'number' && Number.isFinite(extra) && extra > 0 ? extra : 0;
+}
+
+/**
+ * Fuel/ledger kilometres: assigned (or odometer) distance plus non-assigned
+ * remainder. Wages must keep using assigned distance only.
+ */
+export function vehicleDayFuelDistanceKm(
+  assignedDistanceKm: number | null,
+  extraDistanceKm?: number | null,
+): number | null {
+  const extra = extraDistanceKmOf({ extraDistanceKm });
+  if (assignedDistanceKm === null && extra === 0) return null;
+  return Math.round(((assignedDistanceKm ?? 0) + extra) * 10) / 10;
+}
+
+/** Restore Karolis’s 300 km if a previous overlay wrote the full 915.50 onto the assignment. */
+export function shouldRestoreMet630August31AssignedDistance(existing: {
+  actualDistanceKm: number | null;
+  startOdometer: number | null;
+  endOdometer: number | null;
+}): { restoreActual: boolean; restoreOdometerSpan: boolean } {
+  const actual = existing.actualDistanceKm;
+  const restoreActual = actual !== MET630_AUGUST_31_2026_ASSIGNED_DISTANCE_KM;
+  const start = existing.startOdometer;
+  const end = existing.endOdometer;
+  const span = start !== null && end !== null
+    ? Math.round((end - start) * 10) / 10
+    : null;
+  const restoreOdometerSpan = span === MET630_AUGUST_31_2026_VEHICLE_DISTANCE_KM;
+  return { restoreActual, restoreOdometerSpan };
 }

@@ -145,6 +145,7 @@ describe('August 2026 trip-sheet vehicle/driver correction catalog', () => {
     );
     expect(listTripSheetsBlock).not.toContain('applyTripSheetAugust2026VehicleFix');
     expect(listTripSheetsBlock).not.toContain('applyFuelAugust2026V2Migration');
+    expect(listTripSheetsBlock).not.toContain('applyFuelAugust2026V4Migration');
 
     const vehicleFixBlock = storeSource.slice(
       storeSource.indexOf('async applyTripSheetAugust2026VehicleFix'),

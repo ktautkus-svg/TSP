@@ -80,3 +80,5 @@ function missingReason(startLiters: number | null, day: FuelLedgerInputDay): Fue
 function round(value: number): number {
   return Math.round(value * 100) / 100;
 }
+
+export { extraDistanceKmOf, vehicleDayFuelDistanceKm } from '@/domain/excel-fuel-log';

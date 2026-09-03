@@ -70,15 +70,21 @@ describe('employee server session', () => {
   it('applies one-shot August 2026 MET/NLL fuel reset without reseeding on every trip-sheet list', () => {
     expect(employeeStoreSource).toContain('async applyFuelAugust2026V2Migration');
     expect(employeeStoreSource).toContain('async applyFuelAugust2026V3Migration');
+    expect(employeeStoreSource).toContain('async applyFuelAugust2026V4Migration');
     expect(employeeStoreSource).toContain('FUEL_AUGUST_2026_MIGRATION_ID');
     expect(employeeStoreSource).toContain('FUEL_AUGUST_2026_V3_MIGRATION_ID');
+    expect(employeeStoreSource).toContain('FUEL_AUGUST_2026_V4_MIGRATION_ID');
     expect(employeeStoreSource).toContain('isFuelAugust2026V3RemovedEntry');
+    expect(employeeStoreSource).toContain('isFuelAugust2026V4ManualFillEntry');
     expect(employeeStoreSource).toContain('correctedMet630August03Odometers');
+    expect(employeeStoreSource).toContain('met630August31AssignedOdometers');
     expect(employeeApiSource).toContain('await ensureFuelAugust2026Migrated()');
     expect(employeeApiSource).toContain('export function ensureFuelAugust2026Migrated');
     expect(employeeApiSource).toContain('applyFuelAugust2026V2Migration');
     expect(employeeApiSource).toContain('applyFuelAugust2026V3Migration');
+    expect(employeeApiSource).toContain('applyFuelAugust2026V4Migration');
     expect(employeeApiSource).toContain('fuel_august_2026_v3_migration');
+    expect(employeeApiSource).toContain('fuel_august_2026_v4_migration');
     // Production boot awaits the migration before listen; listTripSheets must not
     // call the old additive seeders (they would resurrect deleted days).
     const productionServerSource = readFileSync(
@@ -96,6 +102,7 @@ describe('employee server session', () => {
     expect(listTripSheetsBlock).not.toContain('seedNll182OpeningFuel');
     expect(listTripSheetsBlock).not.toContain('applyFuelAugust2026V2Migration');
     expect(listTripSheetsBlock).not.toContain('applyFuelAugust2026V3Migration');
+    expect(listTripSheetsBlock).not.toContain('applyFuelAugust2026V4Migration');
   });
 
   it('requires the PIN on every launch even when a session is cached, and keeps logout explicit', () => {
