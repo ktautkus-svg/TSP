@@ -7,6 +7,15 @@
     "metaRoutes": "R54;R11;R15;R19",
     "driver": "Karolis Tautkus",
     "vehicle": "MET630",
-    "stops": []
+    "stops": [
+      {
+        "orderNo": "S608924š",
+        "weightKg": 752.15,
+        "timeWindow": "08:00-16:00",
+        "address": "UAB Galiasas\nP.Puzino g.12\n\nPanevėžys  LT–97123\nLietuva",
+        "name": "UAB Galiasas, Parduotuvė Panevėžio pat. namai",
+        "routeCode": "R54"
+      }
+    ]
   }
 }
