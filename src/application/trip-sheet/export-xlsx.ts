@@ -1,5 +1,7 @@
 import { strToU8, zipSync } from 'fflate';
 
+import { TRIP_SHEET_PRINT_COLUMNS, tripSheetColumnLegend } from './columns';
+
 export type TripSheetExportRow = {
   date: string;
   driverName: string;
@@ -28,6 +30,8 @@ export type TripSheetExportGroup = {
 export type TripSheetWorkbookInput = {
   companyName: string;
   companyAddress: string;
+  /** Filter period shown on the PDF (`Laikotarpis`). Falls back to the vehicle-month range. */
+  periodLabel?: string;
   groups: TripSheetExportGroup[];
 };
 
@@ -35,20 +39,8 @@ const MIME_XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.s
 export { MIME_XLSX };
 
 const SUMMARY_SHEET_NAME = 'Suvestinė';
-const HEADERS = [
-  'Data',
-  'Važiavimo maršrutas',
-  'Nuvažiuota, km',
-  'Kuro kiekis dienos pradžioje, L',
-  'Įpilta kuro, L',
-  'Kasos čekio Nr.',
-  'Sunaudota pagal normą, L',
-  'Kuro likutis, L',
-  'Odometras pradžioje',
-  'Odometras pabaigoje',
-  'Vairuotojas',
-];
-const COL_WIDTHS = [12, 32, 14, 18, 14, 18, 20, 16, 18, 18, 22];
+const PRINT_HEADERS = TRIP_SHEET_PRINT_COLUMNS.map((column) => column.short);
+const PRINT_COL_WIDTHS = [12, 16, 28, 12, 12, 10, 12, 10, 16, 12, 12];
 const SUMMARY_HEADERS = [
   'Transporto priemonė',
   'Modelis',
@@ -63,24 +55,34 @@ const SUMMARY_HEADERS = [
   'Odometras pabaigoje',
 ];
 const SUMMARY_COL_WIDTHS = [18, 22, 22, 28, 12, 16, 12, 14, 16, 20, 20];
+const SIGNATURE_LINES = [
+  'Kelionės lapą išdavė ______________________________ (vardas, pavardė, parašas, data)',
+  'Vadovas ______________________________ (vardas, pavardė, parašas, data)',
+  'Kelionės lapą priėmė ______________________________ (vardas, pavardė, parašas, data)',
+];
 
 /**
  * Excel Desktop repairs any worksheet whose child elements are out of the
  * ECMA-376 sequence (the previous writer put mergeCells before autoFilter,
  * froze panes without a selection, and emitted SUM formulas). The repair
  * keeps sheet *names* and strips every cell — which is the blank MET630 /
- * NLL182 / LRI* workbook Karolis opened. This builder writes a minimal
- * workbook Excel never strips: Suvestinė first, then one vehicle sheet,
- * inline strings + numeric <v> values, no autoFilter / freeze / formula /
- * headerFooter / mergeCells.
+ * NLL182 / LRI* workbook Karolis opened.
+ *
+ * This builder writes a minimal workbook Excel never strips:
+ * - first sheet is a real kelionės lapas (busiest vehicle-month), matching
+ *   the PDF from print-document.ts / TRIP_SHEET_PRINT_COLUMNS;
+ * - one worksheet per vehicle-month, Suvestinė last if kept;
+ * - inline strings + numeric <v> values, no autoFilter / freeze / formula /
+ *   headerFooter / mergeCells.
  */
 export function buildTripSheetWorkbook(input: TripSheetWorkbookInput): Uint8Array {
   if (input.groups.length === 0) throw new Error('Nėra kelionės lapų, kuriuos būtų galima eksportuoti.');
-  const vehicleNames = uniqueSheetNames(input.groups);
-  const names = [SUMMARY_SHEET_NAME, ...vehicleNames];
+  const groups = sortGroupsByBusiest(input.groups);
+  const vehicleNames = uniqueSheetNames(groups);
+  const names = [...vehicleNames, SUMMARY_SHEET_NAME];
   const sheets = [
-    summaryWorksheetXml(input),
-    ...input.groups.map((group, index) => vehicleWorksheetXml(group, input, vehicleNames[index]!)),
+    ...groups.map((group, index) => vehicleWorksheetXml(group, input, index === 0)),
+    summaryWorksheetXml({ ...input, groups }),
   ];
   const now = officeOpenXmlTimestamp();
   const files: Record<string, Uint8Array> = {
@@ -133,7 +135,7 @@ function summaryWorksheetXml(input: TripSheetWorkbookInput): string {
       ]);
     }),
     rowXml(totalRow, [
-      textCell(`A${totalRow}`, 'Iš viso:', 7),
+      textCell(`A${totalRow}`, 'Iš viso', 7),
       textCell(`B${totalRow}`, '', 7),
       textCell(`C${totalRow}`, '', 7),
       textCell(`D${totalRow}`, '', 7),
@@ -146,67 +148,78 @@ function summaryWorksheetXml(input: TripSheetWorkbookInput): string {
       textCell(`K${totalRow}`, '', 7),
     ]),
   ].join('');
-  return worksheetXml(rows, `A1:K${totalRow}`, SUMMARY_COL_WIDTHS, true);
+  return worksheetXml(rows, `A1:K${totalRow}`, SUMMARY_COL_WIDTHS, false);
 }
 
-function vehicleWorksheetXml(group: TripSheetExportGroup, input: TripSheetWorkbookInput, _sheetName: string): string {
+function vehicleWorksheetXml(group: TripSheetExportGroup, input: TripSheetWorkbookInput, selected: boolean): string {
+  const headerRow = 6;
   const firstDataRow = 7;
   const lastDataRow = firstDataRow + Math.max(group.rows.length, 1) - 1;
   const totalRow = group.rows.length === 0 ? firstDataRow + 1 : lastDataRow + 1;
+  const legendRow = totalRow + 2;
+  const firstSignatureRow = legendRow + 2;
+  const lastRow = firstSignatureRow + SIGNATURE_LINES.length - 1;
   const totals = groupTotals(group);
   const company = [input.companyName, input.companyAddress].filter(Boolean).join(', ') || 'FiRo';
+  const period = input.periodLabel?.trim() || monthPeriod(group.month);
   const dataRows = group.rows.length === 0
     ? [rowXml(firstDataRow, [textCell(`A${firstDataRow}`, 'Nėra dienų šiame laikotarpyje.', 5)])]
     : group.rows.map((item, index) => {
       const rowNumber = firstDataRow + index;
       return rowXml(rowNumber, [
         textCell(`A${rowNumber}`, item.date, 5),
-        textCell(`B${rowNumber}`, item.route, 5),
-        numberCell(`C${rowNumber}`, item.distanceKm, 6),
-        numberCell(`D${rowNumber}`, item.fuelStartLiters, 6),
-        numberCell(`E${rowNumber}`, item.fuelAddedLiters, 6),
-        textCell(`F${rowNumber}`, item.receiptNumbers.join(' / '), 5),
-        numberCell(`G${rowNumber}`, item.fuelConsumedLiters, 6),
-        numberCell(`H${rowNumber}`, item.fuelEndLiters, 6),
-        numberCell(`I${rowNumber}`, item.startOdometer, 6),
-        numberCell(`J${rowNumber}`, item.endOdometer, 6),
-        textCell(`K${rowNumber}`, item.driverName, 5),
+        textCell(`B${rowNumber}`, item.driverName, 5),
+        textCell(`C${rowNumber}`, item.route, 5),
+        numberCell(`D${rowNumber}`, item.startOdometer, 6),
+        numberCell(`E${rowNumber}`, item.endOdometer, 6),
+        numberCell(`F${rowNumber}`, item.distanceKm, 6),
+        numberCell(`G${rowNumber}`, item.fuelStartLiters, 6),
+        numberCell(`H${rowNumber}`, item.fuelAddedLiters, 6),
+        textCell(`I${rowNumber}`, item.receiptNumbers.filter(Boolean).join(' / '), 5),
+        numberCell(`J${rowNumber}`, item.fuelConsumedLiters, 6),
+        numberCell(`K${rowNumber}`, item.fuelEndLiters, 6),
       ]);
     });
   const rows = [
-    rowXml(1, [textCell('A1', 'Kelionės lapų ataskaita', 1)]),
+    rowXml(1, [textCell('A1', 'Kelionės lapas', 1)]),
     rowXml(2, [textCell('A2', company, 2)]),
     rowXml(3, [
       textCell('A3', 'Transporto priemonė:', 3),
-      textCell('B3', `${group.registrationNumber} · ${group.vehicleModel}`, 3),
+      textCell('B3', `${group.vehicleModel} · ${group.registrationNumber}`, 3),
       textCell('D3', 'Degalų norma:', 3),
-      textCell('E3', group.fuelNormLitersPer100Km === null ? '—' : `${formatPlain(group.fuelNormLitersPer100Km)} L/100 km`, 3),
+      textCell('E3', formatFuelNorm(group.fuelNormLitersPer100Km), 3),
       textCell('G3', 'Kuro tipas:', 3),
       textCell('H3', group.fuelType, 3),
     ]),
     rowXml(4, [
-      textCell('A4', 'Vairuotojas:', 3),
+      textCell('A4', 'Vairuotojas(-ai):', 3),
       textCell('B4', group.driverName, 3),
       textCell('D4', 'Laikotarpis:', 3),
-      textCell('E4', monthPeriod(group.month), 3),
+      textCell('E4', period, 3),
+      textCell('G4', 'Mėnuo:', 3),
+      textCell('H4', monthLabel(group.month), 3),
     ]),
-    rowXml(6, HEADERS.map((value, index) => textCell(`${columnName(index + 1)}6`, value, 4))),
+    rowXml(headerRow, PRINT_HEADERS.map((value, index) => textCell(`${columnName(index + 1)}${headerRow}`, value, 4))),
     ...dataRows,
     rowXml(totalRow, [
-      textCell(`A${totalRow}`, 'Iš viso:', 7),
+      textCell(`A${totalRow}`, '', 7),
       textCell(`B${totalRow}`, '', 7),
-      numberCell(`C${totalRow}`, totals.distanceKm, 8),
-      textCell(`D${totalRow}`, '', 7),
-      numberCell(`E${totalRow}`, totals.fuelAddedLiters, 8),
-      textCell(`F${totalRow}`, '', 7),
-      numberCell(`G${totalRow}`, totals.fuelConsumedLiters, 8),
-      numberCell(`H${totalRow}`, totals.fuelEndLiters, 8),
-      numberCell(`I${totalRow}`, totals.startOdometer, 8),
-      numberCell(`J${totalRow}`, totals.endOdometer, 8),
-      textCell(`K${totalRow}`, '', 7),
+      textCell(`C${totalRow}`, 'Iš viso', 7),
+      numberCell(`D${totalRow}`, totals.startOdometer, 8),
+      numberCell(`E${totalRow}`, totals.endOdometer, 8),
+      numberCell(`F${totalRow}`, totals.distanceKm, 8),
+      textCell(`G${totalRow}`, '', 7),
+      numberCell(`H${totalRow}`, totals.fuelAddedLiters, 8),
+      textCell(`I${totalRow}`, '', 7),
+      numberCell(`J${totalRow}`, totals.fuelConsumedLiters, 8),
+      numberCell(`K${totalRow}`, totals.fuelEndLiters, 8),
     ]),
+    rowXml(legendRow, [textCell(`A${legendRow}`, tripSheetColumnLegend(TRIP_SHEET_PRINT_COLUMNS), 5)]),
+    ...SIGNATURE_LINES.map((line, index) => rowXml(firstSignatureRow + index, [
+      textCell(`A${firstSignatureRow + index}`, line, 3),
+    ])),
   ].join('');
-  return worksheetXml(rows, `A1:K${totalRow}`, COL_WIDTHS, false);
+  return worksheetXml(rows, `A1:K${lastRow}`, PRINT_COL_WIDTHS, selected);
 }
 
 /**
@@ -227,10 +240,20 @@ function groupTotals(group: TripSheetExportGroup) {
     distanceKm: sum(group.rows.map((row) => row.distanceKm)),
     fuelAddedLiters: sum(group.rows.map((row) => row.fuelAddedLiters)),
     fuelConsumedLiters: sum(group.rows.map((row) => row.fuelConsumedLiters)),
-    fuelEndLiters: group.rows.at(-1)?.fuelEndLiters ?? null,
+    fuelEndLiters: [...group.rows].reverse().find((row) => row.fuelEndLiters !== null)?.fuelEndLiters ?? null,
     startOdometer: group.rows.find((row) => row.startOdometer !== null)?.startOdometer ?? null,
     endOdometer: [...group.rows].reverse().find((row) => row.endOdometer !== null)?.endOdometer ?? null,
   };
+}
+
+function sortGroupsByBusiest(groups: TripSheetExportGroup[]): TripSheetExportGroup[] {
+  return [...groups].sort((left, right) => {
+    const rowDelta = right.rows.length - left.rows.length;
+    if (rowDelta !== 0) return rowDelta;
+    const kmDelta = sum(right.rows.map((row) => row.distanceKm)) - sum(left.rows.map((row) => row.distanceKm));
+    if (kmDelta !== 0) return kmDelta;
+    return (left.registrationNumber || left.driverName).localeCompare(right.registrationNumber || right.driverName, 'lt');
+  });
 }
 
 function rowXml(index: number, cells: string[]): string {
@@ -254,8 +277,8 @@ function finite(value: number): string {
   return Number.isFinite(value) ? String(Math.round(value * 100) / 100) : '0';
 }
 
-function formatPlain(value: number): string {
-  return new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 2 }).format(value);
+function formatFuelNorm(value: number | null): string {
+  return value === null ? '—' : `${new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 2 }).format(value)} L/100km`;
 }
 
 function xml(value: string): Uint8Array {
@@ -295,6 +318,13 @@ function monthPeriod(month: string): string {
   if (!year || !monthNumber) return month;
   const last = new Date(year, monthNumber, 0).getDate();
   return `${month}-01 - ${month}-${String(last).padStart(2, '0')}`;
+}
+
+function monthLabel(month: string): string {
+  const date = new Date(`${month}-15T12:00:00`);
+  return Number.isNaN(date.getTime())
+    ? month
+    : new Intl.DateTimeFormat('lt-LT', { year: 'numeric', month: 'long' }).format(date);
 }
 
 /** Excel rejects core.xml W3CDTF timestamps with milliseconds and then "repairs" the file empty. */

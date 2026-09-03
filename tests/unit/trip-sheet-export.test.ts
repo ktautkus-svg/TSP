@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
+import { TRIP_SHEET_PRINT_COLUMNS, tripSheetColumnLegend } from '../../src/application/trip-sheet/columns';
 import { buildTripSheetWorkbook, packedBytes } from '../../src/application/trip-sheet/export-xlsx';
 
 const SAMPLE_GROUPS = [
@@ -74,6 +75,7 @@ const SAMPLE_GROUPS = [
 const SAMPLE_INPUT = {
   companyName: 'TSP',
   companyAddress: 'Savanorių pr. 180, Vilnius',
+  periodLabel: '2026-08',
   groups: SAMPLE_GROUPS,
 };
 
@@ -90,34 +92,62 @@ function worksheetChildren(xml: string): string[] {
     .map((match) => match[1]!);
 }
 
+function assertDesktopSafeSheet(xml: string) {
+  expect(worksheetChildren(xml)).toEqual([
+    'dimension',
+    'sheetViews',
+    'sheetFormatPr',
+    'cols',
+    'sheetData',
+    'pageMargins',
+  ]);
+  expect(xml).not.toContain('autoFilter');
+  expect(xml).not.toContain('mergeCells');
+  expect(xml).not.toContain('<f>');
+  expect(xml).toContain('<sheetData>');
+  expect(xml).toContain('t="inlineStr"');
+  expect(xml).toContain('<v>');
+}
+
 describe('trip sheet Excel export', () => {
-  it('creates an accounting-ready workbook from real odometer and fuel fields', () => {
+  it('creates a PDF-matching kelionės lapas from real odometer and fuel fields', () => {
     const workbook = buildTripSheetWorkbook({
       companyName: 'TSP',
       companyAddress: 'Savanorių pr. 180, Vilnius',
+      periodLabel: '2026-08',
       groups: [SAMPLE_GROUPS[0]!],
     });
 
     const archive = unzipWorkbook(workbook);
-    const sheet = sheetText(archive, 2);
+    const workbookXml = strFromU8(archive['xl/workbook.xml']!);
+    expect(workbookXml).toMatch(/<sheet name="MET630 2026-08" sheetId="1" r:id="rId1"\/>/);
+    expect(workbookXml).not.toMatch(/<sheet name="Suvestinė" sheetId="1"/);
+
+    const sheet = sheetText(archive, 1);
     const styles = strFromU8(archive['xl/styles.xml']!);
-    expect(sheet).toContain('Kelionės lapų ataskaita');
-    expect(sheet).toContain('Kasos čekio Nr.');
-    expect(sheet).toContain('Odometras pradžioje');
-    expect(sheet).toContain('Odometras pabaigoje');
-    expect(sheet).toContain('Vairuotojas');
+    expect(sheet).toContain('Kelionės lapas');
+    expect(sheet).not.toContain('Kelionės lapų ataskaita');
+    expect(sheet).toContain('Renault Master · MET630');
+    expect(sheet).toContain('Vairuotojas(-ai):');
     expect(sheet).toContain('Karolis Tautkus');
     expect(sheet).toContain('565638');
     expect(sheet).toContain('675154');
     expect(sheet).toContain('675628');
     expect(sheet).toContain('<v>474</v>');
+    expect(sheet).toMatch(/<c r="A7" t="inlineStr"[^>]*>[\s\S]*?<t[^>]*>2026-08-17<\/t>/);
     expect(sheet).not.toContain('<f>');
     expect(sheet).not.toContain('Sustojimo trukmė');
     expect(sheet).not.toContain('Stovėjimo laikas');
     expect(styles).toContain('formatCode="#,##0.0"');
+    for (const column of TRIP_SHEET_PRINT_COLUMNS) {
+      expect(sheet).toContain(`>${column.short}<`);
+    }
+    expect(sheet).toContain(tripSheetColumnLegend(TRIP_SHEET_PRINT_COLUMNS));
+    expect(sheet).toContain('Kelionės lapą išdavė');
+    expect(sheet).toContain('Kelionės lapą priėmė');
   });
 
-  it('puts Suvestinė first and writes inlineStr / v cells Excel Desktop will display', () => {
+  it('opens on a vehicle kelionės lapas with daily rows, not Suvestinė', () => {
     const workbook = buildTripSheetWorkbook(SAMPLE_INPUT);
     expect(workbook.byteOffset).toBe(0);
     expect(workbook.byteLength).toBe(workbook.buffer.byteLength);
@@ -126,54 +156,90 @@ describe('trip sheet Excel export', () => {
 
     const archive = unzipWorkbook(workbook);
     const workbookXml = strFromU8(archive['xl/workbook.xml']!);
-    expect(workbookXml).toMatch(/<sheet name="Suvestinė" sheetId="1" r:id="rId1"\/>/);
-    expect(workbookXml).toContain('name="MET630 2026-08"');
-    expect(workbookXml).toContain('name="NLL182 2026-08"');
-    expect(workbookXml).toContain('name="LRI740 2026-08"');
+    expect(workbookXml).toMatch(/<sheet name="MET630 2026-08" sheetId="1" r:id="rId1"\/>/);
+    expect(workbookXml).toMatch(/<sheet name="NLL182 2026-08" sheetId="2" r:id="rId2"\/>/);
+    expect(workbookXml).toMatch(/<sheet name="LRI740 2026-08" sheetId="3" r:id="rId3"\/>/);
+    expect(workbookXml).toMatch(/<sheet name="Suvestinė" sheetId="4" r:id="rId4"\/>/);
+    expect(workbookXml).not.toMatch(/<sheet name="Suvestinė" sheetId="1"/);
 
-    const summary = sheetText(archive, 1);
-    expect(summary).toContain('t="inlineStr"');
+    const first = sheetText(archive, 1);
+    expect(first).toContain('Kelionės lapas');
+    expect(first).not.toContain('Kelionės lapų suvestinė');
+    expect(first).toContain('t="inlineStr"');
+    expect(first).toContain('MET630');
+    expect(first).toContain('Karolis Tautkus');
+    expect(first).toMatch(/<c r="A7" t="inlineStr"[^>]*>[\s\S]*?<t[^>]*>2026-08-17<\/t>/);
+    expect(first).toMatch(/<c r="C7" t="inlineStr"[^>]*>[\s\S]*?<t[^>]*>R11 · R15<\/t>/);
+    expect(first).toMatch(/<c r="F7"[^>]*><v>474<\/v><\/c>/);
+    expect(first).toContain('Iš viso');
+    for (const column of TRIP_SHEET_PRINT_COLUMNS) {
+      expect(first).toContain(`>${column.short}<`);
+    }
+
+    const nll = sheetText(archive, 2);
+    expect(nll).toContain('Kelionės lapas');
+    expect(nll).toMatch(/<c r="A7" t="inlineStr"[^>]*>[\s\S]*?<t[^>]*>2026-08-19<\/t>/);
+    expect(nll).toMatch(/<c r="F7"[^>]*><v>210<\/v><\/c>/);
+
+    const lri = sheetText(archive, 3);
+    expect(lri).toContain('Kelionės lapas');
+    expect(lri).toMatch(/<c r="A7" t="inlineStr"[^>]*>[\s\S]*?<t[^>]*>2026-08-09<\/t>/);
+    expect(lri).toMatch(/<c r="F7"[^>]*><v>12<\/v><\/c>/);
+    expect(lri).toContain('R56');
+
+    const summary = sheetText(archive, 4);
     expect(summary).toContain('Kelionės lapų suvestinė');
     expect(summary).toContain('MET630');
     expect(summary).toContain('NLL182');
     expect(summary).toContain('LRI740');
-    expect(summary).toMatch(/<c r="F5"[^>]*><v>474<\/v><\/c>/);
-    expect(summary).toMatch(/<c r="F6"[^>]*><v>210<\/v><\/c>/);
-    expect(summary).toMatch(/<c r="F7"[^>]*><v>12<\/v><\/c>/);
-    expect(summary).toMatch(/<c r="F8"[^>]*><v>696<\/v><\/c>/);
-
-    const met = sheetText(archive, 2);
-    expect(met).toMatch(/<c r="A7" t="inlineStr"[^>]*>[\s\S]*?<t[^>]*>2026-08-17<\/t>/);
-    expect(met).toMatch(/<c r="C7"[^>]*><v>474<\/v><\/c>/);
-    expect(met).toContain('Kelionės lapų ataskaita');
-    expect(met).toContain('Karolis Tautkus');
-
-    const nll = sheetText(archive, 3);
-    expect(nll).toMatch(/<c r="A7" t="inlineStr"[^>]*>[\s\S]*?<t[^>]*>2026-08-19<\/t>/);
-    expect(nll).toMatch(/<c r="C7"[^>]*><v>210<\/v><\/c>/);
-
-    const lri = sheetText(archive, 4);
-    expect(lri).toMatch(/<c r="A7" t="inlineStr"[^>]*>[\s\S]*?<t[^>]*>2026-08-09<\/t>/);
-    expect(lri).toMatch(/<c r="C7"[^>]*><v>12<\/v><\/c>/);
-    expect(lri).toContain('R56');
 
     for (const index of [1, 2, 3, 4]) {
-      const xml = sheetText(archive, index);
-      expect(worksheetChildren(xml)).toEqual([
-        'dimension',
-        'sheetViews',
-        'sheetFormatPr',
-        'cols',
-        'sheetData',
-        'pageMargins',
-      ]);
-      expect(xml).not.toContain('autoFilter');
-      expect(xml).not.toContain('mergeCells');
-      expect(xml).not.toContain('<f>');
-      expect(xml).toContain('<sheetData>');
-      expect(xml).toContain('t="inlineStr"');
-      expect(xml).toContain('<v>');
+      assertDesktopSafeSheet(sheetText(archive, index));
     }
+  });
+
+  it('sorts busiest vehicle-months first so sheet1 is not an empty LRI stub', () => {
+    const workbook = buildTripSheetWorkbook({
+      companyName: 'FiRo',
+      companyAddress: 'Vilnius',
+      periodLabel: '2026-08',
+      groups: [
+        {
+          ...SAMPLE_GROUPS[2]!,
+          rows: [],
+        },
+        SAMPLE_GROUPS[0]!,
+        {
+          ...SAMPLE_GROUPS[1]!,
+          rows: [
+            SAMPLE_GROUPS[1]!.rows[0]!,
+            {
+              ...SAMPLE_GROUPS[1]!.rows[0]!,
+              date: '2026-08-20',
+              route: 'R33',
+              distanceKm: 80,
+            },
+          ],
+        },
+      ],
+    });
+    const archive = unzipWorkbook(workbook);
+    const workbookXml = strFromU8(archive['xl/workbook.xml']!);
+    expect(workbookXml).toMatch(/<sheet name="NLL182 2026-08" sheetId="1" r:id="rId1"\/>/);
+    expect(workbookXml).toMatch(/<sheet name="MET630 2026-08" sheetId="2"/);
+    expect(workbookXml).toMatch(/<sheet name="LRI740 2026-08" sheetId="3"/);
+    expect(workbookXml).toMatch(/<sheet name="Suvestinė" sheetId="4"/);
+
+    const first = sheetText(archive, 1);
+    expect(first).toContain('Kelionės lapas');
+    expect(first).toContain('NLL182');
+    expect(first).toContain('2026-08-19');
+    expect(first).toContain('2026-08-20');
+    expect(first).not.toContain('Nėra dienų šiame laikotarpyje.');
+
+    const lastVehicle = sheetText(archive, 3);
+    expect(lastVehicle).toContain('LRI740');
+    expect(lastVehicle).toContain('Nėra dienų šiame laikotarpyje.');
   });
 
   it('writes core.xml timestamps without milliseconds so Excel will open the file', () => {
@@ -215,7 +281,8 @@ describe('trip sheet Excel export', () => {
       }],
     });
     const archive = unzipWorkbook(workbook);
-    const sheet = sheetText(archive, 2);
+    const sheet = sheetText(archive, 1);
+    expect(sheet).toContain('Kelionės lapas');
     expect(sheet).toContain('Savanorių pr. 180, Vilnius');
     expect(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/.test(sheet)).toBe(false);
   });
@@ -242,5 +309,6 @@ describe('trip sheet Excel download', () => {
     expect(source).not.toContain('payload.buffer');
     expect(source).not.toContain('bytes.buffer');
     expect(source).not.toContain('bytes.slice()');
+    expect(source).toContain('periodLabel');
   });
 });
