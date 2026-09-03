@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 import { buildOptimizationRequestFromRoute } from '../../src/application/routes/route-request-builder';
+import { isHistoricalPlanningDate } from '../../src/application/routes/planning-schedule';
 import type { DeliveryStop, Route } from '../../src/domain/route';
 
 const loading = readFileSync('src/app/route/[id]/loading.tsx', 'utf8');
@@ -121,5 +122,14 @@ describe('planned departure stays until Start', () => {
     expect(loading).toContain('statusRail');
     expect(loading).toContain('orderBadge');
     expect(loading).toContain('Laukia pakrovimo');
+  });
+
+  it('treats August 2026 as historical on 2026-09-03 so Excel import skips Google n²', () => {
+    const now = new Date('2026-09-03T10:00:00.000Z');
+    expect(isHistoricalPlanningDate('2026-08-03', now)).toBe(true);
+    expect(isHistoricalPlanningDate('2026-08-31', now)).toBe(true);
+    expect(isHistoricalPlanningDate('2026-09-03', now)).toBe(false);
+    expect(isHistoricalPlanningDate('2026-09-04', now)).toBe(false);
+    expect(isHistoricalPlanningDate('bad', now)).toBe(false);
   });
 });

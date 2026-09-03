@@ -313,6 +313,25 @@ describe('E · eismas tik galutiniam maršrutui', () => {
     expect(recalculation).toContain('createPlanningTravelProvider');
     const factory = readFileSync(resolve(__dirname, '../../src/application/routing/planning-travel-provider.ts'), 'utf8');
     expect(factory).toContain('PlanningRunTravelCostProvider');
+    expect(factory).toContain('skipPaidMatrix');
+    expect(screen).toContain('isHistoricalPlanningDate');
+    expect(screen).toContain('skipPaidMatrix');
+  });
+
+  it('historical Excel import skips the paid n² cap so a 37-stop day can still plan', async () => {
+    const { createPlanningTravelProvider } = await import('@/application/routing/planning-travel-provider');
+    const provider = createPlanningTravelProvider({ skipPaidMatrix: true });
+    expect(provider.name).toContain('synthetic');
+    const request = createBaseRequest(37);
+    const matrix = await provider.getMatrix({
+      locations: [request.startLocation, ...request.stops.map((stop) => stop.location), request.endLocation],
+      vehicle: request.vehicle,
+      departureAt: request.plannedDepartureAt,
+      trafficMode: 'none',
+      timeoutMs: 5_000,
+    });
+    expect(matrix.executionMode).toBe('synthetic');
+    expect(matrix.nodeIds).toHaveLength(39);
   });
 
   it('polyline tiekėjas eismą vis dar naudoja - tik pasirinktam maršrutui', () => {

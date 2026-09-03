@@ -35,6 +35,10 @@ describe('trip sheet fuel workflow', () => {
     expect(source).toContain('trip-sheet-column-legend');
     expect(source).toContain('buildTripSheetPrintDocument');
     expect(source).toContain('Eksportuoti Excel');
+    expect(source).toContain('document.body.appendChild(link)');
+    expect(source).toContain('new Blob([payload]');
+    expect(source).not.toContain('payload.buffer');
+    expect(source).toContain("typeof document === 'undefined'");
     expect(source).toContain('vehicleDayFuelDistanceKm');
     expect(source).not.toContain('Sustojimo trukmė');
     expect(source).not.toContain('Stovėjimo laikas');

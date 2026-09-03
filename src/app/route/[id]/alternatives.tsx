@@ -26,6 +26,7 @@ import { evaluateCandidate } from '@/domain/routing/evaluation/candidate-evaluat
 import type { OptimizationStop, RouteCandidate, RouteOptimizationRequest, RouteOptimizationResult, RoutePolylineResult, TravelCostProvider, TravelMatrix } from '@/domain/routing/models';
 import { SQLiteRoutingAuditRepository } from '@/infrastructure/routing/persistence/sqlite-routing-audit-repository';
 import { createPlanningTravelProvider } from '@/application/routing/planning-travel-provider';
+import { isHistoricalPlanningDate } from '@/application/routes/planning-schedule';
 import { GatewayPolylineProvider } from '@/infrastructure/routing/providers/gateway-polyline-provider';
 import { Alert } from '@/ui/alert';
 import { presentRoutingDataSource } from '@/ui/routing-data-source';
@@ -95,7 +96,11 @@ export default function RouteAlternativesScreen() {
       }
       const stops = await hydrateStopParkPins(db, persisted.stops);
       const nextRequest = buildOptimizationRequestFromRoute(persisted.route, stops);
-      const provider = createPlanningTravelProvider({ allowSynthetic });
+      const skipPaidMatrix = isHistoricalPlanningDate(persisted.route.date);
+      const provider = createPlanningTravelProvider({
+        allowSynthetic: allowSynthetic || skipPaidMatrix,
+        skipPaidMatrix,
+      });
       const four = await buildRouteAlternatives(new RoutingEngine(provider), nextRequest);
       await new SQLiteRoutingAuditRepository(db).saveOptimizationRun(routeId, four.request, four.result);
       setRequest(four.request);

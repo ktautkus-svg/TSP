@@ -296,7 +296,11 @@ export default function ImportScreen() {
     setShowPhotoSources(false);
     setShowPasteField(false);
     const selected = await DocumentPicker.getDocumentAsync({
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      type: [
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.ms-excel.sheet.macroEnabled.12',
+        'application/vnd.ms-excel',
+      ],
       copyToCacheDirectory: true,
       multiple: true,
     });

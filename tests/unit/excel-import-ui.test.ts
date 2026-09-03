@@ -62,6 +62,8 @@ describe('compact daily Excel UI', () => {
 
   it('shows every import source explicitly with progressive disclosure', () => {
     expect(importScreen).toContain('testID="pick-excel"');
+    expect(importScreen).toContain("application/vnd.ms-excel.sheet.macroEnabled.12");
+    expect(importScreen).toContain('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     expect(importScreen).toContain('Pasirinkti Excel failą');
     expect(importScreen).toContain('PASIRINKITE ŠALTINĮ');
     expect(importScreen).toContain('Nuotrauka');

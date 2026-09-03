@@ -14,8 +14,18 @@ export function syntheticFallbackAllowed(explicit = false): boolean {
  * Synthetic is not chained unless the driver confirmed it or the explicit
  * development flag is on. Silent haversine routes look driveable and are
  * too easy to save under time pressure.
+ *
+ * Historical Excel import (route date before today in Lithuania) must not
+ * buy Google n². Those days skip the paid provider and the 25-stop plan
+ * cap so a 30+ stop August sheet can still become a trip sheet.
  */
-export function createPlanningTravelProvider(options?: { allowSynthetic?: boolean }): TravelCostProvider {
+export function createPlanningTravelProvider(options?: {
+  allowSynthetic?: boolean;
+  skipPaidMatrix?: boolean;
+}): TravelCostProvider {
+  if (options?.skipPaidMatrix) {
+    return new SyntheticTravelCostProvider('linear');
+  }
   const selectedProvider = process.env.EXPO_PUBLIC_ROUTING_PROVIDER === 'here'
     ? new HereTravelCostProvider()
     : new GoogleTravelCostProvider();

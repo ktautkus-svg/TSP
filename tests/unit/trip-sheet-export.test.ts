@@ -37,6 +37,26 @@ describe('trip sheet Excel export', () => {
     expect(styles).toContain('formatCode="#,##0.0"');
   });
 
+  it('writes core.xml timestamps without milliseconds so Excel will open the file', () => {
+    const workbook = buildTripSheetWorkbook({
+      companyName: 'TSP',
+      companyAddress: 'Vilnius',
+      groups: [{
+        month: '2026-08', driverName: 'Karolis Tautkus', registrationNumber: 'MET630', vehicleModel: 'Renault Master',
+        fuelNormLitersPer100Km: 12, fuelType: 'Dyzelinas',
+        rows: [{
+          date: '2026-08-17', driverName: 'Karolis Tautkus', route: 'R11', distanceKm: 100,
+          fuelStartLiters: 50, fuelAddedLiters: 0, receiptNumbers: [], fuelConsumedLiters: 12, fuelEndLiters: 38,
+          startOdometer: 1, endOdometer: 101,
+        }],
+      }],
+    });
+    const archive = unzipSync(workbook);
+    const core = strFromU8(archive['docProps/core.xml']!);
+    expect(core).toMatch(/dcterms:created[^>]*>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z</);
+    expect(core).not.toMatch(/\.\d{3}Z</);
+  });
+
   it('strips illegal XML control characters instead of producing a workbook Excel refuses to open', () => {
     // A route/address label built from OCR'd or pasted text can carry stray
     // control bytes (e.g. \x00-\x1F). Those are illegal even when
