@@ -190,6 +190,7 @@ export default function TripSheetScreen() {
       const bytes = buildTripSheetWorkbook({
         companyName: companyProfile.name,
         companyAddress: companyProfile.address,
+        periodLabel,
         groups: monthlyGroups.map((group) => ({
           month: group.month,
           driverName: [...new Set(group.rows.map((row) => row.driverName))].join(', '),
