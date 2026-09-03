@@ -46,6 +46,13 @@ export const FUEL_AUGUST_2026_V3_MIGRATION_ID = 'fuel-august-2026-v3';
  */
 export const FUEL_AUGUST_2026_V4_MIGRATION_ID = 'fuel-august-2026-v4';
 
+/**
+ * Follow-up one-shot flag after v4: delete the two MET630 phantom fills if they
+ * reappeared (manual re-entry or 46.08 L without the original receipt).
+ * Verifies absence before writing the flag. Runs after v4 on boot.
+ */
+export const FUEL_AUGUST_2026_V5_MIGRATION_ID = 'fuel-august-2026-v5';
+
 export const FUEL_AUGUST_2026_NORMS = {
   MET630: 12,
   NLL182: 13.9,
@@ -86,6 +93,7 @@ export const FUEL_AUGUST_2026_V3_REMOVED_FILLS = [
     localDate: '2026-08-09',
     receiptNumber: '242/426',
     liters: 46.01,
+    litersAliases: [46.08, 46.01] as const,
     transactionId: '42655388',
   },
   {
@@ -93,8 +101,16 @@ export const FUEL_AUGUST_2026_V3_REMOVED_FILLS = [
     localDate: '2026-08-29',
     receiptNumber: '89/1222',
     liters: 30.00,
+    litersAliases: [30] as const,
     transactionId: '42959044',
   },
+] as const;
+
+/** Legitimate MET630 fills on the same days — v5 must never delete these. */
+export const FUEL_AUGUST_2026_V5_PROTECTED_FILLS = [
+  { registrationNumber: 'MET630' as const, localDate: '2026-08-09', receiptNumber: '476/1159', liters: 10 },
+  { registrationNumber: 'MET630' as const, localDate: '2026-08-09', receiptNumber: '325/1158', liters: 95 },
+  { registrationNumber: 'MET630' as const, localDate: '2026-08-29', receiptNumber: '834/1206', liters: 9.5 },
 ] as const;
 
 /** Previous NLL opener id/date that must be removed when the Aug 13 opener replaces it. */
@@ -262,6 +278,30 @@ export function parseVehicleDateKey(key: string): { vehicleId: string; date: str
   return { vehicleId: key.slice(0, separator), date };
 }
 
+function fuelEntryHaystack(entry: {
+  id: string;
+  receiptNumber?: string | null;
+  notes?: string | null;
+}): string {
+  return `${entry.id}\n${entry.notes ?? ''}\n${entry.receiptNumber ?? ''}`;
+}
+
+function fuelEntryPlate(entry: { registrationNumber?: string | null }): string {
+  return String(entry.registrationNumber ?? '').trim().toUpperCase();
+}
+
+function fuelEntryLocalDate(entry: { id: string; filledAt?: string | null }): string | null {
+  const filledAt = String(entry.filledAt ?? '');
+  if (/^\d{4}-\d{2}-\d{2}/.test(filledAt)) return filledAt.slice(0, 10);
+  const fromId = entry.id.match(/(?:MET630|NLL182)-(\d{4})(\d{2})(\d{2})/i);
+  if (fromId) return `${fromId[1]}-${fromId[2]}-${fromId[3]}`;
+  return null;
+}
+
+function litersClose(actual: number | null | undefined, expected: number, tolerance = 0.1): boolean {
+  return typeof actual === 'number' && Number.isFinite(actual) && Math.abs(actual - expected) <= tolerance;
+}
+
 /** Live fuel rows that v3 must delete (trn id preferred, then xlsx id / receipt). */
 export function isFuelAugust2026V3RemovedEntry(entry: {
   id: string;
@@ -271,7 +311,7 @@ export function isFuelAugust2026V3RemovedEntry(entry: {
   filledAt?: string | null;
 }): boolean {
   for (const target of FUEL_AUGUST_2026_V3_REMOVED_FILLS) {
-    const haystack = `${entry.id}\n${entry.notes ?? ''}\n${entry.receiptNumber ?? ''}`;
+    const haystack = fuelEntryHaystack(entry);
     if (haystack.includes(target.transactionId)) return true;
 
     const expectedId = excelFuelDocumentId({
@@ -281,9 +321,64 @@ export function isFuelAugust2026V3RemovedEntry(entry: {
     });
     if (entry.id === expectedId) return true;
 
-    const plate = String(entry.registrationNumber ?? '').trim().toUpperCase();
+    const plate = fuelEntryPlate(entry);
     if (plate !== target.registrationNumber) continue;
     if (entry.receiptNumber === target.receiptNumber) return true;
+  }
+  return false;
+}
+
+/** Legitimate same-day MET630 fills that must survive v5. */
+export function isFuelAugust2026V5ProtectedEntry(entry: {
+  id: string;
+  registrationNumber?: string | null;
+  receiptNumber?: string | null;
+  notes?: string | null;
+  filledAt?: string | null;
+  liters?: number | null;
+}): boolean {
+  const plate = fuelEntryPlate(entry);
+  const date = fuelEntryLocalDate(entry);
+  for (const keep of FUEL_AUGUST_2026_V5_PROTECTED_FILLS) {
+    if (entry.receiptNumber === keep.receiptNumber && (plate === keep.registrationNumber || plate === '')) {
+      return true;
+    }
+    const expectedId = excelFuelDocumentId({
+      registrationNumber: keep.registrationNumber,
+      localDate: keep.localDate,
+      receiptNumber: keep.receiptNumber,
+    });
+    if (entry.id === expectedId) return true;
+    if (plate !== keep.registrationNumber) continue;
+    if (date !== keep.localDate) continue;
+    if (litersClose(entry.liters, keep.liters, 0.2)) return true;
+  }
+  return false;
+}
+
+/**
+ * Live fuel rows that v5 must delete. Identifier match from v3, plus
+ * MET630 date+liters fallback for a retyped 46.08 / 46.01 L or 30 L fill
+ * that no longer carries the Circle K receipt/trn. Protected same-day
+ * fills (10 L, 95 L, 9.5 L) are never selected.
+ */
+export function isFuelAugust2026V5RemovedEntry(entry: {
+  id: string;
+  registrationNumber?: string | null;
+  receiptNumber?: string | null;
+  notes?: string | null;
+  filledAt?: string | null;
+  liters?: number | null;
+}): boolean {
+  if (isFuelAugust2026V5ProtectedEntry(entry)) return false;
+  if (isFuelAugust2026V3RemovedEntry(entry)) return true;
+
+  const plate = fuelEntryPlate(entry);
+  if (plate !== 'MET630') return false;
+  const date = fuelEntryLocalDate(entry);
+  for (const target of FUEL_AUGUST_2026_V3_REMOVED_FILLS) {
+    if (date !== target.localDate) continue;
+    if (target.litersAliases.some((liters) => litersClose(entry.liters, liters))) return true;
   }
   return false;
 }

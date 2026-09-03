@@ -38,7 +38,7 @@ export function buildTripSheetWorkbook(input: TripSheetWorkbookInput): Uint8Arra
   if (input.groups.length === 0) throw new Error('Nėra kelionės lapų, kuriuos būtų galima eksportuoti.');
   const names = uniqueSheetNames(input.groups);
   const sheets = input.groups.map((group, index) => worksheetXml(group, input, names[index]!));
-  const now = new Date().toISOString();
+  const now = officeOpenXmlTimestamp();
   const files: Record<string, Uint8Array> = {
     '[Content_Types].xml': xml(contentTypesXml(sheets.length)),
     '_rels/.rels': xml(rootRelsXml()),
@@ -126,6 +126,10 @@ function escapeXml(value: string): string {
 }
 function columnName(index: number): string { let value = index; let result = ''; while (value > 0) { const remainder = (value - 1) % 26; result = String.fromCharCode(65 + remainder) + result; value = Math.floor((value - 1) / 26); } return result; }
 function monthPeriod(month: string): string { const [year, monthNumber] = month.split('-').map(Number); if (!year || !monthNumber) return month; const last = new Date(year, monthNumber, 0).getDate(); return `${month}-01 - ${month}-${String(last).padStart(2, '0')}`; }
+/** Excel rejects core.xml W3CDTF timestamps with milliseconds and then "repairs" the file empty. */
+export function officeOpenXmlTimestamp(now = new Date()): string {
+  return now.toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
 function uniqueSheetNames(groups: TripSheetExportGroup[]): string[] { const used = new Set<string>(); return groups.map((group, index) => { const base = `${group.registrationNumber || group.driverName || `Lapas ${index + 1}`} ${group.month}`.replace(/[\\/*?:\[\]]/g, ' ').trim().slice(0, 31) || `Lapas ${index + 1}`; let candidate = base; let suffix = 2; while (used.has(candidate)) { const tail = ` ${suffix++}`; candidate = `${base.slice(0, 31 - tail.length)}${tail}`; } used.add(candidate); return candidate; }); }
 
 function contentTypesXml(sheetCount: number): string { return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${Array.from({ length: sheetCount }, (_, index) => `<Override PartName="/xl/worksheets/sheet${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/></Types>`; }

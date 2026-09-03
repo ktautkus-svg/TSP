@@ -6,6 +6,7 @@ import {
   FUEL_AUGUST_2026_NORMS,
   FUEL_AUGUST_2026_V3_MIGRATION_ID,
   FUEL_AUGUST_2026_V4_MIGRATION_ID,
+  FUEL_AUGUST_2026_V5_MIGRATION_ID,
   FUEL_AUGUST_2026_V3_REMOVED_FILLS,
   MET630_AUGUST_03_2026_DATE,
   MET630_AUGUST_03_2026_DISTANCE_KM,
@@ -33,6 +34,8 @@ import {
   extraDistanceKmOf,
   isFuelAugust2026V3RemovedEntry,
   isFuelAugust2026V4ManualFillEntry,
+  isFuelAugust2026V5ProtectedEntry,
+  isFuelAugust2026V5RemovedEntry,
   isStaleAugust2026FuelEntry,
   isStaleAugustOpeningReport,
   lithuaniaLocalToIso,
@@ -100,6 +103,7 @@ describe('Excel kuro katalogas', () => {
     expect(FUEL_AUGUST_2026_MIGRATION_ID).toBe('fuel-august-2026-v2');
     expect(FUEL_AUGUST_2026_V3_MIGRATION_ID).toBe('fuel-august-2026-v3');
     expect(FUEL_AUGUST_2026_V4_MIGRATION_ID).toBe('fuel-august-2026-v4');
+    expect(FUEL_AUGUST_2026_V5_MIGRATION_ID).toBe('fuel-august-2026-v5');
     expect(MET630_AUGUST_03_2026_DATE).toBe('2026-08-03');
     expect(MET630_AUGUST_03_2026_DISTANCE_KM).toBe(617);
 
@@ -141,6 +145,73 @@ describe('Excel kuro katalogas', () => {
       .toEqual({ startOdometer: 100_000, endOdometer: 100_617, distanceKm: 617 });
     expect(correctedMet630August03Odometers(null))
       .toEqual({ startOdometer: 0, endOdometer: 617, distanceKm: 617 });
+  });
+
+  it('v5 ištrina tik dvi MET630 šmėklas ir palieka 10 L / 95 L / 9.5 L', () => {
+    expect(isFuelAugust2026V5RemovedEntry({
+      id: 'xlsx-MET630-20260809-242-426',
+      registrationNumber: 'MET630',
+      receiptNumber: '242/426',
+      filledAt: '2026-08-09T12:00:00.000Z',
+      liters: 46.01,
+    })).toBe(true);
+    expect(isFuelAugust2026V5RemovedEntry({
+      id: 'manual-4608',
+      registrationNumber: 'MET630',
+      receiptNumber: null,
+      filledAt: '2026-08-09T09:00:00.000Z',
+      liters: 46.08,
+    })).toBe(true);
+    expect(isFuelAugust2026V5RemovedEntry({
+      id: 'manual-30l',
+      registrationNumber: 'MET630',
+      receiptNumber: null,
+      filledAt: '2026-08-29T09:00:00.000Z',
+      liters: 30,
+    })).toBe(true);
+    expect(isFuelAugust2026V5RemovedEntry({
+      id: 'legacy-import',
+      registrationNumber: 'MET630',
+      receiptNumber: null,
+      notes: 'Circle K trn 42655388',
+      liters: 46.08,
+    })).toBe(true);
+
+    expect(isFuelAugust2026V5ProtectedEntry({
+      id: 'xlsx-MET630-20260809-476-1159',
+      registrationNumber: 'MET630',
+      receiptNumber: '476/1159',
+      filledAt: '2026-08-09T20:23:00.000Z',
+      liters: 10,
+    })).toBe(true);
+    expect(isFuelAugust2026V5RemovedEntry({
+      id: 'xlsx-MET630-20260809-476-1159',
+      registrationNumber: 'MET630',
+      receiptNumber: '476/1159',
+      filledAt: '2026-08-09T20:23:00.000Z',
+      liters: 10,
+    })).toBe(false);
+    expect(isFuelAugust2026V5RemovedEntry({
+      id: 'xlsx-MET630-20260809-325-1158',
+      registrationNumber: 'MET630',
+      receiptNumber: '325/1158',
+      filledAt: '2026-08-09T20:38:00.000Z',
+      liters: 95,
+    })).toBe(false);
+    expect(isFuelAugust2026V5RemovedEntry({
+      id: 'xlsx-MET630-20260829-834-1206',
+      registrationNumber: 'MET630',
+      receiptNumber: '834/1206',
+      filledAt: '2026-08-29T09:00:00.000Z',
+      liters: 9.5,
+    })).toBe(false);
+    expect(isFuelAugust2026V5RemovedEntry({
+      id: 'xlsx-NLL182-20260825-131-1213',
+      registrationNumber: 'NLL182',
+      receiptNumber: '131/1213',
+      filledAt: '2026-08-25T09:00:00.000Z',
+      liters: 30,
+    })).toBe(false);
   });
 
   it('v4 prideda MET630 08/52 pylimą ir 615.50 km likutį be Karolio 300 km keitimo', () => {

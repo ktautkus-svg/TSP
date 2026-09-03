@@ -146,6 +146,7 @@ describe('August 2026 trip-sheet vehicle/driver correction catalog', () => {
     expect(listTripSheetsBlock).not.toContain('applyTripSheetAugust2026VehicleFix');
     expect(listTripSheetsBlock).not.toContain('applyFuelAugust2026V2Migration');
     expect(listTripSheetsBlock).not.toContain('applyFuelAugust2026V4Migration');
+    expect(listTripSheetsBlock).not.toContain('applyFuelAugust2026V5Migration');
     expect(listTripSheetsBlock).not.toContain('applyAugust2026ExcelBackfill');
 
     const vehicleFixBlock = storeSource.slice(

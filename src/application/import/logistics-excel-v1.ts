@@ -279,6 +279,9 @@ export function readXlsxWorkbook(bytes: Uint8Array): WorkbookSheetData[] {
   try {
     archive = unzipSync(bytes);
   } catch {
+    if (bytes.length >= 8 && bytes[0] === 0xD0 && bytes[1] === 0xCF) {
+      throw new Error('Senas .xls formatas nepalaikomas. Išsaugokite failą kaip .xlsx ir pasirinkite iš naujo.');
+    }
     throw new Error('Failas nėra teisingas .xlsx archyvas.');
   }
   const workbookXml = readArchiveText(archive, 'xl/workbook.xml');

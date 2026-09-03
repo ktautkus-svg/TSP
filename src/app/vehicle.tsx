@@ -19,6 +19,7 @@ import { VehicleDepartureOverrideRepository } from '@/database/repositories/vehi
 import { VehicleFaultRepository } from '@/database/repositories/vehicle-fault-repository';
 import { evaluateDepartureReadiness, type DepartureOverrideInput } from '@/domain/departure-readiness';
 import { odometerDistanceKm, parseVehicleDayAssignmentId } from '@/domain/nll182-odometer-log';
+import { chronologicalVehicleFuelEntries } from '@/domain/vehicle-fuel-entries';
 import type { FuelType, VehicleFault } from '@/domain/vehicle-and-trip';
 import { employeeApi, type EmployeeProfile, type FuelStatus, type ServerFleetVehicle, type ServerFleetVehicleSnapshot, type ServerFuelEntry, type ServerTripSheet } from '@/infrastructure/auth/employee-session';
 import { Alert } from '@/ui/alert';
@@ -296,7 +297,7 @@ export default function VehicleScreen() {
   // vehicleReadings is sorted ascending by date, so the most recent known
   // odometer reading is the last entry that actually has one.
   const latestOdometer = [...vehicleReadings].reverse().find((reading) => reading.endOdometer != null)?.endOdometer ?? null;
-  const vehicleFuelEntries = vehicleReadings.flatMap((reading) => reading.fuelEntries ?? []).filter((entry) => entry.vehicleId === selectedVehicleId);
+  const vehicleFuelEntries = chronologicalVehicleFuelEntries(vehicleReadings, selectedVehicleId);
   const saveFuel = async () => {
     if (busy) return;
     const liters = Number(fuelLiters.replace(',', '.'));
@@ -631,7 +632,7 @@ export default function VehicleScreen() {
             <TextInput value={fuelReceipt} onChangeText={setFuelReceipt} style={[styles.input, styles.inlineInput]} placeholder="Čekio Nr. (nebūtina)" placeholderTextColor={colors.textMuted} />
           </View>
           <Pressable disabled={busy || !online} onPress={() => { void saveFuel(); }} style={[styles.button, (busy || !online) && styles.disabled]}><Text style={styles.buttonText}>{editingFuelId ? 'Išsaugoti kuro pakeitimą' : 'Įrašyti papildymą'}</Text></Pressable>
-          {vehicleFuelEntries.slice(0, 8).map((entry) => <View key={entry.id} style={styles.fuelReadingRow}><View style={styles.fuelReadingMain}><Text style={styles.readingTitle}>{new Date(entry.filledAt).toLocaleDateString('lt-LT')}</Text><Text style={styles.hint}>{entry.liters} l{entry.receiptNumber ? ` · čekis ${entry.receiptNumber}` : ''}</Text></View><View style={styles.readingActions}><Pressable accessibilityLabel={`Redaguoti kuro pylimą ${entry.id}`} onPress={() => { setEditingFuelId(entry.id); setFuelDate(entry.filledAt.slice(0, 10)); setFuelLiters(String(entry.liters)); setFuelReceipt(entry.receiptNumber ?? ''); }} style={styles.iconButton}><PencilIcon size={18} color={colors.warning} /></Pressable><Pressable accessibilityLabel={`Ištrinti kuro pylimą ${entry.id}`} disabled={busy} onPress={() => confirmDeleteFuel(entry)} style={styles.iconButton}><TrashIcon size={18} color={colors.danger} /></Pressable></View></View>)}
+          {vehicleFuelEntries.map((entry) => <View key={entry.id} style={styles.fuelReadingRow}><View style={styles.fuelReadingMain}><Text style={styles.readingTitle}>{new Date(entry.filledAt).toLocaleDateString('lt-LT')}</Text><Text style={styles.hint}>{entry.liters} l{entry.receiptNumber ? ` · čekis ${entry.receiptNumber}` : ''}</Text></View><View style={styles.readingActions}><Pressable accessibilityLabel={`Redaguoti kuro pylimą ${entry.id}`} onPress={() => { setEditingFuelId(entry.id); setFuelDate(entry.filledAt.slice(0, 10)); setFuelLiters(String(entry.liters)); setFuelReceipt(entry.receiptNumber ?? ''); }} style={styles.iconButton}><PencilIcon size={18} color={colors.warning} /></Pressable><Pressable accessibilityLabel={`Ištrinti kuro pylimą ${entry.id}`} disabled={busy} onPress={() => confirmDeleteFuel(entry)} style={styles.iconButton}><TrashIcon size={18} color={colors.danger} /></Pressable></View></View>)}
           {profile.role === 'admin' ? <View style={styles.newDayForm} testID="vehicle-opening-fuel-balance">
             <Text style={styles.sectionTitle}>Pradinis kuro likutis</Text>
             <Text style={styles.hint}>Nurodykite, kiek litrų bake buvo nuo pasirinktos dienos. Naudokite, kai pradedate skaičiuoti nuo tam tikros datos.</Text>

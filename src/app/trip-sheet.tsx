@@ -178,8 +178,12 @@ export default function TripSheetScreen() {
     printHtmlDocument(html);
   };
   const exportExcel = () => {
-    if (Platform.OS !== 'web' || typeof window === 'undefined') {
+    if (Platform.OS !== 'web' || typeof window === 'undefined' || typeof document === 'undefined') {
       setMessage('Excel eksportą atidarykite interneto naršyklėje.');
+      return;
+    }
+    if (monthlyGroups.length === 0) {
+      setMessage('Nėra kelionės lapų, kuriuos būtų galima eksportuoti. Pakeiskite automobilį, vairuotoją arba laikotarpį.');
       return;
     }
     try {
@@ -208,18 +212,24 @@ export default function TripSheetScreen() {
           })),
         })),
       });
-      const payload = new Uint8Array(bytes.byteLength);
-      payload.set(bytes);
-      const blob = new Blob([payload.buffer], { type: MIME_XLSX });
+      const payload = bytes.slice();
+      const blob = new Blob([payload], { type: MIME_XLSX });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
       link.download = `keliones-lapai-${selectedMonth === 'all' ? new Date().toISOString().slice(0, 10) : selectedMonth}.xlsx`;
+      link.rel = 'noopener';
+      link.style.display = 'none';
+      document.body.appendChild(link);
       link.click();
       // Revoking the object URL synchronously can race the browser's actual
       // download write on some systems, producing a 0-byte/truncated file
-      // that still opens (and looks blank) — give it a beat first.
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      // that still opens (and looks blank) — keep the URL until the write
+      // has had a long window, then detach the hidden link.
+      window.setTimeout(() => {
+        link.remove();
+        URL.revokeObjectURL(url);
+      }, 60_000);
       setMessage(`Excel ataskaita paruošta: ${monthlyGroups.length} lap.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Excel ataskaitos sukurti nepavyko.');
