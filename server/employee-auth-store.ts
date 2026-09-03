@@ -54,7 +54,12 @@ import {
     type PalletCapacity,
 } from '../src/domain/fleet-cargo-specs.js';
 import { isVanBodyKind, type VanBodyKind } from '../src/domain/loading-schema.js';
-import { completionPunctuality, lithuanianDateKey } from '../src/domain/lithuanian-time.js';
+import {
+    applyAdminAssignmentComplete,
+    HistoricalCompleteError,
+    type AdminCompleteAssignmentInput,
+} from '../src/domain/historical-assignment-complete.js';
+import { lithuanianDateKey } from '../src/domain/lithuanian-time.js';
 import {
     NLL182_ODOMETER_DRIVER_NAME,
     NLL182_ODOMETER_LOG,
@@ -1497,7 +1502,15 @@ export class EmployeeAuthStore {
     return assignment;
   }
 
-  async completeAssignment(assignmentId: string): Promise<RouteAssignment> {
+  /**
+   * Closes an assignment. Optional startedAt/completedAt are for admin
+   * historical backfill so tripSheetWorkDate stays on that Lithuanian day.
+   * Omitted timestamps keep the live same-day stamp (completed_at = now).
+   */
+  async completeAssignment(
+    assignmentId: string,
+    input: AdminCompleteAssignmentInput = {},
+  ): Promise<RouteAssignment> {
     const reference = this.assignments.doc(safeId(assignmentId));
     const document = await reference.get();
     const assignment = document.data() as RouteAssignment | undefined;
@@ -1506,56 +1519,27 @@ export class EmployeeAuthStore {
     if (assignment.status === 'cancelled') {
       throw new EmployeeApiError('ASSIGNMENT_CANCELLED', 'Atšaukto maršruto užbaigti negalima.', 409);
     }
-    const updatedAt = new Date().toISOString();
-    const stops = assignment.routeSnapshot.stops;
-    const delivered = stops.filter((stop) => stop.delivery_status === 'delivered');
-    const failed = stops.filter((stop) => stop.delivery_status === 'failed');
-    const pending = stops.filter((stop) => stop.delivery_status !== 'delivered' && stop.delivery_status !== 'failed');
-    let onTimeStops = 0;
-    let lateStops = 0;
-    for (const stop of delivered) {
-      const punctuality = stopPunctuality(stop);
-      if (punctuality === 'on_time') onTimeStops += 1;
-      if (punctuality === 'late') lateStops += 1;
+    let completed;
+    try {
+      completed = applyAdminAssignmentComplete(assignment.routeSnapshot, input, new Date().toISOString());
+    } catch (error) {
+      if (error instanceof HistoricalCompleteError) {
+        throw new EmployeeApiError(error.code, error.message, 400);
+      }
+      throw error;
     }
-    const summary = {
-      totalStops: stops.length,
-      deliveredStops: delivered.length,
-      failedStops: failed.length,
-      unmarkedStops: pending.length,
-      deliveredKnownWeightKg: delivered.reduce((sum, stop) => sum + finiteNumber(stop.weight_kg, 0), 0),
-      undeliveredKnownWeightKg: [...failed, ...pending].reduce((sum, stop) => sum + finiteNumber(stop.weight_kg, 0), 0),
-      unknownWeightStops: stops.filter((stop) => stop.weight_kg == null).length,
-      plannedDistanceKm: nullableNumber(assignment.routeSnapshot.route.estimated_distance_km),
-      actualDistanceKm: nullableNumber(assignment.routeSnapshot.route.actual_distance_km),
-      onTimeStops,
-      lateStops,
-      plannedDurationMinutes: nullableNumber(assignment.routeSnapshot.route.estimated_duration_minutes),
-      actualDurationMinutes: null,
-      durationDeviationMinutes: null,
-      distanceDeviationKm: null,
-    };
     const routeSnapshot: RouteSnapshot = {
       ...assignment.routeSnapshot,
-      route: {
-        ...assignment.routeSnapshot.route,
-        status: 'completed',
-        remaining_stops: 0,
-        remaining_weight_kg: 0,
-        remaining_unknown_weight_stops: 0,
-        completed_at: updatedAt,
-        updated_at: updatedAt,
-        completion_summary_json: JSON.stringify(summary),
-      },
+      route: completed.route,
+      stops: completed.stops,
     };
-    const progress = {
-      routeStatus: 'completed',
-      totalStops: finiteNumber(assignment.routeSnapshot.route.total_stops, stops.length),
-      remainingStops: 0,
-      remainingWeightKg: 0,
-      lastSyncedAt: updatedAt,
+    const updated = {
+      ...assignment,
+      status: 'completed' as const,
+      routeSnapshot,
+      progress: completed.progress,
+      updatedAt: completed.updatedAt,
     };
-    const updated = { ...assignment, status: 'completed' as const, routeSnapshot, progress, updatedAt };
     await reference.set(updated);
     return updated;
   }
@@ -3500,16 +3484,6 @@ function qualityStatusRank(status: RouteAssignment['status']): number {
 
 function optionalText(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
-}
-
-function stopPunctuality(stop: Record<string, unknown>): 'on_time' | 'late' | 'unknown' {
-  return completionPunctuality({
-    deliveredAt: optionalText(stop.delivered_at),
-    deliveryTimeFrom: optionalText(stop.delivery_time_from),
-    deliveryTimeTo: optionalText(stop.delivery_time_to),
-    plannedArrivalAt: optionalText(stop.planned_arrival_at),
-    latestEstimatedArrivalAt: optionalText(stop.latest_estimated_arrival_at),
-  });
 }
 
 /**

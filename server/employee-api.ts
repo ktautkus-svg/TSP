@@ -367,10 +367,26 @@ export async function handleEmployeeApi(
       requireRole(profile, ['driver']);
       return send(response, 200, { assignments: await store.listAssignments(profile) }, requestId);
     }
+    /**
+     * Admin/dispatcher only. Empty body keeps the live same-day complete
+     * (completed_at = now, pending stops unmarked). Optional startedAt /
+     * completedAt ISO timestamps historically start+close a trip sheet on the
+     * Lithuanian work day of those stamps. markAllDelivered backfills stops
+     * without GPS or routing spend.
+     */
     const adminAssignmentCompleteMatch = pathname.match(/^\/api\/admin\/assignments\/([^/]+)\/complete$/);
     if (adminAssignmentCompleteMatch && request.method === 'POST') {
       requireRole(profile, ['admin', 'dispatcher']);
-      const assignment = await store.completeAssignment(decodeURIComponent(adminAssignmentCompleteMatch[1]));
+      const rawBody = await readBody(request, 32_000);
+      const body = rawBody.trim() ? parseObject(rawBody) : {};
+      const assignment = await store.completeAssignment(
+        decodeURIComponent(adminAssignmentCompleteMatch[1]),
+        {
+          startedAt: optionalIsoTimestamp(body, 'startedAt'),
+          completedAt: optionalIsoTimestamp(body, 'completedAt'),
+          markAllDelivered: optionalBoolean(body, 'markAllDelivered'),
+        },
+      );
       await routeSyncStore.seedAssignment(assignment.driverId, assignment.routeSnapshot).catch((reason) => {
         process.stderr.write(`${JSON.stringify({ event: 'route_sync_complete_seed_failed', requestId, error: reason instanceof Error ? reason.message : String(reason) })}\n`);
       });
@@ -776,6 +792,24 @@ function stringField(body: Record<string, unknown>, name: string): string {
 function optionalString(body: Record<string, unknown>, name: string): string | undefined {
   const value = body[name];
   return typeof value === 'string' ? value : undefined;
+}
+
+function optionalIsoTimestamp(body: Record<string, unknown>, name: string): string | undefined {
+  const value = body[name];
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new EmployeeApiError('INVALID_REQUEST', `Neteisingas laukas: ${name}.`, 400);
+  }
+  return value.trim();
+}
+
+function optionalBoolean(body: Record<string, unknown>, name: string): boolean | undefined {
+  const value = body[name];
+  if (value === undefined) return undefined;
+  if (typeof value !== 'boolean') {
+    throw new EmployeeApiError('INVALID_REQUEST', `Neteisingas laukas: ${name}.`, 400);
+  }
+  return value;
 }
 
 function numberField(body: Record<string, unknown>, name: string): number {

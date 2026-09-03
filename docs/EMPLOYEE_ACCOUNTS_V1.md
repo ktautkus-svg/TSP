@@ -41,6 +41,36 @@ maršruto momentinę kopiją ir idempotentiškai įrašo ją į SQLite. Darbo di
 veiksmai vyksta vietinėje DB; atsiradus internetui būsenos santrauka perduodama
 serveriui.
 
+## Istorinis maršruto užbaigimas
+
+`POST /api/admin/assignments/:id/complete` gali kviesti tik administratorius
+arba dispečeris.
+
+- Tuščia užklausa (įprastas tos pačios dienos kelias) `completed_at` žymi
+  dabar ir nepristatytų taškų nekeičia. Kelionės lapo data lieka
+  `tripSheetWorkDate`: Lietuvos kalendorinė `started_at` diena, jei jos nėra —
+  `completed_at`, kitu atveju planinė `route.date`.
+- Neprivalomas JSON leidžia istoriškai pradėti ir užbaigti importuotą
+  priskyrimą, nenaudojant „Pradėti krovimą“ (kitaip data taptų šiandiena):
+
+```json
+{
+  "startedAt": "2026-08-03T06:00:00.000+03:00",
+  "completedAt": "2026-08-03T16:30:00.000+03:00",
+  "markAllDelivered": true
+}
+```
+
+Laikai turi patekti į reikiamą Lietuvos darbo dieną. `markAllDelivered`
+pažymi likusius taškus pristatytais be GPS ir be maršrutizavimo API.
+Pristatymo langai paliekami; `delivered_at` dedamas į langą tą dieną
+(arba į planuotą atvykimo laiką), kad punktualumas liktų laiku.
+
+`PUT /api/assignments/:id/progress` jau išsaugo snapshot'e esančius
+`started_at` / `completed_at`. Tai nėra istorinio užbaigimo API: tam
+skirtas complete su laiko laukais. Complete be laukų vis tiek perrašo
+`completed_at` į dabartinį laiką.
+
 ## Duomenų modelis
 
 Serveris naudoja kolekcijas:
