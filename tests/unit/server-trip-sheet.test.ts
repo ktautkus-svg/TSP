@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { attachDailyCompensation, applyDayReading, buildFuelDayTripSheet, buildServerTripSheet, buildVehicleDayTripSheet, odometerReadingCoveredBySheet, tripSheetFuelNorm, tripSheetWorkDate, type RouteAssignment, type VehicleDayReading } from '../../server/employee-auth-store';
+import { attachDailyCompensation, applyDayReading, applyTripSheetCorrectionToDayReading, applyTripSheetVehicleDriverCorrection, buildFuelDayTripSheet, buildServerTripSheet, buildVehicleDayTripSheet, odometerReadingCoveredBySheet, tripSheetFuelNorm, tripSheetWorkDate, type RouteAssignment, type VehicleDayReading } from '../../server/employee-auth-store';
 import { DEFAULT_ROUTE_PRICE_SETTINGS } from '../../src/application/routes/route-price';
 
 const storeSource = readFileSync(resolve(import.meta.dirname, '../../server/employee-auth-store.ts'), 'utf8');
@@ -140,25 +140,25 @@ describe('server trip sheet', () => {
     });
   });
 
-  it('does not count a contained same-driver day reading as another trip when an old vehicle snapshot is wrong', () => {
+  it('does not hide a different vehicle’s day reading inside another van’s odometer span', () => {
     const route = {
       ...buildVehicleDayTripSheet({
-        id: 'met:2026-08-24', vehicleId: 'MET630', registrationNumber: 'MET630', date: '2026-08-24',
-        startOdometer: 280498, endOdometer: 281311, distanceKm: 813, driverId: 'driver-1', driverName: 'Vairas',
-        createdAt: '2026-08-24T00:00:00.000Z', updatedAt: '2026-08-24T00:00:00.000Z', createdBy: 'admin',
+        id: 'met:2026-08-31', vehicleId: 'MET630', registrationNumber: 'MET630', date: '2026-08-31',
+        startOdometer: 283151, endOdometer: 283451, distanceKm: 300, driverId: 'driver-1', driverName: 'Karolis',
+        createdAt: '2026-08-31T00:00:00.000Z', updatedAt: '2026-08-31T00:00:00.000Z', createdBy: 'admin',
       }, { id: 'MET630', registrationNumber: 'MET630', model: 'Renault', maximumPayloadKg: 1200 }),
       driverId: 'driver-1',
     };
-    const contained: VehicleDayReading = {
-      id: 'nll:2026-08-24', vehicleId: 'NLL182', registrationNumber: 'NLL182', date: '2026-08-24',
-      startOdometer: 280948, endOdometer: 281311, distanceKm: 363, driverId: 'driver-1', driverName: 'Vairas',
-      createdAt: '2026-08-24T00:00:00.000Z', updatedAt: '2026-08-24T00:00:00.000Z', createdBy: 'import',
+    const nll182Day: VehicleDayReading = {
+      id: 'NLL182:2026-08-31', vehicleId: 'NLL182', registrationNumber: 'NLL182', date: '2026-08-31',
+      startOdometer: 283151, endOdometer: 283165, distanceKm: 14, driverId: 'driver-1', driverName: 'Karolis',
+      createdAt: '2026-08-31T00:00:00.000Z', updatedAt: '2026-08-31T00:00:00.000Z', createdBy: 'import',
     };
-    expect(odometerReadingCoveredBySheet(contained, [route])).toBe(true);
-    expect(odometerReadingCoveredBySheet({ ...contained, driverId: 'driver-2' }, [route])).toBe(false);
-    expect(odometerReadingCoveredBySheet({ ...contained, startOdometer: 281400, endOdometer: 281700 }, [route])).toBe(false);
+    expect(odometerReadingCoveredBySheet(nll182Day, [route])).toBe(false);
+    expect(odometerReadingCoveredBySheet(nll182Day, [{ ...route, vehicle: { id: 'NLL182', registrationNumber: 'NLL182', model: 'Renault', maximumPayloadKg: 1200 } }])).toBe(true);
+    expect(odometerReadingCoveredBySheet({ ...nll182Day, driverId: 'driver-2' }, [route])).toBe(false);
     const [paidDay] = attachDailyCompensation([{ ...route, totalWeightKg: 2654.636, totalStops: 11 }]);
-    expect(paidDay.compensation).toMatchObject({ distanceKm: 813, totalNetEur: 86.73 });
+    expect(paidDay.compensation).toMatchObject({ distanceKm: 300, totalNetEur: 61.08 });
   });
 
   it('synthesizes a fuel-only day without inventing GPS kilometres', () => {
@@ -186,7 +186,186 @@ describe('server trip sheet', () => {
     // "pencil" edit on an assignment-backed row) used to look like it did
     // nothing: the next read re-applied the reading's stale driver on top.
     expect(storeSource).toContain('const readingDocument = await this.vehicleDayReadings.doc(readingId).get()');
-    expect(storeSource).toMatch(/driverId,\s+driverName,\s+updatedAt,/);
+    expect(storeSource).toContain('applyTripSheetCorrectionToDayReading');
+    expect(storeSource).toContain('vehicleDayReadingDocId(sheetVehicle.id, date)');
+  });
+
+  it('changes the assignment vehicle snapshot without rewriting stop punctuality', () => {
+    const stops = [
+      {
+        order_number: 'RS608084',
+        delivery_status: 'delivered',
+        delivered_at: '2026-08-14T08:12:00.000Z',
+        delivery_time_from: '08:00',
+        delivery_time_to: '10:00',
+        weight_kg: 200,
+      },
+      {
+        order_number: 'RS608513',
+        delivery_status: 'delivered',
+        delivered_at: '2026-08-14T11:40:00.000Z',
+        delivery_time_from: '10:00',
+        delivery_time_to: '11:00',
+        weight_kg: 150,
+      },
+    ];
+    const shipmentLines = [
+      { route_code: 'R11', order_number: 'RS608084' },
+      { route_code: 'R15', order_number: 'RS608513' },
+    ];
+    const assignment: RouteAssignment = {
+      id: '13e4dc49-23fd-475b-9439-de3a4102607d',
+      routeId: 'route-14',
+      driverId: 'driver-wrong',
+      driverName: 'Vairas 1',
+      status: 'completed',
+      progress: null,
+      createdBy: 'admin',
+      assignedAt: '2026-08-14T05:00:00.000Z',
+      updatedAt: '2026-08-14T16:00:00.000Z',
+      vehicle: { id: 'NLL182', registrationNumber: 'NLL182', model: 'Renault Master', maximumPayloadKg: 1500 },
+      routeSnapshot: {
+        route: {
+          id: 'route-14',
+          date: '2026-08-14',
+          status: 'completed',
+          start_odometer: 277012,
+          end_odometer: 277514,
+          actual_distance_km: 502,
+          started_at: '2026-08-14T05:30:00.000Z',
+          completed_at: '2026-08-14T15:00:00.000Z',
+        },
+        stops,
+        shipmentLines,
+      },
+    };
+
+    const updated = applyTripSheetVehicleDriverCorrection(assignment, {
+      startOdometer: 277012,
+      endOdometer: 277514,
+      driverId: 'a7bce619-ad14-4dda-9780-f130a79ab998',
+      driverName: 'Karolis Tautkus',
+      vehicle: { id: 'MET630', registrationNumber: 'MET630', model: 'Renault Master', maximumPayloadKg: 1500 },
+      updatedAt: '2026-09-03T08:00:00.000Z',
+    });
+
+    expect(updated.vehicle).toMatchObject({ id: 'MET630', registrationNumber: 'MET630' });
+    expect(updated.driverId).toBe('a7bce619-ad14-4dda-9780-f130a79ab998');
+    expect(updated.driverName).toBe('Karolis Tautkus');
+    expect(updated.routeSnapshot.stops).toBe(stops);
+    expect(updated.routeSnapshot.shipmentLines).toBe(shipmentLines);
+    expect(updated.routeSnapshot.stops).toEqual([
+      {
+        order_number: 'RS608084',
+        delivery_status: 'delivered',
+        delivered_at: '2026-08-14T08:12:00.000Z',
+        delivery_time_from: '08:00',
+        delivery_time_to: '10:00',
+        weight_kg: 200,
+      },
+      {
+        order_number: 'RS608513',
+        delivery_status: 'delivered',
+        delivered_at: '2026-08-14T11:40:00.000Z',
+        delivery_time_from: '10:00',
+        delivery_time_to: '11:00',
+        weight_kg: 150,
+      },
+    ]);
+    expect(buildServerTripSheet(updated, updated.vehicle).routeNumbers).toEqual(['R11', 'R15']);
+
+    const previousVehicleReading: VehicleDayReading = {
+      id: 'NLL182:2026-08-14',
+      vehicleId: 'NLL182',
+      registrationNumber: 'NLL182',
+      date: '2026-08-14',
+      startOdometer: 1,
+      endOdometer: 2,
+      distanceKm: 1,
+      driverId: 'driver-wrong',
+      driverName: 'Vairas 1',
+      createdAt: '2026-08-14T00:00:00.000Z',
+      updatedAt: '2026-08-14T00:00:00.000Z',
+      createdBy: 'gps-import',
+    };
+    const newVehicleReading: VehicleDayReading = {
+      id: 'MET630:2026-08-14',
+      vehicleId: 'MET630',
+      registrationNumber: 'MET630',
+      date: '2026-08-14',
+      startOdometer: 10,
+      endOdometer: 20,
+      distanceKm: 10,
+      driverId: 'stale-driver',
+      driverName: 'Stale',
+      createdAt: '2026-08-14T00:00:00.000Z',
+      updatedAt: '2026-08-14T00:00:00.000Z',
+      createdBy: 'gps-import',
+    };
+    const synced = applyTripSheetCorrectionToDayReading(newVehicleReading, {
+      startOdometer: 277012,
+      endOdometer: 277514,
+      driverId: updated.driverId,
+      driverName: updated.driverName,
+      updatedAt: updated.updatedAt,
+    });
+    expect(synced).toMatchObject({
+      vehicleId: 'MET630',
+      driverId: 'a7bce619-ad14-4dda-9780-f130a79ab998',
+      driverName: 'Karolis Tautkus',
+      startOdometer: 277012,
+      endOdometer: 277514,
+      distanceKm: 502,
+    });
+    expect(previousVehicleReading.driverId).toBe('driver-wrong');
+    expect(previousVehicleReading.vehicleId).toBe('NLL182');
+  });
+
+  it('lets the NLL182 day reading win over a 300 km route sheet and ignores it on MET630', () => {
+    const nll182: VehicleDayReading = {
+      id: 'NLL182:2026-08-31', vehicleId: 'NLL182', registrationNumber: 'NLL182', date: '2026-08-31',
+      startOdometer: 283151, endOdometer: 283165, distanceKm: 14, driverId: 'a7bce619-ad14-4dda-9780-f130a79ab998',
+      driverName: 'Karolis Tautkus', createdAt: '2026-08-31T00:00:00.000Z', updatedAt: '2026-08-31T00:00:00.000Z',
+      createdBy: 'gps-import',
+    };
+    const nllAssignment: RouteAssignment = {
+      id: 'a6f3ea27-0e1b-474f-ba45-f77266ea1ce4', routeId: 'route-31', driverId: 'a7bce619-ad14-4dda-9780-f130a79ab998',
+      driverName: 'Karolis Tautkus', status: 'completed', progress: null, createdBy: 'admin',
+      assignedAt: '2026-08-31T05:00:00.000Z', updatedAt: '2026-08-31T16:00:00.000Z',
+      vehicle: { id: 'NLL182', registrationNumber: 'NLL182', model: 'Renault Master', maximumPayloadKg: 1500 },
+      routeSnapshot: {
+        route: {
+          id: 'route-31', date: '2026-08-31', status: 'completed',
+          start_odometer: 283151, end_odometer: 283451, actual_distance_km: 300,
+          started_at: '2026-08-31T05:30:00.000Z', completed_at: '2026-08-31T15:00:00.000Z',
+        },
+        stops: [], shipmentLines: [],
+      },
+    };
+    const overlaid = applyDayReading(buildServerTripSheet(nllAssignment, nllAssignment.vehicle), [nll182]);
+    expect(overlaid).toMatchObject({ startOdometer: 283151, endOdometer: 283165, actualDistanceKm: 14 });
+
+    const metAssignment: RouteAssignment = {
+      ...nllAssignment,
+      vehicle: { id: 'MET630', registrationNumber: 'MET630', model: 'Renault Master', maximumPayloadKg: 1500 },
+    };
+    const metSheet = applyDayReading(buildServerTripSheet(metAssignment, metAssignment.vehicle), [nll182]);
+    expect(metSheet).toMatchObject({ startOdometer: 283151, endOdometer: 283451, actualDistanceKm: 300 });
+    expect(odometerReadingCoveredBySheet(nll182, [metSheet])).toBe(false);
+  });
+
+  it('wires updateTripSheet to the stop-preserving helper and the new vehicle id', () => {
+    const updateBlock = storeSource.slice(
+      storeSource.indexOf('async updateTripSheet'),
+      storeSource.indexOf('async updateFuelEntry'),
+    );
+    expect(updateBlock).toContain('vehicleId?: string');
+    expect(updateBlock).toContain('validateVehicleId(input.vehicleId)');
+    expect(updateBlock).toContain('applyTripSheetVehicleDriverCorrection');
+    expect(updateBlock).not.toContain('stopPunctuality');
+    expect(updateBlock).not.toMatch(/\bstops\s*:/);
+    expect(updateBlock).not.toMatch(/delivery_status\s*:/);
+    expect(updateBlock).toContain('other vehicles\' readings for that day are left in place');
   });
 
   it('leaves a zero-kilometre bulk-imported day without a driver instead of the vehicle default', () => {

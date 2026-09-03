@@ -79,6 +79,7 @@ describe('employee server session', () => {
       'utf8',
     );
     expect(productionServerSource).toContain('await ensureFuelAugust2026Migrated()');
+    expect(productionServerSource).toContain('await ensureTripSheetAugust2026VehicleFixMigrated()');
     expect(employeeStoreSource).toMatch(/async listTripSheets[\s\S]*?^ {2}async /m);
     const listTripSheetsBlock = employeeStoreSource.slice(
       employeeStoreSource.indexOf('async listTripSheets'),

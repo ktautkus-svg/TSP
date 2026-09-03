@@ -174,4 +174,10 @@ describe('Cloud Run deploy', () => {
     expect(employeeStore).toContain("from '../src/domain/excel-fuel-log.js'");
     expect(employeeStore).not.toContain("@/domain/excel-fuel-log");
   });
+
+  it('keeps August 2026 trip-sheet vehicle-fix catalog on a relative import in the server graph', () => {
+    expect(employeeStore).toContain("from '../src/domain/trip-sheet-august-2026-vehicle-fix.js'");
+    expect(employeeStore).not.toContain("@/domain/trip-sheet-august-2026-vehicle-fix");
+    expect(productionServer).toContain('await ensureTripSheetAugust2026VehicleFixMigrated()');
+  });
 });
