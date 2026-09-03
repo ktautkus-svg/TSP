@@ -7,6 +7,7 @@ import { useLocalAccess } from '@/application/auth/local-access-context';
 import { pushCompletedRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
 import { CompanyProfileSettings, type CompanyProfile } from '@/application/settings/company-profile';
 import { TRIP_SHEET_GRID_COLUMNS, tripSheetColumnLegend } from '@/application/trip-sheet/columns';
+import { dailyFuelEntries, dailyRouteNumbers } from '@/application/trip-sheet/daily-route-merge';
 import { buildTripSheetWorkbook, MIME_XLSX } from '@/application/trip-sheet/export-xlsx';
 import { buildFuelLedger, vehicleDayFuelDistanceKm, type FuelLedgerDay } from '@/application/trip-sheet/fuel-balance';
 import { buildTripSheetPrintDocument } from '@/application/trip-sheet/print-document';
@@ -436,13 +437,20 @@ function buildDailyRowsWithoutLedger(sheets: DisplayTripSheet[]): Omit<DailyTrip
     const extraKm = daySheets.reduce((sum, sheet) => sum + (sheet.extraDistanceKm ?? 0), 0);
     const distanceKm = vehicleDayFuelDistanceKm(odometerKm ?? plannedKm, extraKm);
     const fuelNorm = daySheets.find((sheet) => sheet.fuelNormLitersPer100Km !== null)?.fuelNormLitersPer100Km ?? null;
-    const fuelEntries = daySheets.flatMap((sheet) => sheet.fuelEntries).sort((left, right) => left.filledAt.localeCompare(right.filledAt));
+    // Fuel added for this calendar day is deduped/filtered to fills actually
+    // dated this day — a leftover sheet sharing this date field but carrying
+    // fuel from a different day must not inflate the total (see
+    // dailyFuelEntries for the reasoning).
+    const fuelEntries = dailyFuelEntries(daySheets.flatMap((sheet) => sheet.fuelEntries), date);
     const compensation = daySheets.find((sheet) => sheet.compensation)?.compensation ?? null;
     const targetSheet = daySheets[daySheets.length - 1]!;
     return {
       date,
       driverName: targetSheet.driverName,
-      routeNumbers: [...new Set(daySheets.flatMap((sheet) => sheet.routeNumbers))],
+      // Only sheets that actually moved the vehicle contribute route numbers
+      // to the label — a leftover/0-km/unrelated-route sheet sharing this
+      // date must not get concatenated onto the driven day's route.
+      routeNumbers: dailyRouteNumbers(daySheets),
       startAddress: daySheets[0]?.startAddress ?? 'Pradžia nenurodyta',
       endAddress: daySheets[daySheets.length - 1]?.endAddress ?? 'Pabaiga nenurodyta',
       startOdometer,
