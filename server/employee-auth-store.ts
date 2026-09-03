@@ -91,6 +91,7 @@ import {
     matchAleksandrasDriver,
     matchDriverByName,
     matchVehicleByPlate,
+    normalizePersonName,
     needsAleksandras0819DriverPatch,
     replaceLiteAssignment,
     resolveAugustBackfillVehicle,
