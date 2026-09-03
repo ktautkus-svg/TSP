@@ -60,17 +60,28 @@ describe('kuro likučio atrama', () => {
     expect(legacy.kind).toBe('driver_report');
   });
 
-  it('NLL182 rugpjūčio 1 d. atidaro baką 30 litrų', () => {
-    const reports = [report({
-      id: 'open-NLL182-20260801',
-      vehicleId: 'NLL182',
-      registrationNumber: 'NLL182',
-      reportedLiters: 30,
-      effectiveAt: '2026-08-01',
-      kind: 'admin_correction',
-    })];
-    expect(fuelAnchorFor(reports, 'NLL182', '2026-08-01')).toEqual({ liters: 30, effectiveAt: '2026-08-01' });
-    expect(fuelAnchorFor(reports, 'NLL182', '2026-08-22')).toEqual({ liters: 30, effectiveAt: '2026-08-01' });
-    expect(fuelAnchorFor(reports, 'MET630', '2026-08-01')).toBeNull();
+  it('NLL182 rugpjūčio 13 d. atidaro baką 30 litrų, MET630 — 110 litrų rugpjūčio 1 d.', () => {
+    const reports = [
+      report({
+        id: 'open-NLL182-20260813',
+        vehicleId: 'NLL182',
+        registrationNumber: 'NLL182',
+        reportedLiters: 30,
+        effectiveAt: '2026-08-13',
+        kind: 'admin_correction',
+      }),
+      report({
+        id: 'open-MET630-20260801',
+        vehicleId: 'MET630',
+        registrationNumber: 'MET630',
+        reportedLiters: 110,
+        effectiveAt: '2026-08-01',
+        kind: 'admin_correction',
+      }),
+    ];
+    expect(fuelAnchorFor(reports, 'NLL182', '2026-08-12')).toBeNull();
+    expect(fuelAnchorFor(reports, 'NLL182', '2026-08-13')).toEqual({ liters: 30, effectiveAt: '2026-08-13' });
+    expect(fuelAnchorFor(reports, 'NLL182', '2026-08-22')).toEqual({ liters: 30, effectiveAt: '2026-08-13' });
+    expect(fuelAnchorFor(reports, 'MET630', '2026-08-01')).toEqual({ liters: 110, effectiveAt: '2026-08-01' });
   });
 });

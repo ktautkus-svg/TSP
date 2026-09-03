@@ -20,6 +20,7 @@ const routeSyncStore = new RouteSyncStore();
 const bootstrapNonces = new GatewayNonceRegistry();
 const loginAttempts = new Map<string, number[]>();
 let legacyAdminMigration: Promise<void> | null = null;
+let fuelAugust2026Migration: Promise<void> | null = null;
 
 const TRIVIAL_ADMIN_PINS = new Set(['12345', '123456', '000000', '111111']);
 
@@ -53,6 +54,22 @@ function ensureLegacyAdminMigrated(): Promise<void> {
   return legacyAdminMigration;
 }
 
+/** One-shot August 2026 MET/NLL fuel reset — runs once per process, idempotent via Firestore flag. */
+export function ensureFuelAugust2026Migrated(): Promise<void> {
+  if (!fuelAugust2026Migration) {
+    fuelAugust2026Migration = store.applyFuelAugust2026V2Migration().then((result) => {
+      process.stdout.write(`${JSON.stringify({
+        event: 'fuel_august_2026_v2_migration',
+        ...result,
+      })}\n`);
+    }).catch((error) => {
+      fuelAugust2026Migration = null;
+      throw error;
+    });
+  }
+  return fuelAugust2026Migration;
+}
+
 export async function handleEmployeeApi(
   request: IncomingMessage,
   response: ServerResponse,
@@ -62,6 +79,7 @@ export async function handleEmployeeApi(
   if (!isEmployeePath(pathname)) return false;
   try {
     await ensureLegacyAdminMigrated();
+    await ensureFuelAugust2026Migrated();
     if (request.method === 'GET' && pathname === '/api/auth/status') {
       return send(response, 200, { initialized: await store.hasUsers() }, requestId);
     }

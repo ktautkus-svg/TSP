@@ -67,6 +67,28 @@ describe('employee server session', () => {
     expect(employeeStoreSource).toContain('transaction.delete(legacyUsernameRef)');
   });
 
+  it('applies one-shot August 2026 MET/NLL fuel reset without reseeding on every trip-sheet list', () => {
+    expect(employeeStoreSource).toContain('async applyFuelAugust2026V2Migration');
+    expect(employeeStoreSource).toContain("FUEL_AUGUST_2026_MIGRATION_ID");
+    expect(employeeApiSource).toContain('await ensureFuelAugust2026Migrated()');
+    expect(employeeApiSource).toContain('export function ensureFuelAugust2026Migrated');
+    // Production boot awaits the migration before listen; listTripSheets must not
+    // call the old additive seeders (they would resurrect deleted days).
+    const productionServerSource = readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), '../../server/production-server.ts'),
+      'utf8',
+    );
+    expect(productionServerSource).toContain('await ensureFuelAugust2026Migrated()');
+    expect(employeeStoreSource).toMatch(/async listTripSheets[\s\S]*?^ {2}async /m);
+    const listTripSheetsBlock = employeeStoreSource.slice(
+      employeeStoreSource.indexOf('async listTripSheets'),
+      employeeStoreSource.indexOf('async upsertVehicleDayReading'),
+    );
+    expect(listTripSheetsBlock).not.toContain('seedExcelFuelLog');
+    expect(listTripSheetsBlock).not.toContain('seedNll182OpeningFuel');
+    expect(listTripSheetsBlock).not.toContain('applyFuelAugust2026V2Migration');
+  });
+
   it('requires the PIN on every launch even when a session is cached, and keeps logout explicit', () => {
     expect(accessGateSource).toContain('setUsername(cachedSession?.profile.username ?? configuration.username ?? \'\')');
     expect(accessGateSource).not.toContain('setUnlocked(Boolean(cachedSession))');
