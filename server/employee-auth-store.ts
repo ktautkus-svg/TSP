@@ -61,6 +61,22 @@ import {
 } from '../src/domain/historical-assignment-complete.js';
 import { lithuanianDateKey } from '../src/domain/lithuanian-time.js';
 import {
+    AUGUST_2026_EXCEL_BACKFILL_ID,
+    buildAugustBackfillRouteSnapshot,
+    decideAugustBackfillDayAction,
+    geocodeQueriesCached,
+    historicalWorkdayTimestamps,
+    liteAssignmentFromSnapshot,
+    loadAugust2026ExcelBackfillCatalog,
+    matchDriverByName,
+    matchVehicleByPlate,
+    replaceLiteAssignment,
+    uniqueGeocodeQueries,
+    type AugustAssignmentLite,
+    type AugustBackfillGeocodeFn,
+} from '../src/domain/august-2026-excel-backfill.js';
+import { GoogleGeocodingAdapter } from '../gateway/providers/google-geocoding-adapter.js';
+import {
     NLL182_ODOMETER_DRIVER_NAME,
     NLL182_ODOMETER_LOG,
     odometerDistanceKm,
@@ -1510,12 +1526,13 @@ export class EmployeeAuthStore {
   async completeAssignment(
     assignmentId: string,
     input: AdminCompleteAssignmentInput = {},
+    options: { rewriteCompleted?: boolean } = {},
   ): Promise<RouteAssignment> {
     const reference = this.assignments.doc(safeId(assignmentId));
     const document = await reference.get();
     const assignment = document.data() as RouteAssignment | undefined;
     if (!assignment) throw new EmployeeApiError('ASSIGNMENT_NOT_FOUND', 'Maršruto priskyrimas nerastas.', 404);
-    if (assignment.status === 'completed') return assignment;
+    if (assignment.status === 'completed' && !options.rewriteCompleted) return assignment;
     if (assignment.status === 'cancelled') {
       throw new EmployeeApiError('ASSIGNMENT_CANCELLED', 'Atšaukto maršruto užbaigti negalima.', 409);
     }
@@ -2408,6 +2425,202 @@ export class EmployeeAuthStore {
       outcomes,
     });
     return { applied: true, reason: 'applied', corrected, skipped, erikasRenamed, nll182DaysUpserted };
+  }
+
+  /**
+   * One-shot August 2026 Excel trip-sheet backfill. Creates completed
+   * assignments from scripts/august-2026-backfill per-day JSON (Excel stop
+   * order, no provider matrix or route alternatives). Snapshots the vehicle onto
+   * the assignment without assignVehicle so today's live fleet is not
+   * rewritten. Gated by tsp_settings `august-2026-excel-backfill-v1`.
+   */
+  async applyAugust2026ExcelBackfill(input: {
+    geocode?: AugustBackfillGeocodeFn;
+    nowIso?: string;
+  } = {}): Promise<{
+    applied: boolean;
+    reason: string;
+    created: number;
+    completedExistingUi: number;
+    skipped: number;
+    geocoded: number;
+    outcomes: { date: string; driver: string; vehicle: string; action: string; reason: string }[];
+  }> {
+    const flagRef = this.settings.doc(AUGUST_2026_EXCEL_BACKFILL_ID);
+    const existingFlag = await flagRef.get();
+    if (existingFlag.exists && existingFlag.data()?.status === 'applied') {
+      return {
+        applied: false, reason: 'already_applied', created: 0, completedExistingUi: 0, skipped: 0, geocoded: 0, outcomes: [],
+      };
+    }
+
+    const catalog = loadAugust2026ExcelBackfillCatalog();
+    const users = await this.listUsers();
+    const vehicles = await this.listVehicles();
+    const assignmentSnapshot = await this.assignments.get();
+    const assignments: AugustAssignmentLite[] = assignmentSnapshot.docs.map((document) => {
+      const assignment = document.data() as RouteAssignment;
+      return liteAssignmentFromSnapshot({
+        id: assignment.id,
+        routeId: assignment.routeId,
+        driverId: assignment.driverId,
+        driverName: assignment.driverName,
+        status: assignment.status,
+        vehicle: assignment.vehicle,
+        route: assignment.routeSnapshot.route,
+        stops: assignment.routeSnapshot.stops,
+      });
+    });
+
+    const nowIso = input.nowIso ?? new Date().toISOString();
+    const hasTargetDriver = Boolean(
+      matchDriverByName(users, 'Karolis Tautkus') || matchDriverByName(users, 'Aleksandras Arsenij'),
+    );
+    const geocode = input.geocode ?? createAugustBackfillProductionGeocoder();
+    const daysToMaterialize = hasTargetDriver
+      ? catalog.days
+      : catalog.days.filter((day) => (
+        day.date === catalog.existingUiRoute.date
+        && day.kind === 'excel'
+        && day.driver === catalog.existingUiRoute.driver
+      ));
+    const queries = uniqueGeocodeQueries(hasTargetDriver ? catalog.days : []);
+    const geocodes = queries.length > 0 ? await geocodeQueriesCached(queries, geocode) : new Map();
+    const geocoded = [...geocodes.values()].filter(Boolean).length;
+
+    const outcomes: { date: string; driver: string; vehicle: string; action: string; reason: string }[] = [];
+    let created = 0;
+    let completedExistingUi = 0;
+    let skipped = 0;
+
+    for (const day of daysToMaterialize) {
+      const driver = matchDriverByName(users, day.driver);
+      const vehicle = matchVehicleByPlate(vehicles, day.vehicle);
+      const decision = decideAugustBackfillDayAction({
+        day,
+        skips: catalog.skips,
+        existingUiRoute: catalog.existingUiRoute,
+        driverId: driver?.id ?? null,
+        vehicleId: vehicle?.id ?? null,
+        assignments,
+      });
+
+      if (decision.action === 'skip') {
+        skipped += 1;
+        outcomes.push({ date: day.date, driver: day.driver, vehicle: day.vehicle, action: decision.action, reason: decision.reason });
+        process.stdout.write(`${JSON.stringify({
+          event: 'august_2026_excel_backfill_skip',
+          date: day.date,
+          driver: day.driver,
+          vehicle: day.vehicle,
+          reason: decision.reason,
+        })}\n`);
+        continue;
+      }
+
+      if (decision.action === 'complete_existing_ui' || decision.action === 'rewrite_existing_ui') {
+        const timestamps = historicalWorkdayTimestamps(day.date);
+        const updated = await this.completeAssignment(decision.assignmentId, {
+          startedAt: timestamps.startedAt,
+          completedAt: timestamps.completedAt,
+          markAllDelivered: true,
+        }, { rewriteCompleted: decision.action === 'rewrite_existing_ui' });
+        replaceLiteAssignment(assignments, liteAssignmentFromSnapshot({
+          id: updated.id,
+          routeId: updated.routeId,
+          driverId: updated.driverId,
+          driverName: updated.driverName,
+          status: updated.status,
+          vehicle: updated.vehicle,
+          route: updated.routeSnapshot.route,
+          stops: updated.routeSnapshot.stops,
+        }));
+        completedExistingUi += 1;
+        outcomes.push({ date: day.date, driver: day.driver, vehicle: day.vehicle, action: decision.action, reason: decision.reason });
+        continue;
+      }
+
+      if (!driver || !vehicle) {
+        skipped += 1;
+        outcomes.push({
+          date: day.date,
+          driver: day.driver,
+          vehicle: day.vehicle,
+          action: 'skip',
+          reason: !driver ? 'driver_missing' : 'vehicle_missing',
+        });
+        continue;
+      }
+
+      const snapshot = buildAugustBackfillRouteSnapshot(day, geocodes, decision.routeId, nowIso);
+      validateSnapshot(snapshot);
+      const timestamps = historicalWorkdayTimestamps(day.date);
+      const completed = applyAdminAssignmentComplete(snapshot, {
+        startedAt: timestamps.startedAt,
+        completedAt: timestamps.completedAt,
+        markAllDelivered: true,
+      }, nowIso);
+      const assignment: RouteAssignment = {
+        id: randomUUID(),
+        routeId: decision.routeId,
+        driverId: driver.id,
+        driverName: driver.displayName,
+        status: 'completed',
+        routeSnapshot: {
+          route: completed.route,
+          stops: completed.stops,
+          shipmentLines: snapshot.shipmentLines,
+        },
+        progress: completed.progress,
+        createdBy: AUGUST_2026_EXCEL_BACKFILL_ID,
+        assignedAt: timestamps.startedAt,
+        updatedAt: completed.updatedAt,
+        // Snapshot only — do not call assignVehicle (would steal today's fleet).
+        vehicle: vehicleSnapshot(vehicle),
+      };
+      await this.assignments.doc(assignment.id).create(assignment);
+      assignments.push(liteAssignmentFromSnapshot({
+        id: assignment.id,
+        routeId: assignment.routeId,
+        driverId: assignment.driverId,
+        driverName: assignment.driverName,
+        status: assignment.status,
+        vehicle: assignment.vehicle,
+        route: assignment.routeSnapshot.route,
+        stops: assignment.routeSnapshot.stops,
+      }));
+      created += 1;
+      outcomes.push({ date: day.date, driver: day.driver, vehicle: day.vehicle, action: 'create', reason: decision.reason });
+    }
+
+    if (!hasTargetDriver) {
+      return {
+        applied: false,
+        reason: 'target_drivers_missing',
+        created,
+        completedExistingUi,
+        skipped,
+        geocoded,
+        outcomes,
+      };
+    }
+
+    await flagRef.set({
+      id: AUGUST_2026_EXCEL_BACKFILL_ID,
+      status: 'applied',
+      appliedAt: nowIso,
+      created,
+      completedExistingUi,
+      skipped,
+      geocoded,
+      uniqueAddressQueries: queries.length,
+      stubPlaceholder: catalog.stubPlaceholder,
+      existingUiRouteId: catalog.existingUiRoute.routeId,
+      outcomes,
+    });
+    return {
+      applied: true, reason: 'applied', created, completedExistingUi, skipped, geocoded, outcomes,
+    };
   }
 
   /** Retained for tests/catalog helpers; not called from listTripSheets. */
@@ -3651,6 +3864,23 @@ function hashToken(token: string): string {
 export function safeId(value: string): string {
   if (!/^[a-zA-Z0-9_-]{8,80}$/.test(value)) throw new EmployeeApiError('INVALID_ID', 'Neteisingas identifikatorius.', 400);
   return value;
+}
+
+function createAugustBackfillProductionGeocoder(): AugustBackfillGeocodeFn {
+  const key = process.env.GOOGLE_API_KEY?.trim() || process.env.GOOGLE_MAPS_API_KEY?.trim() || '';
+  if (!key) return async () => null;
+  const adapter = new GoogleGeocodingAdapter(key);
+  return async (query) => {
+    try {
+      const { candidates } = await adapter.geocode({ address: query, language: 'lt', region: 'lt' });
+      const best = candidates[0];
+      return best
+        ? { normalizedAddress: best.normalizedAddress, latitude: best.latitude, longitude: best.longitude }
+        : null;
+    } catch {
+      return null;
+    }
+  };
 }
 
 export function validateSnapshot(snapshot: RouteSnapshot): void {

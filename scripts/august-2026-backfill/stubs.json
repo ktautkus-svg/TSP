@@ -1,0 +1,56 @@
+{
+  "stubs": [
+    {
+      "date": "2026-08-09",
+      "driver": "Karolis Tautkus",
+      "vehicle": "LRI740",
+      "routes": "R56",
+      "weightKg": 1500,
+      "stops": 1,
+      "note": "vienas taškas be Excel"
+    },
+    {
+      "date": "2026-08-13",
+      "driver": "Aleksandras Arsenij",
+      "vehicle": "NLL182",
+      "routes": "R56",
+      "weightKg": 1500,
+      "stops": 1,
+      "note": "vienas taškas be Excel"
+    },
+    {
+      "date": "2026-08-16",
+      "driver": "Aleksandras Arsenij",
+      "vehicle": "NLL182",
+      "routes": "R56",
+      "weightKg": 1500,
+      "stops": 1,
+      "note": "Karolis nedirbo"
+    }
+  ],
+  "skip": [
+    {
+      "date": "2026-08-13",
+      "driver": "Karolis Tautkus",
+      "note": "be reiso"
+    },
+    {
+      "date": "2026-08-16",
+      "driver": "Karolis Tautkus",
+      "note": "nedirbo"
+    },
+    {
+      "date": "2026-08-25",
+      "driver": "Karolis Tautkus",
+      "routes": "M03;R02",
+      "note": "atšaukta"
+    }
+  ],
+  "existingUiRoute": {
+    "date": "2026-08-03",
+    "routeId": "route-1788407220642-xh5w5ldr",
+    "driver": "Karolis Tautkus",
+    "vehicle": "MET630",
+    "note": "Already planned+assigned in UI; backfill should historically complete this instead of duplicating"
+  }
+}

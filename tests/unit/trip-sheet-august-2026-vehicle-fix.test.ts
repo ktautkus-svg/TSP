@@ -146,10 +146,11 @@ describe('August 2026 trip-sheet vehicle/driver correction catalog', () => {
     expect(listTripSheetsBlock).not.toContain('applyTripSheetAugust2026VehicleFix');
     expect(listTripSheetsBlock).not.toContain('applyFuelAugust2026V2Migration');
     expect(listTripSheetsBlock).not.toContain('applyFuelAugust2026V4Migration');
+    expect(listTripSheetsBlock).not.toContain('applyAugust2026ExcelBackfill');
 
     const vehicleFixBlock = storeSource.slice(
       storeSource.indexOf('async applyTripSheetAugust2026VehicleFix'),
-      storeSource.indexOf('async seedNll182OpeningFuel'),
+      storeSource.indexOf('async applyAugust2026ExcelBackfill'),
     );
     expect(vehicleFixBlock).toContain('await this.updateTripSheet');
     expect(vehicleFixBlock).toContain('upsertVehicleDayReading');

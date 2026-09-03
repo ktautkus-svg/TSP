@@ -180,4 +180,10 @@ describe('Cloud Run deploy', () => {
     expect(employeeStore).not.toContain("@/domain/trip-sheet-august-2026-vehicle-fix");
     expect(productionServer).toContain('await ensureTripSheetAugust2026VehicleFixMigrated()');
   });
+
+  it('keeps August 2026 Excel backfill catalog on a relative import in the server graph', () => {
+    expect(employeeStore).toContain("from '../src/domain/august-2026-excel-backfill.js'");
+    expect(employeeStore).not.toContain("@/domain/august-2026-excel-backfill");
+    expect(productionServer).toContain('await ensureAugust2026ExcelBackfillMigrated()');
+  });
 });
