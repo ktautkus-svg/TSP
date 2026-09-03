@@ -22,6 +22,14 @@ export const AUGUST_2026_EXCEL_BACKFILL_ID = 'august-2026-excel-backfill-v1';
  */
 export const AUGUST_2026_EXCEL_BACKFILL_V2_ID = 'august-2026-excel-backfill-v2';
 
+/**
+ * Follow-up one-shot after v2. v2 marked itself applied even when fleet
+ * create / driver PATCH silently no-op'd (createVehicle errors swallowed;
+ * 08-19 looked for Karolis R54;R11 on MET630 instead of R14;R27;R28;R51).
+ * v3 must actually persist unassigned LRI741 and the remaining gaps.
+ */
+export const AUGUST_2026_EXCEL_BACKFILL_V3_ID = 'august-2026-excel-backfill-v3';
+
 export const AUGUST_2026_SNAPSHOT_VEHICLE_MODEL = 'Renault Master';
 export const AUGUST_2026_SNAPSHOT_PAYLOAD_KG = 1500;
 export const AUGUST_2026_ENSURE_FLEET_PLATES = ['LRI740', 'LRI741'] as const;
@@ -33,9 +41,19 @@ export const AUGUST_2026_LRI740_OPENING_LITERS = 13;
 export const AUGUST_2026_LRI740_OPENING_DATE = '2026-08-08';
 export const AUGUST_2026_LRI740_OPENING_REPORT_ID = 'open-LRI740-20260808';
 export const AUGUST_2026_LRI740_OPENING_NOTE = 'Rugpjūčio 8 d. bako likutis prieš 08-09 Karolio R56 stub.';
+/** Same Master-class tank/norm as LRI740 — LRI741 had no catalog tank row. */
+export const AUGUST_2026_LRI741_TANK_LITERS = 100;
+export const AUGUST_2026_LRI741_FUEL_NORM_L_PER_100KM = 15;
 export const AUGUST_2026_DUAL_SHEET_DATE = '2026-08-19';
+export const AUGUST_2026_KAROLIS_0809_STUB_DATE = '2026-08-09';
+export const AUGUST_2026_ALEKSANDRAS_0811_DATE = '2026-08-11';
 export const AUGUST_2026_KAROLIS_0819_ROUTES = ['R54', 'R11'] as const;
 export const AUGUST_2026_ALEKSANDRAS_0819_ROUTES = ['R14', 'R27', 'R28', 'R51'] as const;
+export const AUGUST_2026_ALEKSANDRAS_NAME_CANDIDATES = [
+  'Aleksandras Arsenij',
+  'Aleksandras Arsenijus',
+  'Aleksandras',
+] as const;
 
 export const EXISTING_UI_ROUTE_ID = 'route-1788407220642-xh5w5ldr';
 export const EXISTING_UI_ROUTE_DATE = '2026-08-03';
@@ -134,6 +152,7 @@ export type AugustAssignmentLite = {
   workDate: string | null;
   orderNumbers: string[];
   stopCount: number;
+  visibleStopCount: number;
   routeCodes: string[];
 };
 
@@ -152,6 +171,7 @@ export type AugustBackfillVehicleRef = {
 export type AugustBackfillDecision =
   | { action: 'complete_existing_ui'; assignmentId: string; reason: string }
   | { action: 'rewrite_existing_ui'; assignmentId: string; reason: string }
+  | { action: 'rewrite_empty_stub'; assignmentId: string; reason: string; routeId: string }
   | { action: 'create'; reason: string; routeId: string }
   | { action: 'skip'; reason: string };
 
@@ -277,6 +297,16 @@ export function matchDriverByName<T extends { displayName: string; role?: string
   return prefixed.length === 1 ? prefixed[0]! : null;
 }
 
+export function matchAleksandrasDriver<T extends { displayName: string; role?: string; disabled?: boolean }>(
+  users: readonly T[],
+): T | null {
+  for (const name of AUGUST_2026_ALEKSANDRAS_NAME_CANDIDATES) {
+    const match = matchDriverByName(users, name);
+    if (match) return match;
+  }
+  return null;
+}
+
 export function matchVehicleByPlate<T extends { registrationNumber: string }>(
   vehicles: readonly T[],
   plate: string,
@@ -299,10 +329,45 @@ export function august2026EnsureFleetPlateSpecs(plate: string): {
   fuelNormLPer100Km?: number;
   fuelTankCapacityLiters?: number;
 } {
-  if (normalizePlate(plate) !== 'LRI740') return {};
+  const normalized = normalizePlate(plate);
+  if (normalized === 'LRI740') {
+    return {
+      fuelNormLPer100Km: AUGUST_2026_LRI740_FUEL_NORM_L_PER_100KM,
+      fuelTankCapacityLiters: AUGUST_2026_LRI740_TANK_LITERS,
+    };
+  }
+  if (normalized === 'LRI741') {
+    return {
+      fuelNormLPer100Km: AUGUST_2026_LRI741_FUEL_NORM_L_PER_100KM,
+      fuelTankCapacityLiters: AUGUST_2026_LRI741_TANK_LITERS,
+    };
+  }
+  return {};
+}
+
+/** Fields passed to createVehicle — Master-like defaults, always unassigned. */
+export function august2026EnsureFleetVehicleCreateInput(plate: string): {
+  registrationNumber: string;
+  model: string;
+  maximumPayloadKg: number;
+  fuelNormLPer100Km: number;
+  fuelTankCapacityLiters: number;
+  palletCapacity: 5 | 8;
+  hasSideDoor: boolean;
+  cargoBodyKind: 'van_long' | 'van_8pll';
+} {
+  const registrationNumber = normalizePlate(plate);
+  const cargo = resolveVehicleCargo({ registrationNumber });
+  const specs = august2026EnsureFleetPlateSpecs(registrationNumber);
   return {
-    fuelNormLPer100Km: AUGUST_2026_LRI740_FUEL_NORM_L_PER_100KM,
-    fuelTankCapacityLiters: AUGUST_2026_LRI740_TANK_LITERS,
+    registrationNumber,
+    model: AUGUST_2026_SNAPSHOT_VEHICLE_MODEL,
+    maximumPayloadKg: AUGUST_2026_SNAPSHOT_PAYLOAD_KG,
+    fuelNormLPer100Km: specs.fuelNormLPer100Km ?? AUGUST_2026_LRI741_FUEL_NORM_L_PER_100KM,
+    fuelTankCapacityLiters: specs.fuelTankCapacityLiters ?? AUGUST_2026_LRI741_TANK_LITERS,
+    palletCapacity: cargo.palletCapacity,
+    hasSideDoor: cargo.hasSideDoor,
+    cargoBodyKind: bodyKindFromPalletCapacity(cargo.palletCapacity),
   };
 }
 
@@ -343,10 +408,81 @@ export function resolveAugustBackfillVehicle<T extends { id: string; registratio
 export function isAugust2026ExcelBackfillV2GapDay(day: Pick<AugustExcelDay, 'date' | 'driver' | 'kind' | 'sourceFile' | 'vehicle'>): boolean {
   if (day.sourceFile === 'aleksandras-11.json') return true;
   if (day.sourceFile === 'aleksandras-19.json') return true;
+  return isKarolis0809Lri740StubDay(day);
+}
+
+export function isAugust2026ExcelBackfillV3GapDay(
+  day: Pick<AugustExcelDay, 'date' | 'driver' | 'kind' | 'sourceFile' | 'vehicle'>,
+): boolean {
+  return isAugust2026ExcelBackfillV2GapDay(day);
+}
+
+export function isKarolis0809Lri740StubDay(
+  day: Pick<AugustExcelDay, 'date' | 'driver' | 'kind' | 'vehicle'>,
+): boolean {
   return day.kind === 'stub'
-    && day.date === '2026-08-09'
+    && day.date === AUGUST_2026_KAROLIS_0809_STUB_DATE
     && normalizePersonName(day.driver).startsWith('karolis')
     && normalizePlate(day.vehicle) === 'LRI740';
+}
+
+export function isAleksandras0811Lri741Day(
+  day: Pick<AugustExcelDay, 'date' | 'driver' | 'sourceFile' | 'vehicle'>,
+): boolean {
+  return day.sourceFile === 'aleksandras-11.json'
+    || (
+      day.date === AUGUST_2026_ALEKSANDRAS_0811_DATE
+      && normalizePersonName(day.driver).startsWith('aleksandras')
+      && normalizePlate(day.vehicle) === 'LRI741'
+    );
+}
+
+export function visibleBackfillStopCount(stops: readonly Record<string, unknown>[]): number {
+  return stops.filter((stop) => {
+    const address = [stop.address, stop.normalized_address, stop.original_address]
+      .find((value) => typeof value === 'string' && value.trim().length > 0);
+    const recipient = typeof stop.recipient === 'string' ? stop.recipient.trim() : '';
+    const order = typeof stop.order_number === 'string' ? stop.order_number.trim() : '';
+    return Boolean(address || recipient || order);
+  }).length;
+}
+
+export function assignmentNeedsStubStopRewrite(stops: readonly Record<string, unknown>[]): boolean {
+  return visibleBackfillStopCount(stops) < 1;
+}
+
+export function assignmentPlate(assignment: Pick<AugustAssignmentLite, 'vehiclePlate' | 'vehicleId'>): string {
+  return normalizePlate(assignment.vehiclePlate ?? assignment.vehicleId ?? '');
+}
+
+export function isAleksandras0819Met630RouteSet(assignment: Pick<
+  AugustAssignmentLite,
+  'status' | 'workDate' | 'routeDate' | 'vehiclePlate' | 'vehicleId' | 'routeCodes'
+>): boolean {
+  return assignment.status === 'completed'
+    && assignmentMatchesWorkDate(assignment, AUGUST_2026_DUAL_SHEET_DATE)
+    && assignmentPlate(assignment) === 'MET630'
+    && assignmentHasAllRouteCodes(assignment.routeCodes, AUGUST_2026_ALEKSANDRAS_0819_ROUTES);
+}
+
+export function needsAleksandras0819DriverPatch(
+  assignment: Pick<AugustAssignmentLite, 'driverId' | 'driverName' | 'status' | 'workDate' | 'routeDate' | 'vehiclePlate' | 'vehicleId' | 'routeCodes'>,
+  aleksandrasId: string | null,
+): boolean {
+  if (!isAleksandras0819Met630RouteSet(assignment)) return false;
+  if (aleksandrasId && assignment.driverId === aleksandrasId) return false;
+  return !normalizePersonName(assignment.driverName).startsWith('aleksandras');
+}
+
+export function isKarolis0809Lri740Assignment(assignment: Pick<
+  AugustAssignmentLite,
+  'status' | 'workDate' | 'routeDate' | 'vehiclePlate' | 'vehicleId' | 'driverName' | 'driverId'
+>, karolisId?: string | null): boolean {
+  const onDate = assignmentMatchesWorkDate(assignment, AUGUST_2026_KAROLIS_0809_STUB_DATE);
+  const plate = assignmentPlate(assignment) === 'LRI740';
+  const karolis = (karolisId && assignment.driverId === karolisId)
+    || normalizePersonName(assignment.driverName).startsWith('karolis');
+  return assignment.status === 'completed' && onDate && plate && karolis;
 }
 
 export function karolisAugust19Nll182VehicleFix() {
@@ -733,6 +869,57 @@ export function decideAugustBackfillV2GapAction(input: {
   return decision;
 }
 
+/**
+ * v3 gap days: same create/skip as v2, except
+ * - 2026-08-19 MET630 already holding R14;R27;R28;R51 is patched (driver),
+ *   not duplicated;
+ * - 2026-08-09 LRI740 stub with no visible stop lines is rewritten in place.
+ */
+export function decideAugustBackfillV3GapAction(input: {
+  day: AugustExcelDay;
+  skips: readonly AugustBackfillSkip[];
+  existingUiRoute: AugustExistingUiRoute;
+  driverId: string | null;
+  vehicleId: string | null;
+  assignments: readonly AugustAssignmentLite[];
+}): AugustBackfillDecision {
+  if (isAugust2026SkipDay(input.skips, input.day.date, input.day.driver)) {
+    return { action: 'skip', reason: 'listed_skip' };
+  }
+
+  if (input.day.sourceFile === 'aleksandras-19.json' || (
+    input.day.date === AUGUST_2026_DUAL_SHEET_DATE
+    && normalizePersonName(input.day.driver).startsWith('aleksandras')
+    && normalizePlate(input.day.vehicle) === 'MET630'
+  )) {
+    const existing = input.assignments.find((assignment) => isAleksandras0819Met630RouteSet(assignment));
+    if (existing) {
+      return {
+        action: 'skip',
+        reason: needsAleksandras0819DriverPatch(existing, input.driverId)
+          ? 'met630_0819_will_patch_driver'
+          : 'met630_0819_already_aleksandras',
+      };
+    }
+  }
+
+  if (isKarolis0809Lri740StubDay(input.day)) {
+    const existing = input.assignments.find((assignment) => (
+      isKarolis0809Lri740Assignment(assignment, input.driverId)
+    ));
+    if (existing && existing.visibleStopCount < 1) {
+      return {
+        action: 'rewrite_empty_stub',
+        assignmentId: existing.id,
+        reason: 'lri740_0809_stub_missing_stops',
+        routeId: existing.routeId || augustBackfillRouteId(input.day),
+      };
+    }
+  }
+
+  return decideAugustBackfillV2GapAction(input);
+}
+
 export function replaceLiteAssignment(assignments: AugustAssignmentLite[], next: AugustAssignmentLite): void {
   const index = assignments.findIndex((item) => item.id === next.id);
   if (index >= 0) assignments[index] = next;
@@ -765,6 +952,7 @@ export function liteAssignmentFromSnapshot(input: {
     workDate: workReference ? lithuanianDateKey(workReference) : optionalText(input.route.date),
     orderNumbers: assignmentOrderNumbers(input.stops),
     stopCount: input.stops.length,
+    visibleStopCount: visibleBackfillStopCount(input.stops),
     routeCodes: routeCodesFromAssignmentSnapshot(input.stops, input.shipmentLines ?? []),
   };
 }

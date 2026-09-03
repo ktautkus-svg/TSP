@@ -63,6 +63,7 @@ import { lithuanianDateKey } from '../src/domain/lithuanian-time.js';
 import {
     AUGUST_2026_EXCEL_BACKFILL_ID,
     AUGUST_2026_EXCEL_BACKFILL_V2_ID,
+    AUGUST_2026_EXCEL_BACKFILL_V3_ID,
     AUGUST_2026_ENSURE_FLEET_PLATES,
     AUGUST_2026_LRI740_OPENING_DATE,
     AUGUST_2026_LRI740_OPENING_LITERS,
@@ -70,19 +71,28 @@ import {
     AUGUST_2026_LRI740_OPENING_REPORT_ID,
     AUGUST_2026_SNAPSHOT_PAYLOAD_KG,
     AUGUST_2026_SNAPSHOT_VEHICLE_MODEL,
+    assignmentNeedsStubStopRewrite,
     august2026EnsureFleetPlateSpecs,
+    august2026EnsureFleetVehicleCreateInput,
     buildAugustBackfillRouteSnapshot,
     decideAugustBackfillDayAction,
     decideAugustBackfillV2GapAction,
+    decideAugustBackfillV3GapAction,
     geocodeQueriesCached,
     historicalWorkdayTimestamps,
+    isAleksandras0819Met630RouteSet,
     isAugust2026ExcelBackfillV2GapDay,
+    isAugust2026ExcelBackfillV3GapDay,
+    isKarolis0809Lri740Assignment,
     isKarolis0819R54R11Assignment,
     karolis0819NeedsNll182Move,
     liteAssignmentFromSnapshot,
     loadAugust2026ExcelBackfillCatalog,
+    matchAleksandrasDriver,
     matchDriverByName,
     matchVehicleByPlate,
+    normalizePersonName,
+    needsAleksandras0819DriverPatch,
     replaceLiteAssignment,
     resolveAugustBackfillVehicle,
     shouldEnsureAugustBackfillFleetPlate,
@@ -2835,6 +2845,336 @@ export class EmployeeAuthStore {
     };
   }
 
+  /**
+   * One-shot August 2026 Excel backfill v3 — after v2. v2 swallowed fleet
+   * createVehicle failures and PATCHed the wrong 08-19 sheet (Karolis R54;R11
+   * vehicle move). v3 does not swallow: it must persist unassigned LRI741,
+   * PATCH MET630 08-19 R14;R27;R28;R51 onto Aleksandras, rewrite the empty
+   * LRI740 08-09 stub stops, and create Aleksandras 08-11 if still missing.
+   * Gated by tsp_settings `august-2026-excel-backfill-v3`.
+   */
+  async applyAugust2026ExcelBackfillV3(input: {
+    geocode?: AugustBackfillGeocodeFn;
+    nowIso?: string;
+  } = {}): Promise<{
+    applied: boolean;
+    reason: string;
+    created: number;
+    rewrittenStubs: number;
+    patchedAleksandras0819: number;
+    fleetEnsured: string[];
+    lri740OpeningFuel: 'created' | 'already_exists' | 'skipped_vehicle_missing';
+    skipped: number;
+    geocoded: number;
+    outcomes: { date: string; driver: string; vehicle: string; action: string; reason: string }[];
+  }> {
+    const flagRef = this.settings.doc(AUGUST_2026_EXCEL_BACKFILL_V3_ID);
+    const existingFlag = await flagRef.get();
+    if (existingFlag.exists && existingFlag.data()?.status === 'applied') {
+      process.stdout.write(`${JSON.stringify({
+        event: 'august_2026_excel_backfill_v3_skip',
+        reason: 'already_applied',
+      })}\n`);
+      return {
+        applied: false,
+        reason: 'already_applied',
+        created: 0,
+        rewrittenStubs: 0,
+        patchedAleksandras0819: 0,
+        fleetEnsured: [],
+        lri740OpeningFuel: 'already_exists',
+        skipped: 0,
+        geocoded: 0,
+        outcomes: [],
+      };
+    }
+
+    const catalog = loadAugust2026ExcelBackfillCatalog();
+    const users = await this.listUsers();
+    let vehicles = await this.listVehicles();
+    const nowIso = input.nowIso ?? new Date().toISOString();
+    const aleksandras = matchAleksandrasDriver(users);
+    const karolis = matchDriverByName(users, 'Karolis Tautkus');
+
+    process.stdout.write(`${JSON.stringify({
+      event: 'august_2026_excel_backfill_v3_start',
+      fleetPlates: vehicles.map((vehicle) => vehicle.registrationNumber),
+      aleksandras: aleksandras ? { id: aleksandras.id, name: aleksandras.displayName } : null,
+      karolis: karolis ? { id: karolis.id, name: karolis.displayName } : null,
+      at: nowIso,
+    })}\n`);
+
+    if (!aleksandras) {
+      const drivers = users
+        .filter((user) => (user.role ?? 'driver') === 'driver' && !user.disabled)
+        .map((user) => ({ id: user.id, name: user.displayName }));
+      process.stdout.write(`${JSON.stringify({
+        event: 'august_2026_excel_backfill_v3_driver_missing',
+        wanted: 'Aleksandras Arsenij',
+        drivers,
+      })}\n`);
+      throw new Error('August 2026 excel backfill v3: Aleksandras driver not found; refusing to no-op.');
+    }
+    if (!karolis) {
+      process.stdout.write(`${JSON.stringify({
+        event: 'august_2026_excel_backfill_v3_driver_missing',
+        wanted: 'Karolis Tautkus',
+      })}\n`);
+      throw new Error('August 2026 excel backfill v3: Karolis driver not found; refusing to no-op.');
+    }
+
+    const fleetEnsured = await this.ensureAugustBackfillFleetPlatesStrict(vehicles, nowIso);
+    vehicles = await this.listVehicles();
+    const lri741 = matchVehicleByPlate(vehicles, 'LRI741');
+    if (!lri741) {
+      process.stdout.write(`${JSON.stringify({
+        event: 'august_2026_excel_backfill_v3_fleet_missing',
+        plate: 'LRI741',
+        fleetPlates: vehicles.map((vehicle) => vehicle.registrationNumber),
+      })}\n`);
+      throw new Error('August 2026 excel backfill v3: LRI741 is still missing from the fleet after create.');
+    }
+    const lri740OpeningFuel = await this.ensureLri740AugustOpeningFuel(vehicles, users, nowIso);
+
+    const assignmentSnapshot = await this.assignments.get();
+    const rawAssignments = assignmentSnapshot.docs.map((document) => document.data() as RouteAssignment);
+    const assignments: AugustAssignmentLite[] = rawAssignments.map((assignment) => this.liteFromRouteAssignment(assignment));
+
+    const outcomes: { date: string; driver: string; vehicle: string; action: string; reason: string }[] = [];
+    let patchedAleksandras0819 = 0;
+    for (const assignment of [...assignments]) {
+      if (!needsAleksandras0819DriverPatch(assignment, aleksandras.id)) continue;
+      process.stdout.write(`${JSON.stringify({
+        event: 'august_2026_excel_backfill_v3_patch_driver',
+        assignmentId: assignment.id,
+        fromDriverId: assignment.driverId,
+        fromDriverName: assignment.driverName,
+        toDriverId: aleksandras.id,
+        toDriverName: aleksandras.displayName,
+        vehicle: 'MET630',
+        date: '2026-08-19',
+        routes: assignment.routeCodes,
+      })}\n`);
+      await this.updateTripSheet(assignment.id, { driverId: aleksandras.id });
+      const patchedDocument = await this.assignments.doc(assignment.id).get();
+      const patched = patchedDocument.data() as RouteAssignment | undefined;
+      if (patched) replaceLiteAssignment(assignments, this.liteFromRouteAssignment(patched));
+      patchedAleksandras0819 += 1;
+      outcomes.push({
+        date: '2026-08-19',
+        driver: aleksandras.displayName,
+        vehicle: 'MET630',
+        action: 'patch_driver',
+        reason: 'met630_0819_r14_r27_r28_r51_to_aleksandras',
+      });
+    }
+
+    const gapDays = catalog.days.filter((day) => isAugust2026ExcelBackfillV3GapDay(day));
+    const geocode = input.geocode ?? createAugustBackfillProductionGeocoder();
+    const queries = uniqueGeocodeQueries(gapDays);
+    const geocodes = queries.length > 0 ? await geocodeQueriesCached(queries, geocode) : new Map();
+    const geocoded = [...geocodes.values()].filter(Boolean).length;
+
+    let created = 0;
+    let rewrittenStubs = 0;
+    let skipped = 0;
+
+    for (const day of gapDays) {
+      const driver = normalizePersonName(day.driver).startsWith('aleksandras')
+        ? aleksandras
+        : matchDriverByName(users, day.driver) ?? karolis;
+      const vehicle = matchVehicleByPlate(vehicles, day.vehicle)
+        ?? this.resolveAugustBackfillVehicleRef(vehicles, day.vehicle, nowIso);
+      const decision = decideAugustBackfillV3GapAction({
+        day,
+        skips: catalog.skips,
+        existingUiRoute: catalog.existingUiRoute,
+        driverId: driver?.id ?? null,
+        vehicleId: vehicle?.id ?? null,
+        assignments,
+      });
+
+      if (decision.action === 'rewrite_empty_stub') {
+        if (!driver || !vehicle) {
+          process.stdout.write(`${JSON.stringify({
+            event: 'august_2026_excel_backfill_v3_rewrite_blocked',
+            date: day.date,
+            reason: !driver ? 'driver_missing' : 'vehicle_missing',
+          })}\n`);
+          throw new Error(`August 2026 excel backfill v3: cannot rewrite ${day.date} ${day.vehicle} stub (${!driver ? 'driver' : 'vehicle'} missing).`);
+        }
+        const existingDocument = await this.assignments.doc(decision.assignmentId).get();
+        const existing = existingDocument.data() as RouteAssignment | undefined;
+        const rewritten = await this.rewriteAugustBackfillEmptyStub({
+          existing,
+          existingId: decision.assignmentId,
+          day,
+          driver,
+          vehicle,
+          geocodes,
+          routeId: decision.routeId,
+          nowIso,
+        });
+        replaceLiteAssignment(assignments, this.liteFromRouteAssignment(rewritten));
+        rewrittenStubs += 1;
+        outcomes.push({
+          date: day.date,
+          driver: day.driver,
+          vehicle: day.vehicle,
+          action: 'rewrite_empty_stub',
+          reason: decision.reason,
+        });
+        process.stdout.write(`${JSON.stringify({
+          event: 'august_2026_excel_backfill_v3_rewrite_stub',
+          date: day.date,
+          assignmentId: rewritten.id,
+          stopCount: rewritten.routeSnapshot.stops.length,
+        })}\n`);
+        continue;
+      }
+
+      if (decision.action === 'skip') {
+        skipped += 1;
+        outcomes.push({ date: day.date, driver: day.driver, vehicle: day.vehicle, action: decision.action, reason: decision.reason });
+        process.stdout.write(`${JSON.stringify({
+          event: 'august_2026_excel_backfill_v3_skip',
+          date: day.date,
+          driver: day.driver,
+          vehicle: day.vehicle,
+          reason: decision.reason,
+        })}\n`);
+        continue;
+      }
+
+      if (decision.action !== 'create' || !driver || !vehicle) {
+        process.stdout.write(`${JSON.stringify({
+          event: 'august_2026_excel_backfill_v3_create_blocked',
+          date: day.date,
+          driver: day.driver,
+          vehicle: day.vehicle,
+          action: decision.action,
+          reason: !driver ? 'driver_missing' : !vehicle ? 'vehicle_missing' : `unexpected_${decision.action}`,
+        })}\n`);
+        throw new Error(`August 2026 excel backfill v3: refused to skip create for ${day.date} ${day.vehicle}.`);
+      }
+
+      const createdAssignment = await this.createAugustBackfillCompletedAssignment({
+        day,
+        driver,
+        vehicle,
+        geocodes,
+        routeId: decision.routeId,
+        nowIso,
+        createdBy: AUGUST_2026_EXCEL_BACKFILL_V3_ID,
+      });
+      assignments.push(this.liteFromRouteAssignment(createdAssignment));
+      created += 1;
+      outcomes.push({ date: day.date, driver: day.driver, vehicle: day.vehicle, action: 'create', reason: decision.reason });
+      process.stdout.write(`${JSON.stringify({
+        event: 'august_2026_excel_backfill_v3_create',
+        date: day.date,
+        driver: day.driver,
+        vehicle: day.vehicle,
+        assignmentId: createdAssignment.id,
+        stopCount: createdAssignment.routeSnapshot.stops.length,
+        reason: decision.reason,
+      })}\n`);
+    }
+
+    const refreshed = (await this.assignments.get()).docs.map((document) => (
+      this.liteFromRouteAssignment(document.data() as RouteAssignment)
+    ));
+    const rawRefreshed = (await this.assignments.get()).docs.map((document) => document.data() as RouteAssignment);
+    const liveVehicles = await this.listVehicles();
+    if (!matchVehicleByPlate(liveVehicles, 'LRI741')) {
+      throw new Error('August 2026 excel backfill v3: LRI741 missing after materialization.');
+    }
+    const aleks11 = refreshed.find((assignment) => (
+      assignment.status === 'completed'
+      && assignment.driverId === aleksandras.id
+      && assignment.vehicleId === (matchVehicleByPlate(liveVehicles, 'LRI741')?.id ?? 'LRI741')
+      && assignment.workDate === '2026-08-11'
+      && assignment.stopCount >= 1
+    )) ?? refreshed.find((assignment) => (
+      assignment.status === 'completed'
+      && assignment.driverId === aleksandras.id
+      && (assignment.vehiclePlate === 'LRI741' || assignment.vehicleId === 'LRI741')
+      && (assignment.workDate === '2026-08-11' || assignment.routeDate === '2026-08-11')
+      && assignment.stopCount >= 1
+    ));
+    if (!aleks11) {
+      process.stdout.write(`${JSON.stringify({
+        event: 'august_2026_excel_backfill_v3_verify_failed',
+        missing: 'aleksandras_2026_08_11_lri741',
+      })}\n`);
+      throw new Error('August 2026 excel backfill v3: Aleksandras 2026-08-11 LRI741 sheet is still missing.');
+    }
+    const aleks19 = refreshed.find((assignment) => (
+      isAleksandras0819Met630RouteSet(assignment)
+      && assignment.driverId === aleksandras.id
+    ));
+    if (!aleks19) {
+      process.stdout.write(`${JSON.stringify({
+        event: 'august_2026_excel_backfill_v3_verify_failed',
+        missing: 'aleksandras_2026_08_19_met630',
+      })}\n`);
+      throw new Error('August 2026 excel backfill v3: Aleksandras 2026-08-19 MET630 sheet is still missing.');
+    }
+    const stub09 = rawRefreshed.find((assignment) => {
+      const lite = this.liteFromRouteAssignment(assignment);
+      return isKarolis0809Lri740Assignment(lite, karolis.id)
+        && !assignmentNeedsStubStopRewrite(assignment.routeSnapshot.stops);
+    });
+    if (!stub09) {
+      process.stdout.write(`${JSON.stringify({
+        event: 'august_2026_excel_backfill_v3_verify_failed',
+        missing: 'karolis_2026_08_09_lri740_stops',
+      })}\n`);
+      throw new Error('August 2026 excel backfill v3: 2026-08-09 LRI740 stub still has no visible stops.');
+    }
+
+    await flagRef.set({
+      id: AUGUST_2026_EXCEL_BACKFILL_V3_ID,
+      status: 'applied',
+      appliedAt: nowIso,
+      created,
+      rewrittenStubs,
+      patchedAleksandras0819,
+      fleetEnsured,
+      lri740OpeningFuel,
+      skipped,
+      geocoded,
+      uniqueAddressQueries: queries.length,
+      lri741Id: lri741.id,
+      aleksandras11AssignmentId: aleks11.id,
+      aleksandras19AssignmentId: aleks19.id,
+      karolis0809AssignmentId: stub09.id,
+      outcomes,
+    });
+    process.stdout.write(`${JSON.stringify({
+      event: 'august_2026_excel_backfill_v3_applied',
+      created,
+      rewrittenStubs,
+      patchedAleksandras0819,
+      fleetEnsured,
+      lri740OpeningFuel,
+      skipped,
+      geocoded,
+    })}\n`);
+    return {
+      applied: true,
+      reason: 'applied',
+      created,
+      rewrittenStubs,
+      patchedAleksandras0819,
+      fleetEnsured,
+      lri740OpeningFuel,
+      skipped,
+      geocoded,
+      outcomes,
+    };
+  }
+
   private liteFromRouteAssignment(assignment: RouteAssignment): AugustAssignmentLite {
     return liteAssignmentFromSnapshot({
       id: assignment.id,
@@ -2858,6 +3198,137 @@ export class EmployeeAuthStore {
     if (!resolved) return null;
     if (resolved.source === 'fleet') return resolved.vehicle;
     return fleetVehicleFromAugustRef(resolved.vehicle, nowIso);
+  }
+
+  /**
+   * v3 fleet ensure — never swallows createVehicle errors. After each create
+   * the live collection is re-read so a silent write failure cannot mark the
+   * flag applied. assignedDriverId stays null (do not call assignVehicle).
+   */
+  private async ensureAugustBackfillFleetPlatesStrict(
+    vehicles: FleetVehicle[],
+    nowIso: string,
+  ): Promise<string[]> {
+    const ensured: string[] = [];
+    for (const plate of AUGUST_2026_ENSURE_FLEET_PLATES) {
+      if (!shouldEnsureAugustBackfillFleetPlate(plate)) continue;
+      const existing = matchVehicleByPlate(vehicles, plate);
+      if (existing) {
+        process.stdout.write(`${JSON.stringify({
+          event: 'august_2026_excel_backfill_v3_fleet',
+          plate,
+          action: 'already_exists',
+          vehicleId: existing.id,
+          assignedDriverId: existing.assignedDriverId,
+          at: nowIso,
+        })}\n`);
+        continue;
+      }
+      const input = august2026EnsureFleetVehicleCreateInput(plate);
+      process.stdout.write(`${JSON.stringify({
+        event: 'august_2026_excel_backfill_v3_fleet',
+        plate,
+        action: 'creating',
+        model: input.model,
+        payloadKg: input.maximumPayloadKg,
+        tankLiters: input.fuelTankCapacityLiters,
+        fuelNorm: input.fuelNormLPer100Km,
+        at: nowIso,
+      })}\n`);
+      let created: FleetVehicle;
+      try {
+        created = await this.createVehicle(input);
+      } catch (error) {
+        if (error instanceof EmployeeApiError && error.code === 'VEHICLE_EXISTS') {
+          const refreshed = matchVehicleByPlate(await this.listVehicles(), plate);
+          if (!refreshed) {
+            process.stdout.write(`${JSON.stringify({
+              event: 'august_2026_excel_backfill_v3_fleet_failed',
+              plate,
+              error: 'VEHICLE_EXISTS but listVehicles has no matching plate',
+            })}\n`);
+            throw new Error(`August 2026 excel backfill v3: ${plate} reported VEHICLE_EXISTS but is absent from the fleet list.`);
+          }
+          if (!matchVehicleByPlate(vehicles, plate)) vehicles.push(refreshed);
+          process.stdout.write(`${JSON.stringify({
+            event: 'august_2026_excel_backfill_v3_fleet',
+            plate,
+            action: 'already_exists',
+            vehicleId: refreshed.id,
+            assignedDriverId: refreshed.assignedDriverId,
+          })}\n`);
+          continue;
+        }
+        process.stdout.write(`${JSON.stringify({
+          event: 'august_2026_excel_backfill_v3_fleet_failed',
+          plate,
+          error: error instanceof Error ? error.message : String(error),
+        })}\n`);
+        throw error;
+      }
+      if (created.assignedDriverId !== null) {
+        throw new Error(`August 2026 excel backfill v3: ${plate} was created assigned; expected unassigned.`);
+      }
+      vehicles.push(created);
+      const verified = matchVehicleByPlate(await this.listVehicles(), plate);
+      if (!verified) {
+        process.stdout.write(`${JSON.stringify({
+          event: 'august_2026_excel_backfill_v3_fleet_failed',
+          plate,
+          error: 'createVehicle returned but listVehicles does not include the plate',
+        })}\n`);
+        throw new Error(`August 2026 excel backfill v3: ${plate} createVehicle succeeded but the fleet list still lacks it.`);
+      }
+      ensured.push(plate);
+      process.stdout.write(`${JSON.stringify({
+        event: 'august_2026_excel_backfill_v3_fleet',
+        plate,
+        action: 'created',
+        vehicleId: verified.id,
+        assignedDriverId: verified.assignedDriverId,
+        at: nowIso,
+      })}\n`);
+    }
+    return ensured;
+  }
+
+  private async rewriteAugustBackfillEmptyStub(input: {
+    existing: RouteAssignment | undefined;
+    existingId: string;
+    day: AugustExcelDay;
+    driver: { id: string; displayName: string };
+    vehicle: FleetVehicle;
+    geocodes: ReadonlyMap<string, Awaited<ReturnType<AugustBackfillGeocodeFn>>>;
+    routeId: string;
+    nowIso: string;
+  }): Promise<RouteAssignment> {
+    const snapshot = buildAugustBackfillRouteSnapshot(input.day, input.geocodes, input.routeId, input.nowIso);
+    validateSnapshot(snapshot);
+    const timestamps = historicalWorkdayTimestamps(input.day.date);
+    const completed = applyAdminAssignmentComplete(snapshot, {
+      startedAt: timestamps.startedAt,
+      completedAt: timestamps.completedAt,
+      markAllDelivered: true,
+    }, input.nowIso);
+    const assignment: RouteAssignment = {
+      id: input.existing?.id ?? input.existingId,
+      routeId: input.routeId,
+      driverId: input.driver.id,
+      driverName: input.driver.displayName,
+      status: 'completed',
+      routeSnapshot: {
+        route: completed.route,
+        stops: completed.stops,
+        shipmentLines: snapshot.shipmentLines,
+      },
+      progress: completed.progress,
+      createdBy: input.existing?.createdBy ?? AUGUST_2026_EXCEL_BACKFILL_V3_ID,
+      assignedAt: input.existing?.assignedAt ?? timestamps.startedAt,
+      updatedAt: completed.updatedAt,
+      vehicle: vehicleSnapshot(input.vehicle),
+    };
+    await this.assignments.doc(assignment.id).set(assignment);
+    return assignment;
   }
 
   private async ensureAugustBackfillFleetPlates(
