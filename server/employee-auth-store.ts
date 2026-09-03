@@ -49,6 +49,15 @@ import {
 } from '../src/domain/nll182-odometer-log.js';
 import { regionCodeFromSource, uniqueRegionCodes } from '../src/domain/route-code.js';
 import {
+    AUGUST_2026_TRIP_SHEET_VEHICLE_FIXES,
+    ERIKAS_ASKELOVICIUS_DISPLAY_NAME,
+    ERIKAS_ASKELOVICIUS_DRIVER_ID,
+    TRIP_SHEET_AUGUST_2026_VEHICLE_FIX_ID,
+    canUpdateAssignmentScheduleDate,
+    shouldRenameErikasPlaceholder,
+    vehicleDayReadingDocId,
+} from '../src/domain/trip-sheet-august-2026-vehicle-fix.js';
+import {
     normalizeIsoDate as isoDateOrThrow,
     validateFuelLiters,
     validateFuelAmount as validateLiters,
@@ -2030,6 +2039,85 @@ export class EmployeeAuthStore {
     return { applied: true, reason: 'applied' };
   }
 
+  /**
+   * One-shot correction of completed August 2026 trip-sheet vehicle+driver
+   * against the photo day log. Gated by tsp_settings
+   * `trip-sheet-august-2026-vehicle-fix-v1`. Never rewrites stop delivered_at
+   * or delivery_status — quality on-time/late stays as recorded.
+   */
+  async applyTripSheetAugust2026VehicleFix(): Promise<{
+    applied: boolean;
+    reason: string;
+    corrected: number;
+    skipped: number;
+    erikasRenamed: boolean;
+  }> {
+    const flagRef = this.settings.doc(TRIP_SHEET_AUGUST_2026_VEHICLE_FIX_ID);
+    const existingFlag = await flagRef.get();
+    if (existingFlag.exists && existingFlag.data()?.status === 'applied') {
+      return { applied: false, reason: 'already_applied', corrected: 0, skipped: 0, erikasRenamed: false };
+    }
+
+    const vehiclesSnapshot = await this.vehicles.get();
+    const vehicles = vehiclesSnapshot.docs.map((document) => normalizeVehicle(document.data() as FleetVehicle));
+    const byPlate = new Map(
+      vehicles.map((vehicle) => [vehicle.registrationNumber.toUpperCase(), vehicle] as const),
+    );
+    const met = byPlate.get('MET630');
+    const nll = byPlate.get('NLL182');
+    if (!met && !nll) {
+      return { applied: false, reason: 'target_vehicles_missing', corrected: 0, skipped: 0, erikasRenamed: false };
+    }
+
+    let erikasRenamed = false;
+    const erikasDocument = await this.users.doc(ERIKAS_ASKELOVICIUS_DRIVER_ID).get();
+    const erikas = erikasDocument.data() as StoredUser | undefined;
+    if (erikas && shouldRenameErikasPlaceholder(erikas.displayName)) {
+      await this.updateUser(ERIKAS_ASKELOVICIUS_DRIVER_ID, { displayName: ERIKAS_ASKELOVICIUS_DISPLAY_NAME });
+      erikasRenamed = true;
+    }
+
+    const outcomes: { assignmentId: string; status: string }[] = [];
+    for (const fix of AUGUST_2026_TRIP_SHEET_VEHICLE_FIXES) {
+      const vehicle = byPlate.get(fix.registrationNumber);
+      if (!vehicle) {
+        outcomes.push({ assignmentId: fix.assignmentId, status: 'skipped_vehicle_missing' });
+        continue;
+      }
+      const assignmentDocument = await this.assignments.doc(fix.assignmentId).get();
+      const assignment = assignmentDocument.data() as RouteAssignment | undefined;
+      if (!assignment) {
+        outcomes.push({ assignmentId: fix.assignmentId, status: 'skipped_missing' });
+        continue;
+      }
+      if (assignment.status !== 'completed') {
+        outcomes.push({ assignmentId: fix.assignmentId, status: 'skipped_not_completed' });
+        continue;
+      }
+      if (fix.scheduleDate && canUpdateAssignmentScheduleDate(assignment.status)) {
+        await this.updateAssignmentSchedule(fix.assignmentId, fix.scheduleDate);
+      }
+      await this.updateTripSheet(fix.assignmentId, {
+        vehicleId: vehicle.id,
+        driverId: fix.driverId,
+      });
+      outcomes.push({ assignmentId: fix.assignmentId, status: 'corrected' });
+    }
+
+    const corrected = outcomes.filter((item) => item.status === 'corrected').length;
+    const skipped = outcomes.length - corrected;
+    await flagRef.set({
+      id: TRIP_SHEET_AUGUST_2026_VEHICLE_FIX_ID,
+      status: 'applied',
+      appliedAt: new Date().toISOString(),
+      corrected,
+      skipped,
+      erikasRenamed,
+      outcomes,
+    });
+    return { applied: true, reason: 'applied', corrected, skipped, erikasRenamed };
+  }
+
   /** Retained for tests/catalog helpers; not called from listTripSheets. */
   private async seedNll182OpeningFuel(vehicles: FleetVehicle[]): Promise<void> {
     const vehicle = vehicles.find((item) => item.registrationNumber.toUpperCase() === 'NLL182');
@@ -2126,11 +2214,14 @@ export class EmployeeAuthStore {
 
   /**
    * Corrects a finished trip sheet: the odometer readings the day is measured
-   * on, and which driver actually drove it. Both are entered by hand in the
-   * field and both are regularly wrong — a misread odometer silently corrupts
-   * the distance, the fuel ledger and the day's pay, and the GPS report's own
-   * "driver" column was confirmed unreliable, so the office must be able to set
-   * it straight afterwards.
+   * on, which driver actually drove it, and which fleet vehicle it used.
+   * Both odometer and driver are entered by hand in the field and both are
+   * regularly wrong — a misread odometer silently corrupts the distance, the
+   * fuel ledger and the day's pay, and the GPS report's own "driver" column
+   * was confirmed unreliable, so the office must be able to set it straight
+   * afterwards. Vehicle is the same class of correction: a completed day can
+   * sit on the wrong van after a swap, and quality on-time/late lives on the
+   * stops, which this method never rewrites.
    *
    * The odometer lives in the assignment's route snapshot, which is the
    * server-side source of truth for a completed route, so the correction is
@@ -2141,6 +2232,7 @@ export class EmployeeAuthStore {
     startOdometer?: number | null;
     endOdometer?: number | null;
     driverId?: string;
+    vehicleId?: string;
   }): Promise<ServerTripSheet> {
     const reference = this.assignments.doc(safeId(assignmentIdInput));
     const document = await reference.get();
@@ -2159,75 +2251,80 @@ export class EmployeeAuthStore {
     }
     let driverId = assignment.driverId;
     let driverName = assignment.driverName;
-    if (input.driverId !== undefined && input.driverId !== assignment.driverId) {
+    if (input.driverId !== undefined) {
       const driverDocument = await this.users.doc(safeId(input.driverId)).get();
       const driver = driverDocument.data() as StoredUser | undefined;
-      if (!driver || driver.role !== 'driver') {
+      // Admin accounts also drive (Karolis). Trip-sheet corrections record who
+      // actually ran the day, not who is allowed to receive a new assignment.
+      if (!driver || driver.disabled || (driver.role !== 'driver' && driver.role !== 'admin')) {
         throw new EmployeeApiError('DRIVER_NOT_FOUND', 'Toks vairuotojas nerastas.', 404);
       }
       driverId = driver.id;
       driverName = driver.displayName;
     }
+    let vehicle = assignment.vehicle;
+    if (input.vehicleId !== undefined) {
+      const vehicleDocument = await this.vehicles.doc(validateVehicleId(input.vehicleId)).get();
+      const stored = vehicleDocument.data() as FleetVehicle | undefined;
+      const live = stored ? normalizeVehicle(stored) : undefined;
+      if (!live) throw new EmployeeApiError('VEHICLE_NOT_FOUND', 'Automobilis nerastas.', 404);
+      vehicle = vehicleSnapshot(live);
+    }
     const updatedAt = new Date().toISOString();
-    // The distance is always end minus start. Writing the absolute odometer
-    // reading into actual_distance_km is the bug that once produced 399 886 km
-    // and a negative fuel balance, so it is derived here and never copied.
-    const actualDistanceKm = startOdometer !== null && endOdometer !== null
-      ? Math.round((endOdometer - startOdometer) * 10) / 10
-      : nullableNumber(assignment.routeSnapshot.route.actual_distance_km);
-    const updated: RouteAssignment = {
-      ...assignment,
+    const updated = applyTripSheetVehicleDriverCorrection(assignment, {
+      startOdometer,
+      endOdometer,
       driverId,
       driverName,
+      vehicle,
       updatedAt,
-      routeSnapshot: {
-        ...assignment.routeSnapshot,
-        route: {
-          ...assignment.routeSnapshot.route,
-          start_odometer: startOdometer,
-          end_odometer: endOdometer,
-          actual_distance_km: actualDistanceKm,
-          updated_at: updatedAt,
-        },
-      },
-    };
+    });
     await reference.set(updated);
-    // Fuel entries carry the driver for reporting, so they follow the correction.
-    if (driverId !== assignment.driverId) {
+    const driverChanged = driverId !== assignment.driverId || driverName !== assignment.driverName;
+    const vehicleChanged = (vehicle?.id ?? null) !== (assignment.vehicle?.id ?? null);
+    // Fuel entries follow the sheet's driver/vehicle for reporting. Stops are
+    // not touched here — on-time/late is derived from delivered_at + windows.
+    if (driverChanged || vehicleChanged) {
       const entries = (await this.fuelEntries.get()).docs
         .map((entryDocument) => entryDocument.data() as ServerFuelEntry)
         .filter((entry) => entry.assignmentId === assignment.id);
       for (const entry of entries) {
-        await this.fuelEntries.doc(entry.id).set({ ...entry, driverId, driverName });
-      }
-    }
-    const vehicle = updated.vehicle ?? await this.findAssignedVehicleSnapshot(driverId);
-    // A day reading covering this vehicle+date (e.g. from an odometer
-    // correction import) always wins over the assignment in listTripSheets
-    // (see applyDayReading) — so without this, a driver/odometer edit made
-    // here would be silently overwritten back to the reading's stale values
-    // on the very next read.
-    if (vehicle) {
-      const date = tripSheetWorkDate(updated);
-      const readingId = `${vehicle.id}:${date}`;
-      const readingDocument = await this.vehicleDayReadings.doc(readingId).get();
-      const existingReading = readingDocument.data() as VehicleDayReading | undefined;
-      if (existingReading) {
-        await this.vehicleDayReadings.doc(readingId).set({
-          ...existingReading,
-          startOdometer,
-          endOdometer,
-          distanceKm: startOdometer !== null && endOdometer !== null
-            ? odometerDistanceKm(startOdometer, endOdometer)
-            : existingReading.distanceKm,
-          driverId,
-          driverName,
-          updatedAt,
+        await this.fuelEntries.doc(entry.id).set({
+          ...entry,
+          ...(driverChanged ? { driverId, driverName } : {}),
+          ...(vehicleChanged && vehicle ? {
+            vehicleId: vehicle.id,
+            registrationNumber: vehicle.registrationNumber,
+          } : {}),
         });
       }
     }
+    const sheetVehicle = updated.vehicle ?? await this.findAssignedVehicleSnapshot(driverId);
+    // A day reading covering this vehicle+date (e.g. from an odometer
+    // correction import) always wins over the assignment in listTripSheets
+    // (see applyDayReading) — so without this, a driver/odometer/vehicle edit
+    // made here would be silently overwritten back to the reading's stale
+    // values on the very next read. Only the NEW vehicle+date is synced;
+    // other vehicles' readings for that day are left in place.
+    if (sheetVehicle) {
+      const date = tripSheetWorkDate(updated);
+      const readingId = vehicleDayReadingDocId(sheetVehicle.id, date);
+      const readingDocument = await this.vehicleDayReadings.doc(readingId).get();
+      const existingReading = readingDocument.data() as VehicleDayReading | undefined;
+      if (existingReading) {
+        await this.vehicleDayReadings.doc(readingId).set(
+          applyTripSheetCorrectionToDayReading(existingReading, {
+            startOdometer,
+            endOdometer,
+            driverId,
+            driverName,
+            updatedAt,
+          }),
+        );
+      }
+    }
     const priceSettings = await this.getRoutePriceSettings();
-    const sheet = buildServerTripSheet(updated, vehicle);
+    const sheet = buildServerTripSheet(updated, sheetVehicle);
     return { ...sheet, fuelNormLitersPer100Km: tripSheetFuelNorm(sheet.vehicle, priceSettings) };
   }
 
@@ -2653,6 +2750,72 @@ function latestOptionalDate(left: string | null, right: string | null): string |
   if (!left) return right;
   if (!right) return left;
   return left > right ? left : right;
+}
+
+/**
+ * Applies a completed-trip-sheet office correction to the assignment snapshot.
+ * Stops and shipment lines are spread, never mapped — delivered_at,
+ * delivery_status and time windows stay exactly as stored so on-time/late
+ * quality KPIs do not move.
+ */
+export function applyTripSheetVehicleDriverCorrection(
+  assignment: RouteAssignment,
+  input: {
+    startOdometer: number | null;
+    endOdometer: number | null;
+    driverId: string;
+    driverName: string;
+    vehicle: FleetVehicleSnapshot | null;
+    updatedAt: string;
+  },
+): RouteAssignment {
+  // The distance is always end minus start. Writing the absolute odometer
+  // reading into actual_distance_km is the bug that once produced 399 886 km
+  // and a negative fuel balance, so it is derived here and never copied.
+  const actualDistanceKm = input.startOdometer !== null && input.endOdometer !== null
+    ? odometerDistanceKm(input.startOdometer, input.endOdometer)
+    : nullableNumber(assignment.routeSnapshot.route.actual_distance_km);
+  return {
+    ...assignment,
+    driverId: input.driverId,
+    driverName: input.driverName,
+    updatedAt: input.updatedAt,
+    vehicle: input.vehicle,
+    routeSnapshot: {
+      ...assignment.routeSnapshot,
+      route: {
+        ...assignment.routeSnapshot.route,
+        start_odometer: input.startOdometer,
+        end_odometer: input.endOdometer,
+        actual_distance_km: actualDistanceKm,
+        updated_at: input.updatedAt,
+      },
+    },
+  };
+}
+
+/** Syncs an existing vehicle-day reading for the NEW vehicle+date only. */
+export function applyTripSheetCorrectionToDayReading(
+  existing: VehicleDayReading,
+  input: {
+    startOdometer: number | null;
+    endOdometer: number | null;
+    driverId: string;
+    driverName: string;
+    updatedAt: string;
+  },
+): VehicleDayReading {
+  return {
+    ...existing,
+    startOdometer: (input.startOdometer ?? existing.startOdometer),
+    endOdometer: (input.endOdometer ?? existing.endOdometer),
+    distanceKm: input.startOdometer !== null && input.endOdometer !== null
+      ? odometerDistanceKm(input.startOdometer, input.endOdometer)
+      : existing.distanceKm,
+    driverId: input.driverId,
+    driverName: input.driverName,
+    updatedAt: input.updatedAt,
+  };
 }
 
 export function buildServerTripSheet(assignment: RouteAssignment, vehicle: FleetVehicleSnapshot | null): ServerTripSheet {

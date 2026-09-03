@@ -21,6 +21,7 @@ const bootstrapNonces = new GatewayNonceRegistry();
 const loginAttempts = new Map<string, number[]>();
 let legacyAdminMigration: Promise<void> | null = null;
 let fuelAugust2026Migration: Promise<void> | null = null;
+let tripSheetAugust2026VehicleFix: Promise<void> | null = null;
 
 const TRIVIAL_ADMIN_PINS = new Set(['12345', '123456', '000000', '111111']);
 
@@ -70,6 +71,22 @@ export function ensureFuelAugust2026Migrated(): Promise<void> {
   return fuelAugust2026Migration;
 }
 
+/** One-shot August 2026 trip-sheet vehicle/driver correction — Firestore flag, stops untouched. */
+export function ensureTripSheetAugust2026VehicleFixMigrated(): Promise<void> {
+  if (!tripSheetAugust2026VehicleFix) {
+    tripSheetAugust2026VehicleFix = store.applyTripSheetAugust2026VehicleFix().then((result) => {
+      process.stdout.write(`${JSON.stringify({
+        event: 'trip_sheet_august_2026_vehicle_fix',
+        ...result,
+      })}\n`);
+    }).catch((error) => {
+      tripSheetAugust2026VehicleFix = null;
+      throw error;
+    });
+  }
+  return tripSheetAugust2026VehicleFix;
+}
+
 export async function handleEmployeeApi(
   request: IncomingMessage,
   response: ServerResponse,
@@ -80,6 +97,7 @@ export async function handleEmployeeApi(
   try {
     await ensureLegacyAdminMigrated();
     await ensureFuelAugust2026Migrated();
+    await ensureTripSheetAugust2026VehicleFixMigrated();
     if (request.method === 'GET' && pathname === '/api/auth/status') {
       return send(response, 200, { initialized: await store.hasUsers() }, requestId);
     }
@@ -389,6 +407,7 @@ export async function handleEmployeeApi(
         startOdometer: body.startOdometer === undefined ? undefined : body.startOdometer === null ? null : numberField(body, 'startOdometer'),
         endOdometer: body.endOdometer === undefined ? undefined : body.endOdometer === null ? null : numberField(body, 'endOdometer'),
         driverId: body.driverId === undefined ? undefined : stringField(body, 'driverId'),
+        vehicleId: body.vehicleId === undefined ? undefined : stringField(body, 'vehicleId'),
       });
       return send(response, 200, { tripSheet }, requestId);
     }
