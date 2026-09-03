@@ -8,12 +8,17 @@ import {
   ERIKAS_ASKELOVICIUS_DRIVER_ID,
   ERIKAS_PLACEHOLDER_DISPLAY_NAME,
   KAROLIS_TAUTKUS_DRIVER_ID,
+  NLL182_AUGUST_2026_FACT_KM,
+  NLL182_AUGUST_2026_ODOMETER_CORRECTIONS,
   TRIP_SHEET_AUGUST_2026_VEHICLE_FIX_ID,
   canUpdateAssignmentScheduleDate,
+  nll182AugustDayDistanceKm,
+  nll182FactDriverIdForDate,
   shouldRenameErikasPlaceholder,
   vehicleDayReadingDocId,
 } from '../../src/domain/trip-sheet-august-2026-vehicle-fix';
 import { FUEL_AUGUST_2026_MIGRATION_ID } from '../../src/domain/excel-fuel-log';
+import { NLL182_ODOMETER_LOG } from '../../src/domain/nll182-odometer-log';
 
 const FIRESTORE_ID = /^[a-zA-Z0-9_-]{8,80}$/;
 const storeSource = readFileSync(resolve(import.meta.dirname, '../../server/employee-auth-store.ts'), 'utf8');
@@ -91,6 +96,39 @@ describe('August 2026 trip-sheet vehicle/driver correction catalog', () => {
     expect(vehicleDayReadingDocId('MET630', '2026-08-14')).toBe('MET630:2026-08-14');
   });
 
+  it('upserts the NLL182 Aug 13–31 odometer chain as absolute start/end, not summed sheets', () => {
+    expect(NLL182_AUGUST_2026_ODOMETER_CORRECTIONS).toHaveLength(19);
+    expect(NLL182_AUGUST_2026_ODOMETER_CORRECTIONS[0]).toEqual({
+      date: '2026-08-13', startOdometer: 276439, endOdometer: 277012,
+    });
+    expect(NLL182_AUGUST_2026_ODOMETER_CORRECTIONS.at(-1)).toEqual({
+      date: '2026-08-31', startOdometer: 283151, endOdometer: 283165,
+    });
+    expect(nll182AugustDayDistanceKm(NLL182_AUGUST_2026_ODOMETER_CORRECTIONS.at(-1)!)).toBe(NLL182_AUGUST_2026_FACT_KM['2026-08-31']);
+    expect(nll182AugustDayDistanceKm(NLL182_AUGUST_2026_ODOMETER_CORRECTIONS.find((day) => day.date === '2026-08-27')!))
+      .toBe(NLL182_AUGUST_2026_FACT_KM['2026-08-27']);
+    for (let index = 1; index < NLL182_AUGUST_2026_ODOMETER_CORRECTIONS.length; index += 1) {
+      expect(NLL182_AUGUST_2026_ODOMETER_CORRECTIONS[index]!.startOdometer)
+        .toBe(NLL182_AUGUST_2026_ODOMETER_CORRECTIONS[index - 1]!.endOdometer);
+    }
+    const listedKm: Record<string, number> = {
+      '2026-08-13': 573, '2026-08-14': 502, '2026-08-15': 0, '2026-08-16': 653,
+      '2026-08-17': 437, '2026-08-18': 362, '2026-08-19': 382, '2026-08-20': 526,
+      '2026-08-21': 409, '2026-08-22': 0, '2026-08-23': 665, '2026-08-24': 363,
+      '2026-08-25': 370, '2026-08-26': 829, '2026-08-27': 404, '2026-08-28': 227,
+      '2026-08-29': 0, '2026-08-30': 10, '2026-08-31': 14,
+    };
+    for (const day of NLL182_AUGUST_2026_ODOMETER_CORRECTIONS) {
+      expect(nll182AugustDayDistanceKm(day)).toBe(listedKm[day.date]);
+    }
+    for (const gps of NLL182_ODOMETER_LOG.filter((day) => day.date >= '2026-08-13')) {
+      expect(NLL182_AUGUST_2026_ODOMETER_CORRECTIONS.find((day) => day.date === gps.date)).toEqual(gps);
+    }
+    expect(nll182FactDriverIdForDate('2026-08-27')).toBe(ERIKAS_ASKELOVICIUS_DRIVER_ID);
+    expect(nll182FactDriverIdForDate('2026-08-31')).toBeUndefined();
+    expect(nll182FactDriverIdForDate('2026-08-19')).toBe(KAROLIS_TAUTKUS_DRIVER_ID);
+  });
+
   it('applies through updateTripSheet on Cloud Run boot without reseeding fuel or rewriting stops', () => {
     expect(storeSource).toContain('async applyTripSheetAugust2026VehicleFix');
     expect(storeSource).toContain('TRIP_SHEET_AUGUST_2026_VEHICLE_FIX_ID');
@@ -113,6 +151,8 @@ describe('August 2026 trip-sheet vehicle/driver correction catalog', () => {
       storeSource.indexOf('async seedNll182OpeningFuel'),
     );
     expect(vehicleFixBlock).toContain('await this.updateTripSheet');
+    expect(vehicleFixBlock).toContain('upsertVehicleDayReading');
+    expect(vehicleFixBlock).toContain('NLL182_AUGUST_2026_ODOMETER_CORRECTIONS');
     expect(vehicleFixBlock).toContain('skipped_missing');
     expect(vehicleFixBlock).not.toMatch(/\bstops\s*:/);
     expect(vehicleFixBlock).toContain('canUpdateAssignmentScheduleDate');

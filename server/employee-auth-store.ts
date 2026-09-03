@@ -52,8 +52,10 @@ import {
     AUGUST_2026_TRIP_SHEET_VEHICLE_FIXES,
     ERIKAS_ASKELOVICIUS_DISPLAY_NAME,
     ERIKAS_ASKELOVICIUS_DRIVER_ID,
+    NLL182_AUGUST_2026_ODOMETER_CORRECTIONS,
     TRIP_SHEET_AUGUST_2026_VEHICLE_FIX_ID,
     canUpdateAssignmentScheduleDate,
+    nll182FactDriverIdForDate,
     shouldRenameErikasPlaceholder,
     vehicleDayReadingDocId,
 } from '../src/domain/trip-sheet-august-2026-vehicle-fix.js';
@@ -2051,11 +2053,14 @@ export class EmployeeAuthStore {
     corrected: number;
     skipped: number;
     erikasRenamed: boolean;
+    nll182DaysUpserted: number;
   }> {
     const flagRef = this.settings.doc(TRIP_SHEET_AUGUST_2026_VEHICLE_FIX_ID);
     const existingFlag = await flagRef.get();
     if (existingFlag.exists && existingFlag.data()?.status === 'applied') {
-      return { applied: false, reason: 'already_applied', corrected: 0, skipped: 0, erikasRenamed: false };
+      return {
+        applied: false, reason: 'already_applied', corrected: 0, skipped: 0, erikasRenamed: false, nll182DaysUpserted: 0,
+      };
     }
 
     const vehiclesSnapshot = await this.vehicles.get();
@@ -2066,7 +2071,9 @@ export class EmployeeAuthStore {
     const met = byPlate.get('MET630');
     const nll = byPlate.get('NLL182');
     if (!met && !nll) {
-      return { applied: false, reason: 'target_vehicles_missing', corrected: 0, skipped: 0, erikasRenamed: false };
+      return {
+        applied: false, reason: 'target_vehicles_missing', corrected: 0, skipped: 0, erikasRenamed: false, nll182DaysUpserted: 0,
+      };
     }
 
     let erikasRenamed = false;
@@ -2104,6 +2111,36 @@ export class EmployeeAuthStore {
       outcomes.push({ assignmentId: fix.assignmentId, status: 'corrected' });
     }
 
+    // After vehicle moves (NLL182 → MET630), restore/correct the NLL182
+    // vehicle-day chain so fuel/odometer uses absolute start/end, not the
+    // route sheet's kilometres. Same write path as POST /api/trip-sheets/day-readings.
+    let nll182DaysUpserted = 0;
+    if (nll) {
+      const migrationProfile: EmployeeProfile = {
+        id: 'migration-august-2026-vehicle-fix',
+        username: 'migration-august-2026-vehicle-fix',
+        displayName: 'August 2026 vehicle fix',
+        role: 'admin',
+        disabled: false,
+        permissions: { ...DEFAULT_DRIVER_PERMISSIONS, ...DEFAULT_MANAGEMENT_PERMISSIONS },
+        email: null,
+        phone: null,
+        compensation: null,
+      };
+      for (const day of NLL182_AUGUST_2026_ODOMETER_CORRECTIONS) {
+        const existing = (await this.vehicleDayReadings.doc(vehicleDayReadingDocId(nll.id, day.date)).get())
+          .data() as VehicleDayReading | undefined;
+        await this.upsertVehicleDayReading(migrationProfile, {
+          vehicleId: nll.id,
+          date: day.date,
+          startOdometer: day.startOdometer,
+          endOdometer: day.endOdometer,
+          driverId: nll182FactDriverIdForDate(day.date) ?? existing?.driverId ?? undefined,
+        });
+        nll182DaysUpserted += 1;
+      }
+    }
+
     const corrected = outcomes.filter((item) => item.status === 'corrected').length;
     const skipped = outcomes.length - corrected;
     await flagRef.set({
@@ -2113,9 +2150,10 @@ export class EmployeeAuthStore {
       corrected,
       skipped,
       erikasRenamed,
+      nll182DaysUpserted,
       outcomes,
     });
-    return { applied: true, reason: 'applied', corrected, skipped, erikasRenamed };
+    return { applied: true, reason: 'applied', corrected, skipped, erikasRenamed, nll182DaysUpserted };
   }
 
   /** Retained for tests/catalog helpers; not called from listTripSheets. */
@@ -3200,20 +3238,23 @@ function stopPunctuality(stop: Record<string, unknown>): 'on_time' | 'late' | 'u
 /**
  * Old records can carry the wrong vehicle snapshot after a reassignment. If a
  * driver's separate day reading is wholly inside an already recorded route's
- * odometer interval, it is the same driven distance, not another trip. Do not
- * synthesize a second trip sheet merely because the vehicle ids differ.
+ * odometer interval *on the same vehicle*, it is the same driven distance, not
+ * another trip. Two fleet vehicles on the same day (MET630 vs NLL182) are two
+ * odometer chains — do not hide NLL182's 14 km behind a MET630 route sheet.
  */
 export function odometerReadingCoveredBySheet(
   reading: VehicleDayReading,
   sheets: readonly ServerTripSheet[],
 ): boolean {
   if (!reading.driverId) return false;
-  return sheets.some((sheet) => sheet.driverId === reading.driverId
-    && sheet.date === reading.date
-    && sheet.startOdometer !== null
-    && sheet.endOdometer !== null
-    && reading.startOdometer >= sheet.startOdometer
-    && reading.endOdometer <= sheet.endOdometer);
+  return sheets.some((sheet) => {
+    if (sheet.driverId !== reading.driverId || sheet.date !== reading.date) return false;
+    if (sheet.startOdometer === null || sheet.endOdometer === null) return false;
+    if (reading.startOdometer < sheet.startOdometer || reading.endOdometer > sheet.endOdometer) return false;
+    const sheetVehicleId = sheet.vehicle?.id;
+    if (sheetVehicleId && sheetVehicleId !== reading.vehicleId) return false;
+    return true;
+  });
 }
 
 /**

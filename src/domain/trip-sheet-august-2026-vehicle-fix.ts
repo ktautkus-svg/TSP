@@ -1,10 +1,17 @@
+import { odometerDistanceKm, type VehicleDayOdometer } from './nll182-odometer-log';
+
 /**
  * Authoritative August 2026 completed-assignment vehicle/driver corrections
  * from the photo day log. One-shot production migration applies these via
  * updateTripSheet so stop punctuality (delivered_at / windows) is never rewritten.
  *
+ * NLL182 vehicle-day odometer (Aug 13–31) is upserted through the same store
+ * path as POST /api/trip-sheets/day-readings. Absolute start/end win for the
+ * fuel/odometer ledger — not the sum of route sheets.
+ *
  * Out of scope (no assignment stops exist in-app to attach):
- * - Early August vehicle-day odometer sheets without a route assignment
+ * - Early August days with only vehicle-day odometer and no route assignment
+ *   (cannot recreate Rxx from codes alone)
  * - Missing Aleksandras R32-only days / LRI741 / DUONA / M03;R02
  */
 
@@ -130,4 +137,45 @@ export function canUpdateAssignmentScheduleDate(status: string): boolean {
 
 export function vehicleDayReadingDocId(vehicleId: string, date: string): string {
   return `${vehicleId}:${date}`;
+}
+
+/**
+ * NLL182 GPS/fact odometer for 2026-08-13 … 2026-08-31.
+ * Chain is contiguous; km is always end − start, never summed across sheets.
+ */
+export const NLL182_AUGUST_2026_ODOMETER_CORRECTIONS: readonly VehicleDayOdometer[] = [
+  { date: '2026-08-13', startOdometer: 276439, endOdometer: 277012 },
+  { date: '2026-08-14', startOdometer: 277012, endOdometer: 277514 },
+  { date: '2026-08-15', startOdometer: 277514, endOdometer: 277514 },
+  { date: '2026-08-16', startOdometer: 277514, endOdometer: 278167 },
+  { date: '2026-08-17', startOdometer: 278167, endOdometer: 278604 },
+  { date: '2026-08-18', startOdometer: 278604, endOdometer: 278966 },
+  { date: '2026-08-19', startOdometer: 278966, endOdometer: 279348 },
+  { date: '2026-08-20', startOdometer: 279348, endOdometer: 279874 },
+  { date: '2026-08-21', startOdometer: 279874, endOdometer: 280283 },
+  { date: '2026-08-22', startOdometer: 280283, endOdometer: 280283 },
+  { date: '2026-08-23', startOdometer: 280283, endOdometer: 280948 },
+  { date: '2026-08-24', startOdometer: 280948, endOdometer: 281311 },
+  { date: '2026-08-25', startOdometer: 281311, endOdometer: 281681 },
+  { date: '2026-08-26', startOdometer: 281681, endOdometer: 282510 },
+  { date: '2026-08-27', startOdometer: 282510, endOdometer: 282914 },
+  { date: '2026-08-28', startOdometer: 282914, endOdometer: 283141 },
+  { date: '2026-08-29', startOdometer: 283141, endOdometer: 283141 },
+  { date: '2026-08-30', startOdometer: 283141, endOdometer: 283151 },
+  { date: '2026-08-31', startOdometer: 283151, endOdometer: 283165 },
+];
+
+export const NLL182_AUGUST_2026_FACT_KM = {
+  '2026-08-27': 404,
+  '2026-08-31': 14,
+} as const;
+
+export function nll182FactDriverIdForDate(date: string): string | undefined {
+  return AUGUST_2026_TRIP_SHEET_VEHICLE_FIXES.find(
+    (fix) => fix.registrationNumber === 'NLL182' && fix.factDate === date,
+  )?.driverId;
+}
+
+export function nll182AugustDayDistanceKm(day: Pick<VehicleDayOdometer, 'startOdometer' | 'endOdometer'>): number {
+  return odometerDistanceKm(day.startOdometer, day.endOdometer);
 }
