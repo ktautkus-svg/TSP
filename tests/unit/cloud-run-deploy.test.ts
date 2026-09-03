@@ -185,6 +185,7 @@ describe('Cloud Run deploy', () => {
     expect(employeeStore).toContain("from '../src/domain/august-2026-excel-backfill.js'");
     expect(employeeStore).not.toContain("@/domain/august-2026-excel-backfill");
     expect(employeeStore).toContain('async applyAugust2026ExcelBackfillV2');
+    expect(employeeStore).toContain('async applyAugust2026ExcelBackfillV3');
     expect(productionServer).toContain('await ensureAugust2026ExcelBackfillMigrated()');
   });
 });

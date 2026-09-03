@@ -72,3 +72,11 @@ Karolis 2026-08-03 (`karolis-03.json`) is the historical complete payload for th
   - if Karolis 08-19 R54;R11 is still on MET630, PATCH `vehicleId` to NLL182 through `updateTripSheet` (stops / punctuality untouched).
 
 v2 does not call Google Distance Matrix and does not call `assignVehicle`.
+
+- `august-2026-excel-backfill-v3` — after v2. Does **not** swallow fleet-create errors (v2's `createVehicle` catch logged `august_2026_excel_backfill_v2_fleet_skip` and still marked the flag applied). Required outcomes before the flag is written:
+  - unassigned fleet row **LRI741** (Renault Master, 1500 kg, 8 PLL, no side door, tank 100 L, norm 15 L/100 km);
+  - Aleksandras **2026-08-11 LRI741** from `aleksandras-11.json` if missing;
+  - PATCH **2026-08-19 MET630** `R14;R27;R28;R51` `driverId` → Aleksandras when that sheet is still on Karolis (stops / delivered_at / windows / vehicle MET630 untouched). Karolis NLL182 `R54;R11` that day is left alone;
+  - **2026-08-09 LRI740** R56 stub must have a real stop (Vilniaus g. 125, Šiauliai), `markAllDelivered` historically. Opening **13 L** on **2026-08-08** is unchanged.
+
+v3 does not call Google Distance Matrix and does not call `assignVehicle`. If a required outcome is missing, the boot migration throws and does **not** set the flag.

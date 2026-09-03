@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   AUGUST_2026_ALEKSANDRAS_0819_ROUTES,
+  AUGUST_2026_ALEKSANDRAS_NAME_CANDIDATES,
   AUGUST_2026_DUAL_SHEET_DATE,
   AUGUST_2026_ENSURE_FLEET_PLATES,
   AUGUST_2026_LRI740_FUEL_NORM_L_PER_100KM,
@@ -11,9 +12,14 @@ import {
   AUGUST_2026_LRI740_OPENING_LITERS,
   AUGUST_2026_LRI740_OPENING_REPORT_ID,
   AUGUST_2026_LRI740_TANK_LITERS,
+  AUGUST_2026_LRI741_FUEL_NORM_L_PER_100KM,
+  AUGUST_2026_LRI741_TANK_LITERS,
+  assignmentNeedsStubStopRewrite,
   august2026EnsureFleetPlateSpecs,
+  august2026EnsureFleetVehicleCreateInput,
   AUGUST_2026_EXCEL_BACKFILL_ID,
   AUGUST_2026_EXCEL_BACKFILL_V2_ID,
+  AUGUST_2026_EXCEL_BACKFILL_V3_ID,
   AUGUST_2026_EXCEL_DAY_FILES,
   AUGUST_2026_KAROLIS_0819_ROUTES,
   AUGUST_2026_LEGACY_COMBINED_FILES,
@@ -27,24 +33,30 @@ import {
   createCachedGeocoder,
   decideAugustBackfillDayAction,
   decideAugustBackfillV2GapAction,
+  decideAugustBackfillV3GapAction,
   excelAddressToGeocodeQuery,
   geocodeQueriesCached,
   historicalWorkdayTimestamps,
   inventStubStop,
+  isAleksandras0819Met630RouteSet,
   isAugust2026ExcelBackfillV2GapDay,
+  isAugust2026ExcelBackfillV3GapDay,
   isAugust2026SkipDay,
   isKarolis0819R54R11Assignment,
   karolis0819NeedsNll182Move,
   karolisAugust19Nll182VehicleFix,
   liteAssignmentFromSnapshot,
   loadAugust2026ExcelBackfillCatalog,
+  matchAleksandrasDriver,
   matchDriverByName,
   matchVehicleByPlate,
+  needsAleksandras0819DriverPatch,
   resolveAugustBackfillDirectory,
   resolveAugustBackfillVehicle,
   snapshotFleetVehicleFromPlate,
   stubOrderNumber,
   uniqueGeocodeQueries,
+  visibleBackfillStopCount,
 } from '../../src/domain/august-2026-excel-backfill';
 import {
   applyDayReading,
@@ -93,7 +105,9 @@ describe('August 2026 Excel trip-sheet backfill catalog', () => {
   it('uses a distinct one-shot flag and the documented UI route id', () => {
     expect(AUGUST_2026_EXCEL_BACKFILL_ID).toBe('august-2026-excel-backfill-v1');
     expect(AUGUST_2026_EXCEL_BACKFILL_V2_ID).toBe('august-2026-excel-backfill-v2');
+    expect(AUGUST_2026_EXCEL_BACKFILL_V3_ID).toBe('august-2026-excel-backfill-v3');
     expect(AUGUST_2026_EXCEL_BACKFILL_V2_ID).not.toBe(AUGUST_2026_EXCEL_BACKFILL_ID);
+    expect(AUGUST_2026_EXCEL_BACKFILL_V3_ID).not.toBe(AUGUST_2026_EXCEL_BACKFILL_V2_ID);
     expect(AUGUST_2026_EXCEL_BACKFILL_ID).not.toBe(FUEL_AUGUST_2026_MIGRATION_ID);
     expect(AUGUST_2026_EXCEL_BACKFILL_ID).not.toBe(TRIP_SHEET_AUGUST_2026_VEHICLE_FIX_ID);
     expect(EXISTING_UI_ROUTE_ID).toBe('route-1788407220642-xh5w5ldr');
@@ -190,7 +204,20 @@ describe('August 2026 Excel trip-sheet backfill catalog', () => {
       fuelNormLPer100Km: 15,
       fuelTankCapacityLiters: 100,
     });
-    expect(august2026EnsureFleetPlateSpecs('LRI741')).toEqual({});
+    expect(august2026EnsureFleetPlateSpecs('LRI741')).toEqual({
+      fuelNormLPer100Km: AUGUST_2026_LRI741_FUEL_NORM_L_PER_100KM,
+      fuelTankCapacityLiters: AUGUST_2026_LRI741_TANK_LITERS,
+    });
+    expect(august2026EnsureFleetVehicleCreateInput('LRI741')).toMatchObject({
+      registrationNumber: 'LRI741',
+      model: AUGUST_2026_SNAPSHOT_VEHICLE_MODEL,
+      maximumPayloadKg: AUGUST_2026_SNAPSHOT_PAYLOAD_KG,
+      palletCapacity: 8,
+      hasSideDoor: false,
+      cargoBodyKind: 'van_8pll',
+      fuelNormLPer100Km: 15,
+      fuelTankCapacityLiters: 100,
+    });
     expect(AUGUST_2026_LRI740_OPENING_LITERS).toBe(13);
     expect(AUGUST_2026_LRI740_OPENING_DATE).toBe('2026-08-08');
     expect(AUGUST_2026_LRI740_OPENING_REPORT_ID).toBe('open-LRI740-20260808');
@@ -409,6 +436,7 @@ describe('August 2026 Excel backfill decisions and snapshots', () => {
         storeSource.indexOf('/** Retained for tests/catalog helpers; not called from listTripSheets. */'),
       );
       expect(backfillBlock).toContain('async applyAugust2026ExcelBackfillV2');
+      expect(backfillBlock).toContain('async applyAugust2026ExcelBackfillV3');
       expect(backfillBlock).not.toMatch(/distancematrix|\/v1\/matrix|computeRouteMatrix/i);
       expect(backfillBlock).not.toContain('this.assignVehicle');
       expect(backfillBlock).not.toContain('await this.assignVehicle');
@@ -420,20 +448,28 @@ describe('August 2026 Excel backfill Cloud Run wiring', () => {
   it('runs after fuel v2/v3/v4 and the vehicle-fix on boot, and never from listTripSheets', () => {
     expect(storeSource).toContain('async applyAugust2026ExcelBackfill');
     expect(storeSource).toContain('async applyAugust2026ExcelBackfillV2');
+    expect(storeSource).toContain('async applyAugust2026ExcelBackfillV3');
     expect(storeSource).toContain('AUGUST_2026_EXCEL_BACKFILL_ID');
     expect(storeSource).toContain('AUGUST_2026_EXCEL_BACKFILL_V2_ID');
+    expect(storeSource).toContain('AUGUST_2026_EXCEL_BACKFILL_V3_ID');
     expect(storeSource).toContain("from '../src/domain/august-2026-excel-backfill.js'");
     expect(storeSource).toContain('do not call assignVehicle');
     expect(storeSource).toContain('markAllDelivered: true');
     expect(storeSource).toContain('await this.updateTripSheet(karolis0819.id, { vehicleId: nll.id })');
+    expect(storeSource).toContain("await this.updateTripSheet(assignment.id, { driverId: aleksandras.id })");
     expect(storeSource).toContain('ensureLri740AugustOpeningFuel');
+    expect(storeSource).toContain('ensureAugustBackfillFleetPlatesStrict');
     expect(storeSource).toContain('AUGUST_2026_LRI740_OPENING_REPORT_ID');
     expect(storeSource).toContain('august2026EnsureFleetPlateSpecs(plate)');
+    expect(storeSource).toContain('august2026EnsureFleetVehicleCreateInput(plate)');
     expect(apiSource).toContain('export function ensureAugust2026ExcelBackfillMigrated');
     expect(apiSource).toContain('await store.applyAugust2026ExcelBackfill()');
     expect(apiSource).toContain('await store.applyAugust2026ExcelBackfillV2()');
+    expect(apiSource).toContain('await store.applyAugust2026ExcelBackfillV3()');
     expect(apiSource.indexOf('await store.applyAugust2026ExcelBackfill()'))
       .toBeLessThan(apiSource.indexOf('await store.applyAugust2026ExcelBackfillV2()'));
+    expect(apiSource.indexOf('await store.applyAugust2026ExcelBackfillV2()'))
+      .toBeLessThan(apiSource.indexOf('await store.applyAugust2026ExcelBackfillV3()'));
     expect(apiSource).toContain('await ensureAugust2026ExcelBackfillMigrated()');
     expect(productionServer).toContain('await ensureAugust2026ExcelBackfillMigrated()');
     expect(productionServer.indexOf('await ensureFuelAugust2026Migrated()'))
@@ -448,6 +484,7 @@ describe('August 2026 Excel backfill Cloud Run wiring', () => {
     );
     expect(listTripSheetsBlock).not.toContain('applyAugust2026ExcelBackfill');
     expect(listTripSheetsBlock).not.toContain('applyAugust2026ExcelBackfillV2');
+    expect(listTripSheetsBlock).not.toContain('applyAugust2026ExcelBackfillV3');
     expect(listTripSheetsBlock).not.toContain('ensureLri740AugustOpeningFuel');
     expect(listTripSheetsBlock).not.toContain('applyFuelAugust2026V2Migration');
     expect(listTripSheetsBlock).not.toContain('applyTripSheetAugust2026VehicleFix');
@@ -651,5 +688,221 @@ describe('August 2026 Excel backfill v2 gap fill', () => {
       delivered_at: '2026-08-19T08:12:00.000Z',
       delivery_status: 'delivered',
     });
+  });
+});
+
+describe('August 2026 Excel backfill v3 gap fill', () => {
+  const catalog = loadAugust2026ExcelBackfillCatalog();
+  const aleks11 = catalog.days.find((day) => day.sourceFile === 'aleksandras-11.json')!;
+  const aleks19 = catalog.days.find((day) => day.sourceFile === 'aleksandras-19.json')!;
+  const stub09 = catalog.days.find((day) => day.date === '2026-08-09')!;
+
+  it('keeps a distinct v3 flag and the same three verification gaps', () => {
+    expect(AUGUST_2026_EXCEL_BACKFILL_V3_ID).toBe('august-2026-excel-backfill-v3');
+    expect(catalog.days.filter((day) => isAugust2026ExcelBackfillV3GapDay(day))).toHaveLength(3);
+    expect(isAugust2026ExcelBackfillV3GapDay(aleks11)).toBe(true);
+    expect(isAugust2026ExcelBackfillV3GapDay(aleks19)).toBe(true);
+    expect(isAugust2026ExcelBackfillV3GapDay(stub09)).toBe(true);
+    expect(AUGUST_2026_LRI741_TANK_LITERS).toBe(100);
+    expect(AUGUST_2026_LRI741_FUEL_NORM_L_PER_100KM).toBe(15);
+    expect(AUGUST_2026_ALEKSANDRAS_NAME_CANDIDATES).toContain('Aleksandras Arsenij');
+    expect(readme).toContain('august-2026-excel-backfill-v3');
+    expect(readme).toContain('driverId');
+  });
+
+  it('matches Aleksandras by first name when the surname spelling differs', () => {
+    expect(matchAleksandrasDriver([
+      { id: 'a1', displayName: 'Aleksandras Arsenijus', role: 'driver', disabled: false },
+      { id: 'k1', displayName: 'Karolis Tautkus', role: 'driver', disabled: false },
+    ])?.id).toBe('a1');
+    expect(matchAleksandrasDriver([
+      { id: 'k1', displayName: 'Karolis Tautkus', role: 'driver', disabled: false },
+    ])).toBeNull();
+  });
+
+  it('PATCHes MET630 08-19 R14;R27;R28;R51 from Karolis to Aleksandras and does not create a second sheet', () => {
+    const met630WrongDriver = liteAssignmentFromSnapshot({
+      id: 'met630-0819-wrong-driver',
+      routeId: 'route-met630-0819',
+      driverId: KAROLIS_TAUTKUS_DRIVER_ID,
+      driverName: 'Karolis Tautkus',
+      status: 'completed',
+      vehicle: { id: 'MET630', registrationNumber: 'MET630' },
+      route: { id: 'route-met630-0819', date: '2026-08-19', started_at: '2026-08-19T06:00:00.000+03:00' },
+      stops: aleks19.stops.map((stop) => ({
+        order_number: stop.orderNo,
+        notes: stop.routeCode,
+        address: stop.address,
+        recipient: stop.name,
+        delivered_at: '2026-08-19T08:00:00.000Z',
+        delivery_time_from: '06:00',
+        delivery_time_to: '15:00',
+      })),
+      shipmentLines: aleks19.stops.map((stop) => ({ route_code: stop.routeCode, order_number: stop.orderNo })),
+    });
+    expect(isAleksandras0819Met630RouteSet(met630WrongDriver)).toBe(true);
+    expect(needsAleksandras0819DriverPatch(met630WrongDriver, 'a1')).toBe(true);
+    expect(needsAleksandras0819DriverPatch({ ...met630WrongDriver, driverId: 'a1', driverName: 'Aleksandras Arsenij' }, 'a1')).toBe(false);
+
+    const karolisNll = liteAssignmentFromSnapshot({
+      id: karolisAugust19Nll182VehicleFix().assignmentId,
+      routeId: 'route-karolis-0819-nll',
+      driverId: KAROLIS_TAUTKUS_DRIVER_ID,
+      driverName: 'Karolis Tautkus',
+      status: 'completed',
+      vehicle: { id: 'NLL182', registrationNumber: 'NLL182' },
+      route: { id: 'route-karolis-0819-nll', date: '2026-08-19', started_at: '2026-08-19T06:00:00.000+03:00' },
+      stops: [
+        { order_number: 'R54-1', notes: 'R54' },
+        { order_number: 'R11-1', notes: 'R11' },
+      ],
+      shipmentLines: [
+        { route_code: 'R54', order_number: 'R54-1' },
+        { route_code: 'R11', order_number: 'R11-1' },
+      ],
+    });
+    expect(isKarolis0819R54R11Assignment(karolisNll)).toBe(true);
+    expect(karolis0819NeedsNll182Move(karolisNll)).toBe(false);
+    expect(needsAleksandras0819DriverPatch(karolisNll, 'a1')).toBe(false);
+
+    expect(decideAugustBackfillV3GapAction({
+      day: aleks19,
+      skips: catalog.skips,
+      existingUiRoute: catalog.existingUiRoute,
+      driverId: 'a1',
+      vehicleId: 'MET630',
+      assignments: [met630WrongDriver, karolisNll],
+    })).toMatchObject({ action: 'skip', reason: 'met630_0819_will_patch_driver' });
+
+    const patched = applyTripSheetVehicleDriverCorrection({
+      id: met630WrongDriver.id,
+      routeId: 'route-met630-0819',
+      driverId: KAROLIS_TAUTKUS_DRIVER_ID,
+      driverName: 'Karolis Tautkus',
+      status: 'completed',
+      progress: { totalStops: 14, completedStops: 14, remainingStops: 0, percent: 100 },
+      createdBy: 'ui',
+      assignedAt: '2026-08-19T03:00:00.000Z',
+      updatedAt: '2026-08-19T13:30:00.000Z',
+      vehicle: { id: 'MET630', registrationNumber: 'MET630', model: 'Renault Master', maximumPayloadKg: 1500 },
+      routeSnapshot: {
+        route: {
+          id: 'route-met630-0819',
+          date: '2026-08-19',
+          status: 'completed',
+          started_at: '2026-08-19T03:00:00.000Z',
+          completed_at: '2026-08-19T13:30:00.000Z',
+        },
+        stops: met630WrongDriver.orderNumbers.map((orderNo, index) => ({
+          order_number: orderNo,
+          delivery_status: 'delivered',
+          delivered_at: '2026-08-19T08:12:00.000Z',
+          delivery_time_from: aleks19.stops[index]?.timeWindow.split('-')[0] ?? '06:00',
+          delivery_time_to: '15:00',
+          notes: aleks19.stops[index]?.routeCode,
+        })),
+        shipmentLines: aleks19.stops.map((stop) => ({ route_code: stop.routeCode, order_number: stop.orderNo })),
+      },
+    }, {
+      startOdometer: null,
+      endOdometer: null,
+      driverId: 'a1',
+      driverName: 'Aleksandras Arsenij',
+      vehicle: { id: 'MET630', registrationNumber: 'MET630', model: 'Renault Master', maximumPayloadKg: 1500 },
+      updatedAt: NOW,
+    });
+    expect(patched.driverId).toBe('a1');
+    expect(patched.driverName).toBe('Aleksandras Arsenij');
+    expect(patched.vehicle).toMatchObject({ id: 'MET630', registrationNumber: 'MET630' });
+    expect(patched.routeSnapshot.stops[0]).toMatchObject({
+      delivered_at: '2026-08-19T08:12:00.000Z',
+      delivery_status: 'delivered',
+    });
+    expect(patched.routeSnapshot.shipmentLines).toHaveLength(14);
+  });
+
+  it('rewrites the 08-09 LRI740 stub when the row exists without visible stops', () => {
+    expect(visibleBackfillStopCount([])).toBe(0);
+    expect(visibleBackfillStopCount([{}])).toBe(0);
+    expect(assignmentNeedsStubStopRewrite([])).toBe(true);
+    expect(assignmentNeedsStubStopRewrite([{ order_number: stubOrderNumber('2026-08-09'), address: AUGUST_2026_STUB_PLACEHOLDER.address }])).toBe(false);
+
+    const emptyStub = liteAssignmentFromSnapshot({
+      id: 'empty-lri740-0809',
+      routeId: augustBackfillRouteId(stub09),
+      driverId: 'k1',
+      driverName: 'Karolis Tautkus',
+      status: 'completed',
+      vehicle: { id: 'LRI740', registrationNumber: 'LRI740' },
+      route: { id: augustBackfillRouteId(stub09), date: '2026-08-09', started_at: '2026-08-09T06:00:00.000+03:00' },
+      stops: [],
+    });
+    expect(emptyStub.visibleStopCount).toBe(0);
+    expect(decideAugustBackfillV3GapAction({
+      day: stub09,
+      skips: catalog.skips,
+      existingUiRoute: catalog.existingUiRoute,
+      driverId: 'k1',
+      vehicleId: 'LRI740',
+      assignments: [emptyStub],
+    })).toMatchObject({
+      action: 'rewrite_empty_stub',
+      assignmentId: 'empty-lri740-0809',
+      reason: 'lri740_0809_stub_missing_stops',
+    });
+
+    const filled = liteAssignmentFromSnapshot({
+      id: 'filled-lri740-0809',
+      routeId: augustBackfillRouteId(stub09),
+      driverId: 'k1',
+      driverName: 'Karolis Tautkus',
+      status: 'completed',
+      vehicle: { id: 'LRI740', registrationNumber: 'LRI740' },
+      route: { id: augustBackfillRouteId(stub09), date: '2026-08-09', started_at: '2026-08-09T06:00:00.000+03:00' },
+      stops: [{
+        order_number: stubOrderNumber('2026-08-09'),
+        address: AUGUST_2026_STUB_PLACEHOLDER.address,
+        recipient: AUGUST_2026_STUB_PLACEHOLDER.name,
+        notes: 'R56',
+        weight_kg: 1500,
+      }],
+    });
+    expect(decideAugustBackfillV3GapAction({
+      day: stub09,
+      skips: catalog.skips,
+      existingUiRoute: catalog.existingUiRoute,
+      driverId: 'k1',
+      vehicleId: 'LRI740',
+      assignments: [filled],
+    })).toMatchObject({ action: 'skip', reason: 'already_exists_same_driver_vehicle_date' });
+  });
+
+  it('creates Aleksandras 08-11 once LRI741 is a real fleet row', () => {
+    expect(decideAugustBackfillV3GapAction({
+      day: aleks11,
+      skips: catalog.skips,
+      existingUiRoute: catalog.existingUiRoute,
+      driverId: 'a1',
+      vehicleId: 'LRI741',
+      assignments: [],
+    })).toMatchObject({ action: 'create', routeId: augustBackfillRouteId(aleks11) });
+  });
+
+  it('does not swallow fleet-create failures and awaits v3 after v2 on boot', () => {
+    const v3Fleet = storeSource.slice(
+      storeSource.indexOf('ensureAugustBackfillFleetPlatesStrict'),
+      storeSource.indexOf('private async rewriteAugustBackfillEmptyStub'),
+    );
+    expect(v3Fleet).toContain('august_2026_excel_backfill_v3_fleet_failed');
+    expect(v3Fleet).toContain('throw error');
+    expect(v3Fleet).not.toContain('august_2026_excel_backfill_v2_fleet_skip');
+    expect(v3Fleet).toContain('created.assignedDriverId !== null');
+    expect(storeSource).toContain('refusing to no-op');
+    expect(storeSource).toContain('LRI741 is still missing from the fleet after create');
+    expect(storeSource).toContain('Aleksandras 2026-08-11 LRI741 sheet is still missing');
+    expect(storeSource).toContain('2026-08-09 LRI740 stub still has no visible stops');
+    expect(apiSource.indexOf('await store.applyAugust2026ExcelBackfillV2()'))
+      .toBeLessThan(apiSource.indexOf('await store.applyAugust2026ExcelBackfillV3()'));
+    expect(productionServer).toContain('v3 does not swallow fleet-create');
   });
 });
