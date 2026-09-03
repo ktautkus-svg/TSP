@@ -60,8 +60,8 @@ function ensureLegacyAdminMigrated(): Promise<void> {
  * One-shot August 2026 MET/NLL fuel migrations — v2 (full reset) then v3
  * (remove two MET fills + fix 2026-08-03 day km) then v4 (08/52 fill +
  * 2026-08-31 extraDistanceKm) then v5 (delete phantom 08-09 ~46 L and
- * 08-29 30 L if they reappeared). Each is idempotent via its own Firestore
- * tsp_settings flag.
+ * 08-29 30 L if they reappeared) then v6 (move 08-19 212/1167 to NLL182).
+ * Each is idempotent via its own Firestore tsp_settings flag.
  */
 export function ensureFuelAugust2026Migrated(): Promise<void> {
   if (!fuelAugust2026Migration) {
@@ -85,6 +85,11 @@ export function ensureFuelAugust2026Migrated(): Promise<void> {
       process.stdout.write(`${JSON.stringify({
         event: 'fuel_august_2026_v5_migration',
         ...v5,
+      })}\n`);
+      const v6 = await store.applyFuelAugust2026V6Migration();
+      process.stdout.write(`${JSON.stringify({
+        event: 'fuel_august_2026_v6_migration',
+        ...v6,
       })}\n`);
     })().catch((error) => {
       fuelAugust2026Migration = null;
@@ -539,6 +544,8 @@ export async function handleEmployeeApi(
         station: body.station === undefined ? undefined : optionalString(body, 'station'),
         receiptNumber: body.receiptNumber === undefined ? undefined : optionalString(body, 'receiptNumber'),
         notes: body.notes === undefined ? undefined : optionalString(body, 'notes'),
+        vehicleId: body.vehicleId === undefined ? undefined : stringField(body, 'vehicleId'),
+        driverId: body.driverId === undefined ? undefined : stringField(body, 'driverId'),
       });
       return send(response, 200, { entry }, requestId);
     }
@@ -707,6 +714,7 @@ function isEmployeePath(pathname: string): boolean {
     || pathname.startsWith('/api/admin/')
     || pathname.startsWith('/api/assignments')
     || pathname.startsWith('/api/trip-sheets')
+    || pathname.startsWith('/api/fuel-entries')
     || pathname.startsWith('/api/fuel-status')
     || pathname.startsWith('/api/operations/')
     || pathname.startsWith('/api/quality/')

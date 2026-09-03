@@ -53,6 +53,12 @@ export const FUEL_AUGUST_2026_V4_MIGRATION_ID = 'fuel-august-2026-v4';
  */
 export const FUEL_AUGUST_2026_V5_MIGRATION_ID = 'fuel-august-2026-v5';
 
+/**
+ * Follow-up one-shot flag after v5: remove the MET630 2026-08-19 212/1167
+ * duplicate and verify exactly one NLL182 row remains. Runs after v5 on boot.
+ */
+export const FUEL_AUGUST_2026_V6_MIGRATION_ID = 'fuel-august-2026-v6';
+
 export const FUEL_AUGUST_2026_NORMS = {
   MET630: 12,
   NLL182: 13.9,
@@ -82,6 +88,12 @@ export const MET630_AUGUST_31_2026_MANUAL_FILL: ExcelFuelFill = {
   liters: 95.07,
   documentId: MET630_AUGUST_31_2026_MANUAL_FILL_DOCUMENT_ID,
 };
+
+export const FUEL_AUGUST_2026_V6_MET_DUPLICATE_DOCUMENT_ID = 'xlsx-MET630-20260819-212-1167';
+export const FUEL_AUGUST_2026_V6_NLL_DOCUMENT_ID = '2e2f8c27-1b3c-413e-9e8d-5c85d73894ea';
+export const FUEL_AUGUST_2026_V6_RECEIPT = '212/1167';
+export const FUEL_AUGUST_2026_V6_DATE = '2026-08-19';
+export const FUEL_AUGUST_2026_V6_LITERS = 78;
 
 /**
  * MET630 fills removed in v3 (Circle K transaction id + receipt).
@@ -129,7 +141,6 @@ export const EXCEL_FUEL_LOG: readonly ExcelFuelFill[] = [
   { registrationNumber: 'MET630', localDate: '2026-08-12', localTime: '13:52', receiptNumber: '277/1160', liters: 102.17 },
   { registrationNumber: 'MET630', localDate: '2026-08-13', localTime: '23:42', receiptNumber: '669/1206', liters: 30.07 },
   { registrationNumber: 'MET630', localDate: '2026-08-17', localTime: '00:45', receiptNumber: '333/1165', liters: 103.31 },
-  { registrationNumber: 'MET630', localDate: '2026-08-19', localTime: '10:55', receiptNumber: '212/1167', liters: 78.00 },
   { registrationNumber: 'MET630', localDate: '2026-08-21', localTime: '04:41', receiptNumber: '1/265', liters: 90.00 },
   { registrationNumber: 'MET630', localDate: '2026-08-26', localTime: '12:00', receiptNumber: '362/1165', liters: 90.00 },
   { registrationNumber: 'MET630', localDate: '2026-08-27', localTime: '12:00', receiptNumber: '271/1215', liters: 86.10 },
@@ -143,6 +154,7 @@ export const EXCEL_FUEL_LOG: readonly ExcelFuelFill[] = [
   { registrationNumber: 'NLL182', localDate: '2026-08-16', localTime: '19:35', receiptNumber: '421/1191', liters: 4.85 },
   { registrationNumber: 'NLL182', localDate: '2026-08-16', localTime: '22:17', receiptNumber: '466/1166', liters: 83.00 },
   { registrationNumber: 'NLL182', localDate: '2026-08-17', localTime: '17:46', receiptNumber: '449/2177', liters: 73.00 },
+  { registrationNumber: 'NLL182', localDate: FUEL_AUGUST_2026_V6_DATE, localTime: '10:55', receiptNumber: FUEL_AUGUST_2026_V6_RECEIPT, liters: FUEL_AUGUST_2026_V6_LITERS, documentId: FUEL_AUGUST_2026_V6_NLL_DOCUMENT_ID },
   { registrationNumber: 'NLL182', localDate: '2026-08-20', localTime: '07:49', receiptNumber: '74/1154', liters: 70.00 },
   { registrationNumber: 'NLL182', localDate: '2026-08-21', localTime: '02:20', receiptNumber: '13/1214', liters: 45.60 },
   { registrationNumber: 'NLL182', localDate: '2026-08-23', localTime: '12:00', receiptNumber: '19/571', liters: 70.52 },
@@ -380,7 +392,37 @@ export function isFuelAugust2026V5RemovedEntry(entry: {
     if (date !== target.localDate) continue;
     if (target.litersAliases.some((liters) => litersClose(entry.liters, liters))) return true;
   }
+
   return false;
+}
+
+/** The single MET630 duplicate that v6 removes; protected same-day MET fills are not matched. */
+export function isFuelAugust2026V6MetDuplicateEntry(entry: {
+  id: string;
+  registrationNumber?: string | null;
+  receiptNumber?: string | null;
+  filledAt?: string | null;
+  liters?: number | null;
+}): boolean {
+  if (entry.id === FUEL_AUGUST_2026_V6_MET_DUPLICATE_DOCUMENT_ID) return true;
+  return fuelEntryPlate(entry) === 'MET630'
+    && fuelEntryLocalDate(entry) === FUEL_AUGUST_2026_V6_DATE
+    && entry.receiptNumber === FUEL_AUGUST_2026_V6_RECEIPT
+    && litersClose(entry.liters, FUEL_AUGUST_2026_V6_LITERS);
+}
+
+/** The NLL182 row v6 must leave as the only 2026-08-19 212/1167 78 L fill. */
+export function isFuelAugust2026V6NllEntry(entry: {
+  id: string;
+  registrationNumber?: string | null;
+  receiptNumber?: string | null;
+  filledAt?: string | null;
+  liters?: number | null;
+}): boolean {
+  return fuelEntryPlate(entry) === 'NLL182'
+    && fuelEntryLocalDate(entry) === FUEL_AUGUST_2026_V6_DATE
+    && entry.receiptNumber === FUEL_AUGUST_2026_V6_RECEIPT
+    && litersClose(entry.liters, FUEL_AUGUST_2026_V6_LITERS);
 }
 
 /**

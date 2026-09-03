@@ -13,6 +13,7 @@ import {
     FUEL_AUGUST_2026_V3_MIGRATION_ID,
     FUEL_AUGUST_2026_V4_MIGRATION_ID,
     FUEL_AUGUST_2026_V5_MIGRATION_ID,
+    FUEL_AUGUST_2026_V6_MIGRATION_ID,
     MET630_AUGUST_03_2026_DATE,
     MET630_AUGUST_03_2026_DISTANCE_KM,
     MET630_AUGUST_31_2026_ASSIGNED_DISTANCE_KM,
@@ -37,6 +38,8 @@ import {
     isFuelAugust2026V3RemovedEntry,
     isFuelAugust2026V4ManualFillEntry,
     isFuelAugust2026V5RemovedEntry,
+    isFuelAugust2026V6MetDuplicateEntry,
+    isFuelAugust2026V6NllEntry,
     isStaleAugust2026FuelEntry,
     isStaleAugustOpeningReport,
     lithuaniaLocalToIso,
@@ -2421,6 +2424,92 @@ export class EmployeeAuthStore {
   }
 
   /**
+   * One-shot follow-up after fuel-august-2026-v5:
+   * Deletes only the erroneous MET630 2026-08-19 212/1167 78 L fill and
+   * verifies the sole remaining matching row belongs to NLL182. Does not touch
+   * other MET630 August fills.
+   */
+  async applyFuelAugust2026V6Migration(): Promise<{ applied: boolean; reason: string }> {
+    const flagRef = this.settings.doc(FUEL_AUGUST_2026_V6_MIGRATION_ID);
+    const existingFlag = await flagRef.get();
+    if (existingFlag.exists && existingFlag.data()?.status === 'applied') {
+      return { applied: false, reason: 'already_applied' };
+    }
+
+    const firstSnapshot = await this.fuelEntries.get();
+    const nllMatches = firstSnapshot.docs.filter((document) => {
+      const entry = document.data() as ServerFuelEntry;
+      return isFuelAugust2026V6NllEntry({
+        id: entry.id ?? document.id,
+        registrationNumber: entry.registrationNumber,
+        receiptNumber: entry.receiptNumber,
+        filledAt: entry.filledAt,
+        liters: entry.liters,
+      });
+    });
+    if (nllMatches.length === 0) {
+      throw new Error('fuel-august-2026-v6: NLL182 2026-08-19 212/1167 78 L fill is missing');
+    }
+    if (nllMatches.length > 1) {
+      throw new Error(`fuel-august-2026-v6: NLL182 2026-08-19 212/1167 78 L duplicated: ${nllMatches.map((document) => document.id).join(', ')}`);
+    }
+
+    const matching = firstSnapshot.docs.filter((document) => {
+      const entry = document.data() as ServerFuelEntry;
+      return isFuelAugust2026V6MetDuplicateEntry({
+        id: entry.id ?? document.id,
+        registrationNumber: entry.registrationNumber,
+        receiptNumber: entry.receiptNumber,
+        filledAt: entry.filledAt,
+        liters: entry.liters,
+      });
+    });
+    for (const document of matching) {
+      await document.ref.delete();
+    }
+
+    const remainingSnapshot = await this.fuelEntries.get();
+    const remainingMet = remainingSnapshot.docs.filter((document) => {
+      const entry = document.data() as ServerFuelEntry;
+      return isFuelAugust2026V6MetDuplicateEntry({
+        id: entry.id ?? document.id,
+        registrationNumber: entry.registrationNumber,
+        receiptNumber: entry.receiptNumber,
+        filledAt: entry.filledAt,
+        liters: entry.liters,
+      });
+    });
+    if (remainingMet.length > 0) {
+      throw new Error(`fuel-august-2026-v6: MET630 2026-08-19 212/1167 78 L still present after delete: ${remainingMet.map((document) => document.id).join(', ')}`);
+    }
+
+    const remainingNll = remainingSnapshot.docs.filter((document) => {
+      const entry = document.data() as ServerFuelEntry;
+      return isFuelAugust2026V6NllEntry({
+        id: entry.id ?? document.id,
+        registrationNumber: entry.registrationNumber,
+        receiptNumber: entry.receiptNumber,
+        filledAt: entry.filledAt,
+        liters: entry.liters,
+      });
+    });
+    if (remainingNll.length !== 1) {
+      throw new Error(`fuel-august-2026-v6: NLL182 2026-08-19 212/1167 78 L expected once, found ${remainingNll.length}`);
+    }
+
+    const now = new Date().toISOString();
+    await flagRef.set({
+      id: FUEL_AUGUST_2026_V6_MIGRATION_ID,
+      status: 'applied',
+      appliedAt: now,
+      deletedFuelEntries: matching.length,
+      deletedEntryIds: matching.map((document) => document.id),
+      keptFuelEntryId: remainingNll[0]!.id,
+    });
+    return { applied: true, reason: matching.length > 0 ? 'applied' : 'already_absent' };
+  }
+
+  /**
    * One-shot correction of completed August 2026 trip-sheet vehicle+driver
    * against the photo day log. Gated by tsp_settings
    * `trip-sheet-august-2026-vehicle-fix-v1`. Never rewrites stop delivered_at
@@ -4268,6 +4357,8 @@ export class EmployeeAuthStore {
     station?: string | null;
     receiptNumber?: string | null;
     notes?: string | null;
+    vehicleId?: string;
+    driverId?: string;
   }): Promise<ServerFuelEntry> {
     const reference = this.fuelEntries.doc(safeId(entryIdInput));
     const document = await reference.get();
@@ -4275,6 +4366,27 @@ export class EmployeeAuthStore {
     if (!current) throw new EmployeeApiError('FUEL_ENTRY_NOT_FOUND', 'Kuro įrašas nerastas.', 404);
     const storedVehicle = (await this.vehicles.doc(current.vehicleId).get()).data() as FleetVehicle | undefined;
     assertCanEditTripReadings(profile, storedVehicle ? normalizeVehicle(storedVehicle) : null, current.driverId);
+    if ((input.vehicleId !== undefined || input.driverId !== undefined) && profile.role !== 'admin') {
+      throw new EmployeeApiError('FORBIDDEN', 'Tik administratorius gali perkelti kuro įrašą.', 403);
+    }
+    let nextVehicle = storedVehicle ? normalizeVehicle(storedVehicle) : null;
+    if (input.vehicleId !== undefined) {
+      const vehicleDocument = await this.vehicles.doc(validateVehicleId(input.vehicleId)).get();
+      const targetVehicle = vehicleDocument.data() as FleetVehicle | undefined;
+      if (!targetVehicle) throw new EmployeeApiError('VEHICLE_NOT_FOUND', 'Automobilis nerastas.', 404);
+      nextVehicle = normalizeVehicle(targetVehicle);
+    }
+    let driverId = current.driverId;
+    let driverName = current.driverName;
+    if (input.driverId !== undefined) {
+      const driver = await this.users.doc(safeId(input.driverId)).get();
+      const storedDriver = driver.data() as StoredUser | undefined;
+      if (!storedDriver || storedDriver.role !== 'driver' || storedDriver.disabled) {
+        throw new EmployeeApiError('DRIVER_NOT_FOUND', 'Vairuotojas nerastas.', 404);
+      }
+      driverId = storedDriver.id;
+      driverName = storedDriver.displayName;
+    }
     const filledAt = input.filledAt === undefined ? current.filledAt : isoDateOrThrow(input.filledAt);
     const odometer = input.odometer === undefined ? current.odometer : validateOdometer(input.odometer, 'pylimo');
     if (odometer === null) throw new EmployeeApiError('INVALID_ODOMETER', 'Neteisingas odometro rodmuo.', 400);
@@ -4292,6 +4404,10 @@ export class EmployeeAuthStore {
       station: input.station === undefined ? current.station : optionalText(input.station),
       receiptNumber: input.receiptNumber === undefined ? current.receiptNumber : optionalText(input.receiptNumber),
       notes: input.notes === undefined ? current.notes : optionalText(input.notes),
+      driverId,
+      driverName,
+      vehicleId: nextVehicle?.id ?? current.vehicleId,
+      registrationNumber: nextVehicle?.registrationNumber ?? current.registrationNumber,
     };
     await reference.set(updated);
     return updated;

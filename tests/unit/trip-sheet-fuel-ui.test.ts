@@ -90,4 +90,20 @@ describe('trip sheet fuel workflow', () => {
     // distance actually driven that day.
     expect(vehicleSource).toContain('km per dieną');
   });
+
+  it('keeps one-driver report fuel continuity on the vehicle month instead of resetting to opening fuel', () => {
+    expect(source).toContain('buildMonthlyGroups(visible, sheets)');
+    expect(source).toContain('function buildDailyRows(sheets: DisplayTripSheet[], ledgerSheets: DisplayTripSheet[] = sheets)');
+    expect(source).toContain('const ledgerRows = buildDailyRowsWithoutLedger(ledgerSheets)');
+    expect(source).toContain('const ledgerByDate = new Map(applyFuelLedger(ledgerRows, ledgerSheets).map((row) => [row.date, row]))');
+  });
+
+  it('wires admin-only vehicle changes for completed trip sheets and driver changes for fuel', () => {
+    expect(vehicleSource).toContain('editingReadingVehicleId');
+    expect(vehicleSource).toContain("vehicleId: profile.role === 'admin' ? editingReadingVehicleId || selectedVehicleId : undefined");
+    expect(vehicleSource).toContain("profile.role === 'admin' && !parseVehicleDayAssignmentId(reading.assignmentId)");
+    expect(vehicleSource).toContain('fuelDriverId');
+    expect(vehicleSource).toContain("driverId: profile.role === 'admin' && fuelDriverId ? fuelDriverId : undefined");
+    expect(vehicleSource).toContain('entry.driverName');
+  });
 });
