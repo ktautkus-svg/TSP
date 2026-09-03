@@ -10,6 +10,9 @@ import {
     EXCEL_FUEL_LOG,
     FUEL_AUGUST_2026_MIGRATION_ID,
     FUEL_AUGUST_2026_NORMS,
+    FUEL_AUGUST_2026_V3_MIGRATION_ID,
+    MET630_AUGUST_03_2026_DATE,
+    MET630_AUGUST_03_2026_DISTANCE_KM,
     MET630_OPENING_FUEL_EFFECTIVE_AT,
     MET630_OPENING_FUEL_LITERS,
     MET630_OPENING_FUEL_NOTE,
@@ -20,8 +23,10 @@ import {
     NLL182_OPENING_FUEL_REPORT_ID,
     alreadyHasExcelFuelEntry,
     alreadyHasOpeningFuel,
+    correctedMet630August03Odometers,
     excelFuelDocumentId,
     excelFuelOdometer,
+    isFuelAugust2026V3RemovedEntry,
     isStaleAugust2026FuelEntry,
     isStaleAugustOpeningReport,
     lithuaniaLocalToIso,
@@ -2037,6 +2042,99 @@ export class EmployeeAuthStore {
       deletedOpeningReports: staleReports.length,
       insertedFills: EXCEL_FUEL_LOG.length,
       norms: FUEL_AUGUST_2026_NORMS,
+    });
+    return { applied: true, reason: 'applied' };
+  }
+
+  /**
+   * One-shot follow-up after fuel-august-2026-v2:
+   * - Deletes two erroneous MET630 fills (trn 42655388 / 42959044).
+   * - Upserts MET630 2026-08-03 vehicle-day reading so day km = 617.
+   * Gated by tsp_settings `fuel-august-2026-v3`. Does not reseed the catalog
+   * and does not touch openings, norms, or on-time/late stats.
+   */
+  async applyFuelAugust2026V3Migration(): Promise<{ applied: boolean; reason: string }> {
+    const flagRef = this.settings.doc(FUEL_AUGUST_2026_V3_MIGRATION_ID);
+    const existingFlag = await flagRef.get();
+    if (existingFlag.exists && existingFlag.data()?.status === 'applied') {
+      return { applied: false, reason: 'already_applied' };
+    }
+
+    const vehiclesSnapshot = await this.vehicles.get();
+    const vehicles = vehiclesSnapshot.docs.map((document) => normalizeVehicle(document.data() as FleetVehicle));
+    const met = vehicles.find((vehicle) => vehicle.registrationNumber.toUpperCase() === 'MET630');
+    if (!met) {
+      return { applied: false, reason: 'target_vehicle_missing' };
+    }
+
+    const now = new Date().toISOString();
+    const fuelSnapshot = await this.fuelEntries.get();
+    const removedEntries = fuelSnapshot.docs.filter((document) => {
+      const entry = document.data() as ServerFuelEntry;
+      return isFuelAugust2026V3RemovedEntry({
+        id: entry.id ?? document.id,
+        registrationNumber: entry.registrationNumber,
+        receiptNumber: entry.receiptNumber,
+        notes: entry.notes,
+        filledAt: entry.filledAt,
+      });
+    });
+    for (const document of removedEntries) {
+      await document.ref.delete();
+    }
+
+    const readingId = vehicleDayReadingDocId(met.id, MET630_AUGUST_03_2026_DATE);
+    const existingReading = (await this.vehicleDayReadings.doc(readingId).get()).data() as VehicleDayReading | undefined;
+    let startHint: number | null = existingReading?.startOdometer ?? null;
+    if (startHint === null) {
+      const assignmentSnapshot = await this.assignments.get();
+      for (const document of assignmentSnapshot.docs) {
+        const assignment = document.data() as RouteAssignment;
+        if (assignment.status !== 'completed') continue;
+        const snapshotVehicleId = String(assignment.routeSnapshot.route.vehicle_id ?? '');
+        const vehicleId = assignment.vehicle?.id ?? (snapshotVehicleId || null);
+        const plate = String(assignment.vehicle?.registrationNumber ?? '').trim().toUpperCase();
+        const matchesVehicle = vehicleId === met.id || plate === 'MET630';
+        if (!matchesVehicle) continue;
+        if (tripSheetWorkDate(assignment) !== MET630_AUGUST_03_2026_DATE) continue;
+        const start = nullableNumber(assignment.routeSnapshot.route.start_odometer);
+        if (start !== null) {
+          startHint = start;
+          break;
+        }
+      }
+    }
+
+    const odometers = correctedMet630August03Odometers(
+      startHint === null ? null : { startOdometer: startHint },
+    );
+    const driver = existingReading
+      ? { id: existingReading.driverId, name: existingReading.driverName }
+      : await this.resolveReadingDriver(met, met.assignedDriverId);
+    const reading: VehicleDayReading = {
+      id: readingId,
+      vehicleId: met.id,
+      registrationNumber: met.registrationNumber,
+      date: MET630_AUGUST_03_2026_DATE,
+      startOdometer: odometers.startOdometer,
+      endOdometer: odometers.endOdometer,
+      distanceKm: odometers.distanceKm,
+      driverId: driver.id,
+      driverName: driver.name,
+      createdAt: existingReading?.createdAt ?? now,
+      updatedAt: now,
+      createdBy: existingReading?.createdBy ?? 'fuel-august-2026-v3',
+    };
+    await this.vehicleDayReadings.doc(readingId).set(reading);
+
+    await flagRef.set({
+      id: FUEL_AUGUST_2026_V3_MIGRATION_ID,
+      status: 'applied',
+      appliedAt: now,
+      deletedFuelEntries: removedEntries.length,
+      deletedEntryIds: removedEntries.map((document) => document.id),
+      met630August03DistanceKm: MET630_AUGUST_03_2026_DISTANCE_KM,
+      met630August03ReadingId: readingId,
     });
     return { applied: true, reason: 'applied' };
   }
