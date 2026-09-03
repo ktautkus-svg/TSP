@@ -8,6 +8,12 @@ import {
 } from '../src/application/routes/route-price.js';
 import {
     EXCEL_FUEL_LOG,
+    FUEL_AUGUST_2026_MIGRATION_ID,
+    FUEL_AUGUST_2026_NORMS,
+    MET630_OPENING_FUEL_EFFECTIVE_AT,
+    MET630_OPENING_FUEL_LITERS,
+    MET630_OPENING_FUEL_NOTE,
+    MET630_OPENING_FUEL_REPORT_ID,
     NLL182_OPENING_FUEL_EFFECTIVE_AT,
     NLL182_OPENING_FUEL_LITERS,
     NLL182_OPENING_FUEL_NOTE,
@@ -16,6 +22,8 @@ import {
     alreadyHasOpeningFuel,
     excelFuelDocumentId,
     excelFuelOdometer,
+    isStaleAugust2026FuelEntry,
+    isStaleAugustOpeningReport,
     lithuaniaLocalToIso,
     parseVehicleDateKey,
     uncoveredFuelDayKeys,
@@ -1858,13 +1866,180 @@ export class EmployeeAuthStore {
     }
   }
 
+  /**
+   * One-shot production reset for August 2026 MET630/NLL182 fuel.
+   * Clears stale August fills + openings, inserts the authoritative receipt
+   * table, sets opening balances and fuel norms. Gated by tsp_settings
+   * `fuel-august-2026-v2` so merge+deploy fixes Firestore without re-enabling
+   * seedExcelFuelLog on every listTripSheets call.
+   */
+  async applyFuelAugust2026V2Migration(): Promise<{ applied: boolean; reason: string }> {
+    const flagRef = this.settings.doc(FUEL_AUGUST_2026_MIGRATION_ID);
+    const existingFlag = await flagRef.get();
+    if (existingFlag.exists && existingFlag.data()?.status === 'applied') {
+      return { applied: false, reason: 'already_applied' };
+    }
+
+    const vehiclesSnapshot = await this.vehicles.get();
+    const vehicles = vehiclesSnapshot.docs.map((document) => normalizeVehicle(document.data() as FleetVehicle));
+    const byPlate = new Map(
+      vehicles.map((vehicle) => [vehicle.registrationNumber.toUpperCase(), vehicle] as const),
+    );
+    const met = byPlate.get('MET630');
+    const nll = byPlate.get('NLL182');
+    if (!met && !nll) {
+      return { applied: false, reason: 'target_vehicles_missing' };
+    }
+
+    const vehicleIds = new Set<string>([met?.id, nll?.id].filter((id): id is string => Boolean(id)));
+    const now = new Date().toISOString();
+
+    const fuelSnapshot = await this.fuelEntries.get();
+    const staleEntries = fuelSnapshot.docs.filter((document) => {
+      const entry = document.data() as ServerFuelEntry;
+      return isStaleAugust2026FuelEntry({
+        id: entry.id ?? document.id,
+        registrationNumber: entry.registrationNumber,
+        vehicleId: entry.vehicleId,
+        filledAt: entry.filledAt,
+      }, vehicleIds);
+    });
+    for (const document of staleEntries) {
+      await document.ref.delete();
+    }
+
+    const reportSnapshot = await this.fuelReports.get();
+    const staleReports = reportSnapshot.docs.filter((document) => {
+      const report = normalizeFuelReport(document.data() as FuelReport);
+      return isStaleAugustOpeningReport({
+        id: report.id ?? document.id,
+        vehicleId: report.vehicleId,
+        registrationNumber: report.registrationNumber,
+        effectiveAt: report.effectiveAt,
+        kind: report.kind,
+      }, vehicleIds);
+    });
+    for (const document of staleReports) {
+      await document.ref.delete();
+    }
+
+    const drivers = new Map<string, { id: string | null; name: string }>();
+    const resolveDriver = async (vehicle: FleetVehicle) => {
+      let driver = drivers.get(vehicle.id);
+      if (!driver) {
+        driver = await this.resolveReadingDriver(vehicle, vehicle.assignedDriverId);
+        drivers.set(vehicle.id, driver);
+      }
+      return driver;
+    };
+
+    if (met) {
+      const driver = await resolveDriver(met);
+      const report: FuelReport = {
+        id: MET630_OPENING_FUEL_REPORT_ID,
+        driverId: driver.id ?? 'opening-seed',
+        driverName: driver.name,
+        vehicleId: met.id,
+        registrationNumber: met.registrationNumber,
+        assignmentRevision: met.assignmentRevision,
+        previousLiters: met.fuelRemainingLiters,
+        reportedLiters: MET630_OPENING_FUEL_LITERS,
+        status: 'approved',
+        reportedAt: now,
+        reviewedAt: now,
+        reviewedBy: 'fuel-august-2026-v2',
+        effectiveAt: MET630_OPENING_FUEL_EFFECTIVE_AT,
+        kind: 'admin_correction',
+        note: MET630_OPENING_FUEL_NOTE,
+      };
+      await this.fuelReports.doc(report.id).set(report);
+      if (met.fuelNormLPer100Km !== FUEL_AUGUST_2026_NORMS.MET630) {
+        await this.vehicles.doc(met.id).update({
+          fuelNormLPer100Km: FUEL_AUGUST_2026_NORMS.MET630,
+          updatedAt: now,
+        });
+      }
+    }
+
+    if (nll) {
+      const driver = await resolveDriver(nll);
+      const report: FuelReport = {
+        id: NLL182_OPENING_FUEL_REPORT_ID,
+        driverId: driver.id ?? 'opening-seed',
+        driverName: driver.name === 'Nepriskirtas' ? NLL182_ODOMETER_DRIVER_NAME : driver.name,
+        vehicleId: nll.id,
+        registrationNumber: nll.registrationNumber,
+        assignmentRevision: nll.assignmentRevision,
+        previousLiters: nll.fuelRemainingLiters,
+        reportedLiters: NLL182_OPENING_FUEL_LITERS,
+        status: 'approved',
+        reportedAt: now,
+        reviewedAt: now,
+        reviewedBy: 'fuel-august-2026-v2',
+        effectiveAt: NLL182_OPENING_FUEL_EFFECTIVE_AT,
+        kind: 'admin_correction',
+        note: NLL182_OPENING_FUEL_NOTE,
+      };
+      await this.fuelReports.doc(report.id).set(report);
+      if (nll.fuelNormLPer100Km !== FUEL_AUGUST_2026_NORMS.NLL182) {
+        await this.vehicles.doc(nll.id).update({
+          fuelNormLPer100Km: FUEL_AUGUST_2026_NORMS.NLL182,
+          updatedAt: now,
+        });
+      }
+    }
+
+    for (const fill of EXCEL_FUEL_LOG) {
+      const vehicle = byPlate.get(fill.registrationNumber);
+      if (!vehicle) continue;
+      const driver = await resolveDriver(vehicle);
+      const assignmentId = vehicleDayAssignmentId(vehicle.id, fill.localDate);
+      const id = excelFuelDocumentId(fill);
+      const entry: ServerFuelEntry = {
+        id,
+        tripSheetId: `trip-sheet-${assignmentId}`,
+        assignmentId,
+        routeId: assignmentId,
+        driverId: driver.id ?? '',
+        driverName: driver.name,
+        vehicleId: vehicle.id,
+        registrationNumber: vehicle.registrationNumber,
+        filledAt: lithuaniaLocalToIso(fill.localDate, fill.localTime),
+        odometer: excelFuelOdometer(fill.registrationNumber, fill.localDate),
+        liters: fill.liters,
+        pricePerLiter: null,
+        totalCost: null,
+        station: null,
+        receiptNumber: fill.receiptNumber,
+        notes: null,
+        createdAt: now,
+        createdBy: 'fuel-august-2026-v2',
+      };
+      await this.fuelEntries.doc(id).set(entry);
+    }
+
+    await flagRef.set({
+      id: FUEL_AUGUST_2026_MIGRATION_ID,
+      status: 'applied',
+      appliedAt: now,
+      deletedFuelEntries: staleEntries.length,
+      deletedOpeningReports: staleReports.length,
+      insertedFills: EXCEL_FUEL_LOG.length,
+      norms: FUEL_AUGUST_2026_NORMS,
+    });
+    return { applied: true, reason: 'applied' };
+  }
+
+  /** Retained for tests/catalog helpers; not called from listTripSheets. */
   private async seedNll182OpeningFuel(vehicles: FleetVehicle[]): Promise<void> {
     const vehicle = vehicles.find((item) => item.registrationNumber.toUpperCase() === 'NLL182');
     if (!vehicle) return;
     if ((await this.fuelReports.doc(NLL182_OPENING_FUEL_REPORT_ID).get()).exists) return;
     const existing = await this.fuelReports.where('vehicleId', '==', vehicle.id).get();
     const reports = existing.docs.map((document) => normalizeFuelReport(document.data() as FuelReport));
-    if (alreadyHasOpeningFuel(reports, vehicle.id)) return;
+    if (alreadyHasOpeningFuel(reports, vehicle.id, NLL182_OPENING_FUEL_REPORT_ID, NLL182_OPENING_FUEL_EFFECTIVE_AT)) {
+      return;
+    }
     const driver = await this.resolveReadingDriver(vehicle, vehicle.assignedDriverId);
     const now = new Date().toISOString();
     const report: FuelReport = {
@@ -1887,6 +2062,7 @@ export class EmployeeAuthStore {
     await this.fuelReports.doc(report.id).set(report);
   }
 
+  /** Retained for catalog helpers; not called from listTripSheets. */
   private async seedExcelFuelLog(vehicles: FleetVehicle[]): Promise<void> {
     const byPlate = new Map(vehicles.map((vehicle) => [vehicle.registrationNumber.toUpperCase(), vehicle]));
     const existing = await this.fuelEntries.get();

@@ -3,7 +3,7 @@ import { createReadStream, existsSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { createServer, request as httpRequest, type IncomingMessage, type ServerResponse } from 'node:http';
 import { extname, join, normalize, resolve } from 'node:path';
-import { authenticateApiRequest, handleEmployeeApi, requireProductionAdminPin } from './employee-api.js';
+import { authenticateApiRequest, ensureFuelAugust2026Migrated, handleEmployeeApi, requireProductionAdminPin } from './employee-api.js';
 import { EmployeeApiError } from './employee-auth-store.js';
 
 const publicPort = numberFromEnv('PORT', 8080);
@@ -19,6 +19,9 @@ process.env.GATEWAY_ALLOWED_ORIGIN = '';
 
 async function start(): Promise<void> {
   requireProductionAdminPin();
+  // Apply the one-shot August 2026 MET/NLL fuel reset before accepting traffic
+  // so the first trip-sheet request already sees the corrected Firestore data.
+  await ensureFuelAugust2026Migrated();
   const server = createServer(async (request, response) => {
     const requestId = header(request, 'x-request-id') ?? randomUUID();
     response.setHeader('x-request-id', requestId);
