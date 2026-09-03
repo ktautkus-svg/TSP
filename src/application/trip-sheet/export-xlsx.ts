@@ -36,8 +36,11 @@ export { MIME_XLSX };
 
 export function buildTripSheetWorkbook(input: TripSheetWorkbookInput): Uint8Array {
   if (input.groups.length === 0) throw new Error('Nėra kelionės lapų, kuriuos būtų galima eksportuoti.');
-  const names = uniqueSheetNames(input.groups);
-  const sheets = input.groups.map((group, index) => worksheetXml(group, input, names[index]!));
+  const groupNames = uniqueSheetNames(input.groups);
+  // The first tab (Suvestinė) always carries per-vehicle totals so it is
+  // never sparse even when a driver opens the workbook straight to tab one.
+  const names = ['Suvestinė', ...groupNames];
+  const sheets = [summarySheetXml(input), ...input.groups.map((group, index) => worksheetXml(group, input, groupNames[index]!))];
   const now = officeOpenXmlTimestamp();
   const files: Record<string, Uint8Array> = {
     '[Content_Types].xml': xml(contentTypesXml(sheets.length)),
@@ -51,6 +54,50 @@ export function buildTripSheetWorkbook(input: TripSheetWorkbookInput): Uint8Arra
   sheets.forEach((sheet, index) => { files[`xl/worksheets/sheet${index + 1}.xml`] = xml(sheet); });
   return zipSync(files, { level: 6 });
 }
+
+const SUMMARY_HEADERS = ['Transporto priemonė', 'Vairuotojas', 'Laikotarpis', 'Kelionių sk.', 'Nuvažiuota, km', 'Įpilta kuro, L', 'Sunaudota kuro, L', 'Kuro likutis, L'];
+
+function summarySheetXml(input: TripSheetWorkbookInput): string {
+  const firstDataRow = 4;
+  const lastDataRow = firstDataRow + input.groups.length - 1;
+  const totalRow = Math.max(firstDataRow, lastDataRow + 1);
+  const dataRows = input.groups.map((group, index) => {
+    const rowNumber = firstDataRow + index;
+    const distance = sum(group.rows.map((row) => row.distanceKm));
+    const fuelAdded = sum(group.rows.map((row) => row.fuelAddedLiters));
+    const fuelConsumed = sum(group.rows.map((row) => row.fuelConsumedLiters));
+    const fuelEnd = group.rows.at(-1)?.fuelEndLiters ?? null;
+    return rowXml(rowNumber, [
+      textCell(`A${rowNumber}`, `${group.registrationNumber} · ${group.vehicleModel}`, 5),
+      textCell(`B${rowNumber}`, group.driverName, 5),
+      textCell(`C${rowNumber}`, monthPeriod(group.month), 5),
+      numberCell(`D${rowNumber}`, group.rows.length, 6),
+      numberCell(`E${rowNumber}`, distance, 6),
+      numberCell(`F${rowNumber}`, fuelAdded, 6),
+      numberCell(`G${rowNumber}`, fuelConsumed, 6),
+      numberCell(`H${rowNumber}`, fuelEnd, 6),
+    ]);
+  });
+  const rows = [
+    rowXml(1, [textCell('A1', 'Kelionės lapų suvestinė', 1)]),
+    rowXml(2, [textCell('A2', [input.companyName, input.companyAddress].filter(Boolean).join(', ') || 'FiRo', 2)]),
+    rowXml(3, SUMMARY_HEADERS.map((value, index) => textCell(`${columnName(index + 1)}3`, value, 4))),
+    ...dataRows,
+    rowXml(totalRow, [
+      textCell(`A${totalRow}`, 'Iš viso:', 7),
+      textCell(`B${totalRow}`, '', 7),
+      textCell(`C${totalRow}`, '', 7),
+      formulaCell(`D${totalRow}`, sumFormula('D', firstDataRow, lastDataRow), sum(input.groups.map((group) => group.rows.length)), 8),
+      formulaCell(`E${totalRow}`, sumFormula('E', firstDataRow, lastDataRow), sum(input.groups.map((group) => sum(group.rows.map((row) => row.distanceKm)))), 8),
+      formulaCell(`F${totalRow}`, sumFormula('F', firstDataRow, lastDataRow), sum(input.groups.map((group) => sum(group.rows.map((row) => row.fuelAddedLiters)))), 8),
+      formulaCell(`G${totalRow}`, sumFormula('G', firstDataRow, lastDataRow), sum(input.groups.map((group) => sum(group.rows.map((row) => row.fuelConsumedLiters)))), 8),
+      textCell(`H${totalRow}`, '', 7),
+    ]),
+  ].join('');
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:H${totalRow}"/><sheetViews><sheetView workbookViewId="0"><pane ySplit="3" topLeftCell="A4" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/><cols>${SUMMARY_COL_WIDTHS.map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`).join('')}</cols><sheetData>${rows}</sheetData><autoFilter ref="A3:H${Math.max(3, lastDataRow)}"/><mergeCells count="2"><mergeCell ref="A1:H1"/><mergeCell ref="A2:H2"/></mergeCells><pageMargins left="0.25" right="0.25" top="0.45" bottom="0.45" header="0.2" footer="0.2"/><pageSetup orientation="landscape" paperSize="9" fitToWidth="1" fitToHeight="0"/><headerFooter><oddFooter>&amp;LSuvestinė&amp;R&amp;P / &amp;N</oddFooter></headerFooter></worksheet>`;
+}
+const SUMMARY_COL_WIDTHS = [28, 22, 22, 14, 16, 16, 18, 16];
 
 function worksheetXml(group: TripSheetExportGroup, input: TripSheetWorkbookInput, sheetName: string): string {
   const firstDataRow = 7;
@@ -100,7 +147,7 @@ function worksheetXml(group: TripSheetExportGroup, input: TripSheetWorkbookInput
     ]),
   ].join('');
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:K${totalRow}"/><sheetViews><sheetView workbookViewId="0"><pane ySplit="6" topLeftCell="A7" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/><cols>${COL_WIDTHS.map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`).join('')}</cols><sheetData>${rows}</sheetData><mergeCells count="4"><mergeCell ref="A1:K1"/><mergeCell ref="A2:K2"/><mergeCell ref="E4:J4"/><mergeCell ref="A${totalRow}:B${totalRow}"/></mergeCells><autoFilter ref="A6:K${Math.max(6, lastDataRow)}"/><pageMargins left="0.25" right="0.25" top="0.45" bottom="0.45" header="0.2" footer="0.2"/><pageSetup orientation="landscape" paperSize="9" fitToWidth="1" fitToHeight="0"/><headerFooter><oddFooter>&amp;L${escapeXml(sheetName)}&amp;R&amp;P / &amp;N</oddFooter></headerFooter></worksheet>`;
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:K${totalRow}"/><sheetViews><sheetView workbookViewId="0"><pane ySplit="6" topLeftCell="A7" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/><cols>${COL_WIDTHS.map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`).join('')}</cols><sheetData>${rows}</sheetData><autoFilter ref="A6:K${Math.max(6, lastDataRow)}"/><mergeCells count="4"><mergeCell ref="A1:K1"/><mergeCell ref="A2:K2"/><mergeCell ref="E4:J4"/><mergeCell ref="A${totalRow}:B${totalRow}"/></mergeCells><pageMargins left="0.25" right="0.25" top="0.45" bottom="0.45" header="0.2" footer="0.2"/><pageSetup orientation="landscape" paperSize="9" fitToWidth="1" fitToHeight="0"/><headerFooter><oddFooter>&amp;L${escapeXml(sheetName)}&amp;R&amp;P / &amp;N</oddFooter></headerFooter></worksheet>`;
 }
 
 const HEADERS = ['Data', 'Važiavimo maršrutas', 'Nuvažiuota, km', 'Kuro kiekis dienos pradžioje, L', 'Įpilta kuro, L', 'Kasos čekio Nr.', 'Sunaudota pagal normą, L', 'Kuro likutis, L', 'Odometras pradžioje', 'Odometras pabaigoje', 'Vairuotojas'];
