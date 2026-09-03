@@ -40,18 +40,17 @@ import {
   stubOrderNumber,
   uniqueGeocodeQueries,
 } from '../../src/domain/august-2026-excel-backfill';
-import { applyTripSheetVehicleDriverCorrection } from '../../server/employee-auth-store';
-import { KAROLIS_TAUTKUS_DRIVER_ID } from '../../src/domain/trip-sheet-august-2026-vehicle-fix';
-import { applyAdminAssignmentComplete } from '../../src/domain/historical-assignment-complete';
-import { lithuanianDateKey } from '../../src/domain/lithuanian-time';
-import { FUEL_AUGUST_2026_MIGRATION_ID } from '../../src/domain/excel-fuel-log';
-import { TRIP_SHEET_AUGUST_2026_VEHICLE_FIX_ID } from '../../src/domain/trip-sheet-august-2026-vehicle-fix';
 import {
   applyDayReading,
+  applyTripSheetVehicleDriverCorrection,
   buildServerTripSheet,
   tripSheetWorkDate,
   type RouteAssignment,
 } from '../../server/employee-auth-store';
+import { applyAdminAssignmentComplete } from '../../src/domain/historical-assignment-complete';
+import { lithuanianDateKey } from '../../src/domain/lithuanian-time';
+import { FUEL_AUGUST_2026_MIGRATION_ID } from '../../src/domain/excel-fuel-log';
+import { KAROLIS_TAUTKUS_DRIVER_ID, TRIP_SHEET_AUGUST_2026_VEHICLE_FIX_ID } from '../../src/domain/trip-sheet-august-2026-vehicle-fix';
 
 const NOW = '2026-09-03T07:15:00.000Z';
 const storeSource = readFileSync(resolve(import.meta.dirname, '../../server/employee-auth-store.ts'), 'utf8');
@@ -541,7 +540,7 @@ describe('August 2026 Excel backfill v2 gap fill', () => {
       driverId: 'a1',
       vehicleId: 'MET630',
       assignments: [karolisOnMet],
-    })).toMatchObject({ action: 'create', reason: 'create_dual_sheet_2026_08_19', routeId: augustBackfillRouteId(aleks19) });
+    })).toMatchObject({ action: 'create', reason: 'create_from_excel', routeId: augustBackfillRouteId(aleks19) });
 
     expect(decideAugustBackfillDayAction({
       day: aleks19,

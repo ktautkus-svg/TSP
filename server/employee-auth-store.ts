@@ -2845,7 +2845,7 @@ export class EmployeeAuthStore {
   ): FleetVehicle | null {
     const resolved = resolveAugustBackfillVehicle(vehicles, plate);
     if (!resolved) return null;
-    if (resolved.source === 'fleet') return resolved.vehicle as FleetVehicle;
+    if (resolved.source === 'fleet') return resolved.vehicle;
     return fleetVehicleFromAugustRef(resolved.vehicle, nowIso);
   }
 

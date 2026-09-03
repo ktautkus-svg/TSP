@@ -312,7 +312,7 @@ export function snapshotFleetVehicleFromPlate(plate: string): AugustBackfillVehi
 export function resolveAugustBackfillVehicle<T extends { id: string; registrationNumber: string }>(
   vehicles: readonly T[],
   plate: string,
-): { vehicle: T | AugustBackfillVehicleRef; source: 'fleet' | 'snapshot' } | null {
+): { vehicle: T; source: 'fleet' } | { vehicle: AugustBackfillVehicleRef; source: 'snapshot' } | null {
   const fleet = matchVehicleByPlate(vehicles, plate);
   if (fleet) return { vehicle: fleet, source: 'fleet' };
   const snapshot = snapshotFleetVehicleFromPlate(plate);
@@ -382,7 +382,7 @@ export function routeCodesFromAssignmentSnapshot(
   stops: readonly Record<string, unknown>[],
   shipmentLines: readonly Record<string, unknown>[] = [],
 ): string[] {
-  const fromLines = uniqueRegionCodes(shipmentLines as RouteCodeSource[]);
+  const fromLines = uniqueRegionCodes(shipmentLines as unknown as RouteCodeSource[]);
   const fromNotes: string[] = [];
   for (const stop of stops) {
     const note = typeof stop.notes === 'string' ? normalizeRegionCode(stop.notes) : null;
@@ -619,7 +619,10 @@ export function hasOverlappingOrderNumbers(existing: readonly string[], incoming
   return incoming.some((value) => left.has(value.trim().toLocaleLowerCase('lt')));
 }
 
-export function assignmentMatchesWorkDate(assignment: AugustAssignmentLite, date: string): boolean {
+export function assignmentMatchesWorkDate(
+  assignment: Pick<AugustAssignmentLite, 'workDate' | 'routeDate'>,
+  date: string,
+): boolean {
   return assignment.workDate === date || assignment.routeDate === date;
 }
 
