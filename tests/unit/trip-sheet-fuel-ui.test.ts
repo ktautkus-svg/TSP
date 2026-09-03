@@ -100,6 +100,14 @@ describe('trip sheet fuel workflow', () => {
     expect(source).toContain('const ledgerByDate = new Map(applyFuelLedger(ledgerRows, ledgerSheets).map((row) => [row.date, row]))');
   });
 
+  it('de-duplicates a fill that shows up under two sheets on the same date so Įpilta is not doubled', () => {
+    // 08-27 NLL once reported 166,8 L of "Įpilta" because a leftover
+    // assignment re-stapled onto the day carried the same fuel entry a
+    // second time.
+    expect(source).toContain('dedupeFuelEntries(daySheets.flatMap((sheet) => sheet.fuelEntries))');
+    expect(source).toContain('const key = entry.id ||');
+  });
+
   it('wires admin-only vehicle changes for completed trip sheets and driver changes for fuel', () => {
     expect(vehicleSource).toContain('editingReadingVehicleId');
     expect(vehicleSource).toContain("vehicleId: profile.role === 'admin' ? editingReadingVehicleId || selectedVehicleId : undefined");

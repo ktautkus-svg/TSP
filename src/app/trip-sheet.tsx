@@ -36,6 +36,7 @@ type TripFuelEntry = Pick<ServerFuelEntry, 'id' | 'filledAt' | 'odometer' | 'lit
 type DisplayTripSheet = Omit<ServerTripSheet, 'fuelEntries'> & { source: 'server' | 'local'; fuelEntries: TripFuelEntry[] };
 type DailyTripRow = {
   date: string;
+  driverId: string;
   driverName: string;
   routeNumbers: string[];
   startAddress: string;
@@ -437,11 +438,17 @@ function buildDailyRowsWithoutLedger(sheets: DisplayTripSheet[]): Omit<DailyTrip
     const extraKm = daySheets.reduce((sum, sheet) => sum + (sheet.extraDistanceKm ?? 0), 0);
     const distanceKm = vehicleDayFuelDistanceKm(odometerKm ?? plannedKm, extraKm);
     const fuelNorm = daySheets.find((sheet) => sheet.fuelNormLitersPer100Km !== null)?.fuelNormLitersPer100Km ?? null;
-    const fuelEntries = daySheets.flatMap((sheet) => sheet.fuelEntries).sort((left, right) => left.filledAt.localeCompare(right.filledAt));
+    // Leftover / re-stapled assignments (e.g. R88;R86 pinned onto another
+    // day) can surface the *same* fill under two sheets on one date. Without
+    // an id-level dedupe that fill is counted twice — 08-27 NLL once showed
+    // 166,8 L of "Įpilta" that never happened.
+    const fuelEntries = dedupeFuelEntries(daySheets.flatMap((sheet) => sheet.fuelEntries))
+      .sort((left, right) => left.filledAt.localeCompare(right.filledAt));
     const compensation = daySheets.find((sheet) => sheet.compensation)?.compensation ?? null;
     const targetSheet = daySheets[daySheets.length - 1]!;
     return {
       date,
+      driverId: targetSheet.driverId,
       driverName: targetSheet.driverName,
       routeNumbers: [...new Set(daySheets.flatMap((sheet) => sheet.routeNumbers))],
       startAddress: daySheets[0]?.startAddress ?? 'Pradžia nenurodyta',
@@ -498,6 +505,19 @@ function applyFuelLedger(
     fuelEnd: ledger[index]!.endLiters,
     fuelMissing: ledger[index]!.missing,
   }));
+}
+
+/** Collapse fills that appear under more than one sheet on the same date to a single entry. */
+function dedupeFuelEntries(entries: TripFuelEntry[]): TripFuelEntry[] {
+  const seen = new Set<string>();
+  const result: TripFuelEntry[] = [];
+  for (const entry of entries) {
+    const key = entry.id || `${entry.filledAt}|${entry.liters}|${entry.receiptNumber ?? ''}|${entry.odometer ?? ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(entry);
+  }
+  return result;
 }
 
 function minimum(values: (number | null)[]): number | null { const present = values.filter((value): value is number => value !== null); return present.length > 0 ? Math.min(...present) : null; }
