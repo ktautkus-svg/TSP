@@ -49,7 +49,11 @@ export function dailyFuelEntries<T extends DailyMergeFuelEntry>(entries: T[], da
   for (const entry of entries) {
     if (seen.has(entry.id)) continue;
     seen.add(entry.id);
-    const localDate = lithuanianDateKey(entry.filledAt) ?? entry.filledAt.slice(0, 10);
+    // No timezone-naive fallback here on purpose: a raw ISO slice would
+    // silently reintroduce the same misattribution bug near local midnight.
+    // An unparseable filledAt has no Lithuanian calendar day, so it is
+    // excluded rather than guessed.
+    const localDate = lithuanianDateKey(entry.filledAt);
     if (localDate === date) matched.push(entry);
   }
   return matched.sort((left, right) => left.filledAt.localeCompare(right.filledAt));
