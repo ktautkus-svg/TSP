@@ -3,9 +3,13 @@ import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  AUGUST_2026_ALEKSANDRAS_0819_ASSIGNMENT_ID,
   AUGUST_2026_ALEKSANDRAS_0819_ROUTES,
+  AUGUST_2026_ALEKSANDRAS_DRIVER_ID,
   AUGUST_2026_ALEKSANDRAS_NAME_CANDIDATES,
   AUGUST_2026_DUAL_SHEET_DATE,
+  AUGUST_2026_ERIKAS_0831_DATE,
+  AUGUST_2026_ERIKAS_0831_ROUTES,
   AUGUST_2026_ENSURE_FLEET_PLATES,
   AUGUST_2026_LRI740_FUEL_NORM_L_PER_100KM,
   AUGUST_2026_LRI740_OPENING_DATE,
@@ -20,6 +24,7 @@ import {
   AUGUST_2026_EXCEL_BACKFILL_ID,
   AUGUST_2026_EXCEL_BACKFILL_V2_ID,
   AUGUST_2026_EXCEL_BACKFILL_V3_ID,
+  AUGUST_2026_EXCEL_BACKFILL_V4_ID,
   AUGUST_2026_EXCEL_DAY_FILES,
   AUGUST_2026_KAROLIS_0819_ROUTES,
   AUGUST_2026_LEGACY_COMBINED_FILES,
@@ -34,14 +39,19 @@ import {
   decideAugustBackfillDayAction,
   decideAugustBackfillV2GapAction,
   decideAugustBackfillV3GapAction,
+  decideAugustBackfillV4DriverSync,
   excelAddressToGeocodeQuery,
   geocodeQueriesCached,
   historicalWorkdayTimestamps,
   inventStubStop,
   isAleksandras0819Met630RouteSet,
+  isAleksandras0819Met630Target,
   isAugust2026ExcelBackfillV2GapDay,
   isAugust2026ExcelBackfillV3GapDay,
+  isAugust2026ProtectedR56StubAssignment,
   isAugust2026SkipDay,
+  isErikas0831Nll182Assignment,
+  isKarolis0809Lri740Assignment,
   isKarolis0819R54R11Assignment,
   karolis0819NeedsNll182Move,
   karolisAugust19Nll182VehicleFix,
@@ -49,6 +59,8 @@ import {
   loadAugust2026ExcelBackfillCatalog,
   matchAleksandrasDriver,
   matchDriverByName,
+  matchErikasDriver,
+  needsTripSheetListedDriverSync,
   matchVehicleByPlate,
   needsAleksandras0819DriverPatch,
   resolveAugustBackfillDirectory,
@@ -60,15 +72,23 @@ import {
 } from '../../src/domain/august-2026-excel-backfill';
 import {
   applyDayReading,
+  applyTripSheetDriverCorrectionToDayReading,
   applyTripSheetVehicleDriverCorrection,
   buildServerTripSheet,
+  listedTripSheetDriver,
   tripSheetWorkDate,
   type RouteAssignment,
+  type VehicleDayReading,
 } from '../../server/employee-auth-store';
 import { applyAdminAssignmentComplete } from '../../src/domain/historical-assignment-complete';
 import { lithuanianDateKey } from '../../src/domain/lithuanian-time';
 import { FUEL_AUGUST_2026_MIGRATION_ID } from '../../src/domain/excel-fuel-log';
-import { KAROLIS_TAUTKUS_DRIVER_ID, TRIP_SHEET_AUGUST_2026_VEHICLE_FIX_ID } from '../../src/domain/trip-sheet-august-2026-vehicle-fix';
+import {
+  ERIKAS_ASKELOVICIUS_DISPLAY_NAME,
+  ERIKAS_ASKELOVICIUS_DRIVER_ID,
+  KAROLIS_TAUTKUS_DRIVER_ID,
+  TRIP_SHEET_AUGUST_2026_VEHICLE_FIX_ID,
+} from '../../src/domain/trip-sheet-august-2026-vehicle-fix';
 
 const NOW = '2026-09-03T07:15:00.000Z';
 const storeSource = readFileSync(resolve(import.meta.dirname, '../../server/employee-auth-store.ts'), 'utf8');
@@ -437,6 +457,7 @@ describe('August 2026 Excel backfill decisions and snapshots', () => {
       );
       expect(backfillBlock).toContain('async applyAugust2026ExcelBackfillV2');
       expect(backfillBlock).toContain('async applyAugust2026ExcelBackfillV3');
+      expect(backfillBlock).toContain('async applyAugust2026ExcelBackfillV4');
       expect(backfillBlock).not.toMatch(/distancematrix|\/v1\/matrix|computeRouteMatrix/i);
       expect(backfillBlock).not.toContain('this.assignVehicle');
       expect(backfillBlock).not.toContain('await this.assignVehicle');
@@ -449,9 +470,11 @@ describe('August 2026 Excel backfill Cloud Run wiring', () => {
     expect(storeSource).toContain('async applyAugust2026ExcelBackfill');
     expect(storeSource).toContain('async applyAugust2026ExcelBackfillV2');
     expect(storeSource).toContain('async applyAugust2026ExcelBackfillV3');
+    expect(storeSource).toContain('async applyAugust2026ExcelBackfillV4');
     expect(storeSource).toContain('AUGUST_2026_EXCEL_BACKFILL_ID');
     expect(storeSource).toContain('AUGUST_2026_EXCEL_BACKFILL_V2_ID');
     expect(storeSource).toContain('AUGUST_2026_EXCEL_BACKFILL_V3_ID');
+    expect(storeSource).toContain('AUGUST_2026_EXCEL_BACKFILL_V4_ID');
     expect(storeSource).toContain("from '../src/domain/august-2026-excel-backfill.js'");
     expect(storeSource).toContain('do not call assignVehicle');
     expect(storeSource).toContain('markAllDelivered: true');
@@ -466,10 +489,13 @@ describe('August 2026 Excel backfill Cloud Run wiring', () => {
     expect(apiSource).toContain('await store.applyAugust2026ExcelBackfill()');
     expect(apiSource).toContain('await store.applyAugust2026ExcelBackfillV2()');
     expect(apiSource).toContain('await store.applyAugust2026ExcelBackfillV3()');
+    expect(apiSource).toContain('await store.applyAugust2026ExcelBackfillV4()');
     expect(apiSource.indexOf('await store.applyAugust2026ExcelBackfill()'))
       .toBeLessThan(apiSource.indexOf('await store.applyAugust2026ExcelBackfillV2()'));
     expect(apiSource.indexOf('await store.applyAugust2026ExcelBackfillV2()'))
       .toBeLessThan(apiSource.indexOf('await store.applyAugust2026ExcelBackfillV3()'));
+    expect(apiSource.indexOf('await store.applyAugust2026ExcelBackfillV3()'))
+      .toBeLessThan(apiSource.indexOf('await store.applyAugust2026ExcelBackfillV4()'));
     expect(apiSource).toContain('await ensureAugust2026ExcelBackfillMigrated()');
     expect(productionServer).toContain('await ensureAugust2026ExcelBackfillMigrated()');
     expect(productionServer.indexOf('await ensureFuelAugust2026Migrated()'))
@@ -485,6 +511,7 @@ describe('August 2026 Excel backfill Cloud Run wiring', () => {
     expect(listTripSheetsBlock).not.toContain('applyAugust2026ExcelBackfill');
     expect(listTripSheetsBlock).not.toContain('applyAugust2026ExcelBackfillV2');
     expect(listTripSheetsBlock).not.toContain('applyAugust2026ExcelBackfillV3');
+    expect(listTripSheetsBlock).not.toContain('applyAugust2026ExcelBackfillV4');
     expect(listTripSheetsBlock).not.toContain('ensureLri740AugustOpeningFuel');
     expect(listTripSheetsBlock).not.toContain('applyFuelAugust2026V2Migration');
     expect(listTripSheetsBlock).not.toContain('applyTripSheetAugust2026VehicleFix');
@@ -903,6 +930,368 @@ describe('August 2026 Excel backfill v3 gap fill', () => {
     expect(storeSource).toContain('2026-08-09 LRI740 stub still has no visible stops');
     expect(apiSource.indexOf('await store.applyAugust2026ExcelBackfillV2()'))
       .toBeLessThan(apiSource.indexOf('await store.applyAugust2026ExcelBackfillV3()'));
+    expect(apiSource.indexOf('await store.applyAugust2026ExcelBackfillV3()'))
+      .toBeLessThan(apiSource.indexOf('await store.applyAugust2026ExcelBackfillV4()'));
     expect(productionServer).toContain('v3 does not swallow fleet-create');
+  });
+});
+
+describe('August 2026 Excel backfill v4 listed-driver sync', () => {
+  const catalog = loadAugust2026ExcelBackfillCatalog();
+  const aleks19 = catalog.days.find((day) => day.sourceFile === 'aleksandras-19.json')!;
+  const stub09 = catalog.days.find((day) => day.date === '2026-08-09')!;
+  const stub13 = catalog.days.find((day) => day.date === '2026-08-13')!;
+  const stub16 = catalog.days.find((day) => day.date === '2026-08-16')!;
+
+  function met630Assignment(driverId: string, driverName: string): RouteAssignment {
+    const stops = aleks19.stops.map((stop) => ({
+      order_number: stop.orderNo,
+      notes: stop.routeCode,
+      address: stop.address,
+      recipient: stop.name,
+      delivery_status: 'delivered',
+      delivered_at: '2026-08-19T08:12:00.000Z',
+      delivery_time_from: stop.timeWindow.split('-')[0] ?? '06:00',
+      delivery_time_to: '15:00',
+      weight_kg: stop.weightKg,
+    }));
+    return {
+      id: AUGUST_2026_ALEKSANDRAS_0819_ASSIGNMENT_ID,
+      routeId: 'route-aug2026-aleks-0819-xlsx',
+      driverId,
+      driverName,
+      status: 'completed',
+      progress: { totalStops: 14, completedStops: 14, remainingStops: 0, percent: 100 },
+      createdBy: 'august-2026-excel-backfill-v3',
+      assignedAt: '2026-08-19T03:00:00.000Z',
+      updatedAt: '2026-08-19T13:30:00.000Z',
+      vehicle: { id: 'MET630', registrationNumber: 'MET630', model: 'Renault Master', maximumPayloadKg: 1500 },
+      routeSnapshot: {
+        route: {
+          id: 'route-aug2026-aleks-0819-xlsx',
+          date: '2026-08-19',
+          status: 'completed',
+          start_odometer: 279000,
+          end_odometer: 279400,
+          actual_distance_km: 400,
+          started_at: '2026-08-19T06:00:00.000+03:00',
+          completed_at: '2026-08-19T16:30:00.000+03:00',
+        },
+        stops,
+        shipmentLines: aleks19.stops.map((stop) => ({ route_code: stop.routeCode, order_number: stop.orderNo })),
+      },
+    };
+  }
+
+  function met630Reading(driverId: string, driverName: string): VehicleDayReading {
+    return {
+      id: 'MET630:2026-08-19',
+      vehicleId: 'MET630',
+      registrationNumber: 'MET630',
+      date: '2026-08-19',
+      startOdometer: 278900,
+      endOdometer: 279348,
+      distanceKm: 448,
+      driverId,
+      driverName,
+      createdAt: NOW,
+      updatedAt: NOW,
+      createdBy: 'gps-import',
+    };
+  }
+
+  it('keeps a distinct v4 flag after v3', () => {
+    expect(AUGUST_2026_EXCEL_BACKFILL_V4_ID).toBe('august-2026-excel-backfill-v4');
+    expect(AUGUST_2026_EXCEL_BACKFILL_V4_ID).not.toBe(AUGUST_2026_EXCEL_BACKFILL_ID);
+    expect(AUGUST_2026_EXCEL_BACKFILL_V4_ID).not.toBe(AUGUST_2026_EXCEL_BACKFILL_V2_ID);
+    expect(AUGUST_2026_EXCEL_BACKFILL_V4_ID).not.toBe(AUGUST_2026_EXCEL_BACKFILL_V3_ID);
+    expect(AUGUST_2026_ALEKSANDRAS_0819_ASSIGNMENT_ID).toBe('eafe0680-649b-44d6-87ee-3cca734ae9ce');
+    expect(AUGUST_2026_ALEKSANDRAS_DRIVER_ID).toBe('3ad054df-6d40-4279-9037-6b0e5c7abb9f');
+    expect(AUGUST_2026_ERIKAS_0831_DATE).toBe('2026-08-31');
+    expect(AUGUST_2026_ERIKAS_0831_ROUTES).toEqual(['R88', 'R86']);
+    expect(readme).toContain('august-2026-excel-backfill-v4');
+    expect(readme).toContain('applyDayReading');
+  });
+
+  it('syncs the GET /api/trip-sheets driver overlay without rewriting odometer or stops', () => {
+    const assignment = met630Assignment(AUGUST_2026_ALEKSANDRAS_DRIVER_ID, 'Aleksandras Arsenij');
+    const reading = met630Reading(KAROLIS_TAUTKUS_DRIVER_ID, 'Karolis Tautkus');
+    const stops = assignment.routeSnapshot.stops;
+    const shipmentLines = assignment.routeSnapshot.shipmentLines;
+
+    expect(needsAleksandras0819DriverPatch(
+      liteAssignmentFromSnapshot({
+        id: assignment.id,
+        routeId: assignment.routeId,
+        driverId: assignment.driverId,
+        driverName: assignment.driverName,
+        status: assignment.status,
+        vehicle: assignment.vehicle,
+        route: assignment.routeSnapshot.route,
+        stops,
+        shipmentLines,
+      }),
+      AUGUST_2026_ALEKSANDRAS_DRIVER_ID,
+    )).toBe(false);
+
+    const listed = listedTripSheetDriver(assignment, [reading]);
+    expect(listed).toEqual({ driverId: KAROLIS_TAUTKUS_DRIVER_ID, driverName: 'Karolis Tautkus' });
+    expect(applyDayReading(buildServerTripSheet(assignment, assignment.vehicle), [reading])).toMatchObject({
+      driverId: KAROLIS_TAUTKUS_DRIVER_ID,
+      driverName: 'Karolis Tautkus',
+      startOdometer: 278900,
+      endOdometer: 279348,
+      actualDistanceKm: 448,
+    });
+    expect(needsTripSheetListedDriverSync(
+      assignment,
+      listed,
+      AUGUST_2026_ALEKSANDRAS_DRIVER_ID,
+      'aleksandras',
+    )).toBe(true);
+
+    const syncedReading = applyTripSheetDriverCorrectionToDayReading(reading, {
+      driverId: AUGUST_2026_ALEKSANDRAS_DRIVER_ID,
+      driverName: 'Aleksandras Arsenij',
+      updatedAt: NOW,
+    });
+    expect(syncedReading).toMatchObject({
+      driverId: AUGUST_2026_ALEKSANDRAS_DRIVER_ID,
+      driverName: 'Aleksandras Arsenij',
+      startOdometer: 278900,
+      endOdometer: 279348,
+      distanceKm: 448,
+    });
+    const listedAfter = listedTripSheetDriver(assignment, [syncedReading]);
+    expect(listedAfter).toEqual({
+      driverId: AUGUST_2026_ALEKSANDRAS_DRIVER_ID,
+      driverName: 'Aleksandras Arsenij',
+    });
+    expect(applyDayReading(buildServerTripSheet(assignment, assignment.vehicle), [syncedReading])).toMatchObject({
+      startOdometer: 278900,
+      endOdometer: 279348,
+      actualDistanceKm: 448,
+    });
+
+    const patchedAssignment = applyTripSheetVehicleDriverCorrection(assignment, {
+      startOdometer: 279000,
+      endOdometer: 279400,
+      driverId: AUGUST_2026_ALEKSANDRAS_DRIVER_ID,
+      driverName: 'Aleksandras Arsenij',
+      vehicle: assignment.vehicle,
+      updatedAt: NOW,
+    });
+    expect(patchedAssignment.routeSnapshot.stops).toBe(stops);
+    expect(patchedAssignment.routeSnapshot.shipmentLines).toBe(shipmentLines);
+    expect(patchedAssignment.routeSnapshot.stops[0]).toMatchObject({
+      delivered_at: '2026-08-19T08:12:00.000Z',
+      delivery_status: 'delivered',
+    });
+    expect(patchedAssignment.vehicle).toMatchObject({ id: 'MET630', registrationNumber: 'MET630' });
+  });
+
+  it('PATCHes MET630 08-19 listed driver to Aleksandras and leaves Karolis NLL182 R54;R11 alone', () => {
+    const met630 = liteAssignmentFromSnapshot({
+      id: AUGUST_2026_ALEKSANDRAS_0819_ASSIGNMENT_ID,
+      routeId: 'route-aug2026-aleks-0819-xlsx',
+      driverId: AUGUST_2026_ALEKSANDRAS_DRIVER_ID,
+      driverName: 'Aleksandras Arsenij',
+      status: 'completed',
+      vehicle: { id: 'MET630', registrationNumber: 'MET630' },
+      route: { id: 'route-aug2026-aleks-0819-xlsx', date: '2026-08-19', started_at: '2026-08-19T06:00:00.000+03:00' },
+      stops: aleks19.stops.map((stop) => ({ order_number: stop.orderNo, notes: stop.routeCode })),
+      shipmentLines: aleks19.stops.map((stop) => ({ route_code: stop.routeCode, order_number: stop.orderNo })),
+    });
+    expect(isAleksandras0819Met630Target(met630)).toBe(true);
+    expect(isAleksandras0819Met630RouteSet(met630)).toBe(true);
+    expect(decideAugustBackfillV4DriverSync({
+      assignment: met630,
+      listedDriverId: KAROLIS_TAUTKUS_DRIVER_ID,
+      listedDriverName: 'Karolis Tautkus',
+      aleksandrasId: AUGUST_2026_ALEKSANDRAS_DRIVER_ID,
+      erikasId: ERIKAS_ASKELOVICIUS_DRIVER_ID,
+    })).toMatchObject({
+      action: 'sync_listed_driver',
+      targetDriverId: AUGUST_2026_ALEKSANDRAS_DRIVER_ID,
+      reason: 'met630_0819_listed_driver_not_aleksandras',
+    });
+    expect(decideAugustBackfillV4DriverSync({
+      assignment: met630,
+      listedDriverId: AUGUST_2026_ALEKSANDRAS_DRIVER_ID,
+      listedDriverName: 'Aleksandras Arsenij',
+      aleksandrasId: AUGUST_2026_ALEKSANDRAS_DRIVER_ID,
+      erikasId: ERIKAS_ASKELOVICIUS_DRIVER_ID,
+    })).toMatchObject({ action: 'skip', reason: 'met630_0819_already_aleksandras' });
+
+    const karolisNll = liteAssignmentFromSnapshot({
+      id: karolisAugust19Nll182VehicleFix().assignmentId,
+      routeId: 'route-karolis-0819-nll',
+      driverId: KAROLIS_TAUTKUS_DRIVER_ID,
+      driverName: 'Karolis Tautkus',
+      status: 'completed',
+      vehicle: { id: 'NLL182', registrationNumber: 'NLL182' },
+      route: { id: 'route-karolis-0819-nll', date: '2026-08-19', started_at: '2026-08-19T06:00:00.000+03:00' },
+      stops: [
+        { order_number: 'R54-1', notes: 'R54' },
+        { order_number: 'R11-1', notes: 'R11' },
+      ],
+      shipmentLines: [
+        { route_code: 'R54', order_number: 'R54-1' },
+        { route_code: 'R11', order_number: 'R11-1' },
+      ],
+    });
+    expect(isKarolis0819R54R11Assignment(karolisNll)).toBe(true);
+    expect(decideAugustBackfillV4DriverSync({
+      assignment: karolisNll,
+      listedDriverId: KAROLIS_TAUTKUS_DRIVER_ID,
+      listedDriverName: 'Karolis Tautkus',
+      aleksandrasId: AUGUST_2026_ALEKSANDRAS_DRIVER_ID,
+      erikasId: ERIKAS_ASKELOVICIUS_DRIVER_ID,
+    })).toMatchObject({ action: 'skip', reason: 'karolis_0819_nll182_r54_r11' });
+  });
+
+  it('syncs 2026-08-31 NLL182 listed driver to Erikas without touching Karolis MET630 that day', () => {
+    const erikasNll = liteAssignmentFromSnapshot({
+      id: 'erikas-0831-nll182',
+      routeId: 'route-erikas-0831',
+      driverId: ERIKAS_ASKELOVICIUS_DRIVER_ID,
+      driverName: ERIKAS_ASKELOVICIUS_DISPLAY_NAME,
+      status: 'completed',
+      vehicle: { id: 'NLL182', registrationNumber: 'NLL182' },
+      route: { id: 'route-erikas-0831', date: '2026-08-31', started_at: '2026-08-31T06:00:00.000+03:00' },
+      stops: Array.from({ length: 6 }, (_, index) => ({
+        order_number: `R88-${index + 1}`,
+        notes: index < 3 ? 'R88' : 'R86',
+        delivered_at: '2026-08-31T08:00:00.000Z',
+      })),
+      shipmentLines: [
+        { route_code: 'R88', order_number: 'R88-1' },
+        { route_code: 'R86', order_number: 'R86-1' },
+      ],
+    });
+    expect(isErikas0831Nll182Assignment(erikasNll, ERIKAS_ASKELOVICIUS_DRIVER_ID)).toBe(true);
+    expect(matchErikasDriver([
+      { id: ERIKAS_ASKELOVICIUS_DRIVER_ID, displayName: ERIKAS_ASKELOVICIUS_DISPLAY_NAME, role: 'driver', disabled: false },
+    ])?.id).toBe(ERIKAS_ASKELOVICIUS_DRIVER_ID);
+    expect(decideAugustBackfillV4DriverSync({
+      assignment: erikasNll,
+      listedDriverId: KAROLIS_TAUTKUS_DRIVER_ID,
+      listedDriverName: 'Karolis Tautkus',
+      aleksandrasId: AUGUST_2026_ALEKSANDRAS_DRIVER_ID,
+      erikasId: ERIKAS_ASKELOVICIUS_DRIVER_ID,
+    })).toMatchObject({
+      action: 'sync_listed_driver',
+      targetDriverId: ERIKAS_ASKELOVICIUS_DRIVER_ID,
+      reason: 'nll182_0831_listed_driver_not_erikas',
+    });
+
+    const karolisMet = liteAssignmentFromSnapshot({
+      id: 'a6f3ea27-0e1b-474f-ba45-f77266ea1ce4',
+      routeId: 'route-karolis-0831-met',
+      driverId: KAROLIS_TAUTKUS_DRIVER_ID,
+      driverName: 'Karolis Tautkus',
+      status: 'completed',
+      vehicle: { id: 'MET630', registrationNumber: 'MET630' },
+      route: { id: 'route-karolis-0831-met', date: '2026-08-31', started_at: '2026-08-31T06:00:00.000+03:00' },
+      stops: [
+        { order_number: 'R54-1', notes: 'R54' },
+        { order_number: 'R11-1', notes: 'R11' },
+      ],
+      shipmentLines: [
+        { route_code: 'R54', order_number: 'R54-1' },
+        { route_code: 'R11', order_number: 'R11-1' },
+      ],
+    });
+    expect(decideAugustBackfillV4DriverSync({
+      assignment: karolisMet,
+      listedDriverId: KAROLIS_TAUTKUS_DRIVER_ID,
+      listedDriverName: 'Karolis Tautkus',
+      aleksandrasId: AUGUST_2026_ALEKSANDRAS_DRIVER_ID,
+      erikasId: ERIKAS_ASKELOVICIUS_DRIVER_ID,
+    })).toMatchObject({ action: 'skip', reason: 'not_v4_target' });
+  });
+
+  it('does not rewrite 08-09 / 08-13 / 08-16 one-stop R56 stubs', () => {
+    expect(stub09.stops).toHaveLength(1);
+    expect(stub09.stops[0]?.weightKg).toBe(1500);
+    expect(stubOrderNumber('2026-08-09')).toBe('STUB-R56-20260809');
+
+    const filled09 = liteAssignmentFromSnapshot({
+      id: 'filled-lri740-0809',
+      routeId: augustBackfillRouteId(stub09),
+      driverId: KAROLIS_TAUTKUS_DRIVER_ID,
+      driverName: 'Karolis Tautkus',
+      status: 'completed',
+      vehicle: { id: 'LRI740', registrationNumber: 'LRI740' },
+      route: { id: augustBackfillRouteId(stub09), date: '2026-08-09', started_at: '2026-08-09T06:00:00.000+03:00' },
+      stops: [{
+        order_number: stubOrderNumber('2026-08-09'),
+        address: AUGUST_2026_STUB_PLACEHOLDER.address,
+        recipient: AUGUST_2026_STUB_PLACEHOLDER.name,
+        notes: 'R56',
+        weight_kg: 1500,
+        delivered_at: '2026-08-09T08:00:00.000Z',
+      }],
+    });
+    expect(isKarolis0809Lri740Assignment(filled09, KAROLIS_TAUTKUS_DRIVER_ID)).toBe(true);
+    expect(isAugust2026ProtectedR56StubAssignment(filled09)).toBe(true);
+    expect(decideAugustBackfillV4DriverSync({
+      assignment: filled09,
+      listedDriverId: KAROLIS_TAUTKUS_DRIVER_ID,
+      listedDriverName: 'Karolis Tautkus',
+      aleksandrasId: AUGUST_2026_ALEKSANDRAS_DRIVER_ID,
+      erikasId: ERIKAS_ASKELOVICIUS_DRIVER_ID,
+    })).toMatchObject({ action: 'skip', reason: 'protected_r56_stub' });
+
+    for (const stub of [stub13, stub16]) {
+      const lite = liteAssignmentFromSnapshot({
+        id: `stub-${stub.date}`,
+        routeId: augustBackfillRouteId(stub),
+        driverId: AUGUST_2026_ALEKSANDRAS_DRIVER_ID,
+        driverName: 'Aleksandras Arsenij',
+        status: 'completed',
+        vehicle: { id: 'NLL182', registrationNumber: 'NLL182' },
+        route: { id: augustBackfillRouteId(stub), date: stub.date, started_at: `${stub.date}T06:00:00.000+03:00` },
+        stops: [{
+          order_number: stubOrderNumber(stub.date),
+          address: AUGUST_2026_STUB_PLACEHOLDER.address,
+          notes: 'R56',
+          weight_kg: 1500,
+        }],
+      });
+      expect(isAugust2026ProtectedR56StubAssignment(lite)).toBe(true);
+      expect(decideAugustBackfillV4DriverSync({
+        assignment: lite,
+        listedDriverId: AUGUST_2026_ALEKSANDRAS_DRIVER_ID,
+        listedDriverName: 'Aleksandras Arsenij',
+        aleksandrasId: AUGUST_2026_ALEKSANDRAS_DRIVER_ID,
+        erikasId: ERIKAS_ASKELOVICIUS_DRIVER_ID,
+      })).toMatchObject({ action: 'skip', reason: 'protected_r56_stub' });
+    }
+
+    const v4Block = storeSource.slice(
+      storeSource.indexOf('async applyAugust2026ExcelBackfillV4'),
+      storeSource.indexOf('private liteFromRouteAssignment'),
+    );
+    expect(v4Block).not.toContain('rewriteAugustBackfillEmptyStub');
+    expect(v4Block).not.toContain('inventStubStop');
+    expect(v4Block).not.toContain('geocodeQueriesCached');
+    expect(v4Block).not.toContain('this.assignVehicle');
+    expect(v4Block).not.toContain('markAllDelivered');
+    expect(v4Block).toContain('await this.updateTripSheet(assignment.id, { driverId: decision.targetDriverId })');
+    expect(v4Block).toContain('listedTripSheetDriver');
+    expect(v4Block).toContain('refusing to no-op');
+    expect(v4Block).toContain('protected 08-09/08-13/08-16 R56 stubs were rewritten');
+  });
+
+  it('does not swallow verify failures and awaits v4 after v3 on boot', () => {
+    expect(storeSource).toContain('GET /api/trip-sheets 2026-08-19 MET630 driver is still not Aleksandras');
+    expect(storeSource).toContain('protected 08-09/08-13/08-16 R56 stubs were rewritten');
+    expect(storeSource).toContain('applyTripSheetDriverCorrectionToDayReading');
+    expect(storeSource).toContain('odometerTouched');
+    expect(apiSource).toContain('await store.applyAugust2026ExcelBackfillV4()');
+    expect(apiSource.indexOf('await store.applyAugust2026ExcelBackfillV3()'))
+      .toBeLessThan(apiSource.indexOf('await store.applyAugust2026ExcelBackfillV4()'));
+    expect(productionServer).toContain('v4 syncs listed trip-sheet driver');
   });
 });

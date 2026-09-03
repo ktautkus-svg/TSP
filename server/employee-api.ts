@@ -104,7 +104,7 @@ export function ensureTripSheetAugust2026VehicleFixMigrated(): Promise<void> {
   return tripSheetAugust2026VehicleFix;
 }
 
-/** One-shot August 2026 Excel trip-sheet backfill — v1 then v2 then v3, after fuel + vehicle-fix. */
+/** One-shot August 2026 Excel trip-sheet backfill — v1 then v2 then v3 then v4, after fuel + vehicle-fix. */
 export function ensureAugust2026ExcelBackfillMigrated(): Promise<void> {
   if (!august2026ExcelBackfill) {
     august2026ExcelBackfill = (async () => {
@@ -122,6 +122,11 @@ export function ensureAugust2026ExcelBackfillMigrated(): Promise<void> {
       process.stdout.write(`${JSON.stringify({
         event: 'august_2026_excel_backfill_v3',
         ...v3,
+      })}\n`);
+      const v4 = await store.applyAugust2026ExcelBackfillV4();
+      process.stdout.write(`${JSON.stringify({
+        event: 'august_2026_excel_backfill_v4',
+        ...v4,
       })}\n`);
     })().catch((error) => {
       august2026ExcelBackfill = null;
