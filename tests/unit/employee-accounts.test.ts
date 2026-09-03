@@ -105,6 +105,9 @@ describe('employee server session', () => {
     expect(listTripSheetsBlock).not.toContain('applyFuelAugust2026V3Migration');
     expect(listTripSheetsBlock).not.toContain('applyFuelAugust2026V4Migration');
     expect(listTripSheetsBlock).not.toContain('applyAugust2026ExcelBackfill');
+    expect(employeeApiSource).toContain('applyAugust2026ExcelBackfillV2');
+    expect(employeeApiSource.indexOf('applyAugust2026ExcelBackfill()'))
+      .toBeLessThan(employeeApiSource.indexOf('applyAugust2026ExcelBackfillV2()'));
   });
 
   it('requires the PIN on every launch even when a session is cached, and keeps logout explicit', () => {

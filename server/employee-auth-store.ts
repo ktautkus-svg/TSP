@@ -62,18 +62,35 @@ import {
 import { lithuanianDateKey } from '../src/domain/lithuanian-time.js';
 import {
     AUGUST_2026_EXCEL_BACKFILL_ID,
+    AUGUST_2026_EXCEL_BACKFILL_V2_ID,
+    AUGUST_2026_ENSURE_FLEET_PLATES,
+    AUGUST_2026_LRI740_OPENING_DATE,
+    AUGUST_2026_LRI740_OPENING_LITERS,
+    AUGUST_2026_LRI740_OPENING_NOTE,
+    AUGUST_2026_LRI740_OPENING_REPORT_ID,
+    AUGUST_2026_SNAPSHOT_PAYLOAD_KG,
+    AUGUST_2026_SNAPSHOT_VEHICLE_MODEL,
+    august2026EnsureFleetPlateSpecs,
     buildAugustBackfillRouteSnapshot,
     decideAugustBackfillDayAction,
+    decideAugustBackfillV2GapAction,
     geocodeQueriesCached,
     historicalWorkdayTimestamps,
+    isAugust2026ExcelBackfillV2GapDay,
+    isKarolis0819R54R11Assignment,
+    karolis0819NeedsNll182Move,
     liteAssignmentFromSnapshot,
     loadAugust2026ExcelBackfillCatalog,
     matchDriverByName,
     matchVehicleByPlate,
     replaceLiteAssignment,
+    resolveAugustBackfillVehicle,
+    shouldEnsureAugustBackfillFleetPlate,
     uniqueGeocodeQueries,
     type AugustAssignmentLite,
     type AugustBackfillGeocodeFn,
+    type AugustBackfillVehicleRef,
+    type AugustExcelDay,
 } from '../src/domain/august-2026-excel-backfill.js';
 import { GoogleGeocodingAdapter } from '../gateway/providers/google-geocoding-adapter.js';
 import {
@@ -2469,6 +2486,7 @@ export class EmployeeAuthStore {
         vehicle: assignment.vehicle,
         route: assignment.routeSnapshot.route,
         stops: assignment.routeSnapshot.stops,
+        shipmentLines: assignment.routeSnapshot.shipmentLines,
       });
     });
 
@@ -2495,7 +2513,7 @@ export class EmployeeAuthStore {
 
     for (const day of daysToMaterialize) {
       const driver = matchDriverByName(users, day.driver);
-      const vehicle = matchVehicleByPlate(vehicles, day.vehicle);
+      const vehicle = this.resolveAugustBackfillVehicleRef(vehicles, day.vehicle, nowIso);
       const decision = decideAugustBackfillDayAction({
         day,
         skips: catalog.skips,
@@ -2534,6 +2552,7 @@ export class EmployeeAuthStore {
           vehicle: updated.vehicle,
           route: updated.routeSnapshot.route,
           stops: updated.routeSnapshot.stops,
+          shipmentLines: updated.routeSnapshot.shipmentLines,
         }));
         completedExistingUi += 1;
         outcomes.push({ date: day.date, driver: day.driver, vehicle: day.vehicle, action: decision.action, reason: decision.reason });
@@ -2588,6 +2607,7 @@ export class EmployeeAuthStore {
         vehicle: assignment.vehicle,
         route: assignment.routeSnapshot.route,
         stops: assignment.routeSnapshot.stops,
+        shipmentLines: assignment.routeSnapshot.shipmentLines,
       }));
       created += 1;
       outcomes.push({ date: day.date, driver: day.driver, vehicle: day.vehicle, action: 'create', reason: decision.reason });
@@ -2621,6 +2641,334 @@ export class EmployeeAuthStore {
     return {
       applied: true, reason: 'applied', created, completedExistingUi, skipped, geocoded, outcomes,
     };
+  }
+
+  /**
+   * One-shot August 2026 Excel backfill v2 — after v1. Creates the sheets v1
+   * skipped when LRI740/LRI741 were missing, materializes Aleksandras 08-19
+   * MET630 next to Karolis NLL182 R54;R11, and PATCHes that Karolis sheet off
+   * MET630 via updateTripSheet({ vehicleId }) without rewriting stops.
+   * Gated by tsp_settings `august-2026-excel-backfill-v2`.
+   */
+  async applyAugust2026ExcelBackfillV2(input: {
+    geocode?: AugustBackfillGeocodeFn;
+    nowIso?: string;
+  } = {}): Promise<{
+    applied: boolean;
+    reason: string;
+    created: number;
+    fleetEnsured: string[];
+    lri740OpeningFuel: 'created' | 'already_exists' | 'skipped_vehicle_missing';
+    movedKarolis0819ToNll182: number;
+    skipped: number;
+    geocoded: number;
+    outcomes: { date: string; driver: string; vehicle: string; action: string; reason: string }[];
+  }> {
+    const flagRef = this.settings.doc(AUGUST_2026_EXCEL_BACKFILL_V2_ID);
+    const existingFlag = await flagRef.get();
+    if (existingFlag.exists && existingFlag.data()?.status === 'applied') {
+      return {
+        applied: false,
+        reason: 'already_applied',
+        created: 0,
+        fleetEnsured: [],
+        lri740OpeningFuel: 'already_exists',
+        movedKarolis0819ToNll182: 0,
+        skipped: 0,
+        geocoded: 0,
+        outcomes: [],
+      };
+    }
+
+    const catalog = loadAugust2026ExcelBackfillCatalog();
+    const users = await this.listUsers();
+    const vehicles = await this.listVehicles();
+    const nowIso = input.nowIso ?? new Date().toISOString();
+    const fleetEnsured = await this.ensureAugustBackfillFleetPlates(vehicles, nowIso);
+    const lri740OpeningFuel = await this.ensureLri740AugustOpeningFuel(vehicles, users, nowIso);
+
+    const assignmentSnapshot = await this.assignments.get();
+    const assignments: AugustAssignmentLite[] = assignmentSnapshot.docs.map((document) => {
+      const assignment = document.data() as RouteAssignment;
+      return this.liteFromRouteAssignment(assignment);
+    });
+
+    const outcomes: { date: string; driver: string; vehicle: string; action: string; reason: string }[] = [];
+    let movedKarolis0819ToNll182 = 0;
+    const nll = matchVehicleByPlate(vehicles, 'NLL182');
+    const karolis0819 = assignments.find((assignment) => (
+      assignment.status === 'completed' && isKarolis0819R54R11Assignment(assignment)
+    ));
+    if (karolis0819 && karolis0819NeedsNll182Move(karolis0819)) {
+      if (!nll) {
+        outcomes.push({
+          date: '2026-08-19',
+          driver: karolis0819.driverName,
+          vehicle: 'NLL182',
+          action: 'skip',
+          reason: 'karolis_0819_nll182_missing',
+        });
+      } else {
+        await this.updateTripSheet(karolis0819.id, { vehicleId: nll.id });
+        const patchedDocument = await this.assignments.doc(karolis0819.id).get();
+        const patched = patchedDocument.data() as RouteAssignment | undefined;
+        if (patched) replaceLiteAssignment(assignments, this.liteFromRouteAssignment(patched));
+        movedKarolis0819ToNll182 += 1;
+        outcomes.push({
+          date: '2026-08-19',
+          driver: patched?.driverName ?? karolis0819.driverName,
+          vehicle: 'NLL182',
+          action: 'move_vehicle',
+          reason: 'karolis_0819_r54_r11_to_nll182',
+        });
+      }
+    } else if (karolis0819) {
+      outcomes.push({
+        date: '2026-08-19',
+        driver: karolis0819.driverName,
+        vehicle: karolis0819.vehiclePlate ?? 'NLL182',
+        action: 'skip',
+        reason: 'karolis_0819_already_nll182',
+      });
+    }
+
+    const gapDays = catalog.days.filter((day) => isAugust2026ExcelBackfillV2GapDay(day));
+    const hasTargetDriver = Boolean(
+      matchDriverByName(users, 'Karolis Tautkus') || matchDriverByName(users, 'Aleksandras Arsenij'),
+    );
+    const geocode = input.geocode ?? createAugustBackfillProductionGeocoder();
+    const queries = uniqueGeocodeQueries(hasTargetDriver ? gapDays : []);
+    const geocodes = queries.length > 0 ? await geocodeQueriesCached(queries, geocode) : new Map();
+    const geocoded = [...geocodes.values()].filter(Boolean).length;
+
+    let created = 0;
+    let skipped = 0;
+
+    if (!hasTargetDriver) {
+      return {
+        applied: false,
+        reason: 'target_drivers_missing',
+        created,
+        fleetEnsured,
+        lri740OpeningFuel,
+        movedKarolis0819ToNll182,
+        skipped,
+        geocoded,
+        outcomes,
+      };
+    }
+
+    for (const day of gapDays) {
+      const driver = matchDriverByName(users, day.driver);
+      const vehicle = this.resolveAugustBackfillVehicleRef(vehicles, day.vehicle, nowIso);
+      const decision = decideAugustBackfillV2GapAction({
+        day,
+        skips: catalog.skips,
+        existingUiRoute: catalog.existingUiRoute,
+        driverId: driver?.id ?? null,
+        vehicleId: vehicle?.id ?? null,
+        assignments,
+      });
+
+      if (decision.action === 'skip') {
+        skipped += 1;
+        outcomes.push({ date: day.date, driver: day.driver, vehicle: day.vehicle, action: decision.action, reason: decision.reason });
+        process.stdout.write(`${JSON.stringify({
+          event: 'august_2026_excel_backfill_v2_skip',
+          date: day.date,
+          driver: day.driver,
+          vehicle: day.vehicle,
+          reason: decision.reason,
+        })}\n`);
+        continue;
+      }
+
+      if (decision.action !== 'create' || !driver || !vehicle) {
+        skipped += 1;
+        outcomes.push({
+          date: day.date,
+          driver: day.driver,
+          vehicle: day.vehicle,
+          action: 'skip',
+          reason: !driver ? 'driver_missing' : !vehicle ? 'vehicle_missing' : `unexpected_${decision.action}`,
+        });
+        continue;
+      }
+
+      const createdAssignment = await this.createAugustBackfillCompletedAssignment({
+        day,
+        driver,
+        vehicle,
+        geocodes,
+        routeId: decision.routeId,
+        nowIso,
+        createdBy: AUGUST_2026_EXCEL_BACKFILL_V2_ID,
+      });
+      assignments.push(this.liteFromRouteAssignment(createdAssignment));
+      created += 1;
+      outcomes.push({ date: day.date, driver: day.driver, vehicle: day.vehicle, action: 'create', reason: decision.reason });
+    }
+
+    await flagRef.set({
+      id: AUGUST_2026_EXCEL_BACKFILL_V2_ID,
+      status: 'applied',
+      appliedAt: nowIso,
+      created,
+      fleetEnsured,
+      lri740OpeningFuel,
+      movedKarolis0819ToNll182,
+      skipped,
+      geocoded,
+      uniqueAddressQueries: queries.length,
+      outcomes,
+    });
+    return {
+      applied: true,
+      reason: 'applied',
+      created,
+      fleetEnsured,
+      lri740OpeningFuel,
+      movedKarolis0819ToNll182,
+      skipped,
+      geocoded,
+      outcomes,
+    };
+  }
+
+  private liteFromRouteAssignment(assignment: RouteAssignment): AugustAssignmentLite {
+    return liteAssignmentFromSnapshot({
+      id: assignment.id,
+      routeId: assignment.routeId,
+      driverId: assignment.driverId,
+      driverName: assignment.driverName,
+      status: assignment.status,
+      vehicle: assignment.vehicle,
+      route: assignment.routeSnapshot.route,
+      stops: assignment.routeSnapshot.stops,
+      shipmentLines: assignment.routeSnapshot.shipmentLines,
+    });
+  }
+
+  private resolveAugustBackfillVehicleRef(
+    vehicles: FleetVehicle[],
+    plate: string,
+    nowIso: string,
+  ): FleetVehicle | null {
+    const resolved = resolveAugustBackfillVehicle(vehicles, plate);
+    if (!resolved) return null;
+    if (resolved.source === 'fleet') return resolved.vehicle;
+    return fleetVehicleFromAugustRef(resolved.vehicle, nowIso);
+  }
+
+  private async ensureAugustBackfillFleetPlates(
+    vehicles: FleetVehicle[],
+    nowIso: string,
+  ): Promise<string[]> {
+    const ensured: string[] = [];
+    for (const plate of AUGUST_2026_ENSURE_FLEET_PLATES) {
+      if (!shouldEnsureAugustBackfillFleetPlate(plate)) continue;
+      if (matchVehicleByPlate(vehicles, plate)) continue;
+      try {
+        const created = await this.createVehicle({
+          registrationNumber: plate,
+          model: AUGUST_2026_SNAPSHOT_VEHICLE_MODEL,
+          maximumPayloadKg: AUGUST_2026_SNAPSHOT_PAYLOAD_KG,
+          ...august2026EnsureFleetPlateSpecs(plate),
+        });
+        vehicles.push(created);
+        ensured.push(plate);
+      } catch (error) {
+        if (error instanceof EmployeeApiError && error.code === 'VEHICLE_EXISTS') {
+          const refreshed = matchVehicleByPlate(await this.listVehicles(), plate);
+          if (refreshed && !matchVehicleByPlate(vehicles, plate)) vehicles.push(refreshed);
+          continue;
+        }
+        process.stdout.write(`${JSON.stringify({
+          event: 'august_2026_excel_backfill_v2_fleet_skip',
+          plate,
+          error: error instanceof Error ? error.message : String(error),
+          at: nowIso,
+        })}\n`);
+      }
+    }
+    return ensured;
+  }
+
+  private async ensureLri740AugustOpeningFuel(
+    vehicles: FleetVehicle[],
+    users: { id: string; displayName: string; role?: string; disabled?: boolean }[],
+    nowIso: string,
+  ): Promise<'created' | 'already_exists' | 'skipped_vehicle_missing'> {
+    const vehicle = matchVehicleByPlate(vehicles, 'LRI740')
+      ?? this.resolveAugustBackfillVehicleRef(vehicles, 'LRI740', nowIso);
+    if (!vehicle) return 'skipped_vehicle_missing';
+    if ((await this.fuelReports.doc(AUGUST_2026_LRI740_OPENING_REPORT_ID).get()).exists) {
+      return 'already_exists';
+    }
+    const existing = await this.fuelReports.where('vehicleId', '==', vehicle.id).get();
+    const reports = existing.docs.map((document) => normalizeFuelReport(document.data() as FuelReport));
+    if (alreadyHasOpeningFuel(reports, vehicle.id, AUGUST_2026_LRI740_OPENING_REPORT_ID, AUGUST_2026_LRI740_OPENING_DATE)) {
+      return 'already_exists';
+    }
+    const karolis = matchDriverByName(users, 'Karolis Tautkus');
+    const report: FuelReport = {
+      id: AUGUST_2026_LRI740_OPENING_REPORT_ID,
+      driverId: karolis?.id ?? 'opening-seed',
+      driverName: karolis?.displayName ?? 'Karolis Tautkus',
+      vehicleId: vehicle.id,
+      registrationNumber: vehicle.registrationNumber,
+      assignmentRevision: vehicle.assignmentRevision,
+      previousLiters: vehicle.fuelRemainingLiters,
+      reportedLiters: AUGUST_2026_LRI740_OPENING_LITERS,
+      status: 'approved',
+      reportedAt: nowIso,
+      reviewedAt: nowIso,
+      reviewedBy: AUGUST_2026_EXCEL_BACKFILL_V2_ID,
+      effectiveAt: AUGUST_2026_LRI740_OPENING_DATE,
+      kind: 'admin_correction',
+      note: AUGUST_2026_LRI740_OPENING_NOTE,
+    };
+    await this.fuelReports.doc(report.id).set(report);
+    return 'created';
+  }
+
+  private async createAugustBackfillCompletedAssignment(input: {
+    day: AugustExcelDay;
+    driver: { id: string; displayName: string };
+    vehicle: FleetVehicle;
+    geocodes: ReadonlyMap<string, Awaited<ReturnType<AugustBackfillGeocodeFn>>>;
+    routeId: string;
+    nowIso: string;
+    createdBy: string;
+  }): Promise<RouteAssignment> {
+    const snapshot = buildAugustBackfillRouteSnapshot(input.day, input.geocodes, input.routeId, input.nowIso);
+    validateSnapshot(snapshot);
+    const timestamps = historicalWorkdayTimestamps(input.day.date);
+    const completed = applyAdminAssignmentComplete(snapshot, {
+      startedAt: timestamps.startedAt,
+      completedAt: timestamps.completedAt,
+      markAllDelivered: true,
+    }, input.nowIso);
+    const assignment: RouteAssignment = {
+      id: randomUUID(),
+      routeId: input.routeId,
+      driverId: input.driver.id,
+      driverName: input.driver.displayName,
+      status: 'completed',
+      routeSnapshot: {
+        route: completed.route,
+        stops: completed.stops,
+        shipmentLines: snapshot.shipmentLines,
+      },
+      progress: completed.progress,
+      createdBy: input.createdBy,
+      assignedAt: timestamps.startedAt,
+      updatedAt: completed.updatedAt,
+      // Snapshot only — do not call assignVehicle (would steal today's fleet).
+      vehicle: vehicleSnapshot(input.vehicle),
+    };
+    await this.assignments.doc(assignment.id).create(assignment);
+    return assignment;
   }
 
   /** Retained for tests/catalog helpers; not called from listTripSheets. */
@@ -3104,6 +3452,32 @@ function validateRouteDate(value: string): string {
     throw new EmployeeApiError('INVALID_ROUTE_DATE', 'Maršruto data turi būti YYYY-MM-DD formato.', 400);
   }
   return normalized;
+}
+
+function fleetVehicleFromAugustRef(ref: AugustBackfillVehicleRef, nowIso: string): FleetVehicle {
+  return {
+    id: ref.id,
+    registrationNumber: ref.registrationNumber,
+    model: ref.model,
+    maximumPayloadKg: ref.maximumPayloadKg,
+    fuelNormLPer100Km: ref.fuelNormLPer100Km,
+    fuelTankCapacityLiters: ref.fuelTankCapacityLiters,
+    cargoBodyKind: ref.cargoBodyKind,
+    palletCapacity: ref.palletCapacity,
+    hasSideDoor: ref.hasSideDoor,
+    cargoLengthMm: null,
+    cargoWidthMm: null,
+    cargoBodyType: 'van',
+    wheelArchStartMm: null,
+    wheelArchEndMm: null,
+    wheelArchIntrusionMm: null,
+    assignedDriverId: null,
+    fuelRemainingLiters: null,
+    fuelUpdatedAt: null,
+    assignmentRevision: 0,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  };
 }
 
 function vehicleSnapshot(vehicle: FleetVehicle): FleetVehicleSnapshot {

@@ -60,3 +60,15 @@ Karolis 2026-08-03 (`karolis-03.json`) is the historical complete payload for th
 - 2026-08-13 Karolis Tautkus — be reiso
 - 2026-08-16 Karolis Tautkus — nedirbo
 - 2026-08-25 Karolis Tautkus — M03;R02 atšaukta
+
+## Boot flags
+
+- `august-2026-excel-backfill-v1` — first materialization. Skips a day when the live fleet has no plate **and** the resolver cannot snapshot it.
+- `august-2026-excel-backfill-v2` — after v1. Idempotent gap fill:
+  - ensure unassigned fleet rows (or snapshot-only) for **LRI740** / **LRI741**;
+  - create Aleksandras **2026-08-11 LRI741** from `aleksandras-11.json` if missing;
+  - create Karolis **2026-08-09 LRI740** R56 1500 kg stub if missing (fleet create uses tank **100 L**, norm **15 L/100 km**; opening balance **13 L** on **2026-08-08**);
+  - create Aleksandras **2026-08-19 MET630** R14;R27;R28;R51 from `aleksandras-19.json` if missing (same calendar day as Karolis NLL182 R54;R11);
+  - if Karolis 08-19 R54;R11 is still on MET630, PATCH `vehicleId` to NLL182 through `updateTripSheet` (stops / punctuality untouched).
+
+v2 does not call Google Distance Matrix and does not call `assignVehicle`.
