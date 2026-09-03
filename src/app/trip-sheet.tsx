@@ -136,7 +136,7 @@ export default function TripSheetScreen() {
     && (selectedMonth === 'all' || sheet.date.startsWith(selectedMonth))
     && (!dateFrom || sheet.date >= dateFrom)
     && (!dateTo || sheet.date <= dateTo));
-  const monthlyGroups = useMemo(() => buildMonthlyGroups(visible), [visible]);
+  const monthlyGroups = useMemo(() => buildMonthlyGroups(visible, sheets), [visible, sheets]);
   const periodLabel = dateFrom || dateTo ? `${dateFrom || '...'} - ${dateTo || '...'}` : selectedMonth === 'all' ? 'Visas laikotarpis' : formatMonth(selectedMonth);
   const selectFilter = (apply: () => void) => { apply(); };
   const setDateRange = (from: string, to: string) => { setDateFrom(from); setDateTo(to); };
@@ -373,7 +373,7 @@ function MonthlyTripSheet({ group, styles }: {
   </View>;
 }
 
-function buildMonthlyGroups(sheets: DisplayTripSheet[]): MonthlyTripGroup[] {
+function buildMonthlyGroups(sheets: DisplayTripSheet[], ledgerSourceSheets: DisplayTripSheet[] = sheets): MonthlyTripGroup[] {
   // Grouped by vehicle+month only — not by driver — so one vehicle's trip
   // sheet stays a single continuous report covering every driver who used it
   // that period, with each day showing its own driver. Selecting a specific
@@ -396,14 +396,32 @@ function buildMonthlyGroups(sheets: DisplayTripSheet[]): MonthlyTripGroup[] {
       key,
       month: group.month,
       vehicle: group.vehicle,
-      rows: buildDailyRows(group.sheets),
+      rows: buildDailyRows(group.sheets, ledgerSourceSheets.filter((sheet) => (
+        sheet.date.startsWith(group.month)
+        && (sheet.vehicle?.id ?? 'no-vehicle') === (group.vehicle?.id ?? 'no-vehicle')
+      ))),
     })).sort((left, right) => right.month.localeCompare(left.month) || (left.vehicle?.registrationNumber ?? '').localeCompare(right.vehicle?.registrationNumber ?? '', 'lt'));
 }
 
-function buildDailyRows(sheets: DisplayTripSheet[]): DailyTripRow[] {
+function buildDailyRows(sheets: DisplayTripSheet[], ledgerSheets: DisplayTripSheet[] = sheets): DailyTripRow[] {
+  const ledgerRows = buildDailyRowsWithoutLedger(ledgerSheets);
+  const ledgerByDate = new Map(applyFuelLedger(ledgerRows, ledgerSheets).map((row) => [row.date, row]));
+  return buildDailyRowsWithoutLedger(sheets).map((day) => {
+    const ledgerDay = ledgerByDate.get(day.date);
+    return {
+      ...day,
+      fuelConsumed: ledgerDay?.fuelConsumed ?? null,
+      fuelStart: ledgerDay?.fuelStart ?? null,
+      fuelEnd: ledgerDay?.fuelEnd ?? null,
+      fuelMissing: ledgerDay?.fuelMissing ?? null,
+    };
+  });
+}
+
+function buildDailyRowsWithoutLedger(sheets: DisplayTripSheet[]): Omit<DailyTripRow, 'fuelConsumed' | 'fuelStart' | 'fuelEnd' | 'fuelMissing'>[] {
   const byDate = new Map<string, DisplayTripSheet[]>();
   for (const sheet of sheets) byDate.set(sheet.date, [...(byDate.get(sheet.date) ?? []), sheet]);
-  const days = [...byDate.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([date, daySheets]) => {
+  return [...byDate.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([date, daySheets]) => {
     const startOdometer = minimum(daySheets.map((sheet) => sheet.startOdometer));
     const endOdometer = maximum(daySheets.map((sheet) => sheet.endOdometer));
     // The odometer is the truth once both readings are in; the planned figure
@@ -442,7 +460,12 @@ function buildDailyRows(sheets: DisplayTripSheet[]): DailyTripRow[] {
       fuelEntries,
     };
   });
+}
 
+function applyFuelLedger(
+  days: Omit<DailyTripRow, 'fuelConsumed' | 'fuelStart' | 'fuelEnd' | 'fuelMissing'>[],
+  sheets: DisplayTripSheet[],
+): DailyTripRow[] {
   // The tank balance is a running total across the month, not a per-day figure:
   // each day opens on what the previous day left. The opening reading is the
   // approved balance dated on or before the first day of this period — an
@@ -462,7 +485,7 @@ function buildDailyRows(sheets: DisplayTripSheet[]): DailyTripRow[] {
       date: day.date,
       distanceKm: day.distanceKm,
       fuelNormLPer100Km: day.fuelNorm,
-      addedLiters: day.fuelAdded,
+      addedLiters: day.fuelAdded ?? 0,
     })),
     openingLiters,
   );

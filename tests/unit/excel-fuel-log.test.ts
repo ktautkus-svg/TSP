@@ -7,6 +7,12 @@ import {
   FUEL_AUGUST_2026_V3_MIGRATION_ID,
   FUEL_AUGUST_2026_V4_MIGRATION_ID,
   FUEL_AUGUST_2026_V5_MIGRATION_ID,
+  FUEL_AUGUST_2026_V6_DATE,
+  FUEL_AUGUST_2026_V6_LITERS,
+  FUEL_AUGUST_2026_V6_MET_DUPLICATE_DOCUMENT_ID,
+  FUEL_AUGUST_2026_V6_MIGRATION_ID,
+  FUEL_AUGUST_2026_V6_NLL_DOCUMENT_ID,
+  FUEL_AUGUST_2026_V6_RECEIPT,
   FUEL_AUGUST_2026_V3_REMOVED_FILLS,
   MET630_AUGUST_03_2026_DATE,
   MET630_AUGUST_03_2026_DISTANCE_KM,
@@ -36,6 +42,8 @@ import {
   isFuelAugust2026V4ManualFillEntry,
   isFuelAugust2026V5ProtectedEntry,
   isFuelAugust2026V5RemovedEntry,
+  isFuelAugust2026V6MetDuplicateEntry,
+  isFuelAugust2026V6NllEntry,
   isStaleAugust2026FuelEntry,
   isStaleAugustOpeningReport,
   lithuaniaLocalToIso,
@@ -49,12 +57,12 @@ import {
 const FIRESTORE_ID = /^[a-zA-Z0-9_-]{8,80}$/;
 
 describe('Excel kuro katalogas', () => {
-  it('turi autoritetingą rugpjūčio 2026 lentelę (15 MET + 15 NLL)', () => {
+  it('turi autoritetingą rugpjūčio 2026 lentelę (14 MET + 16 NLL)', () => {
     expect(EXCEL_FUEL_LOG).toHaveLength(30);
-    expect(EXCEL_FUEL_LOG.filter((fill) => fill.registrationNumber === 'NLL182')).toHaveLength(15);
-    expect(EXCEL_FUEL_LOG.filter((fill) => fill.registrationNumber === 'MET630')).toHaveLength(15);
-    expect(excelFuelLitersTotal('NLL182')).toBe(836.79);
-    expect(excelFuelLitersTotal('MET630')).toBe(1203.20);
+    expect(EXCEL_FUEL_LOG.filter((fill) => fill.registrationNumber === 'NLL182')).toHaveLength(16);
+    expect(EXCEL_FUEL_LOG.filter((fill) => fill.registrationNumber === 'MET630')).toHaveLength(14);
+    expect(excelFuelLitersTotal('NLL182')).toBe(914.79);
+    expect(excelFuelLitersTotal('MET630')).toBe(1125.20);
     expect(EXCEL_FUEL_LOG.every((fill) => (
       fill.registrationNumber !== 'NLL182' || fill.localDate >= '2026-08-13'
     ))).toBe(true);
@@ -65,6 +73,8 @@ describe('Excel kuro katalogas', () => {
     expect(byReceipt['MET630:476/1159']).toBe(10);
     expect(byReceipt['MET630:242/426']).toBeUndefined();
     expect(byReceipt['MET630:89/1222']).toBeUndefined();
+    expect(byReceipt['MET630:212/1167']).toBeUndefined();
+    expect(byReceipt['NLL182:212/1167']).toBe(78);
     expect(byReceipt['NLL182:13/1214']).toBe(45.6);
     expect(byReceipt['NLL182:19/571']).toBe(70.52);
     expect(byReceipt['NLL182:131/1213']).toBe(30);
@@ -104,6 +114,10 @@ describe('Excel kuro katalogas', () => {
     expect(FUEL_AUGUST_2026_V3_MIGRATION_ID).toBe('fuel-august-2026-v3');
     expect(FUEL_AUGUST_2026_V4_MIGRATION_ID).toBe('fuel-august-2026-v4');
     expect(FUEL_AUGUST_2026_V5_MIGRATION_ID).toBe('fuel-august-2026-v5');
+    expect(FUEL_AUGUST_2026_V6_MIGRATION_ID).toBe('fuel-august-2026-v6');
+    expect(FUEL_AUGUST_2026_V6_DATE).toBe('2026-08-19');
+    expect(FUEL_AUGUST_2026_V6_RECEIPT).toBe('212/1167');
+    expect(FUEL_AUGUST_2026_V6_LITERS).toBe(78);
     expect(MET630_AUGUST_03_2026_DATE).toBe('2026-08-03');
     expect(MET630_AUGUST_03_2026_DISTANCE_KM).toBe(617);
 
@@ -112,6 +126,39 @@ describe('Excel kuro katalogas', () => {
     expect(alreadyHasExcelFuelEntry([{ id: excelFuelDocumentId(fill), vehicleId: 'MET630', receiptNumber: fill.receiptNumber }], fill, 'MET630')).toBe(true);
     expect(alreadyHasExcelFuelEntry([{ id: 'other-id-12', vehicleId: 'MET630', receiptNumber: '135/1193' }], fill, 'MET630')).toBe(true);
     expect(alreadyHasExcelFuelEntry([{ id: 'other-id-12', vehicleId: 'NLL182', receiptNumber: '135/1193' }], fill, 'MET630')).toBe(false);
+  });
+
+  it('v6 pašalina tik MET630 08-19 dublikatą ir palieka vieną NLL182 pylimą', () => {
+    expect(excelFuelDocumentId(EXCEL_FUEL_LOG.find((fill) => fill.receiptNumber === FUEL_AUGUST_2026_V6_RECEIPT)!))
+      .toBe(FUEL_AUGUST_2026_V6_NLL_DOCUMENT_ID);
+    expect(isFuelAugust2026V6MetDuplicateEntry({
+      id: FUEL_AUGUST_2026_V6_MET_DUPLICATE_DOCUMENT_ID,
+      registrationNumber: 'MET630',
+      receiptNumber: FUEL_AUGUST_2026_V6_RECEIPT,
+      filledAt: '2026-08-19T07:55:00.000Z',
+      liters: FUEL_AUGUST_2026_V6_LITERS,
+    })).toBe(true);
+    expect(isFuelAugust2026V6NllEntry({
+      id: FUEL_AUGUST_2026_V6_NLL_DOCUMENT_ID,
+      registrationNumber: 'NLL182',
+      receiptNumber: FUEL_AUGUST_2026_V6_RECEIPT,
+      filledAt: '2026-08-19T07:55:00.000Z',
+      liters: FUEL_AUGUST_2026_V6_LITERS,
+    })).toBe(true);
+    expect(isFuelAugust2026V6MetDuplicateEntry({
+      id: 'xlsx-MET630-20260809-476-1159',
+      registrationNumber: 'MET630',
+      receiptNumber: '476/1159',
+      filledAt: '2026-08-09T20:23:00.000Z',
+      liters: 10,
+    })).toBe(false);
+    expect(isFuelAugust2026V6MetDuplicateEntry({
+      id: 'xlsx-manual-08-52',
+      registrationNumber: 'MET630',
+      receiptNumber: '08/52',
+      filledAt: '2026-08-31T09:00:00.000Z',
+      liters: 95.07,
+    })).toBe(false);
   });
 
   it('v3 pažymi dvi klaidingas MET630 pylimo eilutes ir pataiso 08-03 dienos km', () => {

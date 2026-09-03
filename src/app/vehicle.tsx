@@ -104,6 +104,7 @@ export default function VehicleScreen() {
   const [editingReadingEnd, setEditingReadingEnd] = useState('');
   const [editingReadingKm, setEditingReadingKm] = useState('');
   const [editingReadingDriverId, setEditingReadingDriverId] = useState('');
+  const [editingReadingVehicleId, setEditingReadingVehicleId] = useState('');
   const [addingReading, setAddingReading] = useState(false);
   const [newReadingDate, setNewReadingDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [newReadingStart, setNewReadingStart] = useState('');
@@ -113,6 +114,7 @@ export default function VehicleScreen() {
   const [fuelDate, setFuelDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [fuelLiters, setFuelLiters] = useState('');
   const [fuelReceipt, setFuelReceipt] = useState('');
+  const [fuelDriverId, setFuelDriverId] = useState('');
   const [editingFuelId, setEditingFuelId] = useState<string | null>(null);
   const [openingBalanceDate, setOpeningBalanceDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [openingBalanceLiters, setOpeningBalanceLiters] = useState('');
@@ -160,6 +162,7 @@ export default function VehicleScreen() {
     setEditingReadingEnd(reading.endOdometer == null ? '' : String(reading.endOdometer));
     setEditingReadingKm(reading.startOdometer == null || reading.endOdometer == null ? '' : String(odometerDistanceKm(reading.startOdometer, reading.endOdometer)));
     setEditingReadingDriverId(reading.driverId || 'none');
+    setEditingReadingVehicleId(reading.vehicle?.id ?? selectedVehicleId);
   };
 
   // Lets a day be entered as "how many km were driven" instead of typing the
@@ -192,9 +195,9 @@ export default function VehicleScreen() {
         }
         await employeeApi('/api/trip-sheets/day-readings', { method: 'POST', body: JSON.stringify({ vehicleId: selectedVehicleId, date: editingReadingDate, startOdometer: start, endOdometer: end, driverId }) });
       } else {
-        await employeeApi(`/api/trip-sheets/${encodeURIComponent(reading.assignmentId)}`, { method: 'PATCH', body: JSON.stringify({ startOdometer: start, endOdometer: end, driverId: driverId ?? undefined }) });
+        await employeeApi(`/api/trip-sheets/${encodeURIComponent(reading.assignmentId)}`, { method: 'PATCH', body: JSON.stringify({ startOdometer: start, endOdometer: end, driverId: driverId ?? undefined, vehicleId: profile.role === 'admin' ? editingReadingVehicleId || selectedVehicleId : undefined }) });
       }
-      setEditingReadingId(null); setMessage('Dienos odometras ir vairuotojas išsaugoti.');
+      setEditingReadingId(null); setEditingReadingVehicleId(''); setMessage('Dienos odometras, automobilis ir vairuotojas išsaugoti.');
       await applyVehicle(selectedVehicleId);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Odometro išsaugoti nepavyko.');
@@ -305,7 +308,7 @@ export default function VehicleScreen() {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fuelDate)) { setMessage('Įveskite datą formatu YYYY-MM-DD.'); return; }
     setBusy(true);
     try {
-      const body = { filledAt: new Date(`${fuelDate}T12:00:00`).toISOString(), liters, receiptNumber: fuelReceipt.trim() || null };
+      const body = { filledAt: new Date(`${fuelDate}T12:00:00`).toISOString(), liters, receiptNumber: fuelReceipt.trim() || null, driverId: profile.role === 'admin' && fuelDriverId ? fuelDriverId : undefined };
       if (editingFuelId) {
         await employeeApi(`/api/fuel-entries/${encodeURIComponent(editingFuelId)}`, { method: 'PATCH', body: JSON.stringify(body) });
       } else {
@@ -313,7 +316,7 @@ export default function VehicleScreen() {
         if (!reading) throw new Error('Šiai datai nėra odometro įrašo. Pirmiausia įrašykite dienos odometrą.');
         await employeeApi(`/api/trip-sheets/${encodeURIComponent(reading.assignmentId)}/fuel-entries`, { method: 'POST', body: JSON.stringify({ ...body, odometer: reading.endOdometer ?? reading.startOdometer ?? 0 }) });
       }
-      setFuelLiters(''); setFuelReceipt(''); setEditingFuelId(null); setMessage('Kuro įrašas išsaugotas.');
+      setFuelLiters(''); setFuelReceipt(''); setFuelDriverId(''); setEditingFuelId(null); setMessage('Kuro įrašas išsaugotas.');
       await applyVehicle(selectedVehicleId);
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Kuro įrašo išsaugoti nepavyko.'); }
     finally { setBusy(false); }
@@ -618,8 +621,9 @@ export default function VehicleScreen() {
                   />
                   <TextInput value={editingReadingEnd} onChangeText={setEditingReadingEnd} keyboardType="decimal-pad" style={[styles.input, styles.inlineInput]} placeholder="Pabaiga" placeholderTextColor={colors.textMuted} />
                 </View>
+                {profile.role === 'admin' && !parseVehicleDayAssignmentId(reading.assignmentId) ? <View style={styles.options}>{fleetVehicles.map((vehicle) => <Pressable key={vehicle.id} onPress={() => setEditingReadingVehicleId(vehicle.id)} style={[styles.option, editingReadingVehicleId === vehicle.id && styles.optionSelected]}><Text style={[styles.optionText, editingReadingVehicleId === vehicle.id && styles.optionTextSelected]}>{vehicle.registrationNumber}</Text></Pressable>)}</View> : null}
                 <View style={styles.options}>{drivers.map((driver) => <Pressable key={driver.id} onPress={() => setEditingReadingDriverId(driver.id)} style={[styles.option, editingReadingDriverId === driver.id && styles.optionSelected]}><Text style={[styles.optionText, editingReadingDriverId === driver.id && styles.optionTextSelected]}>{driver.displayName}</Text></Pressable>)}</View>
-                <View style={styles.entryActions}><Pressable disabled={busy || !online} onPress={() => { void saveReading(reading); }} style={[styles.buttonSmall, (busy || !online) && styles.disabled]}><Text style={styles.buttonText}>Išsaugoti</Text></Pressable><Pressable onPress={() => setEditingReadingId(null)} style={styles.secondaryButtonSmall}><Text style={styles.secondaryText}>Atšaukti</Text></Pressable></View>
+                <View style={styles.entryActions}><Pressable disabled={busy || !online} onPress={() => { void saveReading(reading); }} style={[styles.buttonSmall, (busy || !online) && styles.disabled]}><Text style={styles.buttonText}>Išsaugoti</Text></Pressable><Pressable onPress={() => { setEditingReadingId(null); setEditingReadingVehicleId(''); }} style={styles.secondaryButtonSmall}><Text style={styles.secondaryText}>Atšaukti</Text></Pressable></View>
               </> : null}
             </View>;
           })}
@@ -631,8 +635,9 @@ export default function VehicleScreen() {
             <TextInput value={fuelLiters} onChangeText={setFuelLiters} keyboardType="decimal-pad" style={[styles.input, styles.inlineInput]} placeholder="Įpilta, l" placeholderTextColor={colors.textMuted} />
             <TextInput value={fuelReceipt} onChangeText={setFuelReceipt} style={[styles.input, styles.inlineInput]} placeholder="Čekio Nr. (nebūtina)" placeholderTextColor={colors.textMuted} />
           </View>
+          {profile.role === 'admin' ? <View style={styles.options}>{drivers.map((driver) => <Pressable key={driver.id} onPress={() => setFuelDriverId(driver.id)} style={[styles.option, fuelDriverId === driver.id && styles.optionSelected]}><Text style={[styles.optionText, fuelDriverId === driver.id && styles.optionTextSelected]}>{driver.displayName}</Text></Pressable>)}</View> : null}
           <Pressable disabled={busy || !online} onPress={() => { void saveFuel(); }} style={[styles.button, (busy || !online) && styles.disabled]}><Text style={styles.buttonText}>{editingFuelId ? 'Išsaugoti kuro pakeitimą' : 'Įrašyti papildymą'}</Text></Pressable>
-          {vehicleFuelEntries.map((entry) => <View key={entry.id} style={styles.fuelReadingRow}><View style={styles.fuelReadingMain}><Text style={styles.readingTitle}>{new Date(entry.filledAt).toLocaleDateString('lt-LT')}</Text><Text style={styles.hint}>{entry.liters} l{entry.receiptNumber ? ` · čekis ${entry.receiptNumber}` : ''}</Text></View><View style={styles.readingActions}><Pressable accessibilityLabel={`Redaguoti kuro pylimą ${entry.id}`} onPress={() => { setEditingFuelId(entry.id); setFuelDate(entry.filledAt.slice(0, 10)); setFuelLiters(String(entry.liters)); setFuelReceipt(entry.receiptNumber ?? ''); }} style={styles.iconButton}><PencilIcon size={18} color={colors.warning} /></Pressable><Pressable accessibilityLabel={`Ištrinti kuro pylimą ${entry.id}`} disabled={busy} onPress={() => confirmDeleteFuel(entry)} style={styles.iconButton}><TrashIcon size={18} color={colors.danger} /></Pressable></View></View>)}
+          {vehicleFuelEntries.map((entry) => <View key={entry.id} style={styles.fuelReadingRow}><View style={styles.fuelReadingMain}><Text style={styles.readingTitle}>{new Date(entry.filledAt).toLocaleDateString('lt-LT')}</Text><Text style={styles.hint}>{entry.liters} l{entry.receiptNumber ? ` · čekis ${entry.receiptNumber}` : ''}{entry.driverName ? ` · ${entry.driverName}` : ''}</Text></View><View style={styles.readingActions}><Pressable accessibilityLabel={`Redaguoti kuro pylimą ${entry.id}`} onPress={() => { setEditingFuelId(entry.id); setFuelDate(entry.filledAt.slice(0, 10)); setFuelLiters(String(entry.liters)); setFuelReceipt(entry.receiptNumber ?? ''); setFuelDriverId(entry.driverId); }} style={styles.iconButton}><PencilIcon size={18} color={colors.warning} /></Pressable><Pressable accessibilityLabel={`Ištrinti kuro pylimą ${entry.id}`} disabled={busy} onPress={() => confirmDeleteFuel(entry)} style={styles.iconButton}><TrashIcon size={18} color={colors.danger} /></Pressable></View></View>)}
           {profile.role === 'admin' ? <View style={styles.newDayForm} testID="vehicle-opening-fuel-balance">
             <Text style={styles.sectionTitle}>Pradinis kuro likutis</Text>
             <Text style={styles.hint}>Nurodykite, kiek litrų bake buvo nuo pasirinktos dienos. Naudokite, kai pradedate skaičiuoti nuo tam tikros datos.</Text>

@@ -72,13 +72,17 @@ describe('employee server session', () => {
     expect(employeeStoreSource).toContain('async applyFuelAugust2026V3Migration');
     expect(employeeStoreSource).toContain('async applyFuelAugust2026V4Migration');
     expect(employeeStoreSource).toContain('async applyFuelAugust2026V5Migration');
+    expect(employeeStoreSource).toContain('async applyFuelAugust2026V6Migration');
     expect(employeeStoreSource).toContain('FUEL_AUGUST_2026_MIGRATION_ID');
     expect(employeeStoreSource).toContain('FUEL_AUGUST_2026_V3_MIGRATION_ID');
     expect(employeeStoreSource).toContain('FUEL_AUGUST_2026_V4_MIGRATION_ID');
     expect(employeeStoreSource).toContain('FUEL_AUGUST_2026_V5_MIGRATION_ID');
+    expect(employeeStoreSource).toContain('FUEL_AUGUST_2026_V6_MIGRATION_ID');
     expect(employeeStoreSource).toContain('isFuelAugust2026V3RemovedEntry');
     expect(employeeStoreSource).toContain('isFuelAugust2026V4ManualFillEntry');
     expect(employeeStoreSource).toContain('isFuelAugust2026V5RemovedEntry');
+    expect(employeeStoreSource).toContain('isFuelAugust2026V6MetDuplicateEntry');
+    expect(employeeStoreSource).toContain('isFuelAugust2026V6NllEntry');
     expect(employeeStoreSource).toContain('correctedMet630August03Odometers');
     expect(employeeStoreSource).toContain('met630August31AssignedOdometers');
     expect(employeeApiSource).toContain('await ensureFuelAugust2026Migrated()');
@@ -87,9 +91,11 @@ describe('employee server session', () => {
     expect(employeeApiSource).toContain('applyFuelAugust2026V3Migration');
     expect(employeeApiSource).toContain('applyFuelAugust2026V4Migration');
     expect(employeeApiSource).toContain('applyFuelAugust2026V5Migration');
+    expect(employeeApiSource).toContain('applyFuelAugust2026V6Migration');
     expect(employeeApiSource).toContain('fuel_august_2026_v3_migration');
     expect(employeeApiSource).toContain('fuel_august_2026_v4_migration');
     expect(employeeApiSource).toContain('fuel_august_2026_v5_migration');
+    expect(employeeApiSource).toContain('fuel_august_2026_v6_migration');
     // Production boot awaits the migration before listen; listTripSheets must not
     // call the old additive seeders (they would resurrect deleted days).
     const productionServerSource = readFileSync(
@@ -110,6 +116,7 @@ describe('employee server session', () => {
     expect(listTripSheetsBlock).not.toContain('applyFuelAugust2026V3Migration');
     expect(listTripSheetsBlock).not.toContain('applyFuelAugust2026V4Migration');
     expect(listTripSheetsBlock).not.toContain('applyFuelAugust2026V5Migration');
+    expect(listTripSheetsBlock).not.toContain('applyFuelAugust2026V6Migration');
     expect(listTripSheetsBlock).not.toContain('applyAugust2026ExcelBackfill');
     expect(employeeApiSource).toContain('applyAugust2026ExcelBackfillV2');
     expect(employeeApiSource).toContain('applyAugust2026ExcelBackfillV3');
@@ -121,6 +128,8 @@ describe('employee server session', () => {
       .toBeLessThan(employeeApiSource.indexOf('applyFuelAugust2026V4Migration()'));
     expect(employeeApiSource.indexOf('applyFuelAugust2026V4Migration()'))
       .toBeLessThan(employeeApiSource.indexOf('applyFuelAugust2026V5Migration()'));
+    expect(employeeApiSource.indexOf('applyFuelAugust2026V5Migration()'))
+      .toBeLessThan(employeeApiSource.indexOf('applyFuelAugust2026V6Migration()'));
     expect(employeeApiSource.indexOf('applyAugust2026ExcelBackfill()'))
       .toBeLessThan(employeeApiSource.indexOf('applyAugust2026ExcelBackfillV2()'));
     expect(employeeApiSource.indexOf('applyAugust2026ExcelBackfillV2()'))
@@ -227,6 +236,7 @@ describe('employee server session', () => {
 
   it('stores real fuel refills against a completed trip sheet', () => {
     expect(employeeApiSource).toContain("/fuel-entries$/");
+    expect(employeeApiSource).toContain("pathname.startsWith('/api/fuel-entries')");
     expect(employeeApiSource).toContain('await store.addFuelEntry');
     expect(employeeStoreSource).toContain("private readonly fuelEntries = this.db.collection('tsp_fuel_entries')");
     expect(employeeStoreSource).toContain('async addFuelEntry');
@@ -244,6 +254,26 @@ describe('employee server session', () => {
     expect(adminSource).toContain("employeeApi('/api/trip-sheets/day-readings'");
     expect(tripSheetSource).not.toContain('/api/trip-sheets/day-readings');
     expect(tripSheetSource).not.toContain('Kaina už litrą');
+  });
+
+  it('keeps fuel entry reassignment admin-only while allowing normal fuel edits', () => {
+    const apiFuelPatchBlock = employeeApiSource.slice(
+      employeeApiSource.indexOf('if (fuelEntryMatch && request.method === \'PATCH\')'),
+      employeeApiSource.indexOf('if (fuelEntryMatch && request.method === \'DELETE\')'),
+    );
+    expect(apiFuelPatchBlock).toContain('vehicleId: body.vehicleId === undefined ? undefined : stringField(body, \'vehicleId\')');
+    expect(apiFuelPatchBlock).toContain('driverId: body.driverId === undefined ? undefined : stringField(body, \'driverId\')');
+    const updateFuelBlock = employeeStoreSource.slice(
+      employeeStoreSource.indexOf('async updateFuelEntry'),
+      employeeStoreSource.indexOf('async deleteFuelEntry'),
+    );
+    expect(updateFuelBlock).toContain('vehicleId?: string');
+    expect(updateFuelBlock).toContain('driverId?: string');
+    expect(updateFuelBlock).toContain("profile.role !== 'admin'");
+    expect(updateFuelBlock).toContain('Tik administratorius gali perkelti kuro įrašą.');
+    expect(updateFuelBlock).toContain('registrationNumber: nextVehicle?.registrationNumber ?? current.registrationNumber');
+    expect(updateFuelBlock).toContain('driverName = storedDriver.displayName');
+    expect(updateFuelBlock).toContain('assertCanEditTripReadings(profile');
   });
 
   it('allows management actions only to an admin or an explicitly permitted dispatcher', () => {
