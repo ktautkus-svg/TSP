@@ -212,7 +212,10 @@ export default function TripSheetScreen() {
           })),
         })),
       });
-      const payload = bytes.slice();
+      // Copy into a fresh Uint8Array so Blob never sees fflate's sliced
+      // .buffer (extra bytes / SharedArrayBuffer) — Excel then opens a
+      // truncated ZIP as named-but-empty sheets.
+      const payload = new Uint8Array(bytes);
       const blob = new Blob([payload], { type: MIME_XLSX });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
