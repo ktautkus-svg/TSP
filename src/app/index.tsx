@@ -11,6 +11,7 @@ import { resolveRoute } from '@/application/routes/route-navigation';
 import { GetRouteProgress, type RouteProgress } from '@/application/routes/route-workday';
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 import { AccountMenuSheet } from '@/components/account-menu-sheet';
+import { AdminHomeHero } from '@/components/admin-home-hero';
 import { BrandHeader } from '@/components/brand-header';
 import { DriverAppTabs } from '@/components/driver-app-tabs';
 import { DriverNowDashboard } from '@/components/driver-now-dashboard';
@@ -142,11 +143,15 @@ export default function HomeScreen() {
     return () => { mounted = false; };
   }, [db, effectiveDriverId, online, profile.id, profile.role, repository, showDriverDashboard, syncRevision]);
 
+  const isAdminHome = !showDriverDashboard && profile.role === 'admin';
+
   return (
     <SafeAreaView style={styles.safeArea}>
       {showDriverDashboard
         ? <BrandHeader showNotifications={false} showSyncStatus={false} variant="driver" />
-        : <BrandHeader onMenuPress={() => setAccountMenuOpen(true)} />}
+        : isAdminHome
+          ? <AdminHomeHero online={online} onAvatarPress={() => setAccountMenuOpen(true)} />
+          : <BrandHeader onMenuPress={() => setAccountMenuOpen(true)} />}
       {drivingAsProxy ? (
         <View style={styles.actingBanner} testID="acting-driver-banner">
           <Text style={styles.actingBannerText}>Vairuojate kaip {actingDriver?.displayName}</Text>
@@ -157,17 +162,12 @@ export default function HomeScreen() {
       ) : null}
       <AccountMenuSheet visible={accountMenuOpen} onClose={() => setAccountMenuOpen(false)} />
       <ScreenContainer>
-        <ScrollView contentContainerStyle={[styles.content, showDriverDashboard && styles.driverContent]}>
-          {!showDriverDashboard && profile.role === 'admin' ? (
+        <ScrollView contentContainerStyle={[styles.content, showDriverDashboard && styles.driverContent, isAdminHome && styles.adminContent]}>
+          {isAdminHome ? (
             <View style={styles.adminMenu} testID="admin-home-menu">
-              <View style={styles.adminMenuHeading}>
-                <Text style={styles.adminMenuEyebrow}>ADMINISTRATORIAUS MENIU</Text>
-                <Text style={styles.adminMenuTitle}>FiRo valdymo centras</Text>
-                <Text style={styles.adminMenuText}>{profile.displayName}</Text>
-              </View>
-              <View style={styles.adminMenuFeatured}><GroupedMenuSection columns label="SKUBŪS DARBAI" testID="admin-urgent-menu">
+              <View style={styles.adminMenuFeatured}><GroupedMenuSection columns label="MARŠRUTIZAVIMAS" testID="admin-urgent-menu">
                 <GroupedMenuRow description="Kurti, redaguoti, vykdyti ir stebėti maršrutus." icon={<MenuArtwork kind="dispatch" />} onPress={() => router.push('/dispatcher' as Href)} title="Dispečerio skydelis" tone="success" />
-                <GroupedMenuRow description="Pasirinkti vairuotoją ir atidaryti jam priskirtą maršrutą šiame įrenginyje." icon={<MenuArtwork kind="drivers" />} onPress={() => router.push('/execute-route' as Href)} title="Vykdyti vairuotojo maršrutą" tone="info" />
+                <GroupedMenuRow description="Pasirinkti vairuotoją ir atidaryti jam priskirtą maršrutą šiame įrenginyje." icon={<MenuArtwork kind="driveRoute" />} onPress={() => router.push('/execute-route' as Href)} title="Vykdyti vairuotojo maršrutą" tone="info" />
                 <GroupedMenuRow description="Taškų seka, laikai ir pristatymo kokybė." icon={<MenuArtwork kind="quality" />} onPress={() => router.push('/quality-control' as Href)} title="Kokybės kontrolė" tone="success" />
               </GroupedMenuSection></View>
               <View style={styles.adminMenuGroup}><GroupedMenuSection columns label="STEBĖJIMAS IR APSKAITA" testID="admin-monitoring-menu">
@@ -316,6 +316,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background },
   content: { flexGrow: 1, paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: 96, gap: spacing.md },
   driverContent: { paddingTop: spacing.sm, backgroundColor: colors.background },
+  adminContent: { paddingTop: spacing.md },
   eyebrow: { ...type.label, color: colors.textMuted },
   // One card style, one radius, one hairline border. No shadow: the border is
   // enough separation against a light grey page.
@@ -341,10 +342,6 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   warningText: { ...type.bodyStrong, color: colors.warning },
   pilotExportButton: { minHeight: 44 },
   adminMenu: { gap: spacing.md },
-  adminMenuHeading: { gap: spacing.xs, paddingHorizontal: spacing.xs, paddingVertical: spacing.md },
-  adminMenuEyebrow: { ...type.label, color: colors.textMuted },
-  adminMenuTitle: { ...type.pageTitle, color: colors.text, fontSize: 32, lineHeight: 38 },
-  adminMenuText: { ...type.bodyStrong, color: colors.info },
   actingBanner: { minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, paddingHorizontal: spacing.lg, paddingVertical: spacing.xs, backgroundColor: colors.primary },
   actingBannerText: { ...type.secondaryStrong, color: colors.textInverse },
   actingBannerButton: { minHeight: 32, paddingHorizontal: spacing.sm, borderRadius: radius.sm, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },

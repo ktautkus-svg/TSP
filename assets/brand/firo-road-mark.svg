@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="FiRo kelias">
+  <title>FiRo kelias</title>
+  <!-- Standalone road mark: never fused into the FiRo wordmark letterforms. -->
+  <rect width="128" height="128" rx="28" ry="28" fill="#15174C"/>
+  <!-- Outer road ribbon (burgundy) -->
+  <path
+    fill="#9E202C"
+    d="M14 98
+       C34 78 48 62 58 48
+       C70 32 84 20 108 12
+       L118 28
+       C96 36 84 46 74 60
+       C64 74 52 88 34 106 Z"/>
+  <!-- Inner road surface (navy) -->
+  <path
+    fill="#15174C"
+    d="M28 94
+       C44 78 56 64 64 52
+       C74 38 86 28 104 22
+       L110 34
+       C94 40 84 48 76 60
+       C68 72 58 84 44 98 Z"/>
+  <!-- Dashed center line -->
+  <path
+    d="M40 90 C54 74 66 58 78 44 C88 32 98 24 112 18"
+    fill="none"
+    stroke="#FFFFFF"
+    stroke-width="5"
+    stroke-linecap="butt"
+    stroke-dasharray="11 9"/>
+</svg>

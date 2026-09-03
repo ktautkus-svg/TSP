@@ -18,7 +18,9 @@ describe('approved first screens', () => {
     expect(gate).toContain('<FiroBrand hero inverse />');
     expect(gate).not.toContain('firo-wordmark-color-spiral');
     expect(gate).not.toContain('tsp-logo');
-    expect(gate).toContain('FIRO · FIBONACCI + ROAD');
+    // Fibonacci tagline was removed from the login screen — keep the wordmark only.
+    expect(gate).not.toContain('FIRO · FIBONACCI + ROAD');
+    expect(gate).not.toContain('FIBONACCI');
     expect(source('src/components/brand-header.tsx')).toContain("variant?: 'default' | 'driver'");
   });
 

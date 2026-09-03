@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 100" width="360" height="100" role="img" aria-label="FiRo">
+  <title>FiRo</title>
+  <!-- Clean FiRo letterforms: F navy + red bottom · i red · R navy + red crossbar · o navy -->
+
+  <!-- F -->
+  <rect x="6" y="6" width="22" height="72" fill="#15174C"/>
+  <rect x="6" y="6" width="70" height="16" fill="#15174C"/>
+  <rect x="6" y="36" width="54" height="14" fill="#15174C"/>
+  <rect x="6" y="84" width="62" height="12" rx="2" fill="#9E202C"/>
+
+  <!-- i -->
+  <circle cx="108" cy="14" r="9" fill="#9E202C"/>
+  <rect x="100" y="32" width="16" height="58" rx="3" fill="#9E202C"/>
+
+  <!-- R -->
+  <rect x="140" y="6" width="22" height="86" fill="#15174C"/>
+  <path fill="#15174C" fill-rule="evenodd" d="M162 6 H214 A36 36 0 0 1 214 78 H162 Z M184 26 H210 A16 16 0 0 1 210 58 H184 Z"/>
+  <path fill="#15174C" d="M188 70 L236 92 L214 92 L170 70 Z"/>
+  <rect x="162" y="42" width="58" height="12" rx="2" fill="#9E202C"/>
+
+  <!-- o -->
+  <path fill="#15174C" fill-rule="evenodd" d="M292 28 A34 34 0 1 1 292 96 A34 34 0 1 1 292 28 Z M292 46 A16 16 0 1 0 292 78 A16 16 0 1 0 292 46 Z"/>
+</svg>
