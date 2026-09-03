@@ -6,6 +6,12 @@ import {
   AUGUST_2026_ALEKSANDRAS_0819_ROUTES,
   AUGUST_2026_DUAL_SHEET_DATE,
   AUGUST_2026_ENSURE_FLEET_PLATES,
+  AUGUST_2026_LRI740_FUEL_NORM_L_PER_100KM,
+  AUGUST_2026_LRI740_OPENING_DATE,
+  AUGUST_2026_LRI740_OPENING_LITERS,
+  AUGUST_2026_LRI740_OPENING_REPORT_ID,
+  AUGUST_2026_LRI740_TANK_LITERS,
+  august2026EnsureFleetPlateSpecs,
   AUGUST_2026_EXCEL_BACKFILL_ID,
   AUGUST_2026_EXCEL_BACKFILL_V2_ID,
   AUGUST_2026_EXCEL_DAY_FILES,
@@ -177,7 +183,17 @@ describe('August 2026 Excel trip-sheet backfill catalog', () => {
       registrationNumber: 'LRI740',
       palletCapacity: 8,
       hasSideDoor: true,
+      fuelTankCapacityLiters: AUGUST_2026_LRI740_TANK_LITERS,
+      fuelNormLPer100Km: AUGUST_2026_LRI740_FUEL_NORM_L_PER_100KM,
     });
+    expect(august2026EnsureFleetPlateSpecs('LRI740')).toEqual({
+      fuelNormLPer100Km: 15,
+      fuelTankCapacityLiters: 100,
+    });
+    expect(august2026EnsureFleetPlateSpecs('LRI741')).toEqual({});
+    expect(AUGUST_2026_LRI740_OPENING_LITERS).toBe(13);
+    expect(AUGUST_2026_LRI740_OPENING_DATE).toBe('2026-08-08');
+    expect(AUGUST_2026_LRI740_OPENING_REPORT_ID).toBe('open-LRI740-20260808');
     expect(AUGUST_2026_ENSURE_FLEET_PLATES).toEqual(['LRI740', 'LRI741']);
     expect(resolveAugustBackfillVehicle([
       { id: 'NLL182', registrationNumber: 'NLL 182' },
@@ -410,6 +426,9 @@ describe('August 2026 Excel backfill Cloud Run wiring', () => {
     expect(storeSource).toContain('do not call assignVehicle');
     expect(storeSource).toContain('markAllDelivered: true');
     expect(storeSource).toContain('await this.updateTripSheet(karolis0819.id, { vehicleId: nll.id })');
+    expect(storeSource).toContain('ensureLri740AugustOpeningFuel');
+    expect(storeSource).toContain('AUGUST_2026_LRI740_OPENING_REPORT_ID');
+    expect(storeSource).toContain('august2026EnsureFleetPlateSpecs(plate)');
     expect(apiSource).toContain('export function ensureAugust2026ExcelBackfillMigrated');
     expect(apiSource).toContain('await store.applyAugust2026ExcelBackfill()');
     expect(apiSource).toContain('await store.applyAugust2026ExcelBackfillV2()');
@@ -429,6 +448,7 @@ describe('August 2026 Excel backfill Cloud Run wiring', () => {
     );
     expect(listTripSheetsBlock).not.toContain('applyAugust2026ExcelBackfill');
     expect(listTripSheetsBlock).not.toContain('applyAugust2026ExcelBackfillV2');
+    expect(listTripSheetsBlock).not.toContain('ensureLri740AugustOpeningFuel');
     expect(listTripSheetsBlock).not.toContain('applyFuelAugust2026V2Migration');
     expect(listTripSheetsBlock).not.toContain('applyTripSheetAugust2026VehicleFix');
   });

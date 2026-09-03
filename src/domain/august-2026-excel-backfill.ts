@@ -25,6 +25,14 @@ export const AUGUST_2026_EXCEL_BACKFILL_V2_ID = 'august-2026-excel-backfill-v2';
 export const AUGUST_2026_SNAPSHOT_VEHICLE_MODEL = 'Renault Master';
 export const AUGUST_2026_SNAPSHOT_PAYLOAD_KG = 1500;
 export const AUGUST_2026_ENSURE_FLEET_PLATES = ['LRI740', 'LRI741'] as const;
+
+/** LRI740 facts for the 08-09 Karolis R56 stub / fleet-create path. */
+export const AUGUST_2026_LRI740_TANK_LITERS = 100;
+export const AUGUST_2026_LRI740_FUEL_NORM_L_PER_100KM = 15;
+export const AUGUST_2026_LRI740_OPENING_LITERS = 13;
+export const AUGUST_2026_LRI740_OPENING_DATE = '2026-08-08';
+export const AUGUST_2026_LRI740_OPENING_REPORT_ID = 'open-LRI740-20260808';
+export const AUGUST_2026_LRI740_OPENING_NOTE = 'Rugpjūčio 8 d. bako likutis prieš 08-09 Karolio R56 stub.';
 export const AUGUST_2026_DUAL_SHEET_DATE = '2026-08-19';
 export const AUGUST_2026_KAROLIS_0819_ROUTES = ['R54', 'R11'] as const;
 export const AUGUST_2026_ALEKSANDRAS_0819_ROUTES = ['R14', 'R27', 'R28', 'R51'] as const;
@@ -287,6 +295,17 @@ export function shouldEnsureAugustBackfillFleetPlate(plate: string): boolean {
   return (AUGUST_2026_ENSURE_FLEET_PLATES as readonly string[]).includes(normalized);
 }
 
+export function august2026EnsureFleetPlateSpecs(plate: string): {
+  fuelNormLPer100Km?: number;
+  fuelTankCapacityLiters?: number;
+} {
+  if (normalizePlate(plate) !== 'LRI740') return {};
+  return {
+    fuelNormLPer100Km: AUGUST_2026_LRI740_FUEL_NORM_L_PER_100KM,
+    fuelTankCapacityLiters: AUGUST_2026_LRI740_TANK_LITERS,
+  };
+}
+
 /**
  * When the live fleet has no row for an Excel plate (LRI740 / LRI741 in
  * production), still produce a snapshot the assignment can store. Does not
@@ -296,6 +315,7 @@ export function snapshotFleetVehicleFromPlate(plate: string): AugustBackfillVehi
   const registrationNumber = normalizePlate(plate);
   if (!registrationNumber) return null;
   const cargo = resolveVehicleCargo({ registrationNumber });
+  const specs = august2026EnsureFleetPlateSpecs(registrationNumber);
   return {
     id: registrationNumber,
     registrationNumber,
@@ -304,8 +324,8 @@ export function snapshotFleetVehicleFromPlate(plate: string): AugustBackfillVehi
     cargoBodyKind: bodyKindFromPalletCapacity(cargo.palletCapacity),
     palletCapacity: cargo.palletCapacity,
     hasSideDoor: cargo.hasSideDoor,
-    fuelNormLPer100Km: null,
-    fuelTankCapacityLiters: fleetTankCapacity(registrationNumber),
+    fuelNormLPer100Km: specs.fuelNormLPer100Km ?? null,
+    fuelTankCapacityLiters: specs.fuelTankCapacityLiters ?? fleetTankCapacity(registrationNumber),
   };
 }
 

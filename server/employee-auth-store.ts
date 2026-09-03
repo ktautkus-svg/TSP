@@ -64,8 +64,13 @@ import {
     AUGUST_2026_EXCEL_BACKFILL_ID,
     AUGUST_2026_EXCEL_BACKFILL_V2_ID,
     AUGUST_2026_ENSURE_FLEET_PLATES,
+    AUGUST_2026_LRI740_OPENING_DATE,
+    AUGUST_2026_LRI740_OPENING_LITERS,
+    AUGUST_2026_LRI740_OPENING_NOTE,
+    AUGUST_2026_LRI740_OPENING_REPORT_ID,
     AUGUST_2026_SNAPSHOT_PAYLOAD_KG,
     AUGUST_2026_SNAPSHOT_VEHICLE_MODEL,
+    august2026EnsureFleetPlateSpecs,
     buildAugustBackfillRouteSnapshot,
     decideAugustBackfillDayAction,
     decideAugustBackfillV2GapAction,
@@ -2653,6 +2658,7 @@ export class EmployeeAuthStore {
     reason: string;
     created: number;
     fleetEnsured: string[];
+    lri740OpeningFuel: 'created' | 'already_exists' | 'skipped_vehicle_missing';
     movedKarolis0819ToNll182: number;
     skipped: number;
     geocoded: number;
@@ -2666,6 +2672,7 @@ export class EmployeeAuthStore {
         reason: 'already_applied',
         created: 0,
         fleetEnsured: [],
+        lri740OpeningFuel: 'already_exists',
         movedKarolis0819ToNll182: 0,
         skipped: 0,
         geocoded: 0,
@@ -2678,6 +2685,7 @@ export class EmployeeAuthStore {
     const vehicles = await this.listVehicles();
     const nowIso = input.nowIso ?? new Date().toISOString();
     const fleetEnsured = await this.ensureAugustBackfillFleetPlates(vehicles, nowIso);
+    const lri740OpeningFuel = await this.ensureLri740AugustOpeningFuel(vehicles, users, nowIso);
 
     const assignmentSnapshot = await this.assignments.get();
     const assignments: AugustAssignmentLite[] = assignmentSnapshot.docs.map((document) => {
@@ -2742,6 +2750,7 @@ export class EmployeeAuthStore {
         reason: 'target_drivers_missing',
         created,
         fleetEnsured,
+        lri740OpeningFuel,
         movedKarolis0819ToNll182,
         skipped,
         geocoded,
@@ -2806,6 +2815,7 @@ export class EmployeeAuthStore {
       appliedAt: nowIso,
       created,
       fleetEnsured,
+      lri740OpeningFuel,
       movedKarolis0819ToNll182,
       skipped,
       geocoded,
@@ -2817,6 +2827,7 @@ export class EmployeeAuthStore {
       reason: 'applied',
       created,
       fleetEnsured,
+      lri740OpeningFuel,
       movedKarolis0819ToNll182,
       skipped,
       geocoded,
@@ -2862,6 +2873,7 @@ export class EmployeeAuthStore {
           registrationNumber: plate,
           model: AUGUST_2026_SNAPSHOT_VEHICLE_MODEL,
           maximumPayloadKg: AUGUST_2026_SNAPSHOT_PAYLOAD_KG,
+          ...august2026EnsureFleetPlateSpecs(plate),
         });
         vehicles.push(created);
         ensured.push(plate);
@@ -2880,6 +2892,44 @@ export class EmployeeAuthStore {
       }
     }
     return ensured;
+  }
+
+  private async ensureLri740AugustOpeningFuel(
+    vehicles: FleetVehicle[],
+    users: { id: string; displayName: string; role?: string; disabled?: boolean }[],
+    nowIso: string,
+  ): Promise<'created' | 'already_exists' | 'skipped_vehicle_missing'> {
+    const vehicle = matchVehicleByPlate(vehicles, 'LRI740')
+      ?? this.resolveAugustBackfillVehicleRef(vehicles, 'LRI740', nowIso);
+    if (!vehicle) return 'skipped_vehicle_missing';
+    if ((await this.fuelReports.doc(AUGUST_2026_LRI740_OPENING_REPORT_ID).get()).exists) {
+      return 'already_exists';
+    }
+    const existing = await this.fuelReports.where('vehicleId', '==', vehicle.id).get();
+    const reports = existing.docs.map((document) => normalizeFuelReport(document.data() as FuelReport));
+    if (alreadyHasOpeningFuel(reports, vehicle.id, AUGUST_2026_LRI740_OPENING_REPORT_ID, AUGUST_2026_LRI740_OPENING_DATE)) {
+      return 'already_exists';
+    }
+    const karolis = matchDriverByName(users, 'Karolis Tautkus');
+    const report: FuelReport = {
+      id: AUGUST_2026_LRI740_OPENING_REPORT_ID,
+      driverId: karolis?.id ?? 'opening-seed',
+      driverName: karolis?.displayName ?? 'Karolis Tautkus',
+      vehicleId: vehicle.id,
+      registrationNumber: vehicle.registrationNumber,
+      assignmentRevision: vehicle.assignmentRevision,
+      previousLiters: vehicle.fuelRemainingLiters,
+      reportedLiters: AUGUST_2026_LRI740_OPENING_LITERS,
+      status: 'approved',
+      reportedAt: nowIso,
+      reviewedAt: nowIso,
+      reviewedBy: AUGUST_2026_EXCEL_BACKFILL_V2_ID,
+      effectiveAt: AUGUST_2026_LRI740_OPENING_DATE,
+      kind: 'admin_correction',
+      note: AUGUST_2026_LRI740_OPENING_NOTE,
+    };
+    await this.fuelReports.doc(report.id).set(report);
+    return 'created';
   }
 
   private async createAugustBackfillCompletedAssignment(input: {
