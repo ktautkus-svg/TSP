@@ -23,6 +23,7 @@ let legacyAdminMigration: Promise<void> | null = null;
 let fuelAugust2026Migration: Promise<void> | null = null;
 let tripSheetAugust2026VehicleFix: Promise<void> | null = null;
 let august2026ExcelBackfill: Promise<void> | null = null;
+let nll182September2026Backfill: Promise<void> | null = null;
 
 const TRIVIAL_ADMIN_PINS = new Set(['12345', '123456', '000000', '111111']);
 
@@ -152,6 +153,22 @@ export function ensureAugust2026ExcelBackfillMigrated(): Promise<void> {
   return august2026ExcelBackfill;
 }
 
+/** One-shot NLL182 2026-09-01…03 backfill — Firestore flag, runs after the August backfills. */
+export function ensureNll182September2026Migrated(): Promise<void> {
+  if (!nll182September2026Backfill) {
+    nll182September2026Backfill = store.applySeptember2026Nll182Backfill().then((result) => {
+      process.stdout.write(`${JSON.stringify({
+        event: 'nll182_september_2026_backfill',
+        ...result,
+      })}\n`);
+    }).catch((error) => {
+      nll182September2026Backfill = null;
+      throw error;
+    });
+  }
+  return nll182September2026Backfill;
+}
+
 export async function handleEmployeeApi(
   request: IncomingMessage,
   response: ServerResponse,
@@ -164,6 +181,7 @@ export async function handleEmployeeApi(
     await ensureFuelAugust2026Migrated();
     await ensureTripSheetAugust2026VehicleFixMigrated();
     await ensureAugust2026ExcelBackfillMigrated();
+    await ensureNll182September2026Migrated();
     if (request.method === 'GET' && pathname === '/api/auth/status') {
       return send(response, 200, { initialized: await store.hasUsers() }, requestId);
     }
