@@ -7,6 +7,7 @@ import { useLocalAccess } from '@/application/auth/local-access-context';
 import { pushCompletedRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
 import { CompanyProfileSettings, type CompanyProfile } from '@/application/settings/company-profile';
 import { TRIP_SHEET_GRID_COLUMNS, tripSheetColumnLegend } from '@/application/trip-sheet/columns';
+import { driverSheetRunPeriod, splitDriverSheetRuns, type DriverSheetRun } from '@/application/trip-sheet/driver-sheets';
 import { buildTripSheetWorkbook, MIME_XLSX } from '@/application/trip-sheet/export-xlsx';
 import { buildFuelLedger, vehicleDayFuelDistanceKm, type FuelLedgerDay } from '@/application/trip-sheet/fuel-balance';
 import { buildTripSheetPrintDocument } from '@/application/trip-sheet/print-document';
@@ -66,6 +67,55 @@ type MonthlyTripGroup = {
   vehicle: ServerTripSheet['vehicle'];
   rows: DailyTripRow[];
 };
+/**
+ * One printable / exportable kelionės lapas. `sheetNumber` null is the
+ * continuous "all drivers" month sheet; a number is a per-driver run.
+ */
+type PrintableSheet = {
+  key: string;
+  sheetNumber: number | null;
+  month: string;
+  monthLabel: string;
+  periodLabel: string;
+  registrationNumber: string;
+  vehicleModel: string;
+  vehicle: ServerTripSheet['vehicle'];
+  driverNames: string;
+  fuelNorm: number | null;
+  rows: DailyTripRow[];
+};
+
+function groupPrintableSheet(group: MonthlyTripGroup): PrintableSheet {
+  return {
+    key: group.key,
+    sheetNumber: null,
+    month: group.month,
+    monthLabel: formatMonth(group.month),
+    periodLabel: formatMonth(group.month),
+    registrationNumber: group.vehicle?.registrationNumber ?? 'be-numerio',
+    vehicleModel: group.vehicle?.model ?? 'Automobilis nepriskirtas',
+    vehicle: group.vehicle,
+    driverNames: [...new Set(group.rows.map((row) => row.driverName))].join(', '),
+    fuelNorm: group.rows[0]?.fuelNorm ?? null,
+    rows: group.rows,
+  };
+}
+
+function runPrintableSheet(run: DriverSheetRun<DailyTripRow>, group: MonthlyTripGroup): PrintableSheet {
+  return {
+    key: `${group.key}:${run.driverKey}:${run.sheetNumber}`,
+    sheetNumber: run.sheetNumber,
+    month: group.month,
+    monthLabel: formatMonth(group.month),
+    periodLabel: driverSheetRunPeriod(run),
+    registrationNumber: group.vehicle?.registrationNumber ?? 'be-numerio',
+    vehicleModel: group.vehicle?.model ?? 'Automobilis nepriskirtas',
+    vehicle: group.vehicle,
+    driverNames: run.driverName,
+    fuelNorm: run.days.find((day) => day.fuelNorm !== null)?.fuelNorm ?? group.rows[0]?.fuelNorm ?? null,
+    rows: run.days,
+  };
+}
 
 export default function TripSheetScreen() {
   const db = useSQLiteContext();
@@ -131,13 +181,52 @@ export default function TripSheetScreen() {
     sheets.filter((sheet) => sheet.vehicle).map((sheet) => [sheet.vehicle!.id, sheet.vehicle!.registrationNumber]),
   ).entries()], [sheets]);
   const months = useMemo(() => [...new Set(sheets.map((sheet) => sheet.date.slice(0, 7)))].sort().reverse(), [sheets]);
-  const visible = sheets.filter((sheet) =>
-    (profile.role === 'driver' || selectedDriverId === 'all' || sheet.driverId === selectedDriverId)
-    && (selectedVehicleId === 'all' || sheet.vehicle?.id === selectedVehicleId)
+  const driverFilterActive = profile.role !== 'driver' && selectedDriverId !== 'all';
+  const inFilterWindow = (sheet: DisplayTripSheet) =>
+    (selectedVehicleId === 'all' || sheet.vehicle?.id === selectedVehicleId)
     && (selectedMonth === 'all' || sheet.date.startsWith(selectedMonth))
     && (!dateFrom || sheet.date >= dateFrom)
-    && (!dateTo || sheet.date <= dateTo));
-  const monthlyGroups = useMemo(() => buildMonthlyGroups(visible, sheets), [visible, sheets]);
+    && (!dateTo || sheet.date <= dateTo);
+  const visible = sheets.filter((sheet) => inFilterWindow(sheet)
+    && (profile.role === 'driver' || selectedDriverId === 'all' || sheet.driverId === selectedDriverId));
+  // When one driver is picked, still group the whole vehicle-month (every
+  // driver) so the numbered-sheet split can see who else used the vehicle and
+  // the fuel ledger runs across the full month; the driver filter is then
+  // applied to the runs, not the rows.
+  const groupSource = driverFilterActive ? sheets.filter(inFilterWindow) : visible;
+  const monthlyGroups = useMemo(() => buildMonthlyGroups(groupSource, sheets), [groupSource, sheets]);
+  const driverRuns = useMemo<{ run: DriverSheetRun<DailyTripRow>; group: MonthlyTripGroup }[]>(() => {
+    if (!driverFilterActive) return [];
+    return monthlyGroups.flatMap((group) =>
+      splitDriverSheetRuns(group.rows.map((row) => ({
+        date: row.date,
+        driverKey: row.driverId,
+        driverName: row.driverName,
+        active: (row.distanceKm ?? 0) > 0 || (row.fuelAdded ?? 0) > 0,
+        row,
+      })))
+        .filter((run) => run.driverKey === selectedDriverId)
+        .map((run) => ({ run, group })));
+  }, [driverFilterActive, monthlyGroups, selectedDriverId]);
+  const printableSheets = useMemo<PrintableSheet[]>(() => (
+    driverFilterActive
+      ? driverRuns.map(({ run, group }) => runPrintableSheet(run, group))
+      : monthlyGroups.map(groupPrintableSheet)
+  ), [driverFilterActive, driverRuns, monthlyGroups]);
+  const sheetKeySignature = printableSheets.map((sheet) => sheet.key).join('|');
+  const [selectedSheetKeys, setSelectedSheetKeys] = useState<Set<string>>(new Set());
+  useEffect(() => { setSelectedSheetKeys(new Set()); }, [sheetKeySignature]);
+  const toggleSheet = (key: string) => setSelectedSheetKeys((prev) => {
+    const next = new Set(prev);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
+  const allSheetsSelected = printableSheets.length > 0 && selectedSheetKeys.size === printableSheets.length;
+  const toggleAllSheets = () => setSelectedSheetKeys(allSheetsSelected ? new Set() : new Set(printableSheets.map((sheet) => sheet.key)));
+  // Nothing ticked = act on every visible sheet, not an empty file.
+  const targetSheets = selectedSheetKeys.size === 0
+    ? printableSheets
+    : printableSheets.filter((sheet) => selectedSheetKeys.has(sheet.key));
   const periodLabel = dateFrom || dateTo ? `${dateFrom || '...'} - ${dateTo || '...'}` : selectedMonth === 'all' ? 'Visas laikotarpis' : formatMonth(selectedMonth);
   const selectFilter = (apply: () => void) => { apply(); };
   const setDateRange = (from: string, to: string) => { setDateFrom(from); setDateTo(to); };
@@ -146,7 +235,7 @@ export default function TripSheetScreen() {
       setMessage('PDF arba spausdinimą atidarykite interneto naršyklėje.');
       return;
     }
-    if (monthlyGroups.length === 0) {
+    if (targetSheets.length === 0) {
       setMessage('Nėra kelionės lapų spausdinimui.');
       return;
     }
@@ -155,13 +244,15 @@ export default function TripSheetScreen() {
       companyAddress: companyProfile.address,
       periodLabel,
       fuelType: FUEL_TYPE_LABELS[vehicleFuelType],
-      groups: monthlyGroups.map((group) => ({
-        monthLabel: formatMonth(group.month),
-        registrationNumber: group.vehicle?.registrationNumber ?? 'be-numerio',
-        vehicleModel: group.vehicle?.model ?? 'Automobilis nepriskirtas',
-        driverNames: [...new Set(group.rows.map((row) => row.driverName))].join(', '),
-        fuelNorm: group.rows[0]?.fuelNorm ?? null,
-        rows: group.rows.map((row) => ({
+      groups: targetSheets.map((sheet) => ({
+        monthLabel: sheet.monthLabel,
+        sheetNumber: sheet.sheetNumber,
+        periodLabel: sheet.periodLabel,
+        registrationNumber: sheet.registrationNumber,
+        vehicleModel: sheet.vehicleModel,
+        driverNames: sheet.driverNames,
+        fuelNorm: sheet.fuelNorm,
+        rows: sheet.rows.map((row) => ({
           date: row.date,
           driverName: row.driverName,
           route: tripRouteLabel(row),
@@ -183,7 +274,7 @@ export default function TripSheetScreen() {
       setMessage('Excel eksportą atidarykite interneto naršyklėje.');
       return;
     }
-    if (monthlyGroups.length === 0) {
+    if (targetSheets.length === 0) {
       setMessage('Nėra kelionės lapų, kuriuos būtų galima eksportuoti. Pakeiskite automobilį, vairuotoją arba laikotarpį.');
       return;
     }
@@ -192,14 +283,21 @@ export default function TripSheetScreen() {
         companyName: companyProfile.name,
         companyAddress: companyProfile.address,
         periodLabel,
-        groups: monthlyGroups.map((group) => ({
-          month: group.month,
-          driverName: [...new Set(group.rows.map((row) => row.driverName))].join(', '),
-          registrationNumber: group.vehicle?.registrationNumber ?? 'be-numerio',
-          vehicleModel: group.vehicle?.model ?? 'Automobilis nepriskirtas',
-          fuelNormLitersPer100Km: group.rows[0]?.fuelNorm ?? null,
+        // Suvestinė only earns its place across several sheets or the
+        // all-drivers view — never as the sole/first tab of one run.
+        includeSummary: targetSheets.length > 1 || !driverFilterActive,
+        groups: targetSheets.map((sheet) => ({
+          month: sheet.month,
+          driverName: sheet.driverNames,
+          registrationNumber: sheet.registrationNumber,
+          vehicleModel: sheet.vehicleModel,
+          sheetLabel: sheet.sheetNumber == null
+            ? undefined
+            : `${sheet.registrationNumber} ${sheet.driverNames} Nr.${sheet.sheetNumber}`,
+          periodLabel: sheet.periodLabel,
+          fuelNormLitersPer100Km: sheet.fuelNorm,
           fuelType: FUEL_TYPE_LABELS[vehicleFuelType],
-          rows: group.rows.map((row) => ({
+          rows: sheet.rows.map((row) => ({
             date: row.date,
             driverName: row.driverName,
             route: tripRouteLabel(row),
@@ -235,7 +333,7 @@ export default function TripSheetScreen() {
         link.remove();
         URL.revokeObjectURL(url);
       }, 60_000);
-      setMessage(`Excel ataskaita paruošta: ${monthlyGroups.length} lap.`);
+      setMessage(`Excel ataskaita paruošta: ${targetSheets.length} lap.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Excel ataskaitos sukurti nepavyko.');
     }
@@ -282,25 +380,54 @@ export default function TripSheetScreen() {
           </View> : null}
           {message ? <Text accessibilityRole="alert" style={styles.message}>{message}</Text> : null}
         </View>
-        {!busy && showGroups && monthlyGroups.length === 0 ? <View style={styles.empty}><Text style={styles.cardTitle}>Kelionės lapų nerasta</Text><Text style={styles.meta}>Lapas atsiranda užbaigus maršrutą. Pakeiskite automobilį, vairuotoją arba laikotarpį.</Text></View> : null}
-        {showGroups ? monthlyGroups.map((group) => <MonthlyTripSheet group={group} key={group.key} styles={styles} />) : null}
+        {!busy && showGroups && printableSheets.length === 0 ? <View style={styles.empty}><Text style={styles.cardTitle}>Kelionės lapų nerasta</Text><Text style={styles.meta}>Lapas atsiranda užbaigus maršrutą. Pakeiskite automobilį, vairuotoją arba laikotarpį.</Text></View> : null}
+        {showGroups && printableSheets.length > 1 ? (
+          <View style={styles.selectAllRow} testID="trip-sheet-select-all">
+            <Pressable
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: allSheetsSelected }}
+              onPress={toggleAllSheets}
+              style={styles.checkboxRow}
+              testID="trip-sheet-select-all-toggle"
+            >
+              <View style={[styles.checkbox, allSheetsSelected && styles.checkboxChecked]}><Text style={styles.checkboxMark}>{allSheetsSelected ? '✓' : ''}</Text></View>
+              <Text style={styles.checkboxLabel}>Pažymėti visus ({printableSheets.length})</Text>
+            </Pressable>
+            <Text style={styles.meta}>{selectedSheetKeys.size === 0 ? 'Nepažymėjus — visi matomi lapai' : `Pažymėta: ${selectedSheetKeys.size}`}</Text>
+          </View>
+        ) : null}
+        {showGroups ? printableSheets.map((sheet) => (
+          <PrintableTripSheet
+            key={sheet.key}
+            onToggle={() => toggleSheet(sheet.key)}
+            selectable={printableSheets.length > 1}
+            selected={selectedSheetKeys.has(sheet.key)}
+            sheet={sheet}
+            styles={styles}
+          />
+        )) : null}
       </FoundationScreen>
     </>
   );
 }
 
-function MonthlyTripSheet({ group, styles }: {
-  group: MonthlyTripGroup;
+function PrintableTripSheet({ sheet, selectable, selected, onToggle, styles }: {
+  sheet: PrintableSheet;
+  selectable: boolean;
+  selected: boolean;
+  onToggle: () => void;
   styles: ReturnType<typeof createStyles>;
 }) {
-  const totalDistance = group.rows.reduce((sum, row) => sum + (row.distanceKm ?? 0), 0);
-  const totalFuel = group.rows.reduce((sum, row) => sum + (row.fuelConsumed ?? 0), 0);
-  const totalFuelAdded = group.rows.reduce((sum, row) => sum + (row.fuelAdded ?? 0), 0);
-  const firstOdometer = group.rows.find((row) => row.startOdometer !== null)?.startOdometer ?? null;
-  const lastOdometer = [...group.rows].reverse().find((row) => row.endOdometer !== null)?.endOdometer ?? null;
-  const firstFuel = group.rows.find((row) => row.fuelStart !== null)?.fuelStart ?? null;
-  const lastFuel = [...group.rows].reverse().find((row) => row.fuelEnd !== null)?.fuelEnd ?? null;
-  const driverNames = [...new Set(group.rows.map((row) => row.driverName))].join(', ');
+  const rows = sheet.rows;
+  const totalDistance = rows.reduce((sum, row) => sum + (row.distanceKm ?? 0), 0);
+  const totalFuel = rows.reduce((sum, row) => sum + (row.fuelConsumed ?? 0), 0);
+  const totalFuelAdded = rows.reduce((sum, row) => sum + (row.fuelAdded ?? 0), 0);
+  const firstOdometer = rows.find((row) => row.startOdometer !== null)?.startOdometer ?? null;
+  const lastOdometer = [...rows].reverse().find((row) => row.endOdometer !== null)?.endOdometer ?? null;
+  const firstFuel = rows.find((row) => row.fuelStart !== null)?.fuelStart ?? null;
+  const lastFuel = [...rows].reverse().find((row) => row.fuelEnd !== null)?.fuelEnd ?? null;
+  const heading = sheet.sheetNumber == null ? sheet.monthLabel : `Kelionės lapas Nr. ${sheet.sheetNumber}`;
+  const subheading = sheet.sheetNumber == null ? sheet.driverNames : `${sheet.driverNames} · ${sheet.periodLabel}`;
   const cellStyle = {
     date: styles.reportDateCell,
     driver: styles.reportDriverCell,
@@ -313,16 +440,28 @@ function MonthlyTripSheet({ group, styles }: {
     fuelStart: styles.reportNumberCell,
     fuelEnd: styles.reportNumberCell,
   } as const;
-  return <View style={styles.sheet} testID={`monthly-trip-sheet-${group.key}`}>
+  return <View style={styles.sheet} testID={`monthly-trip-sheet-${sheet.key}`}>
+    {selectable ? (
+      <Pressable
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: selected }}
+        onPress={onToggle}
+        style={styles.checkboxRow}
+        testID={`trip-sheet-select-${sheet.key}`}
+      >
+        <View style={[styles.checkbox, selected && styles.checkboxChecked]}><Text style={styles.checkboxMark}>{selected ? '✓' : ''}</Text></View>
+        <Text style={styles.checkboxLabel}>{heading}{sheet.sheetNumber == null ? '' : ` — ${sheet.driverNames}`}</Text>
+      </Pressable>
+    ) : null}
     <View style={styles.screenView} testID="trip-sheet-screen-view">
     <View style={styles.sheetHeader}>
       <View style={styles.flex}>
-        <Text style={styles.date}>{formatMonth(group.month)}</Text>
-        <Text style={styles.driver}>{driverNames}</Text>
+        <Text style={styles.date}>{heading}</Text>
+        <Text style={styles.driver}>{subheading}</Text>
       </View>
       <View style={styles.vehicleIdentity}>
-        <Text style={styles.vehicleNumber}>{group.vehicle?.registrationNumber ?? 'Automobilis nepriskirtas'}</Text>
-        {group.vehicle ? <Text style={styles.meta}>{group.vehicle.model}</Text> : null}
+        <Text style={styles.vehicleNumber}>{sheet.registrationNumber}</Text>
+        {sheet.vehicle ? <Text style={styles.meta}>{sheet.vehicle.model}</Text> : null}
       </View>
     </View>
 
@@ -340,7 +479,7 @@ function MonthlyTripSheet({ group, styles }: {
           <HeaderCell key={column.key} column={column} style={[styles.reportTableCell, cellStyle[column.key]]} />
         ))}
       </View>
-      {group.rows.map((row) => <View key={row.date} style={styles.reportTableRow}>
+      {rows.map((row) => <View key={row.date} style={styles.reportTableRow}>
         <Text style={[styles.reportTableCell, styles.reportDateCell]}>{row.date}</Text>
         <Text style={[styles.reportTableCell, styles.reportDriverCell]}>{row.driverName}</Text>
         <Text style={[styles.reportTableCell, styles.reportRouteCell]}>{tripRouteLabel(row)}</Text>
@@ -541,24 +680,24 @@ function printHtmlDocument(html: string) {
   iframe.style.width = '0';
   iframe.style.height = '0';
   iframe.style.border = '0';
-  document.body.appendChild(iframe);
-  const frameWindow = iframe.contentWindow;
-  const frameDocument = iframe.contentDocument;
-  if (!frameWindow || !frameDocument) {
-    iframe.remove();
-    return;
-  }
-  frameDocument.open();
-  frameDocument.write(html);
-  frameDocument.close();
+  // srcdoc keeps the frame document on about:srcdoc, so Chrome's print
+  // footer has no app URL to stamp on the page. (document.write would
+  // inherit the parent's URL.)
+  iframe.srcdoc = html;
   const cleanup = () => {
     iframe.remove();
-    frameWindow.removeEventListener('afterprint', cleanup);
+    iframe.contentWindow?.removeEventListener('afterprint', cleanup);
   };
-  frameWindow.addEventListener('afterprint', cleanup);
-  const trigger = () => frameWindow.print();
-  if (frameDocument.readyState === 'complete') requestAnimationFrame(trigger);
-  else iframe.onload = trigger;
+  iframe.onload = () => {
+    const frameWindow = iframe.contentWindow;
+    if (!frameWindow) {
+      iframe.remove();
+      return;
+    }
+    frameWindow.addEventListener('afterprint', cleanup);
+    requestAnimationFrame(() => frameWindow.print());
+  };
+  document.body.appendChild(iframe);
   window.setTimeout(cleanup, 60_000);
 }
 
@@ -670,4 +809,10 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   saveFuelButton: { flex: 1, minHeight: 48, backgroundColor: colors.success, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
   disabled: { opacity: 0.55 },
   calculationNote: { ...type.meta, color: colors.textMuted, padding: spacing.sm, borderRadius: radius.sm, backgroundColor: colors.surfaceSubtle }, monthTotal: { marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.infoSoft, borderWidth: 1, borderColor: colors.info, gap: spacing.xs }, monthTotalTitle: { ...type.label, color: colors.info }, monthTotalText: { ...type.bodyStrong, color: colors.text },
+  selectAllRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, marginBottom: spacing.sm },
+  checkboxRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 44, paddingRight: spacing.sm },
+  checkbox: { width: 24, height: 24, borderRadius: radius.sm, borderWidth: 2, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface },
+  checkboxChecked: { backgroundColor: colors.actionPrimary, borderColor: colors.actionPrimary },
+  checkboxMark: { ...type.secondaryStrong, color: colors.textInverse, lineHeight: 20 },
+  checkboxLabel: { ...type.secondaryStrong, color: colors.text, flexShrink: 1 },
 });

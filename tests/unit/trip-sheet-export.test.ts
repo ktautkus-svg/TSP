@@ -242,6 +242,71 @@ describe('trip sheet Excel export', () => {
     expect(lastVehicle).toContain('Nėra dienų šiame laikotarpyje.');
   });
 
+  it('exports a single picked per-driver run: named "NLL182 … Nr.2", no Suvestinė, real sheet1', () => {
+    const workbook = buildTripSheetWorkbook({
+      companyName: 'FiRo',
+      companyAddress: 'Vilnius',
+      periodLabel: '2026-09',
+      includeSummary: false,
+      groups: [{
+        month: '2026-09',
+        driverName: 'Karolis Tautkus',
+        registrationNumber: 'NLL182',
+        vehicleModel: 'Renault Master',
+        fuelNormLitersPer100Km: 13.9,
+        fuelType: 'Dyzelinas',
+        sheetNumber: 2,
+        sheetLabel: 'NLL182 Karolis Tautkus Nr.2',
+        periodLabel: '2026-09-04 – 2026-09-05',
+        rows: [{
+          date: '2026-09-04', driverName: 'Karolis Tautkus', route: 'R11',
+          distanceKm: 158, fuelStartLiters: 21, fuelAddedLiters: 79, receiptNumbers: [],
+          fuelConsumedLiters: 22, fuelEndLiters: 78, startOdometer: 283671, endOdometer: 283829,
+        }],
+      }],
+    });
+    const archive = unzipWorkbook(workbook);
+    const workbookXml = strFromU8(archive['xl/workbook.xml']!);
+    expect(workbookXml).toMatch(/<sheet name="NLL182 Karolis Tautkus Nr.2" sheetId="1" r:id="rId1"\/>/);
+    expect(workbookXml).not.toContain('Suvestinė');
+    expect(archive['xl/worksheets/sheet2.xml']).toBeUndefined();
+
+    const first = sheetText(archive, 1);
+    expect(first).toContain('Kelionės lapas Nr. 2');
+    expect(first).toContain('2026-09-04 – 2026-09-05');
+    expect(first).toContain('283671');
+    assertDesktopSafeSheet(first);
+  });
+
+  it('keeps Suvestinė last (never sheet1) when several run sheets are exported', () => {
+    const runGroup = (nr: number, date: string) => ({
+      month: '2026-09',
+      driverName: 'Karolis Tautkus',
+      registrationNumber: 'NLL182',
+      vehicleModel: 'Renault Master',
+      fuelNormLitersPer100Km: 13.9,
+      fuelType: 'Dyzelinas',
+      sheetNumber: nr,
+      sheetLabel: `NLL182 Karolis Nr.${nr}`,
+      periodLabel: date,
+      rows: [{
+        date, driverName: 'Karolis Tautkus', route: 'R11', distanceKm: 100,
+        fuelStartLiters: 50, fuelAddedLiters: 0, receiptNumbers: [], fuelConsumedLiters: 14,
+        fuelEndLiters: 36, startOdometer: 1000, endOdometer: 1100,
+      }],
+    });
+    const workbook = buildTripSheetWorkbook({
+      companyName: 'FiRo', companyAddress: 'Vilnius', periodLabel: '2026-09', includeSummary: true,
+      groups: [runGroup(1, '2026-09-02'), runGroup(2, '2026-09-04')],
+    });
+    const archive = unzipWorkbook(workbook);
+    const workbookXml = strFromU8(archive['xl/workbook.xml']!);
+    expect(workbookXml).toMatch(/<sheet name="NLL182 Karolis Nr.1" sheetId="1"/);
+    expect(workbookXml).toMatch(/<sheet name="Suvestinė" sheetId="3"/);
+    expect(workbookXml).not.toMatch(/<sheet name="Suvestinė" sheetId="1"/);
+    expect(sheetText(archive, 1)).toContain('Kelionės lapas Nr. 1');
+  });
+
   it('writes core.xml timestamps without milliseconds so Excel will open the file', () => {
     const workbook = buildTripSheetWorkbook({
       companyName: 'TSP',

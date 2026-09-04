@@ -25,6 +25,12 @@ export type TripSheetExportGroup = {
   fuelNormLitersPer100Km: number | null;
   fuelType: string;
   rows: TripSheetExportRow[];
+  /** Numbered per-driver sheet ("Kelionės lapas Nr. N"); null/undefined = continuous month sheet. */
+  sheetNumber?: number | null;
+  /** Worksheet tab name base (e.g. "NLL182 Karolis Nr.2"); falls back to "<plate> <month>". */
+  sheetLabel?: string;
+  /** Period range for this sheet; falls back to the workbook period, then the month range. */
+  periodLabel?: string;
 };
 
 export type TripSheetWorkbookInput = {
@@ -32,6 +38,8 @@ export type TripSheetWorkbookInput = {
   companyAddress: string;
   /** Filter period shown on the PDF (`Laikotarpis`). Falls back to the vehicle-month range. */
   periodLabel?: string;
+  /** Append the Suvestinė sheet (last, never sheet1). Default true. */
+  includeSummary?: boolean;
   groups: TripSheetExportGroup[];
 };
 
@@ -79,10 +87,11 @@ export function buildTripSheetWorkbook(input: TripSheetWorkbookInput): Uint8Arra
   if (input.groups.length === 0) throw new Error('Nėra kelionės lapų, kuriuos būtų galima eksportuoti.');
   const groups = sortGroupsByBusiest(input.groups);
   const vehicleNames = uniqueSheetNames(groups);
-  const names = [...vehicleNames, SUMMARY_SHEET_NAME];
+  const withSummary = input.includeSummary ?? true;
+  const names = withSummary ? [...vehicleNames, SUMMARY_SHEET_NAME] : vehicleNames;
   const sheets = [
     ...groups.map((group, index) => vehicleWorksheetXml(group, input, index === 0)),
-    summaryWorksheetXml({ ...input, groups }),
+    ...(withSummary ? [summaryWorksheetXml({ ...input, groups })] : []),
   ];
   const now = officeOpenXmlTimestamp();
   const files: Record<string, Uint8Array> = {
@@ -161,7 +170,8 @@ function vehicleWorksheetXml(group: TripSheetExportGroup, input: TripSheetWorkbo
   const lastRow = firstSignatureRow + SIGNATURE_LINES.length - 1;
   const totals = groupTotals(group);
   const company = [input.companyName, input.companyAddress].filter(Boolean).join(', ') || 'FiRo';
-  const period = input.periodLabel?.trim() || monthPeriod(group.month);
+  const period = group.periodLabel?.trim() || input.periodLabel?.trim() || monthPeriod(group.month);
+  const title = group.sheetNumber == null ? 'Kelionės lapas' : `Kelionės lapas Nr. ${group.sheetNumber}`;
   const dataRows = group.rows.length === 0
     ? [rowXml(firstDataRow, [textCell(`A${firstDataRow}`, 'Nėra dienų šiame laikotarpyje.', 5)])]
     : group.rows.map((item, index) => {
@@ -181,7 +191,7 @@ function vehicleWorksheetXml(group: TripSheetExportGroup, input: TripSheetWorkbo
       ]);
     });
   const rows = [
-    rowXml(1, [textCell('A1', 'Kelionės lapas', 1)]),
+    rowXml(1, [textCell('A1', title, 1)]),
     rowXml(2, [textCell('A2', company, 2)]),
     rowXml(3, [
       textCell('A3', 'Transporto priemonė:', 3),
@@ -335,8 +345,11 @@ export function officeOpenXmlTimestamp(now = new Date()): string {
 function uniqueSheetNames(groups: TripSheetExportGroup[]): string[] {
   const used = new Set<string>([SUMMARY_SHEET_NAME.toLowerCase()]);
   return groups.map((group, index) => {
-    const base = `${group.registrationNumber || group.driverName || `Lapas ${index + 1}`} ${group.month}`
+    const rawBase = group.sheetLabel?.trim()
+      || `${group.registrationNumber || group.driverName || `Lapas ${index + 1}`} ${group.month}`;
+    const base = rawBase
       .replace(/[\\/*?:\[\]]/g, ' ')
+      .replace(/\s+/g, ' ')
       .trim()
       .slice(0, 31) || `Lapas ${index + 1}`;
     let candidate = base;

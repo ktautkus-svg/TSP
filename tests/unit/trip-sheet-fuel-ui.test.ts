@@ -94,10 +94,24 @@ describe('trip sheet fuel workflow', () => {
   });
 
   it('keeps one-driver report fuel continuity on the vehicle month instead of resetting to opening fuel', () => {
-    expect(source).toContain('buildMonthlyGroups(visible, sheets)');
+    // When a driver is picked the whole vehicle-month is still grouped so the
+    // ledger runs across every driver's days; the driver filter is applied to
+    // the numbered runs, not the rows.
+    expect(source).toContain('const groupSource = driverFilterActive ? sheets.filter(inFilterWindow) : visible');
+    expect(source).toContain('buildMonthlyGroups(groupSource, sheets)');
     expect(source).toContain('function buildDailyRows(sheets: DisplayTripSheet[], ledgerSheets: DisplayTripSheet[] = sheets)');
     expect(source).toContain('const ledgerRows = buildDailyRowsWithoutLedger(ledgerSheets)');
     expect(source).toContain('const ledgerByDate = new Map(applyFuelLedger(ledgerRows, ledgerSheets).map((row) => [row.date, row]))');
+  });
+
+  it('splits a picked driver into numbered per-driver sheets and offers per-sheet selection', () => {
+    expect(source).toContain('splitDriverSheetRuns');
+    expect(source).toContain('Kelionės lapas Nr. ${sheet.sheetNumber}');
+    expect(source).toContain('trip-sheet-select-all');
+    expect(source).toContain('Pažymėti visus');
+    // Nothing ticked prints/exports every visible sheet, not an empty file.
+    expect(source).toMatch(/selectedSheetKeys\.size === 0\s*\?\s*printableSheets/);
+    expect(source).toContain('groups: targetSheets.map((sheet) => (');
   });
 
   it('de-duplicates a fill that shows up under two sheets on the same date so Įpilta is not doubled', () => {
