@@ -101,7 +101,7 @@ describe('administrator workspace navigation', () => {
   });
 
   it('keeps the administrator home groups in the requested responsive grids', () => {
-    expect(home).toContain('<GroupedMenuSection columns label="SKUBŪS DARBAI"');
+    expect(home).toContain('<GroupedMenuSection columns label="MARŠRUTIZAVIMAS"');
     expect(home).toContain('<GroupedMenuSection columns label="STEBĖJIMAS IR APSKAITA"');
     expect(home).toContain('<GroupedMenuSection columns label="SISTEMA"');
     expect(home.indexOf('title="Kokybės kontrolė"')).toBeLessThan(home.indexOf('label="STEBĖJIMAS IR APSKAITA"'));

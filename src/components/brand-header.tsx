@@ -1,11 +1,12 @@
 import { useRouter, type Href } from 'expo-router';
 import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
-import Svg, { Circle, Path } from 'react-native-svg';
+import Svg, { Path } from 'react-native-svg';
 
-import { BackIcon, HomeIcon } from '@/components/app-icons';
+import { useLocalAccess } from '@/application/auth/local-access-context';
+import { BackIcon } from '@/components/app-icons';
 import { CloudSyncStatus } from '@/components/cloud-sync-status';
 import { FiroBrand } from '@/components/firo-brand';
-import { colors, spacing } from '@/ui/tokens';
+import { colors, fonts, spacing } from '@/ui/tokens';
 
 export interface BrandHeaderProps {
   readonly onMenuPress?: () => void;
@@ -27,6 +28,13 @@ export function BrandHeader({
   const driver = variant === 'driver';
   const { width } = useWindowDimensions();
   const router = useRouter();
+  const { profile } = useLocalAccess();
+  const profileInitials = profile.displayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toLocaleUpperCase('lt-LT'))
+    .join('') || 'FR';
   const goHome = () => (onHomePress ? onHomePress() : router.push('/' as Href));
   return (
     <View style={[styles.header, driver && styles.driverHeader]} testID="brand-header">
@@ -55,18 +63,6 @@ export function BrandHeader({
         {!driver ? (
           <View style={styles.headerActions}>
             {showSyncStatus && width >= 720 && !onBackPress ? <CloudSyncStatus compact /> : null}
-            {onHomePress ? (
-              <Pressable
-                accessibilityLabel="Į pradžią"
-                accessibilityRole="button"
-                onPress={onHomePress}
-                style={styles.navigationButton}
-                testID="brand-header-home">
-                <HomeIcon size={21} color={colors.brandNavy} />
-                {/* Keep icon-only when Back is present so the centered logo stays balanced on phone shells. */}
-                {width >= 620 && !onBackPress ? <Text style={styles.navigationText}>Pradžia</Text> : null}
-              </Pressable>
-            ) : null}
             {showNotifications ? (
               <View style={styles.notification}>
                 <Svg width={22} height={22} viewBox="0 0 24 24">
@@ -77,12 +73,15 @@ export function BrandHeader({
               </View>
             ) : null}
             {onMenuPress ? (
-              <Pressable accessibilityLabel="Atidaryti meniu" onPress={onMenuPress} style={styles.profileButton}>
-                <Svg width={34} height={34} viewBox="0 0 34 34">
-                  <Circle cx={17} cy={17} fill={colors.primarySoft} r={16} stroke={colors.border} />
-                  <Circle cx={17} cy={12} fill={colors.brandNavy} r={5} />
-                  <Path d="M8 28c1.5-6 5-9 9-9s7.5 3 9 9" fill={colors.brandNavy} />
-                </Svg>
+              <Pressable
+                accessibilityLabel={`Atidaryti ${profile.displayName} profilį`}
+                accessibilityRole="button"
+                onPress={onMenuPress}
+                style={styles.profileButton}
+                testID="brand-header-profile">
+                <View style={styles.profileAvatar}>
+                  <Text numberOfLines={1} style={styles.profileInitials}>{profileInitials}</Text>
+                </View>
               </Pressable>
             ) : null}
           </View>
@@ -110,7 +109,7 @@ const styles = StyleSheet.create({
     overflow: 'visible',
   },
   driverHeader: { minHeight: 58, paddingVertical: 4, borderTopWidth: 0 },
-  // Equal flex side slots keep the logo visually centered between Atgal and Home.
+  // Equal flex side slots keep the logo visually centred between navigation and profile actions.
   sideSlot: {
     flex: 1,
     minWidth: 0,
@@ -134,7 +133,23 @@ const styles = StyleSheet.create({
   },
   notification: { width: 32, height: 40, alignItems: 'center', justifyContent: 'center' },
   notificationDot: { position: 'absolute', top: 7, right: 3, width: 6, height: 6, borderRadius: 9, backgroundColor: colors.accent },
-  profileButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  profileButton: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
+  profileAvatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: colors.brandBurgundy,
+    backgroundColor: colors.brandNavy,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: colors.brandNavy,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  profileInitials: { color: colors.textInverse, fontFamily: fonts.heading, fontSize: 13, letterSpacing: 0.5 },
   navigationButton: {
     minWidth: 48,
     minHeight: 48,

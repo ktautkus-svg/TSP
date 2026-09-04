@@ -715,10 +715,10 @@ export default function DeliveryScreen() {
   // Gauges are the product "nails" — keep them large and obvious inside the
   // steering-rim frame (larger than a real car cluster). Actions stay ~48px.
   const gaugeSize = wideLayout
-    ? 156
+    ? 164
     : compactDashboard
-      ? Math.min(132, Math.max(118, (Math.min(viewportWidth, 430) - 96) / 2))
-      : Math.min(140, Math.max(124, (Math.min(viewportWidth, 430) - 100) / 2));
+      ? Math.min(140, Math.max(124, (Math.min(viewportWidth, 430) - 92) / 2))
+      : Math.min(148, Math.max(130, (Math.min(viewportWidth, 430) - 94) / 2));
   const compositeProgress = progress ? calculateCompositeRouteProgress({
     completedStops: progress.totalStops - progress.remainingStops,
     totalStops: progress.totalStops,

@@ -12,13 +12,16 @@ describe('approved first screens', () => {
     const gate = source('src/components/local-access-gate.tsx');
     expect(brand).toContain('firo-wordmark-color.png');
     expect(brand).toContain('firo-wordmark-inverse.png');
-    expect(brand).toContain('resizeMode="contain"');
+    expect(brand).toContain("resizeMode={compact ? 'stretch' : 'contain'}");
+    expect(brand).toContain('COMPACT_WIDTH_SCALE');
     expect(brand).toContain('BADGE_ASPECT');
     // Login must use the shared inverse wide badge — never a separate spiral asset.
     expect(gate).toContain('<FiroBrand hero inverse />');
     expect(gate).not.toContain('firo-wordmark-color-spiral');
     expect(gate).not.toContain('tsp-logo');
-    expect(gate).toContain('FIRO · FIBONACCI + ROAD');
+    // No Fibonacci / "FIBONACCI + ROAD" tagline anywhere in the UI.
+    expect(gate).not.toMatch(/fibonacci/i);
+    expect(gate).toContain('FiRo · maršrutų planavimas ir pristatymai');
     expect(source('src/components/brand-header.tsx')).toContain("variant?: 'default' | 'driver'");
   });
 

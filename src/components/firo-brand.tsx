@@ -18,17 +18,18 @@ const inverseWordmarkSource = require('../../assets/brand/firo-wordmark-inverse.
 
 /**
  * Approved wide FR / FIRO landscape badge (assets/brand/firo-wordmark-*.png,
- * generated from firo-approved-source.png). Keep the render box matched to the
- * artwork aspect so the badge elongates horizontally without vertical squash.
+ * generated from firo-approved-source.png). The compact header variant is
+ * intentionally a touch wider so it fills the navigation gap confidently.
  */
 const BADGE_ASPECT = 720 / 454;
+const COMPACT_WIDTH_SCALE = 1.14;
 
 function badgeSize(kind: 'compact' | 'default' | 'hero'): { width: number; height: number } {
   // Compact header: tall enough for the border + FIRO caption to stay legible,
-  // wide enough to read as a landscape badge between Atgal and Home.
+  // wide enough to read as a landscape badge between the header actions.
   if (kind === 'compact') {
     const height = 46;
-    return { width: Math.round(height * BADGE_ASPECT), height };
+    return { width: Math.round(height * BADGE_ASPECT * COMPACT_WIDTH_SCALE), height };
   }
   const height = kind === 'hero' ? 128 : 60;
   return { width: Math.round(height * BADGE_ASPECT), height };
@@ -44,8 +45,8 @@ export function FiroBrand({ compact = false, hero = false, inverse = false, desc
   return (
     <View accessibilityLabel={descriptor ? `FiRo – ${descriptor}` : 'FiRo'} style={[styles.lockup, hero && styles.heroLockup]}>
       {Platform.OS === 'web'
-        ? <img alt="FiRo" src={source.uri} style={{ display: 'block', height, objectFit: 'contain', width, backgroundColor: 'transparent' }} />
-        : <Image accessibilityLabel="FiRo" resizeMode="contain" source={source} style={{ width, height, backgroundColor: 'transparent' }} />}
+        ? <img alt="FiRo" src={source.uri} style={{ display: 'block', height, objectFit: compact ? 'fill' : 'contain', width, backgroundColor: 'transparent' }} />
+        : <Image accessibilityLabel="FiRo" resizeMode={compact ? 'stretch' : 'contain'} source={source} style={{ width, height, backgroundColor: 'transparent' }} />}
       {!compact && descriptor ? <Text numberOfLines={1} style={[styles.descriptor, { color: foreground }]}>{descriptor}</Text> : null}
     </View>
   );

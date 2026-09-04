@@ -288,7 +288,7 @@ export function LocalAccessGate({ children }: LocalAccessGateProps) {
             {busy ? <ActivityIndicator color={colors.textInverse} /> : <Text style={[styles.buttonText, !bootstrap && styles.loginButtonText]}>{bootstrap ? 'Aktyvuoti ir tęsti' : 'PRISIJUNGTI →'}</Text>}
           </Pressable>
         </View>
-        {!bootstrap ? <Text style={styles.loginFooter}>FIRO · FIBONACCI + ROAD</Text> : null}
+        {!bootstrap ? <Text style={styles.loginFooter}>FiRo · maršrutų planavimas ir pristatymai</Text> : null}
       </View>
     );
   }
