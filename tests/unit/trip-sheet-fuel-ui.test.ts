@@ -25,9 +25,8 @@ describe('trip sheet fuel workflow', () => {
     expect(source).not.toContain('+ Įvesti kurą');
     expect(source).not.toContain('+ Kuro papildymas');
     expect(source).not.toContain('fuel-entry-form-');
-    expect(source).not.toContain('/fuel-entries');
-    // Odometer and fuel editing belongs beside the selected vehicle, while
-    // this screen remains a read-only report for the dispatcher.
+    // Odometer editing still belongs beside the selected vehicle. Fuel
+    // editing (P0.5) is now admin-only here as well, in an in-app modal.
     expect(source).not.toContain('trip-sheet-odometer-entry');
     expect(source).not.toContain('/api/trip-sheets/day-readings');
     expect(source).not.toContain('ATLYGIS');
@@ -102,6 +101,25 @@ describe('trip sheet fuel workflow', () => {
     expect(source).toContain('function buildDailyRows(sheets: DisplayTripSheet[], ledgerSheets: DisplayTripSheet[] = sheets)');
     expect(source).toContain('const ledgerRows = buildDailyRowsWithoutLedger(ledgerSheets)');
     expect(source).toContain('const ledgerByDate = new Map(applyFuelLedger(ledgerRows, ledgerSheets).map((row) => [row.date, row]))');
+  });
+
+  it('lets an administrator edit, delete and add fuel entries on the kelionės lapas via an in-app modal', () => {
+    // The screen used to be read-only for fuel; P0.5 makes it admin-editable.
+    expect(source).toContain("const canEditFuel = profile.role === 'admin'");
+    expect(source).toContain('trip-sheet-fuel-modal');
+    expect(source).toContain('+ Pridėti pylimą');
+    expect(source).toContain('fuel-edit-${entry.id}');
+    expect(source).toContain('fuel-delete-${entry.id}');
+    // Admin session, real endpoints — not rewritten.
+    expect(source).toContain("`/api/fuel-entries/${encodeURIComponent(fuelEditor.entryId!)}`, { method: 'DELETE' }");
+    expect(source).toContain("method: 'PATCH'");
+    expect(source).toContain('/fuel-entries');
+    expect(source).toContain("await load();");
+    // Web confirm() / Alert.alert are unreliable — delete goes through the modal.
+    expect(source).not.toContain('Alert.alert');
+    expect(source).not.toContain('window.confirm');
+    // Offline is surfaced, never a silent no-op.
+    expect(source).toContain('Nėra ryšio su serveriu — kuro įrašo pakeisti negalima');
   });
 
   it('splits a picked driver into numbered per-driver sheets and offers per-sheet selection', () => {

@@ -1,7 +1,7 @@
 import { Stack, useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View, type StyleProp, type TextStyle } from 'react-native';
+import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type StyleProp, type TextStyle } from 'react-native';
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { pushCompletedRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
@@ -83,6 +83,18 @@ type PrintableSheet = {
   driverNames: string;
   fuelNorm: number | null;
   rows: DailyTripRow[];
+};
+
+type FuelEditorState = {
+  mode: 'add' | 'edit' | 'delete';
+  assignmentId: string;
+  entryId: string | null;
+  liters: string;
+  receiptNumber: string;
+  date: string;
+  vehicleId: string;
+  driverId: string;
+  error: string | null;
 };
 
 function groupPrintableSheet(group: MonthlyTripGroup): PrintableSheet {
@@ -228,6 +240,76 @@ export default function TripSheetScreen() {
     ? printableSheets
     : printableSheets.filter((sheet) => selectedSheetKeys.has(sheet.key));
   const periodLabel = dateFrom || dateTo ? `${dateFrom || '...'} - ${dateTo || '...'}` : selectedMonth === 'all' ? 'Visas laikotarpis' : formatMonth(selectedMonth);
+
+  // P0.5 — an administrator edits fuel right here on the kelionės lapas
+  // (the vehicle.tsx editor stays too). Web dialogs are unreliable, so the
+  // delete confirmation is an in-app modal.
+  const canEditFuel = profile.role === 'admin';
+  const [fuelEditor, setFuelEditor] = useState<FuelEditorState | null>(null);
+  const [fuelBusy, setFuelBusy] = useState(false);
+  const openFuelEditor = (mode: FuelEditorState['mode'], row: DailyTripRow, entry?: TripFuelEntry) => {
+    setFuelEditor({
+      mode,
+      assignmentId: row.assignmentId,
+      entryId: entry?.id ?? null,
+      liters: entry ? String(entry.liters) : '',
+      receiptNumber: entry?.receiptNumber ?? '',
+      date: (entry?.filledAt ?? `${row.date}T12:00:00.000Z`).slice(0, 10),
+      vehicleId: row.vehicleId ?? selectedVehicleId,
+      driverId: entry ? '' : row.driverId,
+      error: null,
+    });
+  };
+  const submitFuelEditor = async () => {
+    if (!fuelEditor) return;
+    setFuelBusy(true);
+    setFuelEditor((prev) => (prev ? { ...prev, error: null } : prev));
+    try {
+      if (fuelEditor.mode === 'delete') {
+        await employeeApi(`/api/fuel-entries/${encodeURIComponent(fuelEditor.entryId!)}`, { method: 'DELETE' });
+      } else if (fuelEditor.mode === 'edit') {
+        const patch: Record<string, unknown> = {
+          filledAt: `${fuelEditor.date}T12:00:00.000Z`,
+          liters: Number(fuelEditor.liters.replace(',', '.')),
+          receiptNumber: fuelEditor.receiptNumber.trim() || null,
+        };
+        if (fuelEditor.vehicleId && fuelEditor.vehicleId !== 'all') patch.vehicleId = fuelEditor.vehicleId;
+        if (fuelEditor.driverId) patch.driverId = fuelEditor.driverId;
+        await employeeApi(`/api/fuel-entries/${encodeURIComponent(fuelEditor.entryId!)}`, { method: 'PATCH', body: JSON.stringify(patch) });
+      } else {
+        const created = await employeeApi<{ entry: { id: string } }>(
+          `/api/trip-sheets/${encodeURIComponent(fuelEditor.assignmentId)}/fuel-entries`,
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              filledAt: `${fuelEditor.date}T12:00:00.000Z`,
+              liters: Number(fuelEditor.liters.replace(',', '.')),
+              receiptNumber: fuelEditor.receiptNumber.trim() || undefined,
+            }),
+          },
+        );
+        // POST derives vehicle/driver from the assignment; move it only if the
+        // admin picked something else.
+        const move: Record<string, unknown> = {};
+        if (fuelEditor.vehicleId && fuelEditor.vehicleId !== 'all') move.vehicleId = fuelEditor.vehicleId;
+        if (fuelEditor.driverId) move.driverId = fuelEditor.driverId;
+        if (Object.keys(move).length > 0 && created?.entry?.id) {
+          await employeeApi(`/api/fuel-entries/${encodeURIComponent(created.entry.id)}`, { method: 'PATCH', body: JSON.stringify(move) });
+        }
+      }
+      setFuelEditor(null);
+      await load();
+      setMessage('Kuro įrašas atnaujintas.');
+    } catch (error) {
+      const text = error instanceof Error ? error.message : 'Kuro įrašo išsaugoti nepavyko.';
+      setFuelEditor((prev) => (prev ? {
+        ...prev,
+        error: online ? text : 'Nėra ryšio su serveriu — kuro įrašo pakeisti negalima. Bandykite prisijungę.',
+      } : prev));
+    } finally {
+      setFuelBusy(false);
+    }
+  };
   const selectFilter = (apply: () => void) => { apply(); };
   const setDateRange = (from: string, to: string) => { setDateFrom(from); setDateTo(to); };
   const print = () => {
@@ -398,7 +480,9 @@ export default function TripSheetScreen() {
         ) : null}
         {showGroups ? printableSheets.map((sheet) => (
           <PrintableTripSheet
+            canEditFuel={canEditFuel}
             key={sheet.key}
+            onFuelAction={openFuelEditor}
             onToggle={() => toggleSheet(sheet.key)}
             selectable={printableSheets.length > 1}
             selected={selectedSheetKeys.has(sheet.key)}
@@ -406,16 +490,31 @@ export default function TripSheetScreen() {
             styles={styles}
           />
         )) : null}
+        {fuelEditor ? (
+          <FuelEditorModal
+            busy={fuelBusy}
+            drivers={drivers}
+            offline={!online}
+            onCancel={() => setFuelEditor(null)}
+            onChange={(patch) => setFuelEditor((prev) => (prev ? { ...prev, ...patch } : prev))}
+            onSubmit={() => { void submitFuelEditor(); }}
+            state={fuelEditor}
+            styles={styles}
+            vehicles={vehicles}
+          />
+        ) : null}
       </FoundationScreen>
     </>
   );
 }
 
-function PrintableTripSheet({ sheet, selectable, selected, onToggle, styles }: {
+function PrintableTripSheet({ sheet, selectable, selected, onToggle, canEditFuel, onFuelAction, styles }: {
   sheet: PrintableSheet;
   selectable: boolean;
   selected: boolean;
   onToggle: () => void;
+  canEditFuel: boolean;
+  onFuelAction: (mode: FuelEditorState['mode'], row: DailyTripRow, entry?: TripFuelEntry) => void;
   styles: ReturnType<typeof createStyles>;
 }) {
   const rows = sheet.rows;
@@ -506,12 +605,131 @@ function PrintableTripSheet({ sheet, selectable, selected, onToggle, styles }: {
     </View>
     </ScrollView>
     <Text style={styles.columnLegend} testID="trip-sheet-column-legend">{tripSheetColumnLegend(TRIP_SHEET_GRID_COLUMNS)}</Text>
+    {canEditFuel ? (
+      <View style={styles.fuelAdmin} testID={`trip-sheet-fuel-admin-${sheet.key}`}>
+        <Text style={styles.fuelEntriesTitle}>Kuro įrašai — redagavimas</Text>
+        {rows.map((row) => (
+          <View key={row.date} style={styles.fuelAdminDay}>
+            <Text style={styles.fuelAdminDate}>{row.date}</Text>
+            <View style={styles.fuelAdminList}>
+              {row.fuelEntries.length === 0 ? <Text style={styles.meta}>Pylimų nėra</Text> : row.fuelEntries.map((entry) => (
+                <View key={entry.id} style={styles.fuelAdminEntry}>
+                  <Text style={styles.fuelAdminEntryText}>{formatNumber(entry.liters)} l{entry.receiptNumber ? ` · Ček. ${entry.receiptNumber}` : ''}</Text>
+                  <Pressable onPress={() => onFuelAction('edit', row, entry)} style={styles.smallButton} testID={`fuel-edit-${entry.id}`}><Text style={styles.smallButtonText}>Taisyti</Text></Pressable>
+                  <Pressable onPress={() => onFuelAction('delete', row, entry)} style={styles.deleteFuelButton} testID={`fuel-delete-${entry.id}`}><Text style={styles.deleteFuelText}>Trinti</Text></Pressable>
+                </View>
+              ))}
+              <Pressable onPress={() => onFuelAction('add', row)} style={styles.addFuelButton} testID={`fuel-add-${sheet.key}-${row.date}`}><Text style={styles.addFuelButtonText}>+ Pridėti pylimą</Text></Pressable>
+            </View>
+          </View>
+        ))}
+      </View>
+    ) : null}
     <View style={styles.monthTotal} testID="trip-sheet-month-total">
       <Text style={styles.monthTotalTitle}>VISO PASIRINKTU LAIKOTARPIU</Text>
       <Text style={styles.monthTotalText}>Nuvaziuota: {formatNumber(totalDistance)} km · Įpilta: {formatNumber(totalFuelAdded)} l · Sunaudota: {formatNumber(totalFuel)} l</Text>
     </View>
     </View>
   </View>;
+}
+
+function FuelEditorModal({ state, styles, busy, offline, vehicles, drivers, onChange, onCancel, onSubmit }: {
+  state: FuelEditorState;
+  styles: ReturnType<typeof createStyles>;
+  busy: boolean;
+  offline: boolean;
+  vehicles: [string, string][];
+  drivers: [string, string][];
+  onChange: (patch: Partial<FuelEditorState>) => void;
+  onCancel: () => void;
+  onSubmit: () => void;
+}) {
+  const title = state.mode === 'add' ? 'Pridėti pylimą' : state.mode === 'edit' ? 'Taisyti pylimą' : 'Ištrinti pylimą?';
+  const litersValid = state.mode === 'delete' || Number(state.liters.replace(',', '.')) > 0;
+  return (
+    <Modal animationType="fade" onRequestClose={onCancel} transparent visible>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.modalCard} testID="trip-sheet-fuel-modal">
+          <Text style={styles.modalTitle}>{title}</Text>
+          {state.mode === 'delete' ? (
+            <Text style={styles.body}>Įrašas bus pašalintas, o kuro likutis perskaičiuotas.</Text>
+          ) : (
+            <View style={styles.formGrid}>
+              <View style={styles.field}>
+                <Text style={styles.fieldLabel}>Litrai</Text>
+                <TextInput
+                  keyboardType="decimal-pad"
+                  onChangeText={(text) => onChange({ liters: text })}
+                  placeholder="0"
+                  style={styles.input}
+                  testID="fuel-modal-liters"
+                  value={state.liters}
+                />
+              </View>
+              <View style={styles.field}>
+                <Text style={styles.fieldLabel}>Kasos čekio Nr.</Text>
+                <TextInput
+                  onChangeText={(text) => onChange({ receiptNumber: text })}
+                  placeholder="—"
+                  style={styles.input}
+                  testID="fuel-modal-receipt"
+                  value={state.receiptNumber}
+                />
+              </View>
+              <View style={styles.field}>
+                <Text style={styles.fieldLabel}>Data</Text>
+                <TextInput
+                  autoCapitalize="none"
+                  onChangeText={(text) => onChange({ date: text })}
+                  placeholder="YYYY-MM-DD"
+                  style={styles.input}
+                  testID="fuel-modal-date"
+                  value={state.date}
+                />
+              </View>
+              {vehicles.length > 0 ? (
+                <View style={styles.field}>
+                  <Text style={styles.fieldLabel}>Automobilis</Text>
+                  <View style={styles.chipRow}>
+                    {vehicles.map(([id, plate]) => (
+                      <Pressable key={id} onPress={() => onChange({ vehicleId: id })} style={[styles.chip, state.vehicleId === id && styles.chipActive]}>
+                        <Text style={[styles.chipText, state.vehicleId === id && styles.chipTextActive]}>{plate}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+              ) : null}
+              {drivers.length > 0 ? (
+                <View style={styles.field}>
+                  <Text style={styles.fieldLabel}>Kas pylė</Text>
+                  <View style={styles.chipRow}>
+                    {drivers.map(([id, name]) => (
+                      <Pressable key={id} onPress={() => onChange({ driverId: state.driverId === id ? '' : id })} style={[styles.chip, state.driverId === id && styles.chipActive]}>
+                        <Text style={[styles.chipText, state.driverId === id && styles.chipTextActive]}>{name}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+              ) : null}
+            </View>
+          )}
+          {offline ? <Text style={styles.formError} testID="fuel-modal-offline">Įrenginys gali būti neprisijungęs — jei nepavyks, bandykite dar kartą prisijungę.</Text> : null}
+          {state.error ? <Text style={styles.formError} testID="fuel-modal-error">{state.error}</Text> : null}
+          <View style={styles.formActions}>
+            <Pressable onPress={onCancel} style={styles.cancelFuelButton} testID="fuel-modal-cancel"><Text style={styles.secondaryText}>Atšaukti</Text></Pressable>
+            <Pressable
+              disabled={busy || !litersValid}
+              onPress={onSubmit}
+              style={[state.mode === 'delete' ? styles.deleteFuelConfirm : styles.saveFuelButton, (busy || !litersValid) && styles.disabled]}
+              testID="fuel-modal-submit"
+            >
+              {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>{state.mode === 'delete' ? 'Ištrinti' : 'Išsaugoti'}</Text>}
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
 }
 
 function buildMonthlyGroups(sheets: DisplayTripSheet[], ledgerSourceSheets: DisplayTripSheet[] = sheets): MonthlyTripGroup[] {
@@ -815,4 +1033,20 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   checkboxChecked: { backgroundColor: colors.actionPrimary, borderColor: colors.actionPrimary },
   checkboxMark: { ...type.secondaryStrong, color: colors.textInverse, lineHeight: 20 },
   checkboxLabel: { ...type.secondaryStrong, color: colors.text, flexShrink: 1 },
+  body: { ...type.body, color: colors.text },
+  fuelAdmin: { marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderSubtle, backgroundColor: colors.surfaceSubtle, gap: spacing.sm },
+  fuelAdminDay: { gap: spacing.xs, borderTopWidth: 1, borderTopColor: colors.borderSubtle, paddingTop: spacing.xs },
+  fuelAdminDate: { ...type.label, color: colors.textMuted },
+  fuelAdminList: { gap: spacing.xs },
+  fuelAdminEntry: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm, minHeight: 44 },
+  fuelAdminEntryText: { ...type.secondaryStrong, color: colors.text, flexGrow: 1, minWidth: 120 },
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center', padding: spacing.lg },
+  modalCard: { width: '100%', maxWidth: 520, borderRadius: radius.lg, backgroundColor: colors.surface, padding: spacing.lg, gap: spacing.md },
+  modalTitle: { ...type.sectionTitle, color: colors.text },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
+  chip: { minHeight: 40, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.md, justifyContent: 'center' },
+  chipActive: { backgroundColor: colors.info, borderColor: colors.info },
+  chipText: { ...type.secondaryStrong, color: colors.text },
+  chipTextActive: { color: colors.textInverse },
+  deleteFuelConfirm: { flex: 1, minHeight: 48, backgroundColor: colors.danger, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
 });
