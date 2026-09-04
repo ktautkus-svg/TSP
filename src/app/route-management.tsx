@@ -746,7 +746,11 @@ export default function RouteManagementScreen() {
               label="1. Vairuotojas"
               placeholder={drivers.length > 0 ? 'Pasirinkite vairuotoją' : 'Vairuotojų nėra'}
               primary={selectedDriver?.displayName}
-              secondary={selectedDriver ? `@${selectedDriver.username}` : undefined}
+              secondary={selectedDriver
+                ? (activeAssignments.filter((item) => item.driverId === selectedDriver.id).length > 0
+                  ? `${activeAssignments.filter((item) => item.driverId === selectedDriver.id).length} suplanuota`
+                  : 'Laisvas')
+                : undefined}
               open={openPicker === 'driver'}
               onToggle={() => setOpenPicker((current) => current === 'driver' ? null : 'driver')}
               wide={desktop}
@@ -761,7 +765,7 @@ export default function RouteManagementScreen() {
                   <View style={styles.avatar}><Text style={styles.avatarText}>{initials(driver.displayName)}</Text></View>
                   <View style={styles.dropdownOptionContent}>
                     <Text style={styles.dropdownOptionTitle}>{driver.displayName}</Text>
-                    <Text style={styles.dropdownOptionMeta}>@{driver.username} · {driverAssignments.length > 0 ? `${driverAssignments.length} suplanuota` : 'laisvas'}</Text>
+                    <Text style={styles.dropdownOptionMeta}>{driverAssignments.length > 0 ? `${driverAssignments.length} suplanuota` : 'Laisvas'}</Text>
                   </View>
                   {selectedDriverId === driver.id ? <Text style={styles.selectedMark}>✓</Text> : null}
                 </Pressable>;
