@@ -67,6 +67,8 @@ export default function RouteManagementScreen() {
   } | null>(null);
   const [editingAssignment, setEditingAssignment] = useState<ServerRouteAssignment | null>(null);
   const [editingAssignmentDate, setEditingAssignmentDate] = useState('');
+  // Editable right in the assign step — no separate screen, no disabled field.
+  const [assignDate, setAssignDate] = useState('');
   const [completingRoute, setCompletingRoute] = useState<LocalRoute | null>(null);
   const [completionOdometer, setCompletionOdometer] = useState('');
   const [activeSegment, setActiveSegment] = useState<'routes' | 'active'>('routes');
@@ -188,6 +190,8 @@ export default function RouteManagementScreen() {
     setSelectedVehicleId(routeId && vehicles.length === 1 ? vehicles[0].id : null);
     setOpenPicker(null);
     setAssignmentCompleted(null);
+    const picked = routeId ? routes.find((route) => route.id === routeId) : null;
+    setAssignDate(picked?.date ?? '');
   };
   const assign = async () => {
     if (busy || !selectedRoute || !selectedDriver || !selectedVehicle) return;
@@ -199,11 +203,31 @@ export default function RouteManagementScreen() {
     setMessage(null);
     try {
       const confirmation = {
-        routeLabel: `${formatDate(selectedRoute.date)} · ${selectedRoute.total_stops} taškų`,
+        routeLabel: `${formatDate(assignDate || selectedRoute.date)} · ${selectedRoute.total_stops} taškų`,
         driverName: selectedDriver.displayName,
         vehicleNumber: selectedVehicle.registrationNumber,
       };
-      await assignRouteToDriver(db, selectedRoute.id, selectedDriver.id, selectedVehicle.id);
+      const assignment = await assignRouteToDriver(db, selectedRoute.id, selectedDriver.id, selectedVehicle.id);
+      // Date picked inline in this same step — apply it straight away, before
+      // the route starts, no second screen.
+      if (assignDate && assignDate !== selectedRoute.date) {
+        await employeeApi(`/api/admin/assignments/${encodeURIComponent(assignment.id)}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ date: assignDate }),
+        }).catch(() => undefined);
+        const now = new Date().toISOString();
+        await db.runAsync(
+          `UPDATE routes
+           SET date = ?,
+               planned_departure_at = CASE
+                 WHEN planned_departure_at LIKE '____-__-__T%' THEN ? || substr(planned_departure_at, 11)
+                 ELSE planned_departure_at
+               END,
+               updated_at = ?
+           WHERE id = ?`,
+          assignDate, assignDate, now, selectedRoute.id,
+        );
+      }
       await load();
       setSelectedRouteId(null);
       setSelectedDriverId(null);
@@ -804,9 +828,14 @@ export default function RouteManagementScreen() {
             </SelectionDropdown>
           </View>
 
+          <View style={styles.assignDateRow} testID="assign-date-inline">
+            <Text style={styles.selectorLabel}>3. Maršruto data</Text>
+            <DateInput onChangeText={setAssignDate} style={styles.assignDateInput} testID="assign-date-inline-input" value={assignDate} />
+          </View>
+
           {selectedDriver && selectedVehicle ? <View style={styles.confirmationArea}>
             <View style={styles.confirmationSummary}>
-              <Summary label="Bus priskirta" value={`${formatDate(selectedRoute.date)} · ${selectedRoute.total_stops} taškų → ${selectedDriver.displayName} · ${selectedVehicle.registrationNumber}`} styles={styles} />
+              <Summary label="Bus priskirta" value={`${formatDate(assignDate || selectedRoute.date)} · ${selectedRoute.total_stops} taškų → ${selectedDriver.displayName} · ${selectedVehicle.registrationNumber}`} styles={styles} />
               {selectedLoad ? <Summary label="Apkrova" value={`${selectedLoad.percentLabel} · ${selectedLoad.ratioLabel}`} styles={styles} testID="vehicle-load-percent" warning={selectedLoad.overCapacity} /> : null}
               {selectedPrice
                 ? <PreliminaryPriceCard price={selectedPrice} styles={styles} />
@@ -1058,6 +1087,8 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   selector: { flexGrow: 0, minWidth: 0, gap: spacing.xs },
   selectorDesktop: { flexGrow: 1, flexBasis: 0 },
   selectorLabel: { ...type.label, color: colors.textSecondary, textTransform: 'uppercase' },
+  assignDateRow: { gap: spacing.xs, marginTop: spacing.sm },
+  assignDateInput: { minHeight: 46, paddingHorizontal: spacing.md, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, color: colors.text, ...type.bodyStrong },
   selectorButton: { minHeight: 66, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   selectorButtonOpen: { borderColor: colors.info, backgroundColor: colors.infoSoft },
   selectorValue: { flex: 1, minWidth: 0, gap: 2 },

@@ -55,6 +55,17 @@ describe('administrator workspace navigation', () => {
     expect(appLayout).toContain('headerLeft: () => <StackBackButton />');
   });
 
+  it('edits the route date inline in the assign step and drops the @username handle', () => {
+    // Date is editable in the same step (no separate screen / disabled field).
+    expect(routeManagement).toContain('testID="assign-date-inline"');
+    expect(routeManagement).toContain('const [assignDate, setAssignDate] = useState');
+    expect(routeManagement).toContain('assignDate && assignDate !== selectedRoute.date');
+    expect(routeManagement).toContain('formatDate(assignDate || selectedRoute.date)');
+    // Driver picker shows the display name only — never "@username".
+    expect(routeManagement).not.toContain('@${selectedDriver.username}');
+    expect(routeManagement).not.toContain('@{driver.username}');
+  });
+
   it('keeps a visible deterministic exit inside both route workspaces', () => {
     expect(routeManagement).toContain('Redaguoti vairuotojus →');
     expect(routeManagement).toContain('Redaguoti automobilius →');
