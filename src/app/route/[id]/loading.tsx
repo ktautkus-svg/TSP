@@ -193,7 +193,10 @@ export default function LoadingScreen() {
     if (syncRevision > 0) void load();
   }, [load, syncRevision]);
 
-  const showCargoScheme = profile.role === 'admin';
+  // Krovimo schema (padėklų/zonų vaizdas) išjungta — nerodoma niekam, nei
+  // vairuotojui, nei administratoriui. Skaičiavimo kodas (planCargoLayout,
+  // CargoLayoutSvg, loading-schema-preview) lieka repozitorijoje.
+  const showCargoScheme = false;
   const cargoProfile = useMemo(
     () => showCargoScheme ? resolveCargoProfile(assignment?.vehicle ?? fuelStatus?.vehicle) : null,
     [assignment?.vehicle, fuelStatus?.vehicle, showCargoScheme],

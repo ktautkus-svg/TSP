@@ -770,11 +770,8 @@ export default function AdminScreen() {
             <CollapsibleHeader title={`Automobilių parkas (${vehicles.length})`} expanded={expandedSection === 'fleet'} onPress={() => toggleSection('fleet')} styles={styles} />
             {expandedSection === 'fleet' ? <>
             <Text style={styles.meta}>Bako talpa, PLL talpa ir šoninės durys yra automobilio techniniai laukai. Kuro likutis čia nerašomas. Miestas automobiliams nesaugomas.</Text>
-            {profile.role === 'admin' ? (
-            <Pressable accessibilityRole="button" onPress={() => router.push({ pathname: '/loading-schema-preview', params: { returnTo: 'admin' } } as unknown as Href)} style={styles.smallButton} testID="open-loading-schema-preview">
-              <Text style={styles.smallButtonText}>Krovimo schemos peržiūra (bandomieji taškai)</Text>
-            </Pressable>
-            ) : null}
+            {/* Krovimo schema išjungta — nerodoma niekam (nei vairuotojui, nei
+                administratoriui). Kodas ir peržiūros ekranas lieka repozitorijoje. */}
             <View style={styles.vehicleList}>
               {vehicles.map((vehicle) => {
                 const driver = users.find((item) => item.id === vehicle.assignedDriverId);
@@ -852,7 +849,7 @@ export default function AdminScreen() {
                   onChangeText={(value) => setEditArchIntrusion(value.replace(/[^\d]/g, '').slice(0, 4))}
                   keyboardType="decimal-pad" placeholder="Kiek arka atima pločio iš vienos pusės, mm" placeholderTextColor={colors.textMuted} style={styles.input} />
               </> : <Text style={styles.meta}>Būdos grindys plokščios per visą ilgį — ratų arkų nurodyti nereikia.</Text>}
-              <Text style={styles.meta}>Suvedus ilgį ir plotį, padėklų schema matoma tik administratoriaus krovimo schemos peržiūroje. Vairuotojo krovimo ekrane jos nėra. Palikus tuščius, lieka senoji zonų schema.</Text>
+              <Text style={styles.meta}>Ilgis ir plotis yra tik techniniai kėbulo matmenys. Krovimo schema (padėklų ir zonų) šiuo metu nerodoma niekur.</Text>
               <Text style={styles.meta}>Pakeitimus krovinių skyriuje išsaugo tas pats „Išsaugoti automobilį“ mygtukas aukščiau.</Text>
               </> : null}
 
