@@ -471,10 +471,17 @@ export async function handleEmployeeApi(
     if (adminAssignmentMatch && request.method === 'PATCH') {
       requireRole(profile, ['admin', 'dispatcher']);
       const body = parseObject(await readBody(request, 32_000));
-      const assignment = await store.updateAssignmentSchedule(
-        decodeURIComponent(adminAssignmentMatch[1]),
-        stringField(body, 'date'),
-      );
+      const assignmentId = decodeURIComponent(adminAssignmentMatch[1]);
+      let assignment = body.date === undefined
+        ? (await store.listAssignments(profile)).find((item) => item.id === assignmentId)!
+        : await store.updateAssignmentSchedule(assignmentId, stringField(body, 'date'));
+      if (body.driverId !== undefined || body.vehicleId !== undefined) {
+        assignment = await store.reassignAssignment(assignmentId, {
+          driverId: body.driverId === undefined ? undefined : stringField(body, 'driverId'),
+          vehicleId: body.vehicleId === undefined ? undefined : stringField(body, 'vehicleId'),
+        });
+      }
+      if (!assignment) throw new EmployeeApiError('ASSIGNMENT_NOT_FOUND', 'Maršruto priskyrimas nerastas.', 404);
       await routeSyncStore.seedAssignment(assignment.driverId, assignment.routeSnapshot);
       return send(response, 200, { assignment }, requestId);
     }

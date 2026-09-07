@@ -1685,6 +1685,41 @@ export class EmployeeAuthStore {
     return updated;
   }
 
+  /**
+   * Reassigns a NOT-yet-started route to a different driver and/or vehicle
+   * without a cancel + re-create. The shared cloud route is re-seeded to the
+   * new driver; the previous driver's device drops its copy on the next sync
+   * (reconcileAssignedRouteCopies), because /api/assignments no longer lists it.
+   */
+  async reassignAssignment(assignmentId: string, input: { driverId?: string; vehicleId?: string }): Promise<RouteAssignment> {
+    const reference = this.assignments.doc(safeId(assignmentId));
+    const document = await reference.get();
+    const assignment = document.data() as RouteAssignment | undefined;
+    if (!assignment) throw new EmployeeApiError('ASSIGNMENT_NOT_FOUND', 'Maršruto priskyrimas nerastas.', 404);
+    if (['in_progress', 'completed', 'cancelled'].includes(assignment.status)) {
+      throw new EmployeeApiError('ASSIGNMENT_ALREADY_STARTED', 'Pradėto arba užbaigto maršruto vairuotojo ar automobilio keisti nebegalima.', 409);
+    }
+    let driverId = assignment.driverId;
+    let driverName = assignment.driverName;
+    if (input.driverId && input.driverId !== assignment.driverId) {
+      const driver = (await this.users.doc(safeId(input.driverId)).get()).data() as StoredUser | undefined;
+      if (!driver || driver.disabled) throw new EmployeeApiError('DRIVER_NOT_FOUND', 'Vairuotojas nerastas.', 404);
+      if (driver.role !== 'driver') throw new EmployeeApiError('DRIVER_NOT_FOUND', 'Pasirinktas darbuotojas nėra vairuotojas.', 400);
+      driverId = driver.id;
+      driverName = driver.displayName;
+    }
+    let vehicle = assignment.vehicle;
+    if (input.vehicleId && input.vehicleId !== assignment.vehicle?.id) {
+      const stored = (await this.vehicles.doc(validateVehicleId(input.vehicleId)).get()).data() as FleetVehicle | undefined;
+      if (!stored) throw new EmployeeApiError('VEHICLE_NOT_FOUND', 'Automobilis nerastas.', 404);
+      vehicle = vehicleSnapshot(normalizeVehicle(stored));
+    }
+    const updatedAt = new Date().toISOString();
+    const updated: RouteAssignment = { ...assignment, driverId, driverName, vehicle, updatedAt };
+    await reference.set(updated);
+    return updated;
+  }
+
   async listAssignments(profile: EmployeeProfile): Promise<RouteAssignment[]> {
     const snapshot = profile.role === 'driver'
       ? await this.assignments.where('driverId', '==', profile.id).get()

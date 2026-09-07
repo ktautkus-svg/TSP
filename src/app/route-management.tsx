@@ -67,6 +67,8 @@ export default function RouteManagementScreen() {
   } | null>(null);
   const [editingAssignment, setEditingAssignment] = useState<ServerRouteAssignment | null>(null);
   const [editingAssignmentDate, setEditingAssignmentDate] = useState('');
+  const [editingAssignmentDriverId, setEditingAssignmentDriverId] = useState('');
+  const [editingAssignmentVehicleId, setEditingAssignmentVehicleId] = useState('');
   // Editable right in the assign step — no separate screen, no disabled field.
   const [assignDate, setAssignDate] = useState('');
   const [completingRoute, setCompletingRoute] = useState<LocalRoute | null>(null);
@@ -498,6 +500,8 @@ export default function RouteManagementScreen() {
   const openAssignmentEditor = (assignment: ServerRouteAssignment) => {
     setEditingAssignment(assignment);
     setEditingAssignmentDate(String(assignment.routeSnapshot.route.date ?? assignment.assignedAt.slice(0, 10)));
+    setEditingAssignmentDriverId(assignment.driverId);
+    setEditingAssignmentVehicleId(assignment.vehicle?.id ?? '');
   };
 
   const saveAssignmentDate = async () => {
@@ -505,9 +509,12 @@ export default function RouteManagementScreen() {
     setBusy(true);
     setMessage(null);
     try {
+      const body: Record<string, unknown> = { date: editingAssignmentDate };
+      if (editingAssignmentDriverId && editingAssignmentDriverId !== editingAssignment.driverId) body.driverId = editingAssignmentDriverId;
+      if (editingAssignmentVehicleId && editingAssignmentVehicleId !== (editingAssignment.vehicle?.id ?? '')) body.vehicleId = editingAssignmentVehicleId;
       await employeeApi(`/api/admin/assignments/${encodeURIComponent(editingAssignment.id)}`, {
         method: 'PATCH',
-        body: JSON.stringify({ date: editingAssignmentDate }),
+        body: JSON.stringify(body),
       });
       const now = new Date().toISOString();
       await db.runAsync(
@@ -525,10 +532,10 @@ export default function RouteManagementScreen() {
         editingAssignment.routeId,
       );
       setEditingAssignment(null);
-      setMessage('Maršruto data pakeista. Vairuotojo įrenginys ją gaus sinchronizacijos metu.');
+      setMessage('Maršrutas atnaujintas. Vairuotojo įrenginys pakeitimus gaus sinchronizacijos metu.');
       await load();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Maršruto datos pakeisti nepavyko.');
+      setMessage(error instanceof Error ? error.message : 'Maršruto pakeisti nepavyko.');
     } finally {
       setBusy(false);
     }
@@ -867,10 +874,30 @@ export default function RouteManagementScreen() {
               <Text style={styles.selectorLabel}>Maršruto data</Text>
               <DateInput value={editingAssignmentDate} onChangeText={setEditingAssignmentDate} style={styles.modalInput} testID="assignment-date-input" />
             </View>
-            <Text style={styles.panelHint}>Datą galima keisti, kol vairuotojas maršruto dar nepradėjo.</Text>
+            <View style={styles.modalField}>
+              <Text style={styles.selectorLabel}>Vairuotojas</Text>
+              <View style={styles.chipRow}>
+                {drivers.map((driver) => (
+                  <Pressable key={driver.id} onPress={() => setEditingAssignmentDriverId(driver.id)} style={[styles.chip, editingAssignmentDriverId === driver.id && styles.chipActive]} testID={`assignment-edit-driver-${driver.id}`}>
+                    <Text style={[styles.chipText, editingAssignmentDriverId === driver.id && styles.chipTextActive]}>{driver.displayName}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+            <View style={styles.modalField}>
+              <Text style={styles.selectorLabel}>Automobilis</Text>
+              <View style={styles.chipRow}>
+                {vehicles.map((vehicle) => (
+                  <Pressable key={vehicle.id} onPress={() => setEditingAssignmentVehicleId(vehicle.id)} style={[styles.chip, editingAssignmentVehicleId === vehicle.id && styles.chipActive]} testID={`assignment-edit-vehicle-${vehicle.id}`}>
+                    <Text style={[styles.chipText, editingAssignmentVehicleId === vehicle.id && styles.chipTextActive]}>{vehicle.registrationNumber} · {vehicle.model}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+            <Text style={styles.panelHint}>Datą, vairuotoją ir automobilį galima keisti, kol vairuotojas maršruto dar nepradėjo. Taškus, jų eiliškumą ir svorius redaguokite atsidarę maršrutą planavime.</Text>
             <View style={styles.modalActions}>
               <Pressable disabled={busy} onPress={() => setEditingAssignment(null)} style={styles.secondaryButton}><Text style={styles.secondaryText}>Atšaukti</Text></Pressable>
-              <Pressable disabled={busy || !editingAssignmentDate} onPress={() => { void saveAssignmentDate(); }} style={[styles.primaryButton, (busy || !editingAssignmentDate) && styles.disabled]} testID="save-assignment-date">{busy ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.primaryText}>Išsaugoti datą</Text>}</Pressable>
+              <Pressable disabled={busy || !editingAssignmentDate} onPress={() => { void saveAssignmentDate(); }} style={[styles.primaryButton, (busy || !editingAssignmentDate) && styles.disabled]} testID="save-assignment-date">{busy ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.primaryText}>Išsaugoti</Text>}</Pressable>
             </View>
           </View>
         </View>
@@ -1004,6 +1031,11 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   modalClose: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border },
   modalCloseText: { fontSize: 26, lineHeight: 28, color: colors.textMuted },
   modalField: { gap: spacing.xs },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
+  chip: { minHeight: 40, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.md, justifyContent: 'center' },
+  chipActive: { backgroundColor: colors.info, borderColor: colors.info },
+  chipText: { ...type.secondaryStrong, color: colors.text },
+  chipTextActive: { color: colors.textInverse },
   completionNotice: { padding: spacing.md, borderRadius: radius.md, borderLeftWidth: 4, borderLeftColor: colors.info, backgroundColor: colors.infoSoft, gap: 2 },
   completionNoticeTitle: { ...type.bodyStrong, color: colors.info },
   modalInput: { minHeight: 50, paddingHorizontal: spacing.md, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surfaceSubtle, color: colors.text, ...type.bodyStrong },
