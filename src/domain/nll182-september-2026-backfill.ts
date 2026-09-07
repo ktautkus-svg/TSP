@@ -39,6 +39,33 @@ export const NLL182_SEPTEMBER_0902_WRONG_CODES = ['R88', 'R90', 'R82', 'R86', 'R
 
 export const NLL182_SEPTEMBER_0902_ROUTE_ID = 'route-sep2026-nll182-0902';
 
+/**
+ * Third one-shot (Karolis, 2026-09-07) — clears the leftover duplicate/foreign
+ * assignments the statistics screen was still double-counting:
+ *
+ *   09-01  NLL182 must be odometer-only (91 km, no route). Any completed/
+ *          cancelled NLL182 assignment on that day is removed.
+ *   09-02  Keep ONLY the real driven route (the one with the most delivered
+ *          stops — 20, all delivered). The v1 synthetic stub
+ *          (route-sep2026-nll182-0902, 0 stops) and a foreign R11;R15;R19
+ *          assignment on the same van/day are removed. The 78 L fill and the
+ *          odometer reading are keyed to the vehicle-day, not the assignment,
+ *          so they are untouched.
+ *   09-04  Remove the stray M11 (92,5 km) assignment — M11 is a 09-03 route.
+ *          The real 09-04 route (R11;R15;R19, 451 km) stays as-is.
+ */
+export const NLL182_SEPTEMBER_2026_BACKFILL_V3_ID = 'nll182-september-2026-backfill-v3';
+
+export const NLL182_SEPTEMBER_V3_EMPTY_DAY = '2026-09-01' as const;
+export const NLL182_SEPTEMBER_V3_KEEP_MOST_STOPS_DAY = '2026-09-02' as const;
+export const NLL182_SEPTEMBER_V3_DROP_M11_DAY = '2026-09-04' as const;
+
+/** Region-code set that marks the stray 2026-09-04 assignment to delete. */
+export function isNll182September0904StrayM11(routeCodes: readonly string[]): boolean {
+  const codes = routeCodes.map((code) => code.toUpperCase().trim()).filter(Boolean);
+  return codes.length === 1 && codes[0] === 'M11';
+}
+
 export const NLL182_SEPTEMBER_0904_FILL = { id: 'seed-NLL182-20260904-79', liters: 79, date: '2026-09-04' } as const;
 
 export const NLL182_SEPTEMBER_0906_EMPTY_KM = { date: '2026-09-06', extraKm: 68, note: 'Namai → darbas, ne maršruto km (2026-09-07 pataisymas).' } as const;

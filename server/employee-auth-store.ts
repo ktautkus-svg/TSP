@@ -139,10 +139,15 @@ import {
     NLL182_SEPTEMBER_0906_EMPTY_KM,
     NLL182_SEPTEMBER_2026_BACKFILL_ID,
     NLL182_SEPTEMBER_2026_BACKFILL_V2_ID,
+    NLL182_SEPTEMBER_2026_BACKFILL_V3_ID,
     NLL182_SEPTEMBER_2026_DAYS,
     NLL182_SEPTEMBER_2026_OPENING,
+    NLL182_SEPTEMBER_V3_DROP_M11_DAY,
+    NLL182_SEPTEMBER_V3_EMPTY_DAY,
+    NLL182_SEPTEMBER_V3_KEEP_MOST_STOPS_DAY,
     NLL182_REGISTRATION as NLL182_SEPTEMBER_REGISTRATION,
     isNll182September0902WrongAssignment,
+    isNll182September0904StrayM11,
     nll182SeptemberDayDistanceKm,
     nll182SeptemberShipmentLines,
 } from '../src/domain/nll182-september-2026-backfill.js';
@@ -4206,6 +4211,89 @@ export class EmployeeAuthStore {
       emptyKmDay,
     });
     return { applied: true, reason: 'applied', deletedAssignments, createdFills, emptyKmDay };
+  }
+
+  /**
+   * Third one-shot after the NLL182 September backfill (Karolis 2026-09-07),
+   * gated by tsp_settings `nll182-september-2026-backfill-v3`. Idempotent:
+   * every rule is "delete assignments matching a predicate", so a second boot
+   * finds nothing left to delete.
+   *
+   *  - 2026-09-01: NLL182 is odometer-only (91 km). Delete every completed/
+   *    cancelled NLL182 assignment on that day.
+   *  - 2026-09-02: keep ONLY the real driven route (the assignment with the
+   *    most stops — 20, all delivered); delete the v1 synthetic stub and any
+   *    other NLL182 assignment on that day. The 78 L fill and the odometer
+   *    reading key off the vehicle-day, not the assignment, so they survive.
+   *  - 2026-09-04: delete the stray M11 (92,5 km) assignment; the real
+   *    R11;R15;R19 route (451 km) is left untouched.
+   */
+  async applySeptember2026Nll182BackfillV3(input: { nowIso?: string } = {}): Promise<{
+    applied: boolean;
+    reason: string;
+    deletedAssignments: string[];
+    keptAssignment: string | null;
+  }> {
+    const flagRef = this.settings.doc(NLL182_SEPTEMBER_2026_BACKFILL_V3_ID);
+    if ((await flagRef.get()).data()?.status === 'applied') {
+      return { applied: false, reason: 'already_applied', deletedAssignments: [], keptAssignment: null };
+    }
+
+    const isNll182 = (assignment: RouteAssignment): boolean =>
+      (assignment.vehicle?.registrationNumber ?? '').toUpperCase() === NLL182_SEPTEMBER_REGISTRATION;
+    const stopCount = (assignment: RouteAssignment): number =>
+      assignment.routeSnapshot.stops.length || Number(assignment.routeSnapshot.route.total_stops ?? 0);
+
+    const nllDocs = (await this.assignments.get()).docs.filter((document) => {
+      const assignment = document.data() as RouteAssignment;
+      return isNll182(assignment) && ['completed', 'cancelled'].includes(assignment.status);
+    });
+
+    const deleteById = new Map<string, () => Promise<unknown>>();
+    const markDelete = (document: (typeof nllDocs)[number]): void => {
+      deleteById.set((document.data() as RouteAssignment).id, () => document.ref.delete());
+    };
+
+    // 2026-09-01 — no route belongs on NLL182 that day.
+    for (const document of nllDocs) {
+      if (tripSheetWorkDate(document.data() as RouteAssignment) === NLL182_SEPTEMBER_V3_EMPTY_DAY) markDelete(document);
+    }
+
+    // 2026-09-02 — keep only the assignment with the most stops.
+    const sep02 = nllDocs.filter((document) =>
+      tripSheetWorkDate(document.data() as RouteAssignment) === NLL182_SEPTEMBER_V3_KEEP_MOST_STOPS_DAY);
+    let keptAssignment: string | null = null;
+    if (sep02.length > 0) {
+      const keep = sep02.reduce((best, document) =>
+        stopCount(document.data() as RouteAssignment) > stopCount(best.data() as RouteAssignment) ? document : best);
+      keptAssignment = (keep.data() as RouteAssignment).id;
+      for (const document of sep02) {
+        if ((document.data() as RouteAssignment).id !== keptAssignment) markDelete(document);
+      }
+    }
+
+    // 2026-09-04 — drop the stray single-code M11 assignment.
+    for (const document of nllDocs) {
+      const assignment = document.data() as RouteAssignment;
+      if (tripSheetWorkDate(assignment) !== NLL182_SEPTEMBER_V3_DROP_M11_DAY) continue;
+      if (isNll182September0904StrayM11(uniqueRegionCodes(assignment.routeSnapshot.shipmentLines))) markDelete(document);
+    }
+
+    const deletedAssignments: string[] = [];
+    for (const [id, remove] of deleteById) {
+      await remove();
+      deletedAssignments.push(id);
+    }
+
+    const nowIso = input.nowIso ?? new Date().toISOString();
+    await flagRef.set({
+      id: NLL182_SEPTEMBER_2026_BACKFILL_V3_ID,
+      status: 'applied',
+      appliedAt: nowIso,
+      deletedAssignments,
+      keptAssignment,
+    });
+    return { applied: true, reason: 'applied', deletedAssignments, keptAssignment };
   }
 
   private liteFromRouteAssignment(assignment: RouteAssignment): AugustAssignmentLite {

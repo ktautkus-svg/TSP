@@ -153,8 +153,9 @@ export function ensureAugust2026ExcelBackfillMigrated(): Promise<void> {
   return august2026ExcelBackfill;
 }
 
-/** One-shot NLL182 September 2026 backfill — v1 (2026-09-01…03) then v2
- *  (drop wrong 09-02 route, add 09-04 fill, 09-06 empty km). Firestore flags. */
+/** One-shot NLL182 September 2026 backfill — v1 (2026-09-01…03), v2 (drop wrong
+ *  09-02 route, add 09-04 fill, 09-06 empty km), v3 (clear leftover duplicate/
+ *  foreign assignments on 09-01/09-02/09-04). Firestore flags. */
 export function ensureNll182September2026Migrated(): Promise<void> {
   if (!nll182September2026Backfill) {
     nll182September2026Backfill = (async () => {
@@ -162,6 +163,8 @@ export function ensureNll182September2026Migrated(): Promise<void> {
       process.stdout.write(`${JSON.stringify({ event: 'nll182_september_2026_backfill', ...v1 })}\n`);
       const v2 = await store.applySeptember2026Nll182BackfillV2();
       process.stdout.write(`${JSON.stringify({ event: 'nll182_september_2026_backfill_v2', ...v2 })}\n`);
+      const v3 = await store.applySeptember2026Nll182BackfillV3();
+      process.stdout.write(`${JSON.stringify({ event: 'nll182_september_2026_backfill_v3', ...v3 })}\n`);
     })().catch((error) => {
       nll182September2026Backfill = null;
       throw error;

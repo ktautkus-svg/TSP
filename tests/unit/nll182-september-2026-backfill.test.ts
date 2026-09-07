@@ -9,10 +9,12 @@ import {
   NLL182_SEPTEMBER_0906_EMPTY_KM,
   NLL182_SEPTEMBER_2026_BACKFILL_ID,
   NLL182_SEPTEMBER_2026_BACKFILL_V2_ID,
+  NLL182_SEPTEMBER_2026_BACKFILL_V3_ID,
   NLL182_SEPTEMBER_2026_DAYS,
   NLL182_SEPTEMBER_2026_FILL_IDS,
   NLL182_SEPTEMBER_2026_OPENING,
   isNll182September0902WrongAssignment,
+  isNll182September0904StrayM11,
   isNll182September2026FuelEntry,
   nll182SeptemberDayDistanceKm,
   nll182SeptemberShipmentLines,
@@ -136,6 +138,31 @@ describe('NLL182 September 2026 backfill migration wiring', () => {
     expect(apiSource).toContain('store.applySeptember2026Nll182BackfillV2()');
     expect(apiSource.indexOf('applySeptember2026Nll182Backfill()'))
       .toBeLessThan(apiSource.indexOf('applySeptember2026Nll182BackfillV2()'));
+  });
+
+  it('v3 clears the leftover duplicate/foreign assignments, idempotently', () => {
+    expect(NLL182_SEPTEMBER_2026_BACKFILL_V3_ID).toBe('nll182-september-2026-backfill-v3');
+    // Only a lone M11 assignment is the stray 09-04 one.
+    expect(isNll182September0904StrayM11(['M11'])).toBe(true);
+    expect(isNll182September0904StrayM11(['m11'])).toBe(true);
+    expect(isNll182September0904StrayM11(['R11', 'R15', 'R19'])).toBe(false);
+    expect(isNll182September0904StrayM11(['M11', 'R11'])).toBe(false);
+    expect(isNll182September0904StrayM11([])).toBe(false);
+
+    expect(storeSource).toContain('async applySeptember2026Nll182BackfillV3(');
+    expect(storeSource).toContain('this.settings.doc(NLL182_SEPTEMBER_2026_BACKFILL_V3_ID)');
+    // Keep the real 09-02 route — the one with the most stops.
+    expect(storeSource).toContain('stopCount(document.data() as RouteAssignment) > stopCount(best.data() as RouteAssignment)');
+    // The fill and odometer reading are never touched by v3.
+    const method = storeSource.slice(
+      storeSource.indexOf('async applySeptember2026Nll182BackfillV3('),
+      storeSource.indexOf('private liteFromRouteAssignment('),
+    );
+    expect(method).not.toContain('fuelEntries');
+    expect(method).not.toContain('vehicleDayReadings');
+    expect(apiSource).toContain('store.applySeptember2026Nll182BackfillV3()');
+    expect(apiSource.indexOf('applySeptember2026Nll182BackfillV2()'))
+      .toBeLessThan(apiSource.indexOf('applySeptember2026Nll182BackfillV3()'));
   });
 
   it('does not touch the fuel norm or MET630 fills', () => {
