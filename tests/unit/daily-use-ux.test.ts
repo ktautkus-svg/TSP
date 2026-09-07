@@ -109,7 +109,10 @@ describe('Daily Use menu and Dashboard contract', () => {
 
   it('keeps the active dashboard within the viewport width at narrow breakpoints', () => {
     const delivery = source('src/app/route/[id]/delivery.tsx');
-    expect(delivery).toContain('(Math.min(viewportWidth, 430) - 94) / 2');
+    // Gauge width comes from a viewport budget that reserves the centre block
+    // and gaps, so two gauges never push the page wider than the screen.
+    expect(delivery).toContain('const gaugeBudget = (Math.min(viewportWidth, 412) - 76 - 16) / 2');
+    expect(delivery).toContain("maxWidth: '100%'");
     expect(delivery).toContain("overflow: 'hidden'");
     expect(source('src/app/+html.tsx')).toContain('overflow-x: hidden');
   });

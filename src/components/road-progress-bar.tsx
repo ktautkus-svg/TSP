@@ -17,14 +17,16 @@ import { fonts } from '@/ui/tokens';
 
 type CockpitPalette = ReturnType<typeof cockpitColorsFor>;
 /**
- * Length of the semicircular steering-rim path in the 400×240 viewBox.
- * Path: left 8-o'clock → top apex → right 4-o'clock (look-through wheel frame).
+ * A shallow, corner-to-corner arc — the top of a steering wheel seen almost
+ * edge-on, not a half circle. Wide (x 20 → 380 in the 400×140 band) but only
+ * ~44 px of rise, so it never eats the windshield or the gauges.
+ * ARC_LENGTH is the on-path length used for the progress dash.
  */
-const ARC_LENGTH = 520;
+const ARC_LENGTH = 372;
 const SCENE_ROTATION_INTERVAL_MS = 30 * 60 * 1000;
 
-/** Semicircular rim path — frames the instrument bay like looking through a wheel. */
-const RIM_PATH = 'M 28 198 A 172 172 0 0 1 372 198';
+/** Flat wheel-top arc: big radius, small sagitta. */
+const RIM_PATH = 'M 20 96 A 640 640 0 0 1 380 96';
 
 const sceneAssets = {
   sunrise: require('../../assets/images/route-scenes/stitch-windshield-01.png'),
@@ -165,9 +167,10 @@ export function RoadProgressBar({
       <View style={[styles.clusterBay, compact && styles.clusterBayCompact]} testID="route-instrument-cluster">
         <Svg
           pointerEvents="none"
+          preserveAspectRatio="none"
           style={[styles.steeringRim, compact && styles.steeringRimCompact]}
           testID="route-steering-progress"
-          viewBox="0 0 400 240">
+          viewBox="0 4 400 104">
           <Defs>
             <LinearGradient id="steeringProgress" x1="0" y1="0" x2="1" y2="0">
               <Stop offset="0" stopColor={cockpit.primaryDark} />
@@ -175,21 +178,21 @@ export function RoadProgressBar({
               <Stop offset="1" stopColor={cockpit.routeBright} />
             </LinearGradient>
           </Defs>
-          {/* A clean white steering rim crosses the windshield; route progress grows blue over it. */}
+          {/* Flat wheel-top rim across the top of the gauges; progress fills blue. */}
           <Path
             d={RIM_PATH}
             fill="none"
             stroke={cockpit.shadow}
             strokeLinecap="round"
-            strokeOpacity={0.28}
-            strokeWidth={16}
+            strokeOpacity={0.22}
+            strokeWidth={11}
           />
           <Path
             d={RIM_PATH}
             fill="none"
             stroke={cockpit.white}
             strokeLinecap="round"
-            strokeWidth={12}
+            strokeWidth={8}
           />
           {progressStroke > 0 ? (
             <Path
@@ -198,7 +201,7 @@ export function RoadProgressBar({
               stroke="url(#steeringProgress)"
               strokeDasharray={`${progressStroke} ${ARC_LENGTH}`}
               strokeLinecap="round"
-              strokeWidth={9}
+              strokeWidth={6}
             />
           ) : null}
         </Svg>
@@ -345,20 +348,19 @@ const createStyles = (cockpit: CockpitPalette) => StyleSheet.create({
   sceneBadgeTextCompact: { fontSize: 11, lineHeight: 15, letterSpacing: 0.2 },
   clusterBay: {
     width: '100%',
+    maxWidth: '100%',
     position: 'relative',
-    marginTop: -86,
-    paddingTop: 86,
-    paddingBottom: 4,
+    marginTop: -18,
+    paddingTop: 30,
+    paddingBottom: 2,
     paddingHorizontal: 8,
     backgroundColor: 'transparent',
-    minHeight: 238,
   },
   clusterBayCompact: {
-    marginTop: -78,
-    paddingTop: 78,
-    paddingBottom: 2,
+    marginTop: -16,
+    paddingTop: 26,
+    paddingBottom: 0,
     paddingHorizontal: 6,
-    minHeight: 218,
   },
   steeringRim: {
     position: 'absolute',
@@ -366,19 +368,19 @@ const createStyles = (cockpit: CockpitPalette) => StyleSheet.create({
     left: 0,
     right: 0,
     width: '100%',
-    height: 180,
+    height: 40,
     zIndex: 1,
   },
-  steeringRimCompact: { height: 166 },
+  steeringRimCompact: { height: 34 },
   progressReadout: {
     position: 'absolute',
-    top: 12,
+    top: -4,
     left: 0,
     right: 0,
     alignItems: 'center',
     zIndex: 2,
   },
-  progressReadoutCompact: { top: 10 },
+  progressReadoutCompact: { top: -2 },
   gaugeSlot: {
     width: '100%',
     zIndex: 2,

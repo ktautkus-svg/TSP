@@ -712,13 +712,15 @@ export default function DeliveryScreen() {
   const nextStopWindow = arrivalWindowStatus(nextStop, route?.date);
   const wideLayout = viewportWidth >= 720;
   const compactDashboard = !wideLayout && viewportHeight < 900;
-  // Gauges are the product "nails" — keep them large and obvious inside the
-  // steering-rim frame (larger than a real car cluster). Actions stay ~48px.
+  // Gauges are the product "nails" — big and readable, but they must fit two
+  // across plus the centre stat block inside the narrowest phone without
+  // pushing the page a few px wide. Budget: viewport − centre(76) − gaps(16).
+  const gaugeBudget = (Math.min(viewportWidth, 412) - 76 - 16) / 2;
   const gaugeSize = wideLayout
-    ? 164
+    ? 160
     : compactDashboard
-      ? Math.min(140, Math.max(124, (Math.min(viewportWidth, 430) - 92) / 2))
-      : Math.min(148, Math.max(130, (Math.min(viewportWidth, 430) - 94) / 2));
+      ? Math.min(132, Math.max(108, gaugeBudget))
+      : Math.min(140, Math.max(116, gaugeBudget));
   const compositeProgress = progress ? calculateCompositeRouteProgress({
     completedStops: progress.totalStops - progress.remainingStops,
     totalStops: progress.totalStops,
@@ -1374,14 +1376,15 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   gaugePanelCompact: { paddingTop: 0, paddingHorizontal: 2, paddingBottom: 0 },
   gaugeRow: {
     width: '100%',
+    maxWidth: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 10,
+    gap: 8,
   },
   gaugeRowCompact: { gap: 6 },
   gaugeCenterStats: {
-    width: 92,
+    width: 76,
     flexShrink: 0,
     minHeight: 108,
     alignSelf: 'center',
