@@ -164,8 +164,7 @@ export default function HomeScreen() {
                 <Text style={styles.adminMenuTitle}>FiRo valdymo centras</Text>
               </View>
               <View style={styles.adminMenuFeatured}><GroupedMenuSection columns label="MARŠRUTIZAVIMAS" testID="admin-urgent-menu">
-                <GroupedMenuRow description="Kurti, redaguoti, vykdyti ir stebėti maršrutus." icon={<MenuArtwork kind="dispatch" />} onPress={() => router.push('/dispatcher' as Href)} title="Dispečerio skydelis" tone="success" />
-                <GroupedMenuRow description="Pasirinkti vairuotoją ir atidaryti jam priskirtą maršrutą šiame įrenginyje." icon={<MenuArtwork kind="execute" />} onPress={() => router.push('/execute-route' as Href)} title="Vykdyti vairuotojo maršrutą" tone="info" />
+                <GroupedMenuRow description="Kurti, redaguoti, priskirti, vykdyti ir stebėti maršrutus." icon={<MenuArtwork kind="dispatch" />} onPress={() => router.push('/dispatcher' as Href)} title="Dispečerio skydelis" tone="success" />
                 <GroupedMenuRow description="Taškų seka, laikai ir pristatymo kokybė." icon={<MenuArtwork kind="quality" />} onPress={() => router.push('/quality-control' as Href)} title="Kokybės kontrolė" tone="success" />
               </GroupedMenuSection></View>
               <View style={styles.adminMenuGroup}><GroupedMenuSection columns label="STEBĖJIMAS IR APSKAITA" testID="admin-monitoring-menu">

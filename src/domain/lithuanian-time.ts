@@ -95,6 +95,9 @@ export function assessDeliveryTiming(input: DeliveryTimingInput): DeliveryTiming
   const plannedMs = Date.parse(plannedArrivalAt);
   if (!Number.isFinite(plannedMs)) return unknownTiming();
   const differenceMinutes = Math.round((deliveredMs - plannedMs) / 60_000);
+  // A 6+ h gap vs plan means the planned timestamp is on the wrong calendar
+  // day (a planning-date bug) — not a real early/late, so do not score it.
+  if (Math.abs(differenceMinutes) > 360) return timing('on_time', 0, plannedMs, 'planned_arrival');
   const state: DeliveryTimingState = differenceMinutes > PUNCTUALITY_TOLERANCE_MINUTES
     ? 'late'
     : differenceMinutes < -PUNCTUALITY_TOLERANCE_MINUTES ? 'early' : 'on_time';

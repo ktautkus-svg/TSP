@@ -126,9 +126,18 @@ export default function SettingsScreen() {
   }, [companyProfileSettings, navigationPreference, refreshDiagnostics]);
 
   async function saveCompanyProfile() {
-    await companyProfileSettings.save({ name: companyName, address: companyAddress });
-    setCompanySaved(true);
-    setMessage('Įmonės duomenys išsaugoti.');
+    try {
+      await companyProfileSettings.save({ name: companyName, address: companyAddress });
+      const stored = await companyProfileSettings.get();
+      if (stored.name !== companyName.trim() || stored.address !== companyAddress.trim()) {
+        throw new Error('Įrašas neišsisaugojo įrenginyje. Patikrinkite naršyklės saugyklos leidimus.');
+      }
+      setCompanySaved(true);
+      setMessage('Įmonės duomenys išsaugoti.');
+    } catch (error) {
+      setCompanySaved(false);
+      setMessage(error instanceof Error ? error.message : 'Įmonės duomenų išsaugoti nepavyko.');
+    }
   }
 
   async function changeDefaultNavigation(value: NavigationProvider) {
@@ -291,23 +300,13 @@ export default function SettingsScreen() {
           <View style={styles.managementSection}>
           <View style={styles.managementGrid}>
             <Pressable
-              accessibilityLabel="Redaguoti vairuotojus ir darbuotojus"
+              accessibilityLabel="Naudotojų paskyros"
               accessibilityRole="button"
               onPress={() => router.push({ pathname: '/admin', params: { section: 'employees', returnTo: 'settings' } } as Href)}
               style={styles.managementCard}
               testID="open-employee-management">
-              <View style={styles.managementIcon}><MenuArtwork kind="drivers" size={56} /></View>
-              <View style={styles.flex}><Text style={styles.title}>Vairuotojai</Text><Text style={styles.meta}>Duomenys, PIN ir leidimai</Text></View>
-              <Text style={styles.chevron}>›</Text>
-            </Pressable>
-            <Pressable
-              accessibilityLabel="Redaguoti automobilius"
-              accessibilityRole="button"
-              onPress={() => router.push({ pathname: '/admin', params: { section: 'fleet', returnTo: 'settings' } } as Href)}
-              style={styles.managementCard}
-              testID="open-vehicle-management">
-              <View style={styles.managementIcon}><MenuArtwork kind="vehicles" size={56} /></View>
-              <View style={styles.flex}><Text style={styles.title}>Automobiliai</Text><Text style={styles.meta}>Numeriai, modeliai ir keliamoji galia</Text></View>
+              <View style={styles.managementIcon}><MenuArtwork kind="account" size={56} /></View>
+              <View style={styles.flex}><Text style={styles.title}>Vartotojai</Text><Text style={styles.meta}>Prisijungimai, PIN ir leidimai — vairuotojai ir administracija</Text></View>
               <Text style={styles.chevron}>›</Text>
             </Pressable>
           </View>

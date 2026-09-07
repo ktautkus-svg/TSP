@@ -892,7 +892,7 @@ export default function DeliveryScreen() {
                         accessibilityLabel="Naviguoti į kitą stotelę"
                         accessibilityRole="button"
                         onPress={() => { void navigate(nextStop); }}
-                        style={[styles.dashboardActionButton, styles.stopInfoActionButton, styles.dashboardNavigateButton]}>
+                        style={({ pressed }) => [styles.dashboardActionButton, styles.stopInfoActionButton, styles.dashboardNavigateButton, pressed && styles.pressedFeedback]}>
                         <NavigateIcon size={compactDashboard ? 16 : 18} />
                         <Text numberOfLines={1} style={[styles.dashboardActionText, styles.dashboardPrimaryActionText]}>NAVIGUOTI</Text>
                       </Pressable>
@@ -901,7 +901,7 @@ export default function DeliveryScreen() {
                         accessibilityState={{ disabled: !isUsablePhone(nextStop.phone) }}
                         disabled={!isUsablePhone(nextStop.phone)}
                         onPress={() => callStop(nextStop)}
-                        style={[styles.dashboardActionButton, styles.stopInfoActionButton, styles.callButton, !isUsablePhone(nextStop.phone) && styles.callButtonDisabled]}
+                        style={({ pressed }) => [styles.dashboardActionButton, styles.stopInfoActionButton, styles.callButton, !isUsablePhone(nextStop.phone) && styles.callButtonDisabled, pressed && styles.pressedFeedback]}
                         testID="call-next-stop">
                         <Text style={[styles.callButtonText, !isUsablePhone(nextStop.phone) && styles.callButtonTextDisabled]}>SKAMBINTI</Text>
                       </Pressable>
@@ -912,7 +912,7 @@ export default function DeliveryScreen() {
                       <Pressable
                         disabled={busy}
                         onPress={() => { void delivered(nextStop.id); }}
-                        style={[styles.dashboardActionButton, styles.dashboardOutcomeButton, styles.dashboardDeliveredButton, busy && styles.disabled]}
+                        style={({ pressed }) => [styles.dashboardActionButton, styles.dashboardOutcomeButton, styles.dashboardDeliveredButton, busy && styles.disabled, pressed && styles.pressedFeedback]}
                         testID="dashboard-delivered-button">
                         <DeliveredIcon size={compactDashboard ? 16 : 18} />
                         <Text numberOfLines={1} style={styles.dashboardActionText}>ATLIKTA</Text>
@@ -920,7 +920,7 @@ export default function DeliveryScreen() {
                       <Pressable
                         disabled={busy}
                         onPress={() => beginFailed(nextStop.id)}
-                        style={[styles.dashboardActionButton, styles.dashboardOutcomeButton, styles.dashboardFailedButton, busy && styles.disabled]}
+                        style={({ pressed }) => [styles.dashboardActionButton, styles.dashboardOutcomeButton, styles.dashboardFailedButton, busy && styles.disabled, pressed && styles.pressedFeedback]}
                         testID="dashboard-failed-button">
                         <FailedIcon color={colors.danger} size={compactDashboard ? 16 : 18} />
                         <Text numberOfLines={1} style={styles.dashboardFailedActionText}>NEATLIKTA</Text>
@@ -1035,7 +1035,7 @@ export default function DeliveryScreen() {
                   <Text style={styles.meta}>Laiko skirtumas: {signed(recalculation.timeDeltaMinutes, 'min')}</Text>
                   <Text style={styles.meta}>Esama: {recalculation.orderBefore.map(stopLabel).join(' → ')}</Text>
                   <Text style={styles.meta}>Nauja: {recalculation.orderAfter.map(stopLabel).join(' → ')}</Text>
-                  <Pressable style={styles.finishButton} onPress={() => { void resolveRecalculation(true); }}><Text style={styles.buttonText}>Patvirtinti naują seką</Text></Pressable>
+                  <Pressable style={({ pressed }) => [styles.finishButton, pressed && styles.pressedFeedback]} onPress={() => { void resolveRecalculation(true); }}><Text style={styles.buttonText}>Patvirtinti naują seką</Text></Pressable>
                   <Pressable style={styles.cancelButton} onPress={() => { void resolveRecalculation(false); }}><Text style={styles.secondaryText}>Palikti esamą seką</Text></Pressable>
                 </View>
               ) : null}
@@ -1081,7 +1081,7 @@ export default function DeliveryScreen() {
                 {userVisibleStopNote(stop.notes) ? <Text style={styles.meta}>Pastabos: {userVisibleStopNote(stop.notes)}</Text> : null}
                 <Text style={styles.meta}>Telefonas: {isUsablePhone(stop.phone) ? stop.phone : 'nesuvestas'}</Text>
                 {isUsablePhone(stop.phone) ? (
-                  <Pressable accessibilityLabel="Skambinti klientui" onPress={() => callStop(stop)} style={styles.callButton} testID={`call-stop-${stop.id}`}>
+                  <Pressable accessibilityLabel="Skambinti klientui" onPress={() => callStop(stop)} style={({ pressed }) => [styles.callButton, pressed && styles.pressedFeedback]} testID={`call-stop-${stop.id}`}>
                     <Text style={styles.callButtonText}>SKAMBINTI KLIENTUI</Text>
                   </Pressable>
                 ) : null}
@@ -1104,9 +1104,9 @@ export default function DeliveryScreen() {
                   </Pressable>
                 ) : null}
                 <View style={styles.actions}>
-                  <Pressable accessibilityLabel="Naviguoti į stotelę" accessibilityRole="button" style={styles.navigateButton} onPress={() => { void navigate(stop); }}><Text style={styles.buttonText}>NAVIGUOTI</Text></Pressable>
-                  <Pressable accessibilityLabel="Pažymėti atlikta" accessibilityRole="button" style={styles.deliverButton} onPress={() => { void delivered(stop.id); }}><Text style={styles.buttonText}>ATLIKTA</Text></Pressable>
-                  <Pressable accessibilityLabel="Pažymėti neatlikta" accessibilityRole="button" style={styles.failButton} onPress={() => beginFailed(stop.id)}><Text style={styles.buttonText}>NEATLIKTA</Text></Pressable>
+                  <Pressable accessibilityLabel="Naviguoti į stotelę" accessibilityRole="button" style={({ pressed }) => [styles.navigateButton, pressed && styles.pressedFeedback]} onPress={() => { void navigate(stop); }}><Text style={styles.buttonText}>NAVIGUOTI</Text></Pressable>
+                  <Pressable accessibilityLabel="Pažymėti atlikta" accessibilityRole="button" style={({ pressed }) => [styles.deliverButton, pressed && styles.pressedFeedback]} onPress={() => { void delivered(stop.id); }}><Text style={styles.buttonText}>ATLIKTA</Text></Pressable>
+                  <Pressable accessibilityLabel="Pažymėti neatlikta" accessibilityRole="button" style={({ pressed }) => [styles.failButton, pressed && styles.pressedFeedback]} onPress={() => beginFailed(stop.id)}><Text style={styles.buttonText}>NEATLIKTA</Text></Pressable>
                 </View>
               </View>
             ) : null}
@@ -1695,6 +1695,8 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   failModeText: { ...type.secondaryStrong, color: colors.textSecondary, textAlign: 'center' },
   failModeTextActive: { color: colors.textInverse },
   returnBadge: { color: colors.warning, fontFamily: fonts.headingSemiBold },
+  // Shared "this really got pressed" feedback for the raw action buttons.
+  pressedFeedback: { transform: [{ translateY: 1 }, { scale: 0.97 }], opacity: 0.82 },
   finishSheet: { maxHeight: '92%', paddingTop: spacing.sm, paddingHorizontal: spacing.lg, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, backgroundColor: colors.surface, gap: spacing.sm },
   finishSheetScroll: { flexGrow: 1, flexShrink: 1 },
   sheetHandle: { alignSelf: 'center', width: 44, height: 5, borderRadius: radius.pill, backgroundColor: colors.borderStrong },

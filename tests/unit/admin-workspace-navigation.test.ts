@@ -34,25 +34,31 @@ describe('administrator workspace navigation', () => {
     expect(home).toMatch(/showDriverDashboard\s*\?\s*await repository\.listOperational\(effectiveDriverId\)\s*:\s*\[\]/);
   });
 
-  it('uses one focused flow for choosing and driving as a driver', () => {
+  it('uses one focused flow for choosing and driving as a driver — from the dispatcher, not the admin home', () => {
+    const dispatcher = readFileSync(resolve(root, 'src/app/dispatcher.tsx'), 'utf8');
     expect(home).not.toContain('testID="acting-driver-picker"');
-    expect(home).toContain('title="Vykdyti vairuotojo maršrutą"');
-    expect(home).toContain("router.push('/execute-route' as Href)");
+    // "Vykdyti vairuotojo maršrutą" lives only on the dispatcher now.
+    expect(home).not.toContain("router.push('/execute-route' as Href)");
+    expect(dispatcher).toContain("open('/execute-route' as Href)");
     expect(execute).toContain('await setActingDriver({ id: driver.id, displayName: driver.displayName })');
     expect(home).toContain('testID="acting-driver-banner"');
     expect(home).toContain('Vairuojate kaip');
     expect(home).toContain('void setActingDriver(null)');
   });
 
-  it('opens focused employee and vehicle editors from visible settings shortcuts', () => {
+  it('keeps only a user-accounts shortcut in settings; drivers and vehicles live on the home menu', () => {
     expect(settings).toContain('testID="admin-management-shortcuts"');
     expect(settings).toContain("params: { section: 'employees', returnTo: 'settings' }");
-    expect(settings).toContain("params: { section: 'fleet', returnTo: 'settings' }");
     expect(settings).toContain('testID="open-employee-management"');
-    expect(settings).toContain('testID="open-vehicle-management"');
+    expect(settings).toContain('<Text style={styles.title}>Vartotojai</Text>');
+    // Vehicles are not duplicated in settings.
+    expect(settings).not.toContain('testID="open-vehicle-management"');
+    expect(settings).not.toContain("params: { section: 'fleet', returnTo: 'settings' }");
     expect(admin).toContain("requestedSection === 'employees' || requestedSection === 'fleet'");
-    expect(admin).toContain("if (focus) setExpandedSection(focus === 'employees' ? null : focus === 'fleet' ? 'vehicle-create' : focus)");
     expect(appLayout).toContain('headerLeft: () => <StackBackButton />');
+    // The home menu still carries drivers + vehicles.
+    expect(home).toContain('title="Automobiliai"');
+    expect(home).toContain('title="Vairuotojai"');
   });
 
   it('edits the route date inline in the assign step and drops the @username handle', () => {

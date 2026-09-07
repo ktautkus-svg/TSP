@@ -136,12 +136,22 @@ describe('Etapas 2.4.1 time mode and ETA contract', () => {
     expect((db as unknown as ExpoLikeDatabase).transactionCalls).toBe(0);
   });
 
-  it('labels a materially shifted ETA as late', () => {
-    const stop = stopFixture('s1', 1, {
+  it('labels a materially shifted ETA as late, but tolerates up to 15 min and ignores day-off gaps', () => {
+    // 12 min past plan is within the 15-min tolerance now.
+    expect(etaScheduleState(stopFixture('s1', 1, {
       plannedArrivalAt: '2026-08-03T08:30:00.000Z',
       latestEstimatedArrivalAt: '2026-08-03T08:42:00.000Z',
-    });
-    expect(etaScheduleState(stop)).toEqual({ state: 'late', differenceMinutes: 12 });
+    }))).toEqual({ state: 'on_time', differenceMinutes: 12 });
+    // 25 min past plan is late.
+    expect(etaScheduleState(stopFixture('s1', 1, {
+      plannedArrivalAt: '2026-08-03T08:30:00.000Z',
+      latestEstimatedArrivalAt: '2026-08-03T08:55:00.000Z',
+    }))).toEqual({ state: 'late', differenceMinutes: 25 });
+    // A ~23 h gap is a corrupted planned date, not a real signal.
+    expect(etaScheduleState(stopFixture('s1', 1, {
+      plannedArrivalAt: '2026-08-04T06:00:00.000Z',
+      latestEstimatedArrivalAt: '2026-08-03T06:37:00.000Z',
+    }))).toEqual({ state: 'on_time', differenceMinutes: null });
   });
 });
 
