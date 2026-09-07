@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-import { assessDeliveryTiming } from '@/domain/lithuanian-time';
+import { assessDeliveryTiming, lithuanianDateKey } from '@/domain/lithuanian-time';
 import type { FailureReasonCount, StatsLateDelivery, StatsRouteRow } from '@/domain/statistics';
 import type { RouteCompletionSummary } from '@/domain/route';
 
@@ -22,6 +22,8 @@ type StatsRouteQueryRow = {
 type StatsStopQueryRow = {
   route_id: string;
   route_date: string;
+  route_started_at: string | null;
+  route_completed_at: string | null;
   route_codes: string | null;
   stop_id: string;
   original_address: string;
@@ -42,6 +44,18 @@ function parseSummary(value: string | null): RouteCompletionSummary | null {
   }
 }
 
+/**
+ * Which day a completed route belongs to in statistics. The planning `date`
+ * was only an intention set at route creation and, for routes made before the
+ * planning-date fix, frequently landed a day off. Once a route is actually
+ * driven, the morning-odometer day (`started_at`, else completion) is the
+ * truthful bucket — computed in Europe/Vilnius so it never rolls to the wrong
+ * calendar day. Falls back to the stored `date` only when neither exists.
+ */
+function drivenDate(dateField: string, startedAt: string | null, completedAt: string | null): string {
+  return lithuanianDateKey(startedAt ?? '') ?? lithuanianDateKey(completedAt ?? '') ?? dateField;
+}
+
 function mapRow(row: StatsRouteQueryRow): StatsRouteRow {
   return {
     routeId: row.route_id,
@@ -50,7 +64,7 @@ function mapRow(row: StatsRouteQueryRow): StatsRouteRow {
     vehicleRegistration: null,
     startAddress: row.start_address,
     endAddress: row.end_address,
-    date: row.date,
+    date: drivenDate(row.date, row.started_at, row.completed_at),
     status: row.status,
     estimatedDistanceKm: row.estimated_distance_km,
     actualDistanceKm: row.actual_distance_km,
@@ -123,7 +137,7 @@ export class StatisticsRepository {
       .filter((row): row is { reason: string; count: number } => row.reason !== null)
       .map((row) => ({ reason: row.reason, count: row.count }));
     const deliveredRows = await this.db.getAllAsync<StatsStopQueryRow>(
-      `SELECT r.id AS route_id, r.date AS route_date,
+      `SELECT r.id AS route_id, r.date AS route_date, r.started_at AS route_started_at, r.completed_at AS route_completed_at,
               (SELECT GROUP_CONCAT(DISTINCT sl.route_code) FROM shipment_lines sl WHERE sl.route_id = r.id) AS route_codes,
               ds.id AS stop_id, ds.original_address, ds.normalized_address,
               ds.delivered_at, ds.delivery_time_from, ds.delivery_time_to,
@@ -150,7 +164,7 @@ export class StatisticsRepository {
       if (timing.state !== 'late' || timing.differenceMinutes === null || !timing.referenceAt) return [];
       return [{
         routeId: row.route_id,
-        date: row.route_date,
+        date: drivenDate(row.route_date, row.route_started_at, row.route_completed_at),
         routeLabel: routeLabel(row.route_codes, row.route_id),
         driverId: null,
         driverName: null,

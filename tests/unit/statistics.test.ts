@@ -314,12 +314,13 @@ describe('StatisticsRepository.getRows (integration)', () => {
   it('aggregates a mix of completed/cancelled routes and failure reasons from real SQL', async () => {
     const { adapter, db } = createDb();
     const now = new Date().toISOString();
+    const driven = '2026-08-05T07:00:00.000Z';
     adapter.raw.prepare(
       `INSERT INTO routes (id, date, status, total_weight_kg, remaining_weight_kg, total_stops, remaining_stops,
         created_at, updated_at, unknown_weight_stops, remaining_unknown_weight_stops,
         actual_distance_km, estimated_distance_km, started_at, completed_at, completion_summary_json)
        VALUES ('r1','2026-08-05','completed',0,0,2,0,?,?,0,0,25.5,26,?,?,?)`,
-    ).run(now, now, now, now, JSON.stringify(summary({ deliveredStops: 2, failedStops: 0 })));
+    ).run(now, now, driven, driven, JSON.stringify(summary({ deliveredStops: 2, failedStops: 0 })));
     adapter.raw.prepare(
       `INSERT INTO routes (id, date, status, total_weight_kg, remaining_weight_kg, total_stops, remaining_stops,
         created_at, updated_at, unknown_weight_stops, remaining_unknown_weight_stops)
@@ -360,6 +361,33 @@ describe('StatisticsRepository.getRows (integration)', () => {
       deadlineAt: '2026-08-05T09:00:00.000Z',
       delayMinutes: 40,
     })]);
+  });
+
+  it('buckets a completed route by the day it was driven, not a stale planning date', async () => {
+    const { adapter, db } = createDb();
+    const now = new Date().toISOString();
+    // Planning date landed a day late (the pre-fix defaultPlanningDate bug),
+    // but the route was actually loaded and driven on 2026-08-31.
+    adapter.raw.prepare(
+      `INSERT INTO routes (id, date, status, total_weight_kg, remaining_weight_kg, total_stops, remaining_stops,
+        created_at, updated_at, unknown_weight_stops, remaining_unknown_weight_stops,
+        actual_distance_km, started_at, completed_at)
+       VALUES ('shifted','2026-09-01','completed',0,0,3,0,?,?,0,0,120,'2026-08-31T05:30:00.000Z','2026-08-31T14:00:00.000Z')`,
+    ).run(now, now);
+    const { rows } = await new StatisticsRepository(db).getRows(new Date());
+    expect(rows[0]!.date).toBe('2026-08-31');
+  });
+
+  it('falls back to the planning date when a route has no driven timestamps', async () => {
+    const { adapter, db } = createDb();
+    const now = new Date().toISOString();
+    adapter.raw.prepare(
+      `INSERT INTO routes (id, date, status, total_weight_kg, remaining_weight_kg, total_stops, remaining_stops,
+        created_at, updated_at, unknown_weight_stops, remaining_unknown_weight_stops)
+       VALUES ('no-ts','2026-08-20','cancelled',0,0,1,1,?,?,0,0)`,
+    ).run(now, now);
+    const { rows } = await new StatisticsRepository(db).getRows(new Date());
+    expect(rows[0]!.date).toBe('2026-08-20');
   });
 
   it('never includes draft/in_progress routes', async () => {
