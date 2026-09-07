@@ -77,6 +77,8 @@ export default function SettingsScreen() {
   const [companyName, setCompanyName] = useState('');
   const [companyAddress, setCompanyAddress] = useState('');
   const [companySaved, setCompanySaved] = useState(false);
+  const [companyBusy, setCompanyBusy] = useState(false);
+  const [companyStatus, setCompanyStatus] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
   const [gatewayConnected, setGatewayConnected] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -126,6 +128,9 @@ export default function SettingsScreen() {
   }, [companyProfileSettings, navigationPreference, refreshDiagnostics]);
 
   async function saveCompanyProfile() {
+    if (companyBusy) return;
+    setCompanyBusy(true);
+    setCompanyStatus(null);
     try {
       await companyProfileSettings.save({ name: companyName, address: companyAddress });
       const stored = await companyProfileSettings.get();
@@ -133,10 +138,15 @@ export default function SettingsScreen() {
         throw new Error('Įrašas neišsisaugojo įrenginyje. Patikrinkite naršyklės saugyklos leidimus.');
       }
       setCompanySaved(true);
+      setCompanyStatus({ tone: 'ok', text: 'Įmonės duomenys išsaugoti.' });
       setMessage('Įmonės duomenys išsaugoti.');
     } catch (error) {
       setCompanySaved(false);
-      setMessage(error instanceof Error ? error.message : 'Įmonės duomenų išsaugoti nepavyko.');
+      const text = error instanceof Error ? error.message : 'Įmonės duomenų išsaugoti nepavyko.';
+      setCompanyStatus({ tone: 'error', text });
+      setMessage(text);
+    } finally {
+      setCompanyBusy(false);
     }
   }
 
@@ -348,11 +358,16 @@ export default function SettingsScreen() {
               {openSection === 'company' ? (
                 <View style={styles.expandedContent} testID="company-profile-content">
                   <Text style={styles.meta}>Rodoma spausdinamos kelionės lapų ataskaitos antraštėje.</Text>
-                  <TextInput onChangeText={(value) => { setCompanyName(value); setCompanySaved(false); }} placeholder="Įmonės pavadinimas (pvz. UAB Pavyzdys)" style={styles.input} testID="company-name-input" value={companyName} />
-                  <TextInput onChangeText={(value) => { setCompanyAddress(value); setCompanySaved(false); }} placeholder="Adresas" style={styles.input} testID="company-address-input" value={companyAddress} />
-                  <Pressable onPress={() => { void saveCompanyProfile(); }} style={styles.secondaryButton} testID="save-company-profile">
-                    <Text style={styles.secondaryText}>{companySaved ? 'Išsaugota' : 'Išsaugoti'}</Text>
+                  <TextInput onChangeText={(value) => { setCompanyName(value); setCompanySaved(false); setCompanyStatus(null); }} placeholder="Įmonės pavadinimas (pvz. UAB Pavyzdys)" style={styles.input} testID="company-name-input" value={companyName} />
+                  <TextInput onChangeText={(value) => { setCompanyAddress(value); setCompanySaved(false); setCompanyStatus(null); }} placeholder="Adresas" style={styles.input} testID="company-address-input" value={companyAddress} />
+                  <Pressable disabled={companyBusy} onPress={() => { void saveCompanyProfile(); }} style={({ pressed }) => [styles.secondaryButton, companyBusy && styles.rowPressed, pressed && styles.rowPressed]} testID="save-company-profile">
+                    <Text style={styles.secondaryText}>{companyBusy ? 'Saugoma…' : companySaved ? 'Išsaugota ✓' : 'Išsaugoti'}</Text>
                   </Pressable>
+                  {companyStatus ? (
+                    <Text style={companyStatus.tone === 'ok' ? styles.companyOk : styles.companyError} testID="company-profile-status">
+                      {companyStatus.text}
+                    </Text>
+                  ) : null}
                 </View>
               ) : null}
             </View>
@@ -510,6 +525,9 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   primaryText: { ...type.button, color: colors.textInverse, textAlign: 'center' },
   secondaryButton: { minHeight: 50, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
   secondaryText: { ...type.button, color: colors.textSecondary, textAlign: 'center' },
+  rowPressed: { opacity: 0.82, transform: [{ scale: 0.97 }] },
+  companyOk: { ...type.secondaryStrong, color: colors.success },
+  companyError: { ...type.secondaryStrong, color: colors.danger },
   logoutButton: { minHeight: 50, borderRadius: radius.md, borderWidth: 1, borderColor: colors.danger, backgroundColor: colors.dangerSoft, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
   logoutText: { ...type.button, color: colors.danger, textAlign: 'center' },
   disabled: { opacity: 0.45 },
