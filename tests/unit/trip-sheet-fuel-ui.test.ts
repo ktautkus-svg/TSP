@@ -96,6 +96,16 @@ describe('trip sheet fuel workflow', () => {
     expect(vehicleSource).toContain('km per dieną');
   });
 
+  it('lets a day carry non-route "empty" km that count for fuel but not wage distance', () => {
+    expect(vehicleSource).toContain('testID="new-vehicle-extra-km"');
+    expect(vehicleSource).toContain('[newReadingExtraKm, setNewReadingExtraKm]');
+    // An empty-km-only day needs no odometer span.
+    expect(vehicleSource).toContain("const end = newReadingEnd.trim() ? Number(newReadingEnd.replace(',', '.')) : start");
+    expect(vehicleSource).toContain('extraDistanceKm: extraKm > 0 ? extraKm : undefined');
+    const apiSource = readFileSync(resolve(import.meta.dirname, '../../server/employee-api.ts'), 'utf8');
+    expect(apiSource).toContain('extraDistanceKm: body.extraDistanceKm === undefined');
+  });
+
   it('keeps one-driver report fuel continuity on the vehicle month instead of resetting to opening fuel', () => {
     // When a driver is picked the whole vehicle-month is still grouped so the
     // ledger runs across every driver's days; the driver filter is applied to

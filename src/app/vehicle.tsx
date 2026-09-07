@@ -110,6 +110,7 @@ export default function VehicleScreen() {
   const [newReadingStart, setNewReadingStart] = useState('');
   const [newReadingEnd, setNewReadingEnd] = useState('');
   const [newReadingKm, setNewReadingKm] = useState('');
+  const [newReadingExtraKm, setNewReadingExtraKm] = useState('');
   const [newReadingDriverId, setNewReadingDriverId] = useState('');
   const [fuelDate, setFuelDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [fuelLiters, setFuelLiters] = useState('');
@@ -231,9 +232,14 @@ export default function VehicleScreen() {
   const saveNewReading = async () => {
     if (busy) return;
     const start = Number(newReadingStart.replace(',', '.'));
-    const end = Number(newReadingEnd.replace(',', '.'));
+    const extraKm = newReadingExtraKm.trim() ? Number(newReadingExtraKm.replace(',', '.')) : 0;
+    // An empty-km-only day (commute etc.) can be logged with no odometer span —
+    // start doubles as end so nothing disturbs the wage odometer chain.
+    const end = newReadingEnd.trim() ? Number(newReadingEnd.replace(',', '.')) : start;
     if (!selectedVehicleId || !/^\d{4}-\d{2}-\d{2}$/.test(newReadingDate)) { setMessage('Įveskite naujos dienos datą YYYY-MM-DD.'); return; }
     if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) { setMessage('Patikrinkite naujos dienos odometro pradžią ir pabaigą.'); return; }
+    if (!Number.isFinite(extraKm) || extraKm < 0) { setMessage('Tušči kilometrai turi būti teigiamas skaičius.'); return; }
+    if (end === start && extraKm === 0) { setMessage('Įveskite arba nuvažiuotus km, arba tuščius (ne maršruto) km.'); return; }
     setBusy(true);
     try {
       // Echo back exactly what the server actually recorded (registration +
@@ -242,9 +248,9 @@ export default function VehicleScreen() {
       // goes looking for the entry and can't find it.
       const { reading } = await employeeApi<{ reading: { vehicleId: string; date: string } }>(
         '/api/trip-sheets/day-readings',
-        { method: 'POST', body: JSON.stringify({ vehicleId: selectedVehicleId, date: newReadingDate, startOdometer: start, endOdometer: end, driverId: newReadingDriverId || undefined }) },
+        { method: 'POST', body: JSON.stringify({ vehicleId: selectedVehicleId, date: newReadingDate, startOdometer: start, endOdometer: end, driverId: newReadingDriverId || undefined, extraDistanceKm: extraKm > 0 ? extraKm : undefined }) },
       );
-      setAddingReading(false); setNewReadingStart(''); setNewReadingEnd(''); setNewReadingKm(''); setNewReadingDriverId('');
+      setAddingReading(false); setNewReadingStart(''); setNewReadingEnd(''); setNewReadingKm(''); setNewReadingExtraKm(''); setNewReadingDriverId('');
       setMessage(`Išsaugota: ${registrationNumber} · ${reading.date}.`);
       await applyVehicle(selectedVehicleId);
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Naujos dienos išsaugoti nepavyko.'); }
@@ -559,6 +565,16 @@ export default function VehicleScreen() {
               placeholderTextColor={colors.textMuted}
               testID="new-vehicle-odometer-km"
             />
+            <TextInput
+              value={newReadingExtraKm}
+              onChangeText={setNewReadingExtraKm}
+              keyboardType="decimal-pad"
+              style={styles.input}
+              placeholder="Tušči km (ne maršruto, pvz. namai–darbas)"
+              placeholderTextColor={colors.textMuted}
+              testID="new-vehicle-extra-km"
+            />
+            <Text style={styles.hint}>Tušči km skaičiuojami tik automobilio kuro sąnaudoms — jie neįeina į maršruto ar atlygio kilometrus. Galima įrašyti dieną vien su tuščiais km, be maršruto.</Text>
             <View style={styles.inlineInputs}>
               <TextInput
                 value={newReadingStart}

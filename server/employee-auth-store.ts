@@ -1795,6 +1795,8 @@ export class EmployeeAuthStore {
     startOdometer: number;
     endOdometer: number;
     driverId?: string | null;
+    /** Non-route kilometres for that day (commute etc.) — fuel only, never wage. */
+    extraDistanceKm?: number | null;
   }): Promise<VehicleDayReading> {
     const date = validateRouteDate(input.date);
     const startOdometer = validateDayOdometer(input.startOdometer);
@@ -1802,6 +1804,16 @@ export class EmployeeAuthStore {
     if (endOdometer < startOdometer) {
       throw new EmployeeApiError('INVALID_ODOMETER', 'Odometro pabaiga negali būti mažesnė už pradžią.', 400);
     }
+    const extraDistanceKm = input.extraDistanceKm === undefined
+      ? undefined
+      : input.extraDistanceKm === null || input.extraDistanceKm === 0
+        ? 0
+        : (() => {
+          if (!Number.isFinite(input.extraDistanceKm) || input.extraDistanceKm! < 0 || input.extraDistanceKm! > 100_000) {
+            throw new EmployeeApiError('INVALID_EXTRA_DISTANCE', 'Tušči kilometrai turi būti nuo 0 iki 100000.', 400);
+          }
+          return Math.round(input.extraDistanceKm! * 10) / 10;
+        })();
     const vehicleDocument = await this.vehicles.doc(validateVehicleId(input.vehicleId)).get();
     const stored = vehicleDocument.data() as FleetVehicle | undefined;
     const vehicle = stored ? normalizeVehicle(stored) : undefined;
@@ -1819,7 +1831,9 @@ export class EmployeeAuthStore {
       startOdometer,
       endOdometer,
       distanceKm: odometerDistanceKm(startOdometer, endOdometer),
-      ...(extraDistanceKmOf(existing) > 0 ? { extraDistanceKm: extraDistanceKmOf(existing) } : {}),
+      ...((extraDistanceKm ?? extraDistanceKmOf(existing)) > 0
+        ? { extraDistanceKm: extraDistanceKm ?? extraDistanceKmOf(existing) }
+        : {}),
       driverId: driver.id,
       driverName: driver.name,
       createdAt: existing?.createdAt ?? now,

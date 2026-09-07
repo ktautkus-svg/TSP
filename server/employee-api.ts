@@ -497,6 +497,9 @@ export async function handleEmployeeApi(
         startOdometer: numberField(body, 'startOdometer'),
         endOdometer: numberField(body, 'endOdometer'),
         driverId: body.driverId === undefined ? undefined : body.driverId === null ? null : stringField(body, 'driverId'),
+        extraDistanceKm: body.extraDistanceKm === undefined
+          ? undefined
+          : body.extraDistanceKm === null ? null : numberField(body, 'extraDistanceKm'),
       });
       return send(response, 200, { reading }, requestId);
     }
