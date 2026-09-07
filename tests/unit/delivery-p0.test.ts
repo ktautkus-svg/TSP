@@ -76,6 +76,21 @@ describe('P0 failed-delivery workflow', () => {
     expect(workday).toContain('options.partialReturn');
   });
 
+  it('can revert an accidental Atlikta/Neatlikta from the stop, and preview a planned route', () => {
+    const delivery = readFileSync(resolve(import.meta.dirname, '../../src/app/route/[id]/delivery.tsx'), 'utf8');
+    const loading = readFileSync(resolve(import.meta.dirname, '../../src/app/route/[id]/loading.tsx'), 'utf8');
+    expect(delivery).toContain('RevertStopToPending');
+    expect(delivery).toContain('revert-stop-${stop.id}');
+    expect(delivery).toContain("stop.deliveryStatus !== 'pending' && route?.status === 'in_progress'");
+    expect(delivery).toContain('Grąžinti tašką į maršrutą?');
+    // Planned route: a review button that does not start loading.
+    expect(loading).toContain('testID="preview-planned-route"');
+    expect(loading).toContain('Peržiūrėti maršrutą');
+    expect(loading).toContain('setShowPlannedPreview(true)');
+    // Equal-size stacked planned actions.
+    expect(loading).toContain("plannedActions: { flexDirection: 'column', alignItems: 'stretch'");
+  });
+
   it('moves a stale provider departure safely into the future', () => {
     const normalized = normalizeGoogleDepartureAt('2026-08-03T08:00:00.000Z', Date.parse('2026-08-03T10:00:00.000Z'));
     expect(normalized).toBe('2026-08-03T10:01:00.000Z');

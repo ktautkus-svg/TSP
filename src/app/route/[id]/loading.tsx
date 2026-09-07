@@ -65,6 +65,7 @@ export default function LoadingScreen() {
   const [undo, setUndo] = useState<UndoableAction | null>(null);
   const [odometer, setOdometer] = useState('');
   const [busy, setBusy] = useState(true);
+  const [showPlannedPreview, setShowPlannedPreview] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedStopId, setExpandedStopId] = useState<string | null>(null);
@@ -541,32 +542,56 @@ export default function LoadingScreen() {
             <Pressable disabled={fuelBusy || !fuelInput.trim()} onPress={() => void submitFuel()} style={[styles.fuelButton, (fuelBusy || !fuelInput.trim()) && styles.disabled]}><Text style={styles.primaryText}>{fuelBusy ? 'Saugoma…' : 'Patvirtinti'}</Text></Pressable>
           </View> : null}
         </View> : null}
+        {showPlannedPreview ? (
+          <View style={styles.plannedActions} testID="planned-route-preview">
+            <Text style={styles.summaryText}>Pristatymo eiliškumas — {stops.length} taškų</Text>
+            {[...stops]
+              .sort((a, b) => (a.activeOrder ?? a.optimizedOrder ?? a.originalOrder) - (b.activeOrder ?? b.optimizedOrder ?? b.originalOrder))
+              .map((stop, index) => (
+                <View key={stop.id} style={styles.previewStop}>
+                  <View style={styles.previewNum}><Text style={styles.previewNumText}>{index + 1}</Text></View>
+                  <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                    <Text numberOfLines={1} style={styles.summaryTitle}>{stop.recipient || stop.address}</Text>
+                    <Text numberOfLines={2} style={styles.summaryText}>{stop.address}</Text>
+                  </View>
+                  <Text style={styles.summaryText}>{stop.weightKg === null ? '—' : `${formatWeightKg(stop.weightKg)} kg`}</Text>
+                </View>
+              ))}
+            <Pressable style={({ pressed }) => [styles.plannedSecondaryButton, pressed && styles.plannedPressed]} onPress={() => setShowPlannedPreview(false)} testID="close-planned-preview">
+              <Text style={styles.plannedSecondaryText}>Grįžti</Text>
+            </Pressable>
+          </View>
+        ) : (
         <View style={styles.plannedActions}>
-        {drivingAsDriver ? <Pressable disabled={bulkBusy || Boolean(readiness && !readiness.canBeginLoading)} style={[styles.plannedPrimaryButton, (bulkBusy || Boolean(readiness && !readiness.canBeginLoading)) && styles.disabled]} onPress={beginLoading} testID="begin-loading">
+        {drivingAsDriver ? <Pressable disabled={bulkBusy || Boolean(readiness && !readiness.canBeginLoading)} style={({ pressed }) => [styles.plannedPrimaryButton, (bulkBusy || Boolean(readiness && !readiness.canBeginLoading)) && styles.disabled, pressed && styles.plannedPressed]} onPress={beginLoading} testID="begin-loading">
           {bulkBusy ? <ActivityIndicator color="#fff" /> : <>
             <TruckIcon size={22} color="#FFFFFF" />
             <Text style={styles.plannedPrimaryText}>Pradėti krovimą</Text>
           </>}
         </Pressable> : <Pressable
           disabled={bulkBusy || !online}
-          style={[styles.plannedPrimaryButton, (bulkBusy || !online) && styles.disabled]}
+          style={({ pressed }) => [styles.plannedPrimaryButton, (bulkBusy || !online) && styles.disabled, pressed && styles.plannedPressed]}
           onPress={openDispatcherAssignment}
           testID="assign-planned-route">
           <TruckIcon size={22} color="#FFFFFF" />
           <Text style={styles.plannedPrimaryText}>{assignment ? 'Keisti priskyrimą' : 'Priskirti maršrutą'}</Text>
         </Pressable>}
-        {profile.role !== 'driver' || profile.permissions?.canReorderAssignedRoute ? <Pressable disabled={bulkBusy} style={[styles.plannedSecondaryButton, bulkBusy && styles.disabled]} onPress={() => { void editPlannedRoute(); }} testID="edit-planned-route">
+        <Pressable disabled={bulkBusy} style={({ pressed }) => [styles.plannedSecondaryButton, bulkBusy && styles.disabled, pressed && styles.plannedPressed]} onPress={() => setShowPlannedPreview(true)} testID="preview-planned-route">
+          <Text style={styles.plannedSecondaryText}>Peržiūrėti maršrutą</Text>
+        </Pressable>
+        {profile.role !== 'driver' || profile.permissions?.canReorderAssignedRoute ? <Pressable disabled={bulkBusy} style={({ pressed }) => [styles.plannedSecondaryButton, bulkBusy && styles.disabled, pressed && styles.plannedPressed]} onPress={() => { void editPlannedRoute(); }} testID="edit-planned-route">
           <PencilIcon size={19} color={colors.brandNavy} />
           <Text style={styles.plannedSecondaryText}>Redaguoti maršrutą</Text>
         </Pressable> : null}
-        {profile.role !== 'driver' ? <Pressable disabled={bulkBusy} style={[styles.plannedSecondaryButton, bulkBusy && styles.disabled]} onPress={() => router.replace('/import' as Href)} testID="plan-another-route">
+        {profile.role !== 'driver' ? <Pressable disabled={bulkBusy} style={({ pressed }) => [styles.plannedSecondaryButton, bulkBusy && styles.disabled, pressed && styles.plannedPressed]} onPress={() => router.replace('/import' as Href)} testID="plan-another-route">
           <Text style={styles.plannedSecondaryText}>Tęsti nepriskyrus</Text>
         </Pressable> : null}
-        {profile.role !== 'driver' || profile.permissions?.canCancelRoute ? <Pressable disabled={bulkBusy} style={[styles.plannedCancelButton, bulkBusy && styles.disabled]} onPress={deletePlannedRoute} testID="delete-planned-route">
+        {profile.role !== 'driver' || profile.permissions?.canCancelRoute ? <Pressable disabled={bulkBusy} style={({ pressed }) => [styles.plannedCancelButton, bulkBusy && styles.disabled, pressed && styles.plannedPressed]} onPress={deletePlannedRoute} testID="delete-planned-route">
           <CrossIcon size={19} color={colors.danger} />
           <Text style={styles.plannedCancelText}>Ištrinti maršrutą</Text>
         </Pressable> : null}
         </View>
+        )}
       </FoundationScreen>
     );
   }
@@ -1018,23 +1043,28 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   primaryText: { ...type.button, color: colors.textInverse, fontSize: 16 },
   // Three clearly different weights: filled primary, outlined neutral, outlined
   // danger — so none of them reads as a disabled button.
-  plannedActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
+  // One column, one width, one height — every planned action is the same size.
+  plannedActions: { flexDirection: 'column', alignItems: 'stretch', gap: spacing.sm },
   plannedPrimaryButton: {
-    minWidth: 210,
+    width: '100%',
     paddingHorizontal: spacing.lg,
     flexDirection: 'row',
     gap: spacing.sm,
-    minHeight: 50,
+    minHeight: 52,
     borderRadius: radius.md,
     backgroundColor: colors.actionPrimary,
     alignItems: 'center',
     justifyContent: 'center',
   },
   plannedPrimaryText: { ...type.button, color: colors.textInverse, fontSize: 16 },
-  plannedSecondaryButton: { flexDirection: 'row', gap: spacing.sm, minWidth: 180, minHeight: 46, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
+  plannedSecondaryButton: { width: '100%', flexDirection: 'row', gap: spacing.sm, minHeight: 52, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
   plannedSecondaryText: { ...type.button, color: colors.textSecondary, fontSize: 15 },
-  plannedCancelButton: { flexDirection: 'row', gap: spacing.sm, minWidth: 160, minHeight: 46, borderRadius: radius.md, borderWidth: 1, borderColor: colors.danger, backgroundColor: colors.dangerSoft, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
+  plannedCancelButton: { width: '100%', flexDirection: 'row', gap: spacing.sm, minHeight: 52, borderRadius: radius.md, borderWidth: 1, borderColor: colors.danger, backgroundColor: colors.dangerSoft, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
   plannedCancelText: { color: colors.danger, fontFamily: fonts.heading, fontSize: 14 },
+  plannedPressed: { transform: [{ translateY: 1 }, { scale: 0.98 }], opacity: 0.85 },
+  previewStop: { minHeight: 60, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  previewNum: { width: 30, height: 30, borderRadius: radius.pill, backgroundColor: colors.infoSoft, alignItems: 'center', justifyContent: 'center' },
+  previewNumText: { ...type.bodyStrong, color: colors.info },
   cancelRouteButton: { minHeight: 56, borderRadius: radius.md, borderWidth: 1, borderColor: colors.danger, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
   cancelRouteText: { color: colors.danger, fontFamily: fonts.heading, fontSize: 16 },
   disabled: { opacity: 0.45 },

@@ -695,6 +695,42 @@ export class MarkStopFailed extends WorkdayCommand {
   }
 }
 
+/**
+ * Puts an already-processed stop (delivered or failed — including "delivered
+ * with return") back to pending, e.g. after an accidental tap. Available from
+ * the stop list any time the route is still in progress, unlike the 15-minute
+ * UndoRouteAction window.
+ */
+export class RevertStopToPending extends WorkdayCommand {
+  async execute(routeId: string, stopId: string): Promise<{ idempotent: boolean; actionId: string | null }> {
+    const route = await this.route(routeId);
+    const stop = await this.stop(routeId, stopId);
+    if (stop.deliveryStatus === 'pending') return { idempotent: true, actionId: null };
+    if (route.status !== 'in_progress') {
+      throw new RouteCommandError('INVALID_ROUTE_STATE', 'Grąžinti tašką galima tik pradėtame maršrute.');
+    }
+    const now = this.clock();
+    let actionId = '';
+    await this.db.withTransactionAsync(async () => {
+      await this.db.runAsync(
+        `UPDATE delivery_stops SET delivery_status = 'pending', delivered_at = NULL, failed_at = NULL,
+         failure_reason = NULL, failure_comment = NULL, updated_at = ?
+         WHERE id = ? AND route_id = ?`,
+        now, stopId, routeId,
+      );
+      await refreshRemaining(this.db, routeId, now);
+      // No delivery_attempts row — its result CHECK is (delivered|failed); the
+      // journal keeps the audit trail for a revert.
+      actionId = await this.journal(routeId, stopId, 'stop_reverted', stopState(stop), {
+        deliveryStatus: 'pending', deliveredAt: null, failedAt: null,
+        failureReason: null, failureComment: null, attemptId: null,
+      }, true);
+    });
+    await new RefreshRouteEtas(this.db, this.clock).execute(routeId);
+    return { idempotent: false, actionId };
+  }
+}
+
 export class UndoRouteAction extends WorkdayCommand {
   async execute(actionId: string): Promise<{ idempotent: boolean }> {
     const action = await this.db.getFirstAsync<{

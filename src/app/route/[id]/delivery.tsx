@@ -32,6 +32,7 @@ import {
     MarkStopDelivered,
     MarkStopFailed,
     parseOdometer,
+    RevertStopToPending,
     SaveCompletionOdometerDraft,
     SaveStartOdometer,
     SetNextPendingStop,
@@ -323,6 +324,32 @@ export default function DeliveryScreen() {
     setFailMode('fail');
     setFailureReason('Nedirba');
     setFailureComment('');
+  };
+
+  const revertStop = async (stop: DeliveryStop) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await new RevertStopToPending(db).execute(routeId, stop.id);
+      setExpandedStopId(null);
+      await load();
+      void requestSync('mutation');
+      void publishProgress();
+    } catch (reason) {
+      Alert.alert('Nepavyko grąžinti', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const confirmRevertStop = (stop: DeliveryStop) => {
+    Alert.alert(
+      'Grąžinti tašką į maršrutą?',
+      `„${stop.recipient || stop.address}“ vėl taps neįvykdytu tašku ir grįš į likusių sąrašą.`,
+      [
+        { text: 'Atšaukti', style: 'cancel' },
+        { text: 'Grąžinti', onPress: () => { void revertStop(stop); } },
+      ],
+    );
   };
 
   const savePartialReturn = async () => {
@@ -1091,6 +1118,17 @@ export default function DeliveryScreen() {
                 {stop.deliveryStatus === 'delivered' && isDeliveryReturnReason(stop.failureReason) ? (
                   <Text style={styles.returnBadge} testID={`stop-return-${stop.id}`}>Grąžinimas / trūkumas: {stop.failureComment || '—'}</Text>
                 ) : null}
+                {stop.deliveryStatus !== 'pending' && route?.status === 'in_progress' ? (
+                  <Pressable
+                    accessibilityLabel="Grąžinti tašką į maršrutą"
+                    accessibilityRole="button"
+                    disabled={busy}
+                    onPress={() => confirmRevertStop(stop)}
+                    style={({ pressed }) => [styles.revertButton, busy && styles.disabled, pressed && styles.pressedFeedback]}
+                    testID={`revert-stop-${stop.id}`}>
+                    <Text style={styles.revertButtonText}>↩ Grąžinti į maršrutą (atšaukti {stop.deliveryStatus === 'failed' ? '„Neatlikta“' : '„Atlikta“'})</Text>
+                  </Pressable>
+                ) : null}
                 {stop.deliveryStatus === 'pending' && nextStop?.id !== stop.id ? (
                   <Pressable
                     accessibilityLabel="Pasirinkti šį tašką kitu"
@@ -1697,6 +1735,8 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   returnBadge: { color: colors.warning, fontFamily: fonts.headingSemiBold },
   // Shared "this really got pressed" feedback for the raw action buttons.
   pressedFeedback: { transform: [{ translateY: 1 }, { scale: 0.97 }], opacity: 0.82 },
+  revertButton: { minHeight: 44, borderRadius: radius.md, borderWidth: 1, borderColor: colors.actionRoute, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md, marginTop: spacing.xs },
+  revertButtonText: { ...type.secondaryStrong, color: colors.actionRoute, textAlign: 'center' },
   finishSheet: { maxHeight: '92%', paddingTop: spacing.sm, paddingHorizontal: spacing.lg, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, backgroundColor: colors.surface, gap: spacing.sm },
   finishSheetScroll: { flexGrow: 1, flexShrink: 1 },
   sheetHandle: { alignSelf: 'center', width: 44, height: 5, borderRadius: radius.pill, backgroundColor: colors.borderStrong },
