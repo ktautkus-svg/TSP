@@ -47,4 +47,15 @@ describe('shared client and operational directories', () => {
     expect(vehicle).toContain("'/api/admin/vehicles'");
     expect(vehicle).toContain('select-maintenance-vehicle-');
   });
+
+  it('searches contacts across clients, drivers and administration in one field', () => {
+    const contacts = read('src/app/contacts.tsx');
+    const clients = read('src/app/clients.tsx');
+    expect(contacts).toContain('testID="contacts-search"');
+    expect(contacts).toContain('testID="contacts-search-results"');
+    // The unified search also pulls the client directory and phone-less staff.
+    expect(contacts).toContain("'/api/admin/clients'");
+    expect(contacts).toContain('allEmployees');
+    expect(clients).toContain('testID="clients-search"');
+  });
 });

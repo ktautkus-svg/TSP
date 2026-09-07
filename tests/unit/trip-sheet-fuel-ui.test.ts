@@ -83,7 +83,11 @@ describe('trip sheet fuel workflow', () => {
     // from start + km, and the start field itself defaults to the last
     // known odometer so nothing has to be looked up by hand.
     expect(vehicleSource).toContain('const applyKmToEnd = (startText: string, kmText: string, setEnd: (value: string) => void)');
-    expect(vehicleSource).toContain("if (next && !newReadingStart && latestOdometer != null) setNewReadingStart(String(latestOdometer))");
+    // The start field is prefilled with the highest known end odometer every
+    // time the form opens, and the user confirms or corrects it.
+    expect(vehicleSource).toContain('if (next && latestOdometer != null) setNewReadingStart(String(latestOdometer))');
+    expect(vehicleSource).toContain('reading.endOdometer ?? reading.startOdometer ?? null');
+    expect(vehicleSource).toContain('Pradžia užpildyta paskutiniu įvestu odometru');
     expect(vehicleSource).toContain('testID="new-vehicle-odometer-km"');
     expect(vehicleSource).toContain('setNewReadingKm(text); applyKmToEnd(newReadingStart, text, setNewReadingEnd)');
     expect(vehicleSource).toContain('setEditingReadingKm(text); applyKmToEnd(editingReadingStart, text, setEditingReadingEnd)');

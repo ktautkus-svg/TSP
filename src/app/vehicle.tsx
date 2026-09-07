@@ -299,7 +299,13 @@ export default function VehicleScreen() {
 
   // vehicleReadings is sorted ascending by date, so the most recent known
   // odometer reading is the last entry that actually has one.
-  const latestOdometer = [...vehicleReadings].reverse().find((reading) => reading.endOdometer != null)?.endOdometer ?? null;
+  // The odometer only ever climbs, so the suggestion for a new day is the
+  // highest end reading on record (a wrongly-dated later row can't drag it
+  // down). Falls back to the highest start when no day has an end yet.
+  const latestOdometer = vehicleReadings.reduce<number | null>((max, reading) => {
+    const value = reading.endOdometer ?? reading.startOdometer ?? null;
+    return value != null && (max == null || value > max) ? value : max;
+  }, null);
   const vehicleFuelEntries = chronologicalVehicleFuelEntries(vehicleReadings, selectedVehicleId);
   const saveFuel = async () => {
     if (busy) return;
@@ -532,7 +538,9 @@ export default function VehicleScreen() {
             onPress={() => {
               setAddingReading((current) => {
                 const next = !current;
-                if (next && !newReadingStart && latestOdometer != null) setNewReadingStart(String(latestOdometer));
+                // Prefill the start with the last known end odometer every time
+                // the form opens — the user confirms it or corrects it by hand.
+                if (next && latestOdometer != null) setNewReadingStart(String(latestOdometer));
                 return next;
               });
             }}
@@ -562,7 +570,9 @@ export default function VehicleScreen() {
               />
               <TextInput value={newReadingEnd} onChangeText={setNewReadingEnd} keyboardType="decimal-pad" style={[styles.input, styles.inlineInput]} placeholder="Pabaiga" placeholderTextColor={colors.textMuted} />
             </View>
-            <Text style={styles.hint}>Pradžia užsipildo automatiškai pagal paskutinį žinomą odometrą — įveskite tik nuvažiuotus km, pabaiga susiskaičiuos pati. Prireikus pabaigą galite įvesti ir tiesiogiai.</Text>
+            <Text style={styles.hint}>{latestOdometer != null
+              ? `Pradžia užpildyta paskutiniu įvestu odometru (${latestOdometer}). Patvirtinkite arba pataisykite ranka. Įvedę nuvažiuotus km, pabaiga susiskaičiuos pati.`
+              : 'Įveskite tik nuvažiuotus km — pabaiga susiskaičiuos pati. Prireikus pabaigą galite įvesti ir tiesiogiai.'}</Text>
             <View style={styles.options}>{drivers.map((driver) => <Pressable key={driver.id} onPress={() => setNewReadingDriverId(driver.id)} style={[styles.option, newReadingDriverId === driver.id && styles.optionSelected]}><Text style={[styles.optionText, newReadingDriverId === driver.id && styles.optionTextSelected]}>{driver.displayName}</Text></Pressable>)}</View>
             <Pressable disabled={busy || !online} onPress={() => { void saveNewReading(); }} style={[styles.button, (busy || !online) && styles.disabled]}><Text style={styles.buttonText}>Išsaugoti naują dieną</Text></Pressable>
           </View> : null}

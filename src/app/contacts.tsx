@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useFocusEffect, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
@@ -7,7 +7,7 @@ import { useLocalAccess } from '@/application/auth/local-access-context';
 import { callPhone } from '@/application/operations/call-phone';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { OperationalContactRepository } from '@/database/repositories/operational-contact-repository';
-import { employeeApi, type EmployeeProfile } from '@/infrastructure/auth/employee-session';
+import { employeeApi, type EmployeeProfile, type ServerClientDirectoryEntry } from '@/infrastructure/auth/employee-session';
 import { Alert } from '@/ui/alert';
 import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
@@ -36,7 +36,11 @@ export default function ContactsScreen() {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [contacts, setContacts] = useState<DirectoryContact[]>([]);
   const [missing, setMissing] = useState<EmployeeProfile[]>([]);
+  const [allEmployees, setAllEmployees] = useState<EmployeeProfile[]>([]);
+  const [clients, setClients] = useState<ServerClientDirectoryEntry[]>([]);
+  const [query, setQuery] = useState('');
   const [message, setMessage] = useState<string | null>(null);
+  const isManager = profile.role === 'admin' || profile.role === 'dispatcher';
 
   const load = useCallback(async () => {
     const response = await employeeApi<{ contacts: DirectoryContact[] }>('/api/operations/contacts');
@@ -51,17 +55,68 @@ export default function ContactsScreen() {
         isEmergency: contact.isEmergency,
       });
     }
-    if (profile.role === 'admin' || profile.role === 'dispatcher') {
+    if (isManager) {
       const users = await employeeApi<{ users: EmployeeProfile[] }>('/api/admin/users');
-      setMissing(users.users.filter((user) => !user.disabled && !user.phone));
-    } else setMissing([]);
-  }, [profile.role, repository]);
+      const active = users.users.filter((user) => !user.disabled);
+      setAllEmployees(active);
+      setMissing(active.filter((user) => !user.phone));
+      const clientResponse = await employeeApi<{ clients: ServerClientDirectoryEntry[] }>('/api/admin/clients').catch(() => ({ clients: [] }));
+      setClients(clientResponse.clients);
+    } else {
+      setAllEmployees([]);
+      setMissing([]);
+      setClients([]);
+    }
+  }, [isManager, repository]);
 
   useFocusEffect(useCallback(() => {
     void load().catch((error) => setMessage(error instanceof Error ? error.message : 'Kontaktų atkurti nepavyko.'));
   }, [load]));
 
+  const q = query.trim().toLocaleLowerCase('lt');
+  const searching = q.length > 0;
+  const matchText = (...parts: (string | null | undefined)[]) => parts.some((part) => (part ?? '').toLocaleLowerCase('lt').includes(q));
+  const searchResults = !searching ? [] : [
+    ...contacts
+      .filter((contact) => matchText(contact.name, ROLE_LABELS[contact.role], contact.phone, contact.email))
+      .map((contact) => ({ key: `c-${contact.id}`, name: contact.name, meta: ROLE_LABELS[contact.role], phone: contact.phone })),
+    ...allEmployees
+      .filter((user) => !user.phone && matchText(user.displayName, ROLE_LABELS[user.role], user.username))
+      .map((user) => ({ key: `e-${user.id}`, name: user.displayName, meta: `${ROLE_LABELS[user.role]} · nėra telefono`, phone: null as string | null })),
+    ...clients
+      .filter((client) => matchText(client.name, client.contactPerson, client.address, client.phone, client.email))
+      .map((client) => ({ key: `k-${client.id}`, name: client.name, meta: `Klientas${client.contactPerson ? ` · ${client.contactPerson}` : ''}${client.address ? ` · ${client.address}` : ''}`, phone: client.phone })),
+  ];
+
   return <FoundationScreen contentMaxWidth={920} description="Kontaktai imami iš sukurtų darbuotojų sąrašo. Vardas ir numeris čia nekuriami antrą kartą." showFoundationNotice={false} title="Kontaktai ir ryšys">
+    <TextInput
+      accessibilityLabel="Ieškoti kontakto"
+      onChangeText={setQuery}
+      placeholder="Ieškoti: klientai, vairuotojai, administracija…"
+      placeholderTextColor={colors.textMuted}
+      style={styles.search}
+      testID="contacts-search"
+      value={query}
+    />
+    {searching ? (
+      <View style={styles.searchResults} testID="contacts-search-results">
+        {searchResults.length === 0 ? <Text style={styles.meta}>Nieko nerasta pagal „{query}“.</Text> : searchResults.map((row) => (
+          <View key={row.key} style={styles.card}>
+            <View style={styles.copy}>
+              <Text style={styles.name}>{row.name}</Text>
+              <Text style={styles.meta}>{row.meta}</Text>
+              {row.phone ? <Text style={styles.phone}>{row.phone}</Text> : null}
+            </View>
+            {row.phone ? (
+              <Pressable style={styles.callButton} onPress={() => { void callPhone(row.phone!).catch((error) => Alert.alert('Skambinti nepavyko', error instanceof Error ? error.message : 'Bandykite dar kartą.')); }}>
+                <Text style={styles.callText}>Skambinti</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ))}
+      </View>
+    ) : null}
+    {searching ? null : <>
     <View style={styles.infoCard}>
       <Text style={styles.infoTitle}>Vienas kontaktų šaltinis</Text>
       <Text style={styles.infoText}>Norėdami pakeisti vardą ar telefoną, redaguokite darbuotoją. Pakeitimas automatiškai atsiras šiame sąraše ir vairuotojo maršrute.</Text>
@@ -85,11 +140,14 @@ export default function ContactsScreen() {
       </Pressable>
     </View> : null}
     {contacts.length === 0 && !message ? <View style={styles.emptyCard}><Text style={styles.name}>Kontaktų su telefonu nėra</Text><Text style={styles.meta}>Telefonus įveskite prie jau sukurtų darbuotojų.</Text></View> : null}
+    </>}
     {message ? <Text style={styles.message}>{message}</Text> : null}
   </FoundationScreen>;
 }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
+  search: { minHeight: 48, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, paddingHorizontal: spacing.md, ...type.body, color: colors.text },
+  searchResults: { gap: spacing.sm },
   infoCard: { padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.infoSoft, borderWidth: 1, borderColor: colors.info, gap: spacing.xs },
   infoTitle: { ...type.sectionTitle, color: colors.text },
   infoText: { ...type.body, color: colors.textSecondary },
