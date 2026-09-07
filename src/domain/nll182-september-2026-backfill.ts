@@ -22,7 +22,36 @@ import { KAROLIS_TAUTKUS_DRIVER_ID } from './trip-sheet-august-2026-vehicle-fix'
 
 export const NLL182_SEPTEMBER_2026_BACKFILL_ID = 'nll182-september-2026-backfill-v1';
 
+/**
+ * Follow-up one-shot after v1 (Karolis, 2026-09-07):
+ * - 2026-09-02 K.Tautkus never drove R88;R90;R82;R86;R15 — that completed
+ *   assignment is deleted. The real work is R11;R54;R19 (kept, from v1's
+ *   route-sep2026-nll182-0902).
+ * - 2026-09-04 gets a 79 L fill.
+ * - 2026-09-06 gets 68 empty (non-route) km — commute home→work — recorded
+ *   as extraDistanceKm so it feeds the fuel ledger but not wage distance.
+ */
+export const NLL182_SEPTEMBER_2026_BACKFILL_V2_ID = 'nll182-september-2026-backfill-v2';
+
+/** The 2026-09-02 codes K.Tautkus did NOT drive; a completed assignment made
+ *  only of these on that date is removed. */
+export const NLL182_SEPTEMBER_0902_WRONG_CODES = ['R88', 'R90', 'R82', 'R86', 'R15'] as const;
+
+export const NLL182_SEPTEMBER_0902_ROUTE_ID = 'route-sep2026-nll182-0902';
+
+export const NLL182_SEPTEMBER_0904_FILL = { id: 'seed-NLL182-20260904-79', liters: 79, date: '2026-09-04' } as const;
+
+export const NLL182_SEPTEMBER_0906_EMPTY_KM = { date: '2026-09-06', extraKm: 68, note: 'Namai → darbas, ne maršruto km (2026-09-07 pataisymas).' } as const;
+
 export const NLL182_REGISTRATION = 'NLL182';
+
+/** True when a completed assignment's codes are ALL in the wrong-0902 set. */
+export function isNll182September0902WrongAssignment(routeCodes: readonly string[]): boolean {
+  const codes = routeCodes.map((code) => code.toUpperCase().trim()).filter(Boolean);
+  if (codes.length === 0) return false;
+  const wrong = new Set<string>(NLL182_SEPTEMBER_0902_WRONG_CODES);
+  return codes.every((code) => wrong.has(code));
+}
 
 /** Real tank reading at the start of 2026-09-01, per Karolis. */
 export const NLL182_SEPTEMBER_2026_OPENING = {

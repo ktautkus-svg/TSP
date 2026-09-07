@@ -5,10 +5,14 @@ import { describe, expect, it } from 'vitest';
 import { buildFuelLedger } from '../../src/application/trip-sheet/fuel-balance';
 import { KAROLIS_TAUTKUS_DRIVER_ID } from '../../src/domain/trip-sheet-august-2026-vehicle-fix';
 import {
+  NLL182_SEPTEMBER_0904_FILL,
+  NLL182_SEPTEMBER_0906_EMPTY_KM,
   NLL182_SEPTEMBER_2026_BACKFILL_ID,
+  NLL182_SEPTEMBER_2026_BACKFILL_V2_ID,
   NLL182_SEPTEMBER_2026_DAYS,
   NLL182_SEPTEMBER_2026_FILL_IDS,
   NLL182_SEPTEMBER_2026_OPENING,
+  isNll182September0902WrongAssignment,
   isNll182September2026FuelEntry,
   nll182SeptemberDayDistanceKm,
   nll182SeptemberShipmentLines,
@@ -110,6 +114,28 @@ describe('NLL182 September 2026 backfill migration wiring', () => {
       .toBeLessThan(apiSource.indexOf('await ensureNll182September2026Migrated();'));
     expect(productionServer.indexOf('await ensureAugust2026ExcelBackfillMigrated();'))
       .toBeLessThan(productionServer.indexOf('await ensureNll182September2026Migrated();'));
+  });
+
+  it('v2 fixes 09-02 codes, adds the 09-04 fill and 09-06 empty km, idempotently', () => {
+    expect(NLL182_SEPTEMBER_2026_BACKFILL_V2_ID).toBe('nll182-september-2026-backfill-v2');
+    // Only a completed assignment made ENTIRELY of the wrong codes is removed.
+    expect(isNll182September0902WrongAssignment(['R88', 'R90', 'R82', 'R86', 'R15'])).toBe(true);
+    expect(isNll182September0902WrongAssignment(['r88', 'r15'])).toBe(true);
+    expect(isNll182September0902WrongAssignment(['R88', 'R11'])).toBe(false); // has a real code
+    expect(isNll182September0902WrongAssignment(['R11', 'R54', 'R19'])).toBe(false);
+    expect(isNll182September0902WrongAssignment([])).toBe(false);
+    expect(NLL182_SEPTEMBER_0904_FILL).toMatchObject({ id: 'seed-NLL182-20260904-79', liters: 79, date: '2026-09-04' });
+    expect(NLL182_SEPTEMBER_0906_EMPTY_KM).toMatchObject({ date: '2026-09-06', extraKm: 68 });
+
+    expect(storeSource).toContain('async applySeptember2026Nll182BackfillV2(');
+    expect(storeSource).toContain('this.settings.doc(NLL182_SEPTEMBER_2026_BACKFILL_V2_ID)');
+    expect(storeSource).toContain("if ((await flagRef.get()).data()?.status === 'applied')");
+    expect(storeSource).toContain('extraDistanceKm: NLL182_SEPTEMBER_0906_EMPTY_KM.extraKm');
+    expect(storeSource).toContain('startOdometer: anchorOdometer');
+    expect(storeSource).toContain('endOdometer: anchorOdometer'); // 0 span — never wage distance
+    expect(apiSource).toContain('store.applySeptember2026Nll182BackfillV2()');
+    expect(apiSource.indexOf('applySeptember2026Nll182Backfill()'))
+      .toBeLessThan(apiSource.indexOf('applySeptember2026Nll182BackfillV2()'));
   });
 
   it('does not touch the fuel norm or MET630 fills', () => {

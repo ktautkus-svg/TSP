@@ -134,10 +134,15 @@ import {
     vehicleDayAssignmentId,
 } from '../src/domain/nll182-odometer-log.js';
 import {
+    NLL182_SEPTEMBER_0902_ROUTE_ID,
+    NLL182_SEPTEMBER_0904_FILL,
+    NLL182_SEPTEMBER_0906_EMPTY_KM,
     NLL182_SEPTEMBER_2026_BACKFILL_ID,
+    NLL182_SEPTEMBER_2026_BACKFILL_V2_ID,
     NLL182_SEPTEMBER_2026_DAYS,
     NLL182_SEPTEMBER_2026_OPENING,
     NLL182_REGISTRATION as NLL182_SEPTEMBER_REGISTRATION,
+    isNll182September0902WrongAssignment,
     nll182SeptemberDayDistanceKm,
     nll182SeptemberShipmentLines,
 } from '../src/domain/nll182-september-2026-backfill.js';
@@ -4043,6 +4048,115 @@ export class EmployeeAuthStore {
       createdFills,
     });
     return { applied: true, reason: 'applied', openingCreated, createdReadings, createdAssignments, createdFills };
+  }
+
+  /**
+   * Follow-up one-shot after the NLL182 September backfill (Karolis 2026-09-07).
+   * Gated by tsp_settings `nll182-september-2026-backfill-v2`. Idempotent —
+   * deterministic ids and existence checks, so a second boot is a no-op.
+   *  - deletes the wrong 2026-09-02 R88;R90;R82;R86;R15 completed assignment;
+   *  - adds the 2026-09-04 79 L fill;
+   *  - records 2026-09-06 68 empty (non-route) km as extraDistanceKm.
+   */
+  async applySeptember2026Nll182BackfillV2(input: { nowIso?: string } = {}): Promise<{
+    applied: boolean;
+    reason: string;
+    deletedAssignments: string[];
+    createdFills: string[];
+    emptyKmDay: string | null;
+  }> {
+    const flagRef = this.settings.doc(NLL182_SEPTEMBER_2026_BACKFILL_V2_ID);
+    if ((await flagRef.get()).data()?.status === 'applied') {
+      return { applied: false, reason: 'already_applied', deletedAssignments: [], createdFills: [], emptyKmDay: null };
+    }
+
+    const vehicles = (await this.vehicles.get()).docs.map((document) => normalizeVehicle(document.data() as FleetVehicle));
+    const nll = vehicles.find((vehicle) => vehicle.registrationNumber.toUpperCase() === NLL182_SEPTEMBER_REGISTRATION);
+    if (!nll) {
+      return { applied: false, reason: 'target_vehicle_missing', deletedAssignments: [], createdFills: [], emptyKmDay: null };
+    }
+    const nowIso = input.nowIso ?? new Date().toISOString();
+
+    // 1. Drop the wrong 2026-09-02 assignment(s) — codes entirely inside the
+    //    R88;R90;R82;R86;R15 set, on NLL182, not the kept route-sep2026 one.
+    const deletedAssignments: string[] = [];
+    const assignmentDocs = await this.assignments.get();
+    for (const document of assignmentDocs.docs) {
+      const assignment = document.data() as RouteAssignment;
+      if (assignment.status !== 'completed') continue;
+      if ((assignment.vehicle?.registrationNumber ?? '').toUpperCase() !== NLL182_SEPTEMBER_REGISTRATION) continue;
+      if (assignment.routeId === NLL182_SEPTEMBER_0902_ROUTE_ID) continue;
+      if (tripSheetWorkDate(assignment) !== '2026-09-02') continue;
+      if (!isNll182September0902WrongAssignment(uniqueRegionCodes(assignment.routeSnapshot.shipmentLines))) continue;
+      await document.ref.delete();
+      deletedAssignments.push(assignment.id);
+    }
+
+    // 2. 2026-09-04 fill (79 L), attached to the vehicle-day.
+    const createdFills: string[] = [];
+    const fillRef = this.fuelEntries.doc(NLL182_SEPTEMBER_0904_FILL.id);
+    if (!(await fillRef.get()).exists) {
+      const assignmentId = vehicleDayAssignmentId(nll.id, NLL182_SEPTEMBER_0904_FILL.date);
+      await fillRef.set({
+        id: NLL182_SEPTEMBER_0904_FILL.id,
+        tripSheetId: `trip-sheet-${assignmentId}`,
+        assignmentId,
+        routeId: assignmentId,
+        driverId: '',
+        driverName: 'Karolis Tautkus',
+        vehicleId: nll.id,
+        registrationNumber: nll.registrationNumber,
+        filledAt: lithuaniaLocalToIso(NLL182_SEPTEMBER_0904_FILL.date, '12:00'),
+        odometer: 0,
+        liters: NLL182_SEPTEMBER_0904_FILL.liters,
+        pricePerLiter: null,
+        totalCost: null,
+        station: null,
+        receiptNumber: null,
+        notes: null,
+        createdAt: nowIso,
+        createdBy: NLL182_SEPTEMBER_2026_BACKFILL_V2_ID,
+      } satisfies ServerFuelEntry);
+      createdFills.push(NLL182_SEPTEMBER_0904_FILL.id);
+    }
+
+    // 3. 2026-09-06 empty km — 0 odometer span, 68 extraDistanceKm, so it
+    //    counts for fuel but never for wage/odometer distance.
+    let emptyKmDay: string | null = null;
+    const readingId = vehicleDayReadingDocId(nll.id, NLL182_SEPTEMBER_0906_EMPTY_KM.date);
+    if (!(await this.vehicleDayReadings.doc(readingId).get()).exists) {
+      const readings = (await this.vehicleDayReadings.where('vehicleId', '==', nll.id).get()).docs
+        .map((document) => document.data() as VehicleDayReading);
+      const anchorOdometer = readings.reduce<number>((max, reading) =>
+        Math.max(max, reading.endOdometer ?? reading.startOdometer ?? 0), 0);
+      const reading: VehicleDayReading = {
+        id: readingId,
+        vehicleId: nll.id,
+        registrationNumber: nll.registrationNumber,
+        date: NLL182_SEPTEMBER_0906_EMPTY_KM.date,
+        startOdometer: anchorOdometer,
+        endOdometer: anchorOdometer,
+        distanceKm: 0,
+        extraDistanceKm: NLL182_SEPTEMBER_0906_EMPTY_KM.extraKm,
+        driverId: '',
+        driverName: 'Karolis Tautkus',
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        createdBy: NLL182_SEPTEMBER_2026_BACKFILL_V2_ID,
+      };
+      await this.vehicleDayReadings.doc(readingId).set(reading);
+      emptyKmDay = NLL182_SEPTEMBER_0906_EMPTY_KM.date;
+    }
+
+    await flagRef.set({
+      id: NLL182_SEPTEMBER_2026_BACKFILL_V2_ID,
+      status: 'applied',
+      appliedAt: nowIso,
+      deletedAssignments,
+      createdFills,
+      emptyKmDay,
+    });
+    return { applied: true, reason: 'applied', deletedAssignments, createdFills, emptyKmDay };
   }
 
   private liteFromRouteAssignment(assignment: RouteAssignment): AugustAssignmentLite {

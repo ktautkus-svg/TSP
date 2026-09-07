@@ -121,6 +121,7 @@ export default function DeliveryScreen() {
   const [fuelLiters, setFuelLiters] = useState('');
   const [fuelReceiptNumber, setFuelReceiptNumber] = useState('');
   const [fuelEntrySaved, setFuelEntrySaved] = useState(false);
+  const [fuelQuickOpen, setFuelQuickOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [expandedStopId, setExpandedStopId] = useState<string | null>(null);
@@ -1193,6 +1194,15 @@ export default function DeliveryScreen() {
               {profile.role !== 'driver' || profile.permissions?.canCancelRoute ? <Pressable disabled={busy} testID="stop-route-button" style={[styles.menuSubitem, busy && styles.disabled]} onPress={() => { setMenuOpen(false); setActiveMenuExpanded(false); stopRoute(); }}><Text style={styles.menuDangerText}>Nutraukti maršrutą</Text></Pressable> : null}
             </View> : null}
           </GroupedMenuSection>
+          <GroupedMenuSection label="KURAS">
+            <GroupedMenuRow
+              description="Ką tik užsipylėte? Įrašykite iškart, nelaukdami maršruto pabaigos."
+              icon={<MenuArtwork kind="dispatch" />}
+              onPress={() => { setMenuOpen(false); setActiveMenuExpanded(false); setFuelEntrySaved(false); setFuelQuickOpen(true); }}
+              testID="menu-quick-fuel"
+              title="Įrašyti kuro pylimą"
+            />
+          </GroupedMenuSection>
           <GroupedMenuSection label="NAVIGACIJA">
             <GroupedMenuRow icon={<MenuArtwork kind="history" />} onPress={() => { setMenuOpen(false); router.replace('/history' as Href); }} title="Maršrutai" />
             <GroupedMenuRow icon={<MenuArtwork kind="statistics" />} onPress={() => { setMenuOpen(false); router.push('/statistics' as Href); }} title="Statistika" />
@@ -1201,6 +1211,25 @@ export default function DeliveryScreen() {
           <Pressable style={styles.menuClose} onPress={() => setMenuOpen(false)}><Text style={styles.secondaryText}>Uždaryti</Text></Pressable>
         </View>
       </Pressable>
+    </Modal>
+    <Modal animationType="fade" onRequestClose={() => setFuelQuickOpen(false)} statusBarTranslucent transparent visible={fuelQuickOpen}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalKeyboard}>
+        <View style={styles.centeredBackdrop} testID="quick-fuel-form">
+          <View style={styles.addStopDialog}>
+            <Text style={styles.heading}>Kuro pylimas</Text>
+            <Text style={styles.meta}>Įrašomas iškart. Vėliau matysite jį šio reiso ir automobilio kuro suvestinėje.</Text>
+            <TextInput value={fuelLiters} onChangeText={(value) => setFuelLiters(value.replace(/[^\d.,]/g, '').slice(0, 7))} keyboardType="decimal-pad" placeholder="Įpilta, l" style={styles.input} testID="quick-fuel-liters" />
+            <TextInput value={fuelReceiptNumber} onChangeText={setFuelReceiptNumber} placeholder="Čekio Nr. (nebūtina)" style={styles.input} testID="quick-fuel-receipt" />
+            {!online ? <Text style={styles.activeReason}>Nėra ryšio — pylimą įrašysite prisijungę.</Text> : null}
+            <View style={styles.stopInfoActions}>
+              <Pressable style={styles.secondaryButton} onPress={() => setFuelQuickOpen(false)}><Text style={styles.secondaryText}>Atšaukti</Text></Pressable>
+              <Pressable disabled={busy || !online || !fuelLiters.trim()} onPress={() => { void saveRouteFuel().then(() => { if (fuelLiters.trim() === '') setFuelQuickOpen(false); }); }} style={[styles.deliverButton, (busy || !online || !fuelLiters.trim()) && styles.disabled]} testID="quick-fuel-save">
+                <Text style={styles.buttonText}>Išsaugoti</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
     </Modal>
     <Modal
       animationType="fade"
