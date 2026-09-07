@@ -9,7 +9,7 @@ import {
   calendarPresetRange,
   formatDateKey,
 } from '@/application/reporting/period-range';
-import { aggregateWageDays } from '@/application/finance/wage-report';
+import { aggregateWageDays, type WageDayRow } from '@/application/finance/wage-report';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { MenuArtwork } from '@/components/menu-artwork';
 import { PeriodCalendarPicker } from '@/components/period-calendar-picker';
@@ -35,7 +35,10 @@ type DriverFinanceRow = {
 };
 
 const eurFormatter = new Intl.NumberFormat('lt-LT', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
+const eur2Formatter = new Intl.NumberFormat('lt-LT', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const kmFormatter = new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 0 });
+
+const ALL_DRIVERS = 'all';
 
 export default function FinanceScreen() {
   const router = useRouter();
@@ -52,6 +55,8 @@ export default function FinanceScreen() {
   const initialPeriod = useMemo(() => calendarPresetRange('thisMonth'), []);
   const [periodFrom, setPeriodFrom] = useState(initialPeriod.from);
   const [periodTo, setPeriodTo] = useState(initialPeriod.to);
+  const [driverFilter, setDriverFilter] = useState<string>(ALL_DRIVERS);
+  const [expandedDayKey, setExpandedDayKey] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!online) { setError('Nėra ryšio su serveriu. Finansų ataskaita skaičiuojama serveryje.'); setBusy(false); return; }
@@ -73,7 +78,25 @@ export default function FinanceScreen() {
   }, [allowed, load, profile.role, router]);
 
   const period = useMemo(() => ({ from: periodFrom, to: periodTo }), [periodFrom, periodTo]);
-  const visible = useMemo(() => tripSheets.filter((sheet) => sheet.date >= period.from && sheet.date <= period.to), [tripSheets, period]);
+  const inPeriod = useMemo(
+    () => tripSheets.filter((sheet) => sheet.date >= period.from && sheet.date <= period.to),
+    [tripSheets, period],
+  );
+  const drivers = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const sheet of inPeriod) if (!seen.has(sheet.driverId)) seen.set(sheet.driverId, sheet.driverName);
+    return [...seen].map(([driverId, driverName]) => ({ driverId, driverName }))
+      .sort((left, right) => left.driverName.localeCompare(right.driverName, 'lt'));
+  }, [inPeriod]);
+  // A driver filter chosen for one period may not exist in another — fall back
+  // to "all" rather than showing an empty report.
+  const activeDriver = driverFilter !== ALL_DRIVERS && drivers.some((driver) => driver.driverId === driverFilter)
+    ? driverFilter
+    : ALL_DRIVERS;
+  const visible = useMemo(
+    () => inPeriod.filter((sheet) => activeDriver === ALL_DRIVERS || sheet.driverId === activeDriver),
+    [inPeriod, activeDriver],
+  );
   const rows = useMemo(() => aggregateByDriver(visible), [visible]);
   const wageDays = useMemo(() => aggregateWageDays(visible), [visible]);
   const showDriverNames = useMemo(() => new Set(wageDays.map((day) => day.driverId)).size > 1, [wageDays]);
@@ -141,6 +164,23 @@ export default function FinanceScreen() {
           />
         </View>
 
+        {!busy && drivers.length > 1 ? <View style={styles.driverFilter} testID="finance-driver-filter">
+          <Text style={styles.driverFilterLabel}>DARBUOTOJAS</Text>
+          <View style={styles.driverChips}>
+            <DriverChip active={activeDriver === ALL_DRIVERS} label="Visi" onPress={() => { setDriverFilter(ALL_DRIVERS); setExpandedDayKey(null); }} styles={styles} testID="finance-driver-all" />
+            {drivers.map((driver) => (
+              <DriverChip
+                key={driver.driverId}
+                active={activeDriver === driver.driverId}
+                label={driver.driverName}
+                onPress={() => { setDriverFilter(driver.driverId); setExpandedDayKey(null); }}
+                styles={styles}
+                testID={`finance-driver-${driver.driverId}`}
+              />
+            ))}
+          </View>
+        </View> : null}
+
         {error ? <Text accessibilityRole="alert" style={styles.warning}>{error}</Text> : null}
         {busy ? <ActivityIndicator color={colors.info} size="large" /> : null}
 
@@ -159,14 +199,26 @@ export default function FinanceScreen() {
             <Text style={styles.wageListTitle}>Atlygis pagal dieną</Text>
             <Text style={styles.meta}>Viena diena rodoma vieną kartą, nepriklausomai nuo reisų skaičiaus.</Text>
           </View>
-          {wageDays.map((day) => <View key={day.key} style={styles.wageDayRow} testID={`finance-wage-day-${day.key}`}>
-            <View style={styles.wageDayIdentity}>
-              <Text style={styles.wageDayDate}>{formatDateKey(day.date)}</Text>
-              {showDriverNames ? <Text style={styles.wageDayDriver}>{day.driverName}</Text> : null}
-              {day.preliminary ? <Text style={styles.wageDayStatus}>Preliminaru</Text> : null}
-            </View>
-            <Text style={styles.wageDayAmount}>{eurFormatter.format(day.wageEur)}</Text>
-          </View>)}
+          {wageDays.map((day) => {
+            const expanded = expandedDayKey === day.key;
+            return <View key={day.key} testID={`finance-wage-day-${day.key}`}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ expanded }}
+                onPress={() => setExpandedDayKey(expanded ? null : day.key)}
+                style={({ pressed }) => [styles.wageDayRow, pressed && styles.wageDayRowPressed]}
+                testID={`finance-wage-day-toggle-${day.key}`}>
+                <View style={styles.wageDayIdentity}>
+                  <Text style={styles.wageDayDate}>{formatDateKey(day.date)}</Text>
+                  {showDriverNames ? <Text style={styles.wageDayDriver}>{day.driverName}</Text> : null}
+                  {day.preliminary ? <Text style={styles.wageDayStatus}>Preliminaru</Text> : null}
+                </View>
+                <Text style={styles.wageDayAmount}>{eurFormatter.format(day.wageEur)}</Text>
+                <Text style={styles.wageDayChevron}>{expanded ? '⌃' : '⌄'}</Text>
+              </Pressable>
+              {expanded ? <WageDayDetail day={day} styles={styles} /> : null}
+            </View>;
+          })}
           {unassignedRow ? <View style={styles.unassignedCleanup}>
             <Text style={styles.meta}>Yra dienų be priskirto vairuotojo. Jei tai bandomieji importo įrašai, juos galima pašalinti.</Text>
             <Pressable disabled={cleaningUp} onPress={() => deleteUnassigned(unassignedRow)} style={[styles.dangerButton, cleaningUp && styles.disabled]} testID="finance-delete-unassigned">
@@ -248,9 +300,74 @@ function Metric({ label, value, emphasis, styles }: { label: string; value: stri
   </View>;
 }
 
+function DriverChip({ active, label, onPress, styles, testID }: { active: boolean; label: string; onPress: () => void; styles: ReturnType<typeof createStyles>; testID: string }) {
+  return <Pressable
+    accessibilityRole="button"
+    accessibilityState={{ selected: active }}
+    onPress={onPress}
+    style={({ pressed }) => [styles.driverChip, active && styles.driverChipActive, pressed && styles.driverChipPressed]}
+    testID={testID}>
+    <Text style={[styles.driverChipText, active && styles.driverChipTextActive]}>{label}</Text>
+  </Pressable>;
+}
+
+function DetailLine({ label, value, emphasis, styles }: { label: string; value: string; emphasis?: boolean; styles: ReturnType<typeof createStyles> }) {
+  return <View style={styles.detailLine}>
+    <Text style={styles.detailLineLabel}>{label}</Text>
+    <Text style={[styles.detailLineValue, emphasis && styles.detailLineValueEmphasis]}>{value}</Text>
+  </View>;
+}
+
+function WageDayDetail({ day, styles }: { day: WageDayRow; styles: ReturnType<typeof createStyles> }) {
+  const breakdown = day.sheets.find((sheet) => sheet.compensation)?.compensation ?? null;
+  const fuelEntries = [...new Map(day.sheets.flatMap((sheet) => sheet.fuelEntries).map((entry) => [entry.id, entry])).values()];
+  return <View style={styles.wageDayDetail} testID={`finance-wage-day-detail-${day.key}`}>
+    <View style={styles.detailSection}>
+      <Text style={styles.detailSectionTitle}>{day.sheets.length > 1 ? `Maršrutai (${day.sheets.length})` : 'Maršrutas'}</Text>
+      {day.sheets.map((sheet) => (
+        <View key={sheet.id} style={styles.detailRoute}>
+          <Text style={styles.detailRouteTitle}>{sheet.routeNumbers.length > 0 ? sheet.routeNumbers.join(' · ') : 'Maršrutas'}</Text>
+          <Text style={styles.detailRouteMeta}>
+            {kmFormatter.format(sheet.actualDistanceKm ?? sheet.plannedDistanceKm ?? 0)} km · {sheet.deliveredStops}/{sheet.totalStops} tašk.{sheet.vehicle ? ` · ${sheet.vehicle.registrationNumber}` : ''}
+          </Text>
+        </View>
+      ))}
+    </View>
+
+    {breakdown ? <View style={styles.detailSection}>
+      <Text style={styles.detailSectionTitle}>Atlygio sudėtis{breakdown.preliminary ? ' · preliminaru' : ''}</Text>
+      <DetailLine label="Bazinis (diena)" value={eur2Formatter.format(breakdown.fixedAmountEur)} styles={styles} />
+      <DetailLine label={`Atstumas · ${kmFormatter.format(breakdown.distanceKm)} km (${breakdown.distanceSource === 'odometer' ? 'odometras' : 'planuota'})`} value={eur2Formatter.format(breakdown.distanceAmountEur)} styles={styles} />
+      <DetailLine label={`Svoris · ${kmFormatter.format(breakdown.weightKg)} kg`} value={eur2Formatter.format(breakdown.weightAmountEur)} styles={styles} />
+      <DetailLine label={`Taškai · ${breakdown.stops}`} value={eur2Formatter.format(breakdown.stopsAmountEur)} styles={styles} />
+      <DetailLine label="Iš viso neto" value={eur2Formatter.format(breakdown.totalNetEur)} emphasis styles={styles} />
+    </View> : <Text style={styles.meta}>Atlygio detalizacija dar neapskaičiuota.</Text>}
+
+    {fuelEntries.length > 0 ? <View style={styles.detailSection}>
+      <Text style={styles.detailSectionTitle}>Kuras</Text>
+      {fuelEntries.map((entry) => (
+        <DetailLine
+          key={entry.id}
+          label={`${kmFormatter.format(entry.liters)} l${entry.receiptNumber ? ` · čekis ${entry.receiptNumber}` : ''}`}
+          value={entry.totalCost != null ? eur2Formatter.format(entry.totalCost) : '—'}
+          styles={styles}
+        />
+      ))}
+    </View> : null}
+  </View>;
+}
+
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   flex: { flex: 1, minWidth: 0 },
   periodPanel: { padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, gap: spacing.md },
+  driverFilter: { gap: spacing.sm },
+  driverFilterLabel: { ...type.label, color: colors.textMuted, paddingHorizontal: spacing.xs },
+  driverChips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  driverChip: { minHeight: 40, paddingHorizontal: spacing.md, justifyContent: 'center', borderRadius: radius.pill, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface },
+  driverChipActive: { backgroundColor: colors.info, borderColor: colors.info },
+  driverChipPressed: { opacity: 0.82, transform: [{ scale: 0.97 }] },
+  driverChipText: { ...type.secondaryStrong, color: colors.textSecondary },
+  driverChipTextActive: { color: colors.textInverse },
   warning: { ...type.bodyStrong, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.warningSoft, color: colors.warning },
   empty: { padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, gap: 4 },
   emptyTitle: { ...type.sectionTitle, color: colors.text },
@@ -264,11 +381,23 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   wageListHeading: { padding: spacing.md, gap: 2, backgroundColor: colors.surfaceSubtle },
   wageListTitle: { ...type.sectionTitle, color: colors.text },
   wageDayRow: { minHeight: 64, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.md, borderTopWidth: 1, borderTopColor: colors.borderSubtle },
+  wageDayRowPressed: { backgroundColor: colors.surfaceSubtle },
   wageDayIdentity: { flex: 1, minWidth: 0, gap: 2 },
   wageDayDate: { ...type.bodyStrong, color: colors.text },
   wageDayDriver: { ...type.secondary, color: colors.textSecondary },
   wageDayStatus: { ...type.meta, color: colors.warning },
   wageDayAmount: { ...type.sectionTitle, color: colors.text, textAlign: 'right' },
+  wageDayChevron: { ...type.body, color: colors.textMuted },
+  wageDayDetail: { paddingHorizontal: spacing.md, paddingTop: spacing.sm, paddingBottom: spacing.md, gap: spacing.md, backgroundColor: colors.surfaceSubtle, borderTopWidth: 1, borderTopColor: colors.borderSubtle },
+  detailSection: { gap: spacing.xs },
+  detailSectionTitle: { ...type.label, color: colors.textMuted },
+  detailRoute: { gap: 1 },
+  detailRouteTitle: { ...type.secondaryStrong, color: colors.text },
+  detailRouteMeta: { ...type.meta, color: colors.textMuted },
+  detailLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md, minHeight: 26 },
+  detailLineLabel: { ...type.secondary, color: colors.textSecondary, flex: 1, minWidth: 0 },
+  detailLineValue: { ...type.secondaryStrong, color: colors.text, textAlign: 'right' },
+  detailLineValueEmphasis: { color: colors.info },
   unassignedCleanup: { padding: spacing.md, gap: spacing.sm, borderTopWidth: 1, borderTopColor: colors.borderSubtle },
   dangerButton: { alignSelf: 'flex-start', minHeight: 40, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.dangerSoft, alignItems: 'center', justifyContent: 'center' },
   dangerButtonText: { ...type.button, color: colors.danger },

@@ -52,4 +52,22 @@ describe('finance wage report', () => {
     expect(source).not.toContain('Tšk €');
     expect(source).not.toContain('detailHeaderRow');
   });
+
+  it('offers a per-driver filter that falls back to "all" when the driver is absent from the period', () => {
+    const source = readFileSync(resolve(import.meta.dirname, '../../src/app/finance/wages.tsx'), 'utf8');
+    expect(source).toContain('finance-driver-filter');
+    expect(source).toContain('drivers.length > 1');
+    expect(source).toContain('drivers.some((driver) => driver.driverId === driverFilter)');
+    expect(source).toContain('activeDriver === ALL_DRIVERS || sheet.driverId === activeDriver');
+  });
+
+  it('expands a day into its route, wage-composition and fuel breakdown', () => {
+    const source = readFileSync(resolve(import.meta.dirname, '../../src/app/finance/wages.tsx'), 'utf8');
+    expect(source).toContain('finance-wage-day-toggle-');
+    expect(source).toContain('finance-wage-day-detail-');
+    expect(source).toContain('WageDayDetail');
+    expect(source).toContain('breakdown.distanceAmountEur');
+    expect(source).toContain('breakdown.stopsAmountEur');
+    expect(source).toContain("day.sheets.flatMap((sheet) => sheet.fuelEntries)");
+  });
 });
