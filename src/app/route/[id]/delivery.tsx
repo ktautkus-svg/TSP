@@ -56,7 +56,7 @@ import { SwipeActionCard } from '@/components/swipe-action-card';
 import { TimeInput } from '@/components/time-input';
 import { OperationalContactRepository } from '@/database/repositories/operational-contact-repository';
 import { RouteRepository } from '@/database/repositories/route-repository';
-import { DELIVERY_FAILURE_REASONS, deliveryMatchesFilter, type DeliveryFailureReason } from '@/domain/delivery-failure';
+import { DELIVERY_FAILURE_REASONS, deliveryMatchesFilter, isDeliveryReturnReason, type DeliveryFailureReason } from '@/domain/delivery-failure';
 import { isUsablePhone } from '@/domain/phone';
 import type { DeliveryFilter, DeliveryStop, Route, RouteEndpoint } from '@/domain/route';
 import type { GpsSample } from '@/domain/location-park-memory';
@@ -111,6 +111,7 @@ export default function DeliveryScreen() {
   const [undo, setUndo] = useState<UndoableAction | null>(null);
   const [failedStopId, setFailedStopId] = useState<string | null>(null);
   const [failureReason, setFailureReason] = useState<DeliveryFailureReason>('Nedirba');
+  const [failMode, setFailMode] = useState<'fail' | 'return'>('fail');
   const [failureComment, setFailureComment] = useState('');
   const [showFinish, setShowFinish] = useState(false);
   const [recalculation, setRecalculation] = useState<RouteRecalculationProposal | null>(null);
@@ -319,8 +320,29 @@ export default function DeliveryScreen() {
 
   const beginFailed = (stopId: string) => {
     setFailedStopId(stopId);
+    setFailMode('fail');
     setFailureReason('Nedirba');
     setFailureComment('');
+  };
+
+  const savePartialReturn = async () => {
+    if (!failedStopId || busy) return;
+    const note = failureComment.trim();
+    if (!note) { Alert.alert('Grąžinimas', 'Aprašykite, kas grąžinta arba ko trūko.'); return; }
+    setBusy(true);
+    try {
+      await new MarkStopDelivered(db).execute(routeId, failedStopId, { partialReturn: { note } });
+      setFailedStopId(null);
+      setExpandedStopId(null);
+      await load();
+      void requestSync('mutation');
+      void publishProgress();
+      Alert.alert('Pažymėta', 'Taškas pristatytas, grąžinimas / trūkumas užfiksuotas.');
+    } catch (reason) {
+      Alert.alert('Nepavyko pažymėti', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   const markAllRemainingDelivered = () => {
@@ -1066,6 +1088,9 @@ export default function DeliveryScreen() {
                 {stop.deliveryStatus === 'failed' ? (
                   <Text style={styles.failure}>{failedDeliveryLabel(stop.failureReason, stop.failureComment)}</Text>
                 ) : null}
+                {stop.deliveryStatus === 'delivered' && isDeliveryReturnReason(stop.failureReason) ? (
+                  <Text style={styles.returnBadge} testID={`stop-return-${stop.id}`}>Grąžinimas / trūkumas: {stop.failureComment || '—'}</Text>
+                ) : null}
                 {stop.deliveryStatus === 'pending' && nextStop?.id !== stop.id ? (
                   <Pressable
                     accessibilityLabel="Pasirinkti šį tašką kitu"
@@ -1284,28 +1309,53 @@ export default function DeliveryScreen() {
         <View style={styles.modalBackdrop} testID="failure-modal">
           <View style={[styles.failureSheet, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
             <View style={styles.sheetHandle} />
-            <Text style={styles.heading}>Kodėl pristatymas nepavyko?</Text>
-            <View style={styles.reasonGrid}>
-              {DELIVERY_FAILURE_REASONS.map((reason) => (
-                <Pressable key={reason} onPress={() => setFailureReason(reason)}>
-                  <Text style={failureReason === reason ? styles.activeReason : styles.reason}>{reason}</Text>
-                </Pressable>
-              ))}
+            <View style={styles.failModeRow}>
+              <Pressable onPress={() => setFailMode('fail')} style={[styles.failModeTab, failMode === 'fail' && styles.failModeTabActive]} testID="fail-mode-fail">
+                <Text style={[styles.failModeText, failMode === 'fail' && styles.failModeTextActive]}>Nepavyko</Text>
+              </Pressable>
+              <Pressable onPress={() => setFailMode('return')} style={[styles.failModeTab, failMode === 'return' && styles.failModeTabActive]} testID="fail-mode-return">
+                <Text style={[styles.failModeText, failMode === 'return' && styles.failModeTextActive]}>Pristatyta su grąžinimu / trūkumu</Text>
+              </Pressable>
             </View>
+            {failMode === 'fail' ? <>
+              <Text style={styles.heading}>Kodėl pristatymas nepavyko?</Text>
+              <View style={styles.reasonGrid}>
+                {DELIVERY_FAILURE_REASONS.map((reason) => (
+                  <Pressable key={reason} onPress={() => setFailureReason(reason)}>
+                    <Text style={failureReason === reason ? styles.activeReason : styles.reason}>{reason}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </> : (
+              <Text style={styles.heading}>Taškas pristatytas. Kas grąžinta arba ko trūko?</Text>
+            )}
             <TextInput
               value={failureComment}
               onChangeText={setFailureComment}
               multiline
-              placeholder={failureReason === 'Kita' ? 'Komentaras privalomas' : 'Papildomas komentaras (neprivaloma)'}
+              placeholder={failMode === 'return'
+                ? 'Pvz. „grąžino 2 dėžes pieno“ arba „trūko 1 vnt konservų“'
+                : failureReason === 'Kita' ? 'Komentaras privalomas' : 'Papildomas komentaras (neprivaloma)'}
               style={styles.textArea}
+              testID="fail-comment"
             />
             <View style={styles.modalActions}>
-              <Pressable
-                disabled={busy || (failureReason === 'Kita' && !failureComment.trim())}
-                style={[styles.failConfirm, (busy || (failureReason === 'Kita' && !failureComment.trim())) && styles.disabled]}
-                onPress={() => { void saveFailed(); }}>
-                <Text style={styles.buttonText}>Išsaugoti</Text>
-              </Pressable>
+              {failMode === 'return' ? (
+                <Pressable
+                  disabled={busy || !failureComment.trim()}
+                  style={[styles.deliverButton, (busy || !failureComment.trim()) && styles.disabled]}
+                  testID="save-partial-return"
+                  onPress={() => { void savePartialReturn(); }}>
+                  <Text style={styles.buttonText}>Pažymėti pristatyta su grąžinimu</Text>
+                </Pressable>
+              ) : (
+                <Pressable
+                  disabled={busy || (failureReason === 'Kita' && !failureComment.trim())}
+                  style={[styles.failConfirm, (busy || (failureReason === 'Kita' && !failureComment.trim())) && styles.disabled]}
+                  onPress={() => { void saveFailed(); }}>
+                  <Text style={styles.buttonText}>Išsaugoti</Text>
+                </Pressable>
+              )}
               <Pressable disabled={busy} style={styles.cancelButton} onPress={() => setFailedStopId(null)}>
                 <Text style={styles.secondaryText}>Atšaukti</Text>
               </Pressable>
@@ -1639,6 +1689,12 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   centeredBackdrop: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg, backgroundColor: 'rgba(0, 10, 2, 0.5)' },
   addStopDialog: { width: '100%', maxWidth: 420, padding: spacing.lg, borderWidth: 1, borderRadius: radius.lg, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
   failureSheet: { maxHeight: '92%', paddingTop: spacing.sm, paddingHorizontal: spacing.lg, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, backgroundColor: colors.surface, gap: spacing.md },
+  failModeRow: { flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs },
+  failModeTab: { flex: 1, minHeight: 44, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.sm },
+  failModeTabActive: { backgroundColor: colors.actionPrimary, borderColor: colors.actionPrimary },
+  failModeText: { ...type.secondaryStrong, color: colors.textSecondary, textAlign: 'center' },
+  failModeTextActive: { color: colors.textInverse },
+  returnBadge: { color: colors.warning, fontFamily: fonts.headingSemiBold },
   finishSheet: { maxHeight: '92%', paddingTop: spacing.sm, paddingHorizontal: spacing.lg, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, backgroundColor: colors.surface, gap: spacing.sm },
   finishSheetScroll: { flexGrow: 1, flexShrink: 1 },
   sheetHandle: { alignSelf: 'center', width: 44, height: 5, borderRadius: radius.pill, backgroundColor: colors.borderStrong },

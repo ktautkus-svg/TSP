@@ -14,6 +14,7 @@ import {
   localDateKey,
 } from '@/application/reporting/period-range';
 import { lateDeliveredStops, workQualityPercent } from '@/application/quality/work-quality-kpi';
+import { isDeliveryReturnReason } from '@/domain/delivery-failure';
 import { classifyDeliveryWindow, minutesLate } from '@/domain/delivery-window-timing';
 import { useForegroundInterval } from '@/hooks/use-foreground-interval';
 import { employeeApi, type QualityRouteMonitor, type QualityStopMonitor } from '@/infrastructure/auth/employee-session';
@@ -488,9 +489,13 @@ function stopTiming(stop: QualityStopMonitor): { label: string; tone: 'neutral' 
     const clock = stop.failedAt ? ` ${formatClockShort(stop.failedAt)}` : '';
     return { label: reason ? `Nepristatyta (${reason})${clock}` : `Nepristatyta${clock}`, tone: 'danger' };
   }
-  if (!stop.deliveredAt) return { label: 'Pristatyta', tone: 'success' };
+  const returnNote = isDeliveryReturnReason(stop.failureReason)
+    ? ` · grąžinimas / trūkumas${stop.failureComment ? `: ${stop.failureComment}` : ''}`
+    : '';
+  if (!stop.deliveredAt) return { label: `Pristatyta${returnNote}`, tone: returnNote ? 'warning' : 'success' };
   const clock = formatClockShort(stop.deliveredAt);
   const timing = classifyDeliveryWindow(stop.deliveredAt, stop.deliveryTimeFrom, stop.deliveryTimeTo);
+  if (returnNote) return { label: `Pristatyta su grąžinimu · ${clock}${returnNote.replace(' · grąžinimas / trūkumas', '')}`, tone: 'warning' };
   if (timing === 'early') return { label: `Per anksti · ${clock}`, tone: 'warning' };
   if (timing === 'late') {
     const delay = Math.max(1, minutesLate(stop.deliveredAt, stop.deliveryTimeTo) ?? 1);

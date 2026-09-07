@@ -2,7 +2,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { firstBlockerMessage, loadDepartureReadiness } from '@/application/operations/departure-readiness';
 import { RouteRepository } from '@/database/repositories/route-repository';
-import { isDeliveryFailureReason } from '@/domain/delivery-failure';
+import { DELIVERY_RETURN_REASON, isDeliveryFailureReason } from '@/domain/delivery-failure';
 import { completionPunctuality as assessCompletionPunctuality } from '@/domain/lithuanian-time';
 import { isLoadingFailureReason, type LoadingFailureReason } from '@/domain/loading-failure';
 import type { DeliveryStop, Route, RouteCompletionSummary, RouteEndpoint } from '@/domain/route';
@@ -569,39 +569,61 @@ export class MarkStopDelivered extends WorkdayCommand {
   async execute(
     routeId: string,
     stopId: string,
-    options: { gpsFix?: GpsSample | null } = {},
+    options: {
+      gpsFix?: GpsSample | null;
+      /** Delivered, but the customer returned part of the load or something was short. */
+      partialReturn?: { note: string } | null;
+    } = {},
   ): Promise<{ idempotent: boolean; actionId: string | null }> {
     const route = await this.route(routeId);
     const stop = await this.stop(routeId, stopId);
-    if (stop.deliveryStatus === 'delivered') return { idempotent: true, actionId: null };
+    const returnNote = options.partialReturn?.note.trim() ?? '';
+    if (options.partialReturn && !returnNote) {
+      throw new RouteCommandError('INVALID_STOP', 'Aprašykite, kas grąžinta arba ko trūko.');
+    }
+    if (stop.deliveryStatus === 'delivered' && !options.partialReturn) return { idempotent: true, actionId: null };
     if (route.status !== 'in_progress') {
       throw new RouteCommandError('INVALID_ROUTE_STATE', 'Pristatymą galima žymėti tik pradėtame maršrute.');
     }
     const now = this.clock();
     const attemptId = this.idFactory('attempt');
+    // A partial return records its marker + note on the (still delivered) stop
+    // so it reaches the server snapshot and the quality view without a schema
+    // change. A plain delivery leaves any prior failed-attempt fields alone
+    // (they are kept as audit history — see the workday tests).
     let actionId = '';
     await this.db.withTransactionAsync(async () => {
+      if (options.partialReturn) {
+        await this.db.runAsync(
+          `UPDATE delivery_stops SET delivery_status = 'delivered', delivered_at = ?,
+           failed_at = NULL, failure_reason = ?, failure_comment = ?, updated_at = ?
+           WHERE id = ? AND route_id = ?`,
+          now, DELIVERY_RETURN_REASON, returnNote, now, stopId, routeId,
+        );
+      } else {
+        await this.db.runAsync(
+          `UPDATE delivery_stops SET delivery_status = 'delivered', delivered_at = ?,
+           updated_at = ?
+           WHERE id = ? AND route_id = ?`,
+          now, now, stopId, routeId,
+        );
+      }
       await this.db.runAsync(
-        `UPDATE delivery_stops SET delivery_status = 'delivered', delivered_at = ?,
-         updated_at = ?
-         WHERE id = ? AND route_id = ?`,
-        now,
-        now,
-        stopId,
-        routeId,
-      );
-      await this.db.runAsync(
-        `INSERT INTO delivery_attempts (id, route_id, stop_id, result, created_at)
-         VALUES (?, ?, ?, 'delivered', ?)`,
+        `INSERT INTO delivery_attempts (id, route_id, stop_id, result, failure_comment, created_at)
+         VALUES (?, ?, ?, 'delivered', ?, ?)`,
         attemptId,
         routeId,
         stopId,
+        options.partialReturn ? returnNote : null,
         now,
       );
       await refreshRemaining(this.db, routeId, now);
       actionId = await this.journal(routeId, stopId, 'stop_delivered', stopState(stop), {
-        deliveryStatus: 'delivered', deliveredAt: now, failedAt: stop.failedAt,
-        failureReason: stop.failureReason, failureComment: stop.failureComment, attemptId,
+        deliveryStatus: 'delivered', deliveredAt: now,
+        failedAt: options.partialReturn ? null : stop.failedAt,
+        failureReason: options.partialReturn ? DELIVERY_RETURN_REASON : stop.failureReason,
+        failureComment: options.partialReturn ? returnNote : stop.failureComment,
+        attemptId,
       }, true);
     });
     if (options.gpsFix) {

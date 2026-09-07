@@ -1,9 +1,13 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { normalizeGoogleDepartureAt } from '../../gateway/providers/adapter-utils';
 import {
   DELIVERY_FAILURE_REASONS,
+  DELIVERY_RETURN_REASON,
   deliveryMatchesFilter,
+  isDeliveryReturnReason,
 } from '../../src/domain/delivery-failure';
 import { calculateRouteMetrics } from '../../src/domain/metrics';
 import { failedDeliveryLabel, userVisibleStopNote } from '../../src/ui/route-labels';
@@ -52,6 +56,24 @@ describe('P0 failed-delivery workflow', () => {
     expect(userVisibleStopNote('2 užsakymo eilutė(-ės): S605795, S606007')).toBeNull();
     expect(userVisibleStopNote('Užsakymų numeriai: S605795, S606007')).toBeNull();
     expect(userVisibleStopNote('Palikti prekes prie galinių vartų')).toBe('Palikti prekes prie galinių vartų');
+  });
+
+  it('marks a partial delivery: stop stays delivered, return note rides on failure_* columns', () => {
+    expect(DELIVERY_RETURN_REASON).toBe('Grąžinimas / trūkumas');
+    expect((DELIVERY_FAILURE_REASONS as readonly string[])).not.toContain(DELIVERY_RETURN_REASON);
+    expect(isDeliveryReturnReason('Grąžinimas / trūkumas')).toBe(true);
+    expect(isDeliveryReturnReason('Nedirba')).toBe(false);
+    expect(isDeliveryReturnReason(null)).toBe(false);
+
+    const delivery = readFileSync(resolve(import.meta.dirname, '../../src/app/route/[id]/delivery.tsx'), 'utf8');
+    // The NEATLIKTA sheet offers "delivered with return / shortage".
+    expect(delivery).toContain('testID="fail-mode-return"');
+    expect(delivery).toContain('testID="save-partial-return"');
+    expect(delivery).toContain('partialReturn: { note }');
+    expect(delivery).toContain('isDeliveryReturnReason(stop.failureReason)');
+    const workday = readFileSync(resolve(import.meta.dirname, '../../src/application/routes/route-workday.ts'), 'utf8');
+    expect(workday).toContain("failure_reason = ?, failure_comment = ?, updated_at = ?");
+    expect(workday).toContain('options.partialReturn');
   });
 
   it('moves a stale provider departure safely into the future', () => {
