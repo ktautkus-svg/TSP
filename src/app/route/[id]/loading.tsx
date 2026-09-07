@@ -13,6 +13,7 @@ import {
     requestExpiredDepartureOverride,
 } from '@/application/operations/departure-readiness';
 import { ActivateRoute, CancelDraftRoute, ReopenRouteForPlanning, UpdateStopPhone } from '@/application/routes/route-commands';
+import { estimateLoadingMinutes, loadingHistorySamples } from '@/application/routes/loading-duration';
 import { resolveRoute } from '@/application/routes/route-navigation';
 import {
   GetLatestUndoableAction,
@@ -66,6 +67,7 @@ export default function LoadingScreen() {
   const [odometer, setOdometer] = useState('');
   const [busy, setBusy] = useState(true);
   const [showPlannedPreview, setShowPlannedPreview] = useState(false);
+  const [preliminaryLoadingMinutes, setPreliminaryLoadingMinutes] = useState<number | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedStopId, setExpandedStopId] = useState<string | null>(null);
@@ -193,6 +195,19 @@ export default function LoadingScreen() {
   useEffect(() => {
     if (syncRevision > 0) void load();
   }, [load, syncRevision]);
+
+  useEffect(() => {
+    if (!route || route.status !== 'planned') return;
+    let active = true;
+    void (async () => {
+      const history = await loadingHistorySamples(db);
+      if (!active) return;
+      setPreliminaryLoadingMinutes(
+        estimateLoadingMinutes(history, route.totalWeightKg, route.totalStops),
+      );
+    })().catch(() => undefined);
+    return () => { active = false; };
+  }, [db, route]);
 
   // Krovimo schema (padėklų/zonų vaizdas) išjungta — nerodoma niekam, nei
   // vairuotojui, nei administratoriui. Skaičiavimo kodas (planCargoLayout,
@@ -515,6 +530,11 @@ export default function LoadingScreen() {
           <Text style={styles.summaryText}>Bendras svoris: {formatWeightKg(route.totalWeightKg)} kg</Text>
           {vehicleLoad ? <Text style={[styles.summaryText, vehicleLoad.overCapacity && styles.loadWarning]} testID="vehicle-load-percent">{vehicleLoad.summaryLabel}</Text> : null}
           <Text style={styles.summaryText}>Planuotas atstumas: {route.estimatedDistanceKm === null ? '—' : `${route.estimatedDistanceKm.toFixed(1)} km`}</Text>
+          {preliminaryLoadingMinutes !== null ? (
+            <Text style={styles.summaryText} testID="preliminary-loading-estimate">
+              Preliminarus krovimosi laikas: ~{preliminaryLoadingMinutes} min. (pagal panašių maršrutų istoriją)
+            </Text>
+          ) : null}
           {profile.role !== 'driver' && assignment ? (
             // This route still sits in local status "planned" (assigning a
             // route never advances that status — only the driver starting

@@ -4,6 +4,7 @@ import { Stack, useFocusEffect, useLocalSearchParams, useRouter, type Href } fro
 import { useSQLiteContext } from 'expo-sqlite';
 
 import { resolveRoute } from '@/application/routes/route-navigation';
+import { routeLoadingMinutes } from '@/application/routes/loading-duration';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { AppButton } from '@/components/ui-primitives';
 import { RouteResultSummary } from '@/components/route-result-summary';
@@ -29,6 +30,7 @@ export default function RouteResultScreen() {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const repository = useMemo(() => new RouteRepository(db), [db]);
   const [route, setRoute] = useState<Route | null>(null);
+  const [loadingMinutes, setLoadingMinutes] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [compensation, setCompensation] = useState<CompensationBreakdown | null>(null);
 
@@ -59,6 +61,15 @@ export default function RouteResultScreen() {
     });
     return () => { mounted = false; };
   }, [repository, routeId, router]));
+
+  useFocusEffect(useCallback(() => {
+    let mounted = true;
+    void (async () => {
+      const minutes = await routeLoadingMinutes(db, routeId);
+      if (mounted) setLoadingMinutes(minutes);
+    })().catch(() => undefined);
+    return () => { mounted = false; };
+  }, [db, routeId]));
 
   useFocusEffect(useCallback(() => {
     if (!online || profile.role !== 'driver') return undefined;
@@ -106,8 +117,12 @@ export default function RouteResultScreen() {
             durationDeviation={formatSigned(route.completionSummary?.durationDeviationMinutes, 'min')}
             endOdometer={route.endOdometer == null ? 'neįvestas' : String(route.endOdometer)}
             failedStops={route.completionSummary?.failedStops ?? 0}
+            loadingTime={loadingMinutes === null ? null : formatMinutes(loadingMinutes)}
             plannedDistance={`${route.estimatedDistanceKm?.toFixed(1) ?? '—'} km`}
             startOdometer={route.startOdometer == null ? 'neįvestas' : String(route.startOdometer)}
+            totalWorkTime={loadingMinutes === null || route.completionSummary?.actualDurationMinutes == null
+              ? null
+              : formatMinutes(loadingMinutes + route.completionSummary.actualDurationMinutes)}
           />
         ) : null}
         {compensation ? <View style={styles.compensation} testID="route-result-compensation">
