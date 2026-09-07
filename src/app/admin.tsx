@@ -819,7 +819,7 @@ export default function AdminScreen() {
                 testPrefix="edit-vehicle"
               />
               <Text style={styles.meta}>Bako talpa yra fizinis bako tūris, ne kuro likutis. Pagal kuro normą kelionės lape skaičiuojamas sunaudotas kuras ir likutis. Palikus normą tuščią, imamas apytikslis įvertis pagal keliamąją galią.</Text>
-              {canManageFinancials ? <Pressable accessibilityRole="link" onPress={() => router.push({ pathname: '/financial-settings', params: { returnTo: 'admin' } } as unknown as Href)} style={styles.smallButton}><Text style={styles.smallButtonText}>Keisti draudimą ir kelių mokestį →</Text></Pressable> : null}
+              {canManageFinancials ? <Text style={styles.meta}>Draudimas, kelių mokestis ir kiti kuro / atlygio parametrai keičiami Finansų skiltyje → „Kuro ir atlygio parametrai“.</Text> : null}
               <Pressable accessibilityLabel="Išsaugoti automobilio pakeitimus" accessibilityRole="button" disabled={busy || !online} style={[styles.primaryButton, (busy || !online) && styles.disabled]} onPress={() => void saveVehicle()}><Text style={styles.primaryText}>Išsaugoti automobilį</Text></Pressable>
 
               <CollapsibleHeader title="Krovinių skyrius" expanded={showVehicleCargoDetails} onPress={() => setShowVehicleCargoDetails((current) => !current)} styles={styles} />
@@ -1149,7 +1149,7 @@ export default function AdminScreen() {
                   </Pressable>;
                 })}
               </View> : null}
-              {canManageFinancials && editEmployeeRole === 'driver' ? <Pressable accessibilityRole="link" onPress={() => router.push({ pathname: '/financial-settings', params: { returnTo: 'admin' } } as unknown as Href)} style={styles.smallButton}><Text style={styles.smallButtonText}>Keisti atlygio skaičiavimą →</Text></Pressable> : null}
+              {canManageFinancials && editEmployeeRole === 'driver' ? <Text style={styles.meta}>Vairuotojo atlygio tarifai keičiami Finansų skiltyje → „Kuro ir atlygio parametrai“.</Text> : null}
             </ScrollView>
             <View style={styles.employeeModalActions}>
               <Pressable onPress={() => setSelectedEmployeeId('')} style={[styles.secondaryButton, styles.modalActionButton]}><Text style={styles.secondaryText}>Atšaukti</Text></Pressable>
