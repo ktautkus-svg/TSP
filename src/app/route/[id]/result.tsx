@@ -32,6 +32,12 @@ export default function RouteResultScreen() {
   const [error, setError] = useState<string | null>(null);
   const [compensation, setCompensation] = useState<CompensationBreakdown | null>(null);
 
+  const fetchCompensation = useCallback(async () => {
+    const response = await employeeApi<{ tripSheets: ServerTripSheet[] }>('/api/trip-sheets');
+    const sheet = response.tripSheets.find((item) => item.routeId === routeId);
+    return sheet?.compensation ?? null;
+  }, [routeId]);
+
   useFocusEffect(useCallback(() => {
     let mounted = true;
     void repository.getById(routeId).then((persisted) => {
@@ -58,23 +64,31 @@ export default function RouteResultScreen() {
     if (!online || profile.role !== 'driver') return undefined;
     let active = true;
     void pushRouteAssignmentProgress(db, routeId)
+      .then(async () => {
+        if (!active) return;
+        requestSync('mutation');
+        // The server now has this route's odometer — re-read the compensation
+        // so the preliminary figure stops falling back to planned distance.
+        if (profile.permissions?.canViewCompensation) {
+          const fresh = await fetchCompensation().catch(() => undefined);
+          if (active && fresh !== undefined) setCompensation(fresh);
+        }
+      })
       .catch((reason) => {
         devWarn('COMPLETED_ASSIGNMENT_SYNC_FAILED', reason);
-      })
-      .then(() => active ? requestSync('mutation') : undefined);
+      });
     return () => { active = false; };
-  }, [db, online, profile.role, requestSync, routeId]));
+  }, [db, fetchCompensation, online, profile.permissions?.canViewCompensation, profile.role, requestSync, routeId]));
 
   useFocusEffect(useCallback(() => {
     if (!online || (profile.role === 'driver' && !profile.permissions?.canViewCompensation)) return undefined;
     let mounted = true;
     void (async () => {
-      const response = await employeeApi<{ tripSheets: ServerTripSheet[] }>('/api/trip-sheets');
-      const sheet = response.tripSheets.find((item) => item.routeId === routeId);
-      if (mounted) setCompensation(sheet?.compensation ?? null);
+      const value = await fetchCompensation();
+      if (mounted) setCompensation(value);
     })().catch(() => undefined);
     return () => { mounted = false; };
-  }, [online, profile.permissions?.canViewCompensation, profile.role, routeId]));
+  }, [fetchCompensation, online, profile.permissions?.canViewCompensation, profile.role]));
 
   const goHome = () => router.replace((returnTo === 'execute-route' ? '/execute-route' : roleHomePath(profile.role)) as Href);
 
@@ -99,7 +113,12 @@ export default function RouteResultScreen() {
         {compensation ? <View style={styles.compensation} testID="route-result-compensation">
           <Text style={styles.compensationLabel}>{compensation.preliminary ? 'PRELIMINARUS DIENOS ATLYGIS' : 'GALUTINIS DIENOS ATLYGIS'}</Text>
           <Text style={styles.compensationValue}>{formatMoney(compensation.totalNetEur)} neto</Text>
-          <Text style={styles.compensationMeta}>€23,00 diena + {compensation.distanceKm.toFixed(1)} km + {Math.round(compensation.weightKg)} kg + {compensation.stops} tašk.</Text>
+          <Text style={styles.compensationMeta}>{formatMoney(compensation.fixedAmountEur)} diena + {compensation.distanceKm.toFixed(1)} km + {Math.round(compensation.weightKg)} kg + {compensation.stops} tašk.</Text>
+          <Text style={styles.compensationHint} testID="route-result-compensation-note">
+            {compensation.preliminary
+              ? 'Visos dienos duomenys · preliminaru, kol nesuvestas odometras'
+              : 'Skaičiuojama už visą darbo dieną — visus šio vairuotojo tos dienos maršrutus.'}
+          </Text>
         </View> : null}
         {route ? (
           <AppButton label="Peržiūrėti maršrutą" onPress={() => router.replace(`/history/${route.id}` as Href)} />
@@ -118,6 +137,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   compensationLabel: { ...type.label, color: colors.success },
   compensationValue: { ...type.pageTitle, color: colors.text },
   compensationMeta: { ...type.secondary, color: colors.textMuted },
+  compensationHint: { ...type.meta, color: colors.textMuted, marginTop: 2 },
 });
 
 function formatMinutes(value: number | null | undefined): string {
