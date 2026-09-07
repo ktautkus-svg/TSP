@@ -91,7 +91,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     shadowRadius: 11,
     elevation: 3,
   },
-  pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
+  pressed: { opacity: 0.82, transform: [{ scale: 0.97 }] },
   disabled: { opacity: 0.48 },
   icon: { width: 58, height: 58, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   iconInfo: { backgroundColor: colors.infoSoft },

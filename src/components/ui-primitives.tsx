@@ -139,7 +139,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     borderWidth: 1,
     borderColor: 'transparent',
   },
-  pressedButton: { transform: [{ translateY: 1 }, { scale: 0.985 }] },
+  pressedButton: { transform: [{ translateY: 1 }, { scale: 0.97 }], opacity: 0.9 },
   focusedButton: { borderColor: colors.info, shadowColor: colors.info, shadowOpacity: 0.22, shadowRadius: 3, shadowOffset: { width: 0, height: 0 } },
   primaryButton: { backgroundColor: colors.actionPrimary },
   primaryPressed: { backgroundColor: colors.actionPrimaryPressed },
