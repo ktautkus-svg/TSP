@@ -1,7 +1,8 @@
 import { Stack, useRouter, type Href } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { ChevronDownIcon } from '@/components/app-icons';
 import { normalizeEmployeePermissions } from '@/application/auth/employee-permissions';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { roleHomePath } from '@/application/navigation/role-home';
@@ -56,6 +57,7 @@ export default function FinanceScreen() {
   const [periodFrom, setPeriodFrom] = useState(initialPeriod.from);
   const [periodTo, setPeriodTo] = useState(initialPeriod.to);
   const [driverFilter, setDriverFilter] = useState<string>(ALL_DRIVERS);
+  const [driverPickerOpen, setDriverPickerOpen] = useState(false);
   const [expandedDayKey, setExpandedDayKey] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -165,20 +167,36 @@ export default function FinanceScreen() {
         </View>
 
         {!busy && drivers.length > 1 ? <View style={styles.driverFilter} testID="finance-driver-filter">
-          <Text style={styles.driverFilterLabel}>DARBUOTOJAS</Text>
-          <View style={styles.driverChips}>
-            <DriverChip active={activeDriver === ALL_DRIVERS} label="Visi" onPress={() => { setDriverFilter(ALL_DRIVERS); setExpandedDayKey(null); }} styles={styles} testID="finance-driver-all" />
-            {drivers.map((driver) => (
-              <DriverChip
-                key={driver.driverId}
-                active={activeDriver === driver.driverId}
-                label={driver.driverName}
-                onPress={() => { setDriverFilter(driver.driverId); setExpandedDayKey(null); }}
-                styles={styles}
-                testID={`finance-driver-${driver.driverId}`}
-              />
-            ))}
-          </View>
+          <Text style={styles.driverFilterLabel}>Darbuotojas</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ expanded: driverPickerOpen }}
+            onPress={() => setDriverPickerOpen((value) => !value)}
+            style={({ pressed }) => [styles.driverTrigger, driverPickerOpen && styles.driverTriggerOpen, pressed && styles.driverChipPressed]}
+            testID="finance-driver-trigger">
+            <View style={styles.driverTriggerText}>
+              <Text style={styles.driverTriggerValue}>
+                {activeDriver === ALL_DRIVERS ? 'Visi darbuotojai' : drivers.find((driver) => driver.driverId === activeDriver)?.driverName ?? 'Visi darbuotojai'}
+              </Text>
+              <Text style={styles.driverTriggerHint}>{driverPickerOpen ? 'Uždaryti sąrašą' : 'Keisti darbuotoją'}</Text>
+            </View>
+            <View style={[styles.driverChevron, driverPickerOpen && styles.driverChevronOpen]}><ChevronDownIcon color={colors.info} size={20} /></View>
+          </Pressable>
+          {driverPickerOpen ? <View style={styles.driverOptions}>
+            {[{ driverId: ALL_DRIVERS, driverName: 'Visi darbuotojai' }, ...drivers].map((option) => {
+              const selected = activeDriver === option.driverId;
+              return <Pressable
+                key={option.driverId}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+                onPress={() => { setDriverFilter(option.driverId); setExpandedDayKey(null); setDriverPickerOpen(false); }}
+                style={({ pressed }) => [styles.driverOption, selected && styles.driverOptionSelected, pressed && styles.wageDayRowPressed]}
+                testID={`finance-driver-${option.driverId}`}>
+                <Text style={[styles.driverOptionText, selected && styles.driverOptionTextSelected]}>{option.driverName}</Text>
+                {selected ? <Text style={styles.driverOptionCheck}>✓</Text> : null}
+              </Pressable>;
+            })}
+          </View> : null}
         </View> : null}
 
         {error ? <Text accessibilityRole="alert" style={styles.warning}>{error}</Text> : null}
@@ -216,7 +234,7 @@ export default function FinanceScreen() {
                 <Text style={styles.wageDayAmount}>{eurFormatter.format(day.wageEur)}</Text>
                 <Text style={styles.wageDayChevron}>{expanded ? '⌃' : '⌄'}</Text>
               </Pressable>
-              {expanded ? <WageDayDetail day={day} styles={styles} /> : null}
+              {expanded ? <WageDayDetail canEdit={profile.role === 'admin'} day={day} online={online} onSaved={load} styles={styles} /> : null}
             </View>;
           })}
           {unassignedRow ? <View style={styles.unassignedCleanup}>
@@ -300,15 +318,99 @@ function Metric({ label, value, emphasis, styles }: { label: string; value: stri
   </View>;
 }
 
-function DriverChip({ active, label, onPress, styles, testID }: { active: boolean; label: string; onPress: () => void; styles: ReturnType<typeof createStyles>; testID: string }) {
-  return <Pressable
-    accessibilityRole="button"
-    accessibilityState={{ selected: active }}
-    onPress={onPress}
-    style={({ pressed }) => [styles.driverChip, active && styles.driverChipActive, pressed && styles.driverChipPressed]}
-    testID={testID}>
-    <Text style={[styles.driverChipText, active && styles.driverChipTextActive]}>{label}</Text>
-  </Pressable>;
+function RouteMetricsRow({ sheet, canEdit, online, onSaved, styles }: {
+  sheet: WageDayRow['sheets'][number];
+  canEdit: boolean;
+  online: boolean;
+  onSaved: () => void;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [stops, setStops] = useState('');
+  const [weight, setWeight] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const openEditor = () => {
+    setStops(String(sheet.totalStops));
+    setWeight(sheet.totalWeightKg ? String(sheet.totalWeightKg) : '');
+    setError(null);
+    setEditing(true);
+  };
+
+  const save = async () => {
+    const nextStops = Number(stops || '0');
+    const nextWeight = Number((weight || '0').replace(',', '.'));
+    if (!Number.isInteger(nextStops) || nextStops < 0) { setError('Neteisingas taškų skaičius.'); return; }
+    if (!Number.isFinite(nextWeight) || nextWeight < 0) { setError('Neteisingas svoris.'); return; }
+    setBusy(true);
+    setError(null);
+    try {
+      await employeeApi(`/api/admin/assignments/${encodeURIComponent(sheet.assignmentId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ totalStops: nextStops, totalWeightKg: nextWeight }),
+      });
+      setEditing(false);
+      onSaved();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Nepavyko išsaugoti.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return <View style={styles.detailRoute}>
+    <Text style={styles.detailRouteTitle}>{sheet.routeNumbers.length > 0 ? sheet.routeNumbers.join(' · ') : 'Maršrutas'}</Text>
+    <Text style={styles.detailRouteMeta}>
+      {kmFormatter.format(sheet.actualDistanceKm ?? sheet.plannedDistanceKm ?? 0)} km · {sheet.totalStops} tašk. · {kmFormatter.format(sheet.totalWeightKg)} kg{sheet.vehicle ? ` · ${sheet.vehicle.registrationNumber}` : ''}
+    </Text>
+    {canEdit && !editing ? (
+      <Pressable
+        onPress={openEditor}
+        style={({ pressed }) => [styles.metricsEditLink, pressed && styles.driverChipPressed]}
+        testID={`finance-edit-metrics-${sheet.assignmentId}`}>
+        <Text style={styles.metricsEditLinkText}>Taisyti taškus ir svorį</Text>
+      </Pressable>
+    ) : null}
+    {editing ? <View style={styles.metricsEditor}>
+      <View style={styles.metricsFieldRow}>
+        <View style={styles.metricsField}>
+          <Text style={styles.metricsFieldLabel}>Taškų sk.</Text>
+          <TextInput
+            keyboardType="number-pad"
+            onChangeText={(value) => setStops(value.replace(/[^\d]/g, '').slice(0, 6))}
+            style={styles.metricsInput}
+            testID={`finance-metrics-stops-${sheet.assignmentId}`}
+            value={stops}
+          />
+        </View>
+        <View style={styles.metricsField}>
+          <Text style={styles.metricsFieldLabel}>Svoris, kg</Text>
+          <TextInput
+            keyboardType="decimal-pad"
+            onChangeText={(value) => setWeight(value.replace(/[^\d.,]/g, '').slice(0, 9))}
+            style={styles.metricsInput}
+            testID={`finance-metrics-weight-${sheet.assignmentId}`}
+            value={weight}
+          />
+        </View>
+      </View>
+      {error ? <Text style={styles.metricsError}>{error}</Text> : null}
+      {!online ? <Text style={styles.meta}>Reikia ryšio su serveriu.</Text> : null}
+      <View style={styles.metricsActions}>
+        <Pressable
+          disabled={busy || !online}
+          onPress={() => { void save(); }}
+          style={({ pressed }) => [styles.metricsSave, (busy || !online) && styles.disabled, pressed && styles.driverChipPressed]}
+          testID={`finance-metrics-save-${sheet.assignmentId}`}>
+          <Text style={styles.metricsSaveText}>{busy ? 'Saugoma…' : 'Išsaugoti'}</Text>
+        </Pressable>
+        <Pressable disabled={busy} onPress={() => { setEditing(false); setError(null); }} style={({ pressed }) => [styles.metricsCancel, pressed && styles.driverChipPressed]}>
+          <Text style={styles.metricsCancelText}>Atšaukti</Text>
+        </Pressable>
+      </View>
+    </View> : null}
+  </View>;
 }
 
 function DetailLine({ label, value, emphasis, styles }: { label: string; value: string; emphasis?: boolean; styles: ReturnType<typeof createStyles> }) {
@@ -318,19 +420,20 @@ function DetailLine({ label, value, emphasis, styles }: { label: string; value: 
   </View>;
 }
 
-function WageDayDetail({ day, styles }: { day: WageDayRow; styles: ReturnType<typeof createStyles> }) {
+function WageDayDetail({ day, canEdit, online, onSaved, styles }: {
+  day: WageDayRow;
+  canEdit: boolean;
+  online: boolean;
+  onSaved: () => void;
+  styles: ReturnType<typeof createStyles>;
+}) {
   const breakdown = day.sheets.find((sheet) => sheet.compensation)?.compensation ?? null;
   const fuelEntries = [...new Map(day.sheets.flatMap((sheet) => sheet.fuelEntries).map((entry) => [entry.id, entry])).values()];
   return <View style={styles.wageDayDetail} testID={`finance-wage-day-detail-${day.key}`}>
     <View style={styles.detailSection}>
       <Text style={styles.detailSectionTitle}>{day.sheets.length > 1 ? `Maršrutai (${day.sheets.length})` : 'Maršrutas'}</Text>
       {day.sheets.map((sheet) => (
-        <View key={sheet.id} style={styles.detailRoute}>
-          <Text style={styles.detailRouteTitle}>{sheet.routeNumbers.length > 0 ? sheet.routeNumbers.join(' · ') : 'Maršrutas'}</Text>
-          <Text style={styles.detailRouteMeta}>
-            {kmFormatter.format(sheet.actualDistanceKm ?? sheet.plannedDistanceKm ?? 0)} km · {sheet.deliveredStops}/{sheet.totalStops} tašk.{sheet.vehicle ? ` · ${sheet.vehicle.registrationNumber}` : ''}
-          </Text>
-        </View>
+        <RouteMetricsRow key={sheet.id} canEdit={canEdit} onSaved={onSaved} online={online} sheet={sheet} styles={styles} />
       ))}
     </View>
 
@@ -360,14 +463,22 @@ function WageDayDetail({ day, styles }: { day: WageDayRow; styles: ReturnType<ty
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   flex: { flex: 1, minWidth: 0 },
   periodPanel: { padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, gap: spacing.md },
-  driverFilter: { gap: spacing.sm },
-  driverFilterLabel: { ...type.label, color: colors.textMuted, paddingHorizontal: spacing.xs },
-  driverChips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  driverChip: { minHeight: 40, paddingHorizontal: spacing.md, justifyContent: 'center', borderRadius: radius.pill, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface },
-  driverChipActive: { backgroundColor: colors.info, borderColor: colors.info },
-  driverChipPressed: { opacity: 0.82, transform: [{ scale: 0.97 }] },
-  driverChipText: { ...type.secondaryStrong, color: colors.textSecondary },
-  driverChipTextActive: { color: colors.textInverse },
+  driverFilter: { gap: spacing.xs },
+  driverFilterLabel: { ...type.label, color: colors.textMuted },
+  driverChipPressed: { opacity: 0.82, transform: [{ scale: 0.98 }] },
+  driverTrigger: { minHeight: 58, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  driverTriggerOpen: { borderColor: colors.info },
+  driverTriggerText: { flex: 1, minWidth: 0 },
+  driverTriggerValue: { ...type.bodyStrong, color: colors.text },
+  driverTriggerHint: { ...type.meta, color: colors.textMuted, marginTop: 2 },
+  driverChevron: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
+  driverChevronOpen: { transform: [{ rotate: '180deg' }] },
+  driverOptions: { borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, overflow: 'hidden' },
+  driverOption: { minHeight: 48, paddingHorizontal: spacing.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md, borderTopWidth: 1, borderTopColor: colors.borderSubtle },
+  driverOptionSelected: { backgroundColor: colors.infoSoft },
+  driverOptionText: { ...type.body, color: colors.text },
+  driverOptionTextSelected: { ...type.bodyStrong, color: colors.info },
+  driverOptionCheck: { ...type.bodyStrong, color: colors.info },
   warning: { ...type.bodyStrong, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.warningSoft, color: colors.warning },
   empty: { padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, gap: 4 },
   emptyTitle: { ...type.sectionTitle, color: colors.text },
@@ -391,9 +502,22 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   wageDayDetail: { paddingHorizontal: spacing.md, paddingTop: spacing.sm, paddingBottom: spacing.md, gap: spacing.md, backgroundColor: colors.surfaceSubtle, borderTopWidth: 1, borderTopColor: colors.borderSubtle },
   detailSection: { gap: spacing.xs },
   detailSectionTitle: { ...type.label, color: colors.textMuted },
-  detailRoute: { gap: 1 },
+  detailRoute: { gap: spacing.xs, paddingBottom: spacing.xs },
   detailRouteTitle: { ...type.secondaryStrong, color: colors.text },
   detailRouteMeta: { ...type.meta, color: colors.textMuted },
+  metricsEditLink: { alignSelf: 'flex-start', minHeight: 32, justifyContent: 'center' },
+  metricsEditLinkText: { ...type.secondaryStrong, color: colors.info },
+  metricsEditor: { gap: spacing.sm, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface },
+  metricsFieldRow: { flexDirection: 'row', gap: spacing.sm },
+  metricsField: { flex: 1, minWidth: 0, gap: 2 },
+  metricsFieldLabel: { ...type.label, color: colors.textMuted },
+  metricsInput: { minHeight: 44, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderStrong, paddingHorizontal: spacing.sm, backgroundColor: colors.surfaceSubtle, color: colors.text, ...type.body },
+  metricsError: { ...type.secondary, color: colors.danger },
+  metricsActions: { flexDirection: 'row', gap: spacing.sm },
+  metricsSave: { minHeight: 40, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.actionPrimary, alignItems: 'center', justifyContent: 'center' },
+  metricsSaveText: { ...type.button, color: colors.textInverse },
+  metricsCancel: { minHeight: 40, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
+  metricsCancelText: { ...type.button, color: colors.textSecondary },
   detailLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md, minHeight: 26 },
   detailLineLabel: { ...type.secondary, color: colors.textSecondary, flex: 1, minWidth: 0 },
   detailLineValue: { ...type.secondaryStrong, color: colors.text, textAlign: 'right' },

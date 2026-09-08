@@ -484,6 +484,12 @@ export async function handleEmployeeApi(
           vehicleId: body.vehicleId === undefined ? undefined : stringField(body, 'vehicleId'),
         });
       }
+      if (body.totalStops !== undefined || body.totalWeightKg !== undefined) {
+        assignment = await store.updateAssignmentManualMetrics(assignmentId, {
+          totalStops: body.totalStops === undefined ? undefined : numberField(body, 'totalStops'),
+          totalWeightKg: body.totalWeightKg === undefined ? undefined : numberField(body, 'totalWeightKg'),
+        });
+      }
       if (!assignment) throw new EmployeeApiError('ASSIGNMENT_NOT_FOUND', 'Maršruto priskyrimas nerastas.', 404);
       await routeSyncStore.seedAssignment(assignment.driverId, assignment.routeSnapshot);
       return send(response, 200, { assignment }, requestId);

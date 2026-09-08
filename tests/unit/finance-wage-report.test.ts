@@ -53,12 +53,16 @@ describe('finance wage report', () => {
     expect(source).not.toContain('detailHeaderRow');
   });
 
-  it('offers a per-driver filter that falls back to "all" when the driver is absent from the period', () => {
+  it('offers a per-driver dropdown that falls back to "all" when the driver is absent from the period', () => {
     const source = readFileSync(resolve(import.meta.dirname, '../../src/app/finance/wages.tsx'), 'utf8');
     expect(source).toContain('finance-driver-filter');
+    expect(source).toContain('finance-driver-trigger');
     expect(source).toContain('drivers.length > 1');
     expect(source).toContain('drivers.some((driver) => driver.driverId === driverFilter)');
     expect(source).toContain('activeDriver === ALL_DRIVERS || sheet.driverId === activeDriver');
+    // A real open/close list, not a chip strip.
+    expect(source).toContain('driverPickerOpen');
+    expect(source).toContain('styles.driverOptions');
   });
 
   it('expands a day into its route, wage-composition and fuel breakdown', () => {
@@ -69,5 +73,20 @@ describe('finance wage report', () => {
     expect(source).toContain('breakdown.distanceAmountEur');
     expect(source).toContain('breakdown.stopsAmountEur');
     expect(source).toContain("day.sheets.flatMap((sheet) => sheet.fuelEntries)");
+  });
+
+  it('lets an admin correct a route stop count and cargo weight from the day detail', () => {
+    const source = readFileSync(resolve(import.meta.dirname, '../../src/app/finance/wages.tsx'), 'utf8');
+    expect(source).toContain('canEdit={profile.role === \'admin\'}');
+    expect(source).toContain('finance-edit-metrics-');
+    expect(source).toContain('finance-metrics-stops-');
+    expect(source).toContain('finance-metrics-weight-');
+    expect(source).toContain("JSON.stringify({ totalStops: nextStops, totalWeightKg: nextWeight })");
+
+    const store = readFileSync(resolve(import.meta.dirname, '../../server/employee-auth-store.ts'), 'utf8');
+    expect(store).toContain('async updateAssignmentManualMetrics(');
+    expect(store).toContain('total_stops: totalStops, total_weight_kg: totalWeightKg');
+    const api = readFileSync(resolve(import.meta.dirname, '../../server/employee-api.ts'), 'utf8');
+    expect(api).toContain('store.updateAssignmentManualMetrics(assignmentId');
   });
 });

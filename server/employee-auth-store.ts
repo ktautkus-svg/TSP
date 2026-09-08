@@ -1725,6 +1725,36 @@ export class EmployeeAuthStore {
     return updated;
   }
 
+  /**
+   * Admin override of a route's stop count and cargo weight. Needed for
+   * odometer-only / backfilled assignments that carry no stop rows, so the
+   * daily wage (which is driven by total_stops and total_weight_kg) can be
+   * made correct after the fact. Allowed on completed routes — that is the
+   * whole point — and only ever touches these two totals.
+   */
+  async updateAssignmentManualMetrics(
+    assignmentId: string,
+    input: { totalStops?: number; totalWeightKg?: number },
+  ): Promise<RouteAssignment> {
+    const reference = this.assignments.doc(safeId(assignmentId));
+    const document = await reference.get();
+    const assignment = document.data() as RouteAssignment | undefined;
+    if (!assignment) throw new EmployeeApiError('ASSIGNMENT_NOT_FOUND', 'Maršruto priskyrimas nerastas.', 404);
+
+    const route = assignment.routeSnapshot.route;
+    const totalStops = input.totalStops === undefined ? route.total_stops : validateManualStopCount(input.totalStops);
+    const totalWeightKg = input.totalWeightKg === undefined ? route.total_weight_kg : validateManualWeightKg(input.totalWeightKg);
+
+    const updatedAt = new Date().toISOString();
+    const routeSnapshot: RouteSnapshot = {
+      ...assignment.routeSnapshot,
+      route: { ...route, total_stops: totalStops, total_weight_kg: totalWeightKg, updated_at: updatedAt },
+    };
+    const updated: RouteAssignment = { ...assignment, routeSnapshot, updatedAt };
+    await reference.set(updated);
+    return updated;
+  }
+
   async listAssignments(profile: EmployeeProfile): Promise<RouteAssignment[]> {
     const snapshot = profile.role === 'driver'
       ? await this.assignments.where('driverId', '==', profile.id).get()
@@ -5612,6 +5642,20 @@ function assertCanEditTripReadings(
 function validateDayOdometer(value: number): number {
   if (!Number.isFinite(value) || value < 0 || value > 10_000_000) {
     throw new EmployeeApiError('INVALID_ODOMETER', 'Neteisingas odometro rodmuo.', 400);
+  }
+  return Math.round(value * 10) / 10;
+}
+
+function validateManualStopCount(value: number): number {
+  if (!Number.isInteger(value) || value < 0 || value > 100_000) {
+    throw new EmployeeApiError('INVALID_MANUAL_METRIC', 'Neteisingas taškų skaičius.', 400);
+  }
+  return value;
+}
+
+function validateManualWeightKg(value: number): number {
+  if (!Number.isFinite(value) || value < 0 || value > 1_000_000) {
+    throw new EmployeeApiError('INVALID_MANUAL_METRIC', 'Neteisingas svoris.', 400);
   }
   return Math.round(value * 10) / 10;
 }
