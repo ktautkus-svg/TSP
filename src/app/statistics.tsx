@@ -352,16 +352,21 @@ function FilterSelect({
       </Pressable>
       {open ? (
         <ScrollView nestedScrollEnabled style={styles.filterMenu} keyboardShouldPersistTaps="handled">
-          {options.map((option) => (
-            <Pressable
-              key={option.id}
-              accessibilityRole="button"
-              onPress={() => onSelect(option.id)}
-              style={styles.filterMenuItem}
-              testID={`${testID}-option-${option.id}`}>
-              <Text style={[styles.filterMenuItemText, option.label === value && styles.filterMenuItemTextActive]}>{option.label}</Text>
-            </Pressable>
-          ))}
+          {options.map((option, index) => {
+            const active = option.label === value;
+            return (
+              <Pressable
+                key={option.id}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+                onPress={() => onSelect(option.id)}
+                style={[styles.filterMenuItem, index === 0 && styles.filterMenuItemFirst, active && styles.filterMenuItemActive]}
+                testID={`${testID}-option-${option.id}`}>
+                <Text style={[styles.filterMenuItemText, active && styles.filterMenuItemTextActive]}>{option.label}</Text>
+                {active ? <Text style={styles.filterMenuCheck}>✓</Text> : null}
+              </Pressable>
+            );
+          })}
         </ScrollView>
       ) : null}
     </View>
@@ -800,8 +805,10 @@ function shortMonthLabel(monthKey: string): string {
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   screen: { flex: 1, alignSelf: 'center', width: '100%', maxWidth: 900, backgroundColor: colors.background },
   filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  filterDisclosure: { borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, overflow: 'hidden' },
-  filterDisclosureButton: { minHeight: 60, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  // No overflow:hidden here — it used to clip the open driver/vehicle menu so
+  // only a sliver of the list showed.
+  filterDisclosure: { borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, padding: spacing.md, gap: spacing.sm },
+  filterDisclosureButton: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   filterDisclosureTitle: { ...type.bodyStrong, color: colors.text },
   chevron: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
   chevronOpen: { transform: [{ rotate: '180deg' }] },
@@ -823,16 +830,24 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   filterSelectButtonOpen: { borderColor: colors.info },
   filterSelectValue: { ...type.secondaryStrong, color: colors.text, flex: 1 },
   filterMenu: {
-    maxHeight: 240,
+    maxHeight: 280,
     marginTop: spacing.xs,
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: colors.borderStrong,
     backgroundColor: colors.surface,
+    shadowColor: '#101828',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 4,
   },
-  filterMenuItem: { minHeight: 44, paddingHorizontal: spacing.md, justifyContent: 'center' },
+  filterMenuItem: { minHeight: 48, paddingHorizontal: spacing.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, borderTopWidth: 1, borderTopColor: colors.borderSubtle },
+  filterMenuItemFirst: { borderTopWidth: 0 },
+  filterMenuItemActive: { backgroundColor: colors.infoSoft },
   filterMenuItemText: { ...type.secondary, color: colors.text },
   filterMenuItemTextActive: { ...type.secondaryStrong, color: colors.info },
+  filterMenuCheck: { ...type.secondaryStrong, color: colors.info },
   tabRow: { flexDirection: 'row', gap: spacing.xs, borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: spacing.sm },
   chip: { minHeight: 44, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
   chipActive: { borderColor: colors.info, backgroundColor: colors.infoSoft },
