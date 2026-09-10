@@ -3,8 +3,10 @@
  *
  * Vehicle screens flatten fuel rows off trip-sheet day readings. The same
  * fill can appear on both an assignment sheet and a vehicle-day sheet, so
- * the list is de-duplicated by id and ordered oldest-first so a full month
- * (e.g. August) can be scanned in chronological order.
+ * the list is de-duplicated by id and ordered oldest-first. The vehicle
+ * screen reverses it for display (newest fill on top) and filters it by
+ * month/driver; keeping the base order chronological keeps this function a
+ * predictable building block for callers that do want it forward.
  */
 export type ListedFuelEntry = {
   id: string;

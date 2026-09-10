@@ -70,6 +70,56 @@ const ODOMETER_CORRECTION_2026_08 = `2026-08-04,671444,672107
 2026-08-30,678895,678895
 2026-08-31,678895,678895`;
 
+/** Distinct drivers present in a log, keyed by id ('none' for unassigned rows). */
+function distinctDrivers(rows: readonly { driverId?: string | null; driverName?: string | null }[]): { id: string; name: string }[] {
+  const seen = new Map<string, string>();
+  for (const row of rows) {
+    const id = row.driverId || 'none';
+    if (!seen.has(id)) seen.set(id, row.driverName || 'Nepriskirtas');
+  }
+  return [...seen].map(([id, name]) => ({ id, name }));
+}
+
+/**
+ * Month + driver chips above a vehicle log. Renders nothing until there is
+ * more than one month or driver to choose between, so a short log stays clean.
+ */
+function LogFilters({ styles, months, drivers, month, driverId, onMonth, onDriver, shownCount, totalCount, testID }: {
+  styles: ReturnType<typeof createStyles>;
+  months: readonly string[];
+  drivers: readonly { id: string; name: string }[];
+  month: string;
+  driverId: string;
+  onMonth: (value: string) => void;
+  onDriver: (value: string) => void;
+  shownCount: number;
+  totalCount: number;
+  testID: string;
+}) {
+  if (months.length <= 1 && drivers.length <= 1) return null;
+  return (
+    <View style={styles.filterPanel} testID={testID}>
+      {months.length > 1 ? <View style={styles.filterGroup}>
+        <Text style={styles.hint}>Mėnuo</Text>
+        <View style={styles.options}>
+          {['all', ...months].map((value) => <Pressable key={value} onPress={() => onMonth(value)} style={[styles.option, month === value && styles.optionSelected]}>
+            <Text style={[styles.optionText, month === value && styles.optionTextSelected]}>{value === 'all' ? 'Visi' : value}</Text>
+          </Pressable>)}
+        </View>
+      </View> : null}
+      {drivers.length > 1 ? <View style={styles.filterGroup}>
+        <Text style={styles.hint}>Vairuotojas</Text>
+        <View style={styles.options}>
+          {[{ id: 'all', name: 'Visi' }, ...drivers].map((driver) => <Pressable key={driver.id} onPress={() => onDriver(driver.id)} style={[styles.option, driverId === driver.id && styles.optionSelected]}>
+            <Text style={[styles.optionText, driverId === driver.id && styles.optionTextSelected]}>{driver.name}</Text>
+          </Pressable>)}
+        </View>
+      </View> : null}
+      {shownCount !== totalCount ? <Text style={styles.hint}>Rodoma {shownCount} iš {totalCount}</Text> : null}
+    </View>
+  );
+}
+
 export default function VehicleScreen() {
   const db = useSQLiteContext();
   const { profile, online } = useLocalAccess();
@@ -120,6 +170,10 @@ export default function VehicleScreen() {
   const [openingBalanceDate, setOpeningBalanceDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [openingBalanceLiters, setOpeningBalanceLiters] = useState('');
   const [openingBalanceNote, setOpeningBalanceNote] = useState('');
+  const [odometerMonth, setOdometerMonth] = useState('all');
+  const [odometerFilterDriverId, setOdometerFilterDriverId] = useState('all');
+  const [fuelMonth, setFuelMonth] = useState('all');
+  const [fuelFilterDriverId, setFuelFilterDriverId] = useState('all');
   const canApprove = canApproveExpiredDeparture(profile);
 
   const applyVehicle = useCallback(async (vehicleId: string) => {
@@ -312,7 +366,48 @@ export default function VehicleScreen() {
     const value = reading.endOdometer ?? reading.startOdometer ?? null;
     return value != null && (max == null || value > max) ? value : max;
   }, null);
-  const vehicleFuelEntries = chronologicalVehicleFuelEntries(vehicleReadings, selectedVehicleId);
+  const vehicleFuelEntries = useMemo(
+    () => chronologicalVehicleFuelEntries(vehicleReadings, selectedVehicleId),
+    [vehicleReadings, selectedVehicleId],
+  );
+
+  // Both logs otherwise pile every month and every driver into one endless
+  // scroll. These derive the month/driver choices actually present, then show
+  // the list filtered and newest-first. The `vehicleReadings` state itself
+  // stays ascending — the wage odometer chain depends on that order — so the
+  // reversal happens only here, for display. "all" means no filter.
+  const odometerMonths = useMemo(
+    () => [...new Set(vehicleReadings.map((reading) => reading.date.slice(0, 7)))].sort().reverse(),
+    [vehicleReadings],
+  );
+  const odometerDrivers = useMemo(() => distinctDrivers(vehicleReadings), [vehicleReadings]);
+  const visibleReadings = useMemo(() => {
+    const month = odometerMonths.includes(odometerMonth) ? odometerMonth : 'all';
+    const driver = odometerDrivers.some((entry) => entry.id === odometerFilterDriverId) ? odometerFilterDriverId : 'all';
+    return vehicleReadings
+      .filter((reading) =>
+        (month === 'all' || reading.date.slice(0, 7) === month) &&
+        (driver === 'all' || (reading.driverId || 'none') === driver))
+      .slice()
+      .reverse();
+  }, [vehicleReadings, odometerMonths, odometerDrivers, odometerMonth, odometerFilterDriverId]);
+
+  const fuelMonths = useMemo(
+    () => [...new Set(vehicleFuelEntries.map((entry) => entry.filledAt.slice(0, 7)))].sort().reverse(),
+    [vehicleFuelEntries],
+  );
+  const fuelDrivers = useMemo(() => distinctDrivers(vehicleFuelEntries), [vehicleFuelEntries]);
+  const visibleFuelEntries = useMemo(() => {
+    const month = fuelMonths.includes(fuelMonth) ? fuelMonth : 'all';
+    const driver = fuelDrivers.some((entry) => entry.id === fuelFilterDriverId) ? fuelFilterDriverId : 'all';
+    return vehicleFuelEntries
+      .filter((entry) =>
+        (month === 'all' || entry.filledAt.slice(0, 7) === month) &&
+        (driver === 'all' || (entry.driverId || 'none') === driver))
+      .slice()
+      .reverse();
+  }, [vehicleFuelEntries, fuelMonths, fuelDrivers, fuelMonth, fuelFilterDriverId]);
+
   const saveFuel = async () => {
     if (busy) return;
     const liters = Number(fuelLiters.replace(',', '.'));
@@ -620,7 +715,19 @@ export default function VehicleScreen() {
               <Text style={styles.buttonText}>{bulkImporting ? 'Importuojama…' : 'Importuoti visas eilutes'}</Text>
             </Pressable>
           </View> : null}
-          {vehicleReadings.map((reading) => {
+          <LogFilters
+            styles={styles}
+            months={odometerMonths}
+            drivers={odometerDrivers}
+            month={odometerMonth}
+            driverId={odometerFilterDriverId}
+            onMonth={setOdometerMonth}
+            onDriver={setOdometerFilterDriverId}
+            shownCount={visibleReadings.length}
+            totalCount={vehicleReadings.length}
+            testID="vehicle-odometer-filters"
+          />
+          {visibleReadings.map((reading) => {
             const editing = editingReadingId === reading.assignmentId;
             return <View key={reading.assignmentId} style={styles.readingCard}>
               <View style={styles.readingDisplayRow}><View style={styles.readingHeader}><View style={styles.readingMain}><Text style={styles.readingTitle}>{reading.date}</Text><Text style={styles.hint}>{reading.startOdometer ?? '—'} → {reading.endOdometer ?? '—'} km{reading.startOdometer != null && reading.endOdometer != null ? ` · ${odometerDistanceKm(reading.startOdometer, reading.endOdometer)} km per dieną` : ''}</Text></View><Text style={styles.hint}>{reading.driverName || 'Nepriskirtas'}</Text></View>
@@ -663,7 +770,19 @@ export default function VehicleScreen() {
           </View>
           {profile.role === 'admin' ? <View style={styles.options}>{drivers.map((driver) => <Pressable key={driver.id} onPress={() => setFuelDriverId(driver.id)} style={[styles.option, fuelDriverId === driver.id && styles.optionSelected]}><Text style={[styles.optionText, fuelDriverId === driver.id && styles.optionTextSelected]}>{driver.displayName}</Text></Pressable>)}</View> : null}
           <Pressable disabled={busy || !online} onPress={() => { void saveFuel(); }} style={[styles.button, (busy || !online) && styles.disabled]}><Text style={styles.buttonText}>{editingFuelId ? 'Išsaugoti kuro pakeitimą' : 'Įrašyti papildymą'}</Text></Pressable>
-          {vehicleFuelEntries.map((entry) => <View key={entry.id} style={styles.fuelReadingRow}><View style={styles.fuelReadingMain}><Text style={styles.readingTitle}>{new Date(entry.filledAt).toLocaleDateString('lt-LT')}</Text><Text style={styles.hint}>{entry.liters} l{entry.receiptNumber ? ` · čekis ${entry.receiptNumber}` : ''}{entry.driverName ? ` · ${entry.driverName}` : ''}</Text></View><View style={styles.readingActions}><Pressable accessibilityLabel={`Redaguoti kuro pylimą ${entry.id}`} onPress={() => { setEditingFuelId(entry.id); setFuelDate(entry.filledAt.slice(0, 10)); setFuelLiters(String(entry.liters)); setFuelReceipt(entry.receiptNumber ?? ''); setFuelDriverId(entry.driverId); }} style={styles.iconButton}><PencilIcon size={18} color={colors.warning} /></Pressable><Pressable accessibilityLabel={`Ištrinti kuro pylimą ${entry.id}`} disabled={busy} onPress={() => confirmDeleteFuel(entry)} style={styles.iconButton}><TrashIcon size={18} color={colors.danger} /></Pressable></View></View>)}
+          <LogFilters
+            styles={styles}
+            months={fuelMonths}
+            drivers={fuelDrivers}
+            month={fuelMonth}
+            driverId={fuelFilterDriverId}
+            onMonth={setFuelMonth}
+            onDriver={setFuelFilterDriverId}
+            shownCount={visibleFuelEntries.length}
+            totalCount={vehicleFuelEntries.length}
+            testID="vehicle-fuel-filters"
+          />
+          {visibleFuelEntries.map((entry) => <View key={entry.id} style={styles.fuelReadingRow}><View style={styles.fuelReadingMain}><Text style={styles.readingTitle}>{new Date(entry.filledAt).toLocaleDateString('lt-LT')}</Text><Text style={styles.hint}>{entry.liters} l{entry.receiptNumber ? ` · čekis ${entry.receiptNumber}` : ''}{entry.driverName ? ` · ${entry.driverName}` : ''}</Text></View><View style={styles.readingActions}><Pressable accessibilityLabel={`Redaguoti kuro pylimą ${entry.id}`} onPress={() => { setEditingFuelId(entry.id); setFuelDate(entry.filledAt.slice(0, 10)); setFuelLiters(String(entry.liters)); setFuelReceipt(entry.receiptNumber ?? ''); setFuelDriverId(entry.driverId); }} style={styles.iconButton}><PencilIcon size={18} color={colors.warning} /></Pressable><Pressable accessibilityLabel={`Ištrinti kuro pylimą ${entry.id}`} disabled={busy} onPress={() => confirmDeleteFuel(entry)} style={styles.iconButton}><TrashIcon size={18} color={colors.danger} /></Pressable></View></View>)}
           {profile.role === 'admin' ? <View style={styles.newDayForm} testID="vehicle-opening-fuel-balance">
             <Text style={styles.sectionTitle}>Pradinis kuro likutis</Text>
             <Text style={styles.hint}>Nurodykite, kiek litrų bake buvo nuo pasirinktos dienos. Naudokite, kai pradedate skaičiuoti nuo tam tikros datos.</Text>
@@ -758,6 +877,8 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   addDayButton: { minHeight: 44, borderRadius: radius.md, borderWidth: 1, borderColor: colors.info, backgroundColor: colors.infoSoft, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
   addDayButtonText: { ...type.button, color: colors.info },
   newDayForm: { padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.surfaceMuted, gap: spacing.sm },
+  filterPanel: { padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.surfaceMuted, gap: spacing.sm },
+  filterGroup: { gap: spacing.xs },
   bulkImportInput: { minHeight: 220, textAlignVertical: 'top' },
   bulkPanel: { marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceMuted, borderWidth: 1, borderColor: colors.borderStrong, gap: spacing.sm },
   inlineInputs: { flexDirection: 'row', gap: spacing.sm },
