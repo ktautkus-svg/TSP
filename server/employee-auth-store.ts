@@ -2000,9 +2000,20 @@ export class EmployeeAuthStore {
 
     const liters = Math.round(input.liters * 100) / 100;
     const pricePerLiter = input.pricePerLiter === undefined ? null : Math.round(input.pricePerLiter * 1000) / 1000;
+    const filledAtIso = filledAt.toISOString();
+    const receiptNumber = optionalText(input.receiptNumber);
+
+    // Stable IDs plus Firestore create() make concurrent completion retries atomic.
+    // Ordinary trip-sheet entries retain their existing independent-entry semantics.
+    const completionFuelId = context === 'active_route'
+      ? `route-fuel-${createHash('sha256').update(JSON.stringify([
+        resolvedAssignmentId, filledAtIso, liters, receiptNumber,
+      ])).digest('hex')}`
+      : null;
+
     const now = new Date().toISOString();
     const entry: ServerFuelEntry = {
-      id: randomUUID(),
+      id: completionFuelId ?? randomUUID(),
       tripSheetId: `trip-sheet-${resolvedAssignmentId}`,
       assignmentId: resolvedAssignmentId,
       routeId,
@@ -2010,18 +2021,26 @@ export class EmployeeAuthStore {
       driverName,
       vehicleId: vehicle.id,
       registrationNumber: vehicle.registrationNumber,
-      filledAt: filledAt.toISOString(),
+      filledAt: filledAtIso,
       odometer: Math.round((odometer ?? 0) * 10) / 10,
       liters,
       pricePerLiter,
       totalCost: pricePerLiter === null ? null : Math.round(liters * pricePerLiter * 100) / 100,
       station: optionalText(input.station),
-      receiptNumber: optionalText(input.receiptNumber),
+      receiptNumber,
       notes: optionalText(input.notes),
       createdAt: now,
       createdBy: profile.id,
     };
-    await this.fuelEntries.doc(entry.id).create(entry);
+    const document = this.fuelEntries.doc(entry.id);
+    try {
+      await document.create(entry);
+    } catch (error) {
+      if (!completionFuelId || (error as { code?: number }).code !== 6) throw error;
+      const existing = (await document.get()).data() as ServerFuelEntry | undefined;
+      if (!existing) throw error;
+      return existing;
+    }
     return entry;
   }
 

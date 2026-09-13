@@ -31,19 +31,37 @@ export function currentRouteCompletionClock(now: Date = new Date()): RouteComple
 }
 
 /**
- * Keeps edits made while the screen is mounted, but fills every missing value
- * on a restored/reopened completion flow so it can never resume half-empty.
+ * Keeps edits made while the screen is mounted, but fills every missing or
+ * out-of-range value on a restored/reopened completion flow so it can never
+ * resume half-empty or with a free-text time that selectors do not offer.
  */
 export function resumeRouteCompletionClock(
   current: Partial<RouteCompletionClock>,
   now: Date = new Date(),
 ): RouteCompletionClock {
   const defaults = currentRouteCompletionClock(now);
+  const date = current.date?.trim() || '';
+  const hour = current.hour?.trim() || '';
+  const minute = current.minute?.trim() || '';
   return {
-    date: current.date?.trim() || defaults.date,
-    hour: current.hour?.trim() || defaults.hour,
-    minute: current.minute?.trim() || defaults.minute,
+    date: date || defaults.date,
+    hour: ROUTE_COMPLETION_HOURS.includes(hour) ? hour : defaults.hour,
+    minute: ROUTE_COMPLETION_MINUTES.includes(minute) ? minute : defaults.minute,
   };
+}
+
+/**
+ * Fresh "Baigti maršrutą" always starts from the live Lithuanian wall clock.
+ * "Tęsti užbaigimą" / reopen keeps prior edits and only fills blanks.
+ */
+export function routeCompletionClockForOpen(
+  alreadyCompleting: boolean,
+  current: Partial<RouteCompletionClock>,
+  now: Date = new Date(),
+): RouteCompletionClock {
+  return alreadyCompleting
+    ? resumeRouteCompletionClock(current, now)
+    : currentRouteCompletionClock(now);
 }
 
 export function routeCompletionTimestamp(clock: RouteCompletionClock): string | null {
@@ -61,7 +79,7 @@ export function buildRouteCompletionFuelRequest(input: {
   if (input.choice === null) throw new Error('Pasirinkite, ar pylėte kuro.');
   if (input.choice === 'no') return null;
   const liters = Number(input.litersText.replace(',', '.'));
-  if (!Number.isFinite(liters) || liters <= 0 || liters > 1_000) {
+  if (!Number.isFinite(liters) || liters < 0.1 || liters > 1_000) {
     throw new Error('Įpilto kuro kiekis turi būti nuo 0,1 iki 1000 litrų.');
   }
   return {
