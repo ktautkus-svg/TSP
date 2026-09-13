@@ -58,6 +58,7 @@ import { TimeInput } from '@/components/time-input';
 import { OperationalContactRepository } from '@/database/repositories/operational-contact-repository';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import { DELIVERY_FAILURE_REASONS, deliveryMatchesFilter, isDeliveryReturnReason, type DeliveryFailureReason } from '@/domain/delivery-failure';
+import { lithuanianDateTimeToIso, lithuanianWallClockNow } from '@/domain/lithuanian-time';
 import { isUsablePhone } from '@/domain/phone';
 import type { DeliveryFilter, DeliveryStop, Route, RouteEndpoint } from '@/domain/route';
 import type { GpsSample } from '@/domain/location-park-memory';
@@ -638,9 +639,19 @@ export default function DeliveryScreen() {
     setBusy(true);
     try {
       await draftSaveQueue.current;
-      const actualFinishedAt = finishDate && finishTime
-        ? new Date(`${finishDate}T${finishTime}:00`).toISOString()
+      const finishDateFilled = finishDate.trim().length > 0;
+      const finishTimeFilled = finishTime.trim().length > 0;
+      if (finishDateFilled !== finishTimeFilled) {
+        Alert.alert('Neužbaigta data ir laikas', 'Įveskite ir datą, ir laiką, arba palikite abu tuščius — bus naudojamas dabartinis laikas.');
+        return;
+      }
+      const actualFinishedAt = finishDateFilled && finishTimeFilled
+        ? lithuanianDateTimeToIso(finishDate, finishTime) ?? undefined
         : undefined;
+      if (finishDateFilled && finishTimeFilled && !actualFinishedAt) {
+        Alert.alert('Neteisingas laikas', 'Patikrinkite užbaigimo datą (YYYY-MM-DD) ir laiką (HH:MM).');
+        return;
+      }
       const result = await new CompleteRoute(db).execute(routeId, {
         endOdometer: parseOdometer(endOdometer),
         confirmUnfinished,
@@ -701,9 +712,9 @@ export default function DeliveryScreen() {
       }
       await new BeginRouteCompletion(db).execute(routeId);
       completionDismissed.current = false;
-      const now = new Date();
-      setFinishDate(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`);
-      setFinishTime(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`);
+      const now = lithuanianWallClockNow();
+      setFinishDate(now.date);
+      setFinishTime(now.time);
       setShowFinish(true);
       await load();
       void requestSync('mutation');
@@ -1195,7 +1206,7 @@ export default function DeliveryScreen() {
               ) : null}
               <View style={styles.reminder} testID="route-finish-time-card">
                 <Text style={styles.heading}>Kada iš tikrųjų baigėte?</Text>
-                <Text style={styles.meta}>Jei uždarote maršrutą vėliau, patikslinkite laiką — kitaip statistika parodys neteisingą trukmę.</Text>
+                <Text style={styles.meta}>Laikas užpildytas pagal Vilniaus laiką. Jei uždarote maršrutą vėliau, patikslinkite — kitaip statistika parodys neteisingą trukmę.</Text>
                 <View style={styles.fuelRow}>
                   <DateInput
                     onChangeText={setFinishDate}
@@ -1210,6 +1221,17 @@ export default function DeliveryScreen() {
                     value={finishTime}
                   />
                 </View>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => {
+                    const now = lithuanianWallClockNow();
+                    setFinishDate(now.date);
+                    setFinishTime(now.time);
+                  }}
+                  style={styles.secondaryButton}
+                  testID="finish-time-now">
+                  <Text style={styles.secondaryText}>Nustatyti dabartinį Vilniaus laiką</Text>
+                </Pressable>
               </View>
               <TextInput value={endOdometer} onChangeText={(value) => { setEndOdometer(value); persistCompletionDraft(value); }} keyboardType="decimal-pad" placeholder="Galutinis odometras" style={styles.input} />
             </ScrollView>

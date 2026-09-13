@@ -6,6 +6,7 @@ import { useLocalAccess } from '@/application/auth/local-access-context';
 import { resolveCargoProfile } from '@/application/loading/cargo-profile';
 import { roleHomePath } from '@/application/navigation/role-home';
 import { CargoLayoutSvg } from '@/components/cargo-layout-svg';
+import { FiroSelect } from '@/components/firo-select';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { planCargoLayout } from '@/domain/cargo-layout';
 import { employeeApi, type ServerFleetVehicle } from '@/infrastructure/auth/employee-session';
@@ -67,17 +68,15 @@ export default function LoadingSchemaPreviewScreen() {
         title="Krovimo schema (peržiūra)">
 
         <View style={styles.panel}>
-          <Text style={styles.fieldLabel}>AUTOMOBILIS</Text>
-          <View style={styles.choices} testID="loading-preview-vehicle-filter">
-            {vehicles.map((item) => <Pressable
-              key={item.id}
-              accessibilityRole="button"
-              accessibilityState={{ selected: vehicleId === item.id }}
-              onPress={() => setVehicleId(item.id)}
-              style={[styles.choice, vehicleId === item.id && styles.choiceActive]}>
-              <Text style={[styles.choiceText, vehicleId === item.id && styles.choiceTextActive]}>{item.registrationNumber}</Text>
-            </Pressable>)}
-          </View>
+          <FiroSelect
+            label="Automobilis"
+            placeholder="Pasirinkite automobilį"
+            emptyLabel="Automobilių nėra."
+            testID="loading-preview-vehicle-filter"
+            value={vehicleId ?? ''}
+            onChange={setVehicleId}
+            options={vehicles.map((item) => ({ id: item.id, primary: item.registrationNumber, secondary: item.model }))}
+          />
 
           <Text style={styles.fieldLabel}>TAŠKŲ SKAIČIUS</Text>
           <View style={styles.choices} testID="loading-preview-stop-count">

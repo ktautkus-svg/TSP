@@ -15,6 +15,7 @@ import {
   type RoutePriceSettings,
 } from '@/application/routes/route-price';
 import { FoundationScreen } from '@/components/foundation-screen';
+import { FiroSelect } from '@/components/firo-select';
 import { employeeApi, type ServerFleetVehicle } from '@/infrastructure/auth/employee-session';
 import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
@@ -150,20 +151,18 @@ export default function FinanceCalculatorScreen() {
         <Text style={styles.panelTitle}>Preliminari reiso kaina</Text>
         <Text style={styles.hint}>Pasirinkite automobilį arba įveskite kuro normą. Be automobilio kelių mokestis ir draudimas imami kaip vidurkis iš tarifų ({averages.vehicleCount} auto).</Text>
 
-        <Text style={styles.label}>Automobilis</Text>
-        <View style={styles.chipRow}>
-          <Chip active={vehicleId === null} label="Be automobilio" onPress={() => setVehicleId(null)} styles={styles} testID="calculator-vehicle-none" />
-          {vehicles.map((vehicle) => (
-            <Chip
-              active={vehicleId === vehicle.id}
-              key={vehicle.id}
-              label={vehicle.registrationNumber}
-              onPress={() => setVehicleId(vehicle.id)}
-              styles={styles}
-              testID={`calculator-vehicle-${vehicle.id}`}
-            />
-          ))}
-        </View>
+        <FiroSelect
+          label="Automobilis"
+          placeholder="Pasirinkite automobilį"
+          testID="calculator-vehicle-select"
+          value={vehicleId ?? 'none'}
+          onChange={(id) => setVehicleId(id === 'none' ? null : id)}
+          getOptionTestID={(option) => option.id === 'none' ? 'calculator-vehicle-none' : `calculator-vehicle-${option.id}`}
+          options={[
+            { id: 'none', primary: 'Be automobilio', secondary: 'Naudoti vidutines normas' },
+            ...vehicles.map((vehicle) => ({ id: vehicle.id, primary: vehicle.registrationNumber, secondary: vehicle.model })),
+          ]}
+        />
 
         {vehicleId === null ? <Field label="Kuro norma, l/100 km" onChangeText={setFuelNorm} placeholder={String(averages.fuelNormLitersPer100Km)} styles={styles} testID="calculator-fuel-norm" value={fuelNorm} /> : null}
         <Field label="Atstumas, km" onChangeText={setDistance} placeholder="pvz. 420" styles={styles} testID="calculator-distance" value={distance} />

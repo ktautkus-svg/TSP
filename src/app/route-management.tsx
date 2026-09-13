@@ -1,6 +1,6 @@
 import { Stack, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
@@ -18,8 +18,9 @@ import {
 import { AdminCompleteRoute } from '@/application/routes/route-workday';
 import { markRouteDeletedForCloud } from '@/application/sync/route-cloud-sync';
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
-import { CheckIcon, ChevronDownIcon, ChevronRightIcon, TrashIcon } from '@/components/app-icons';
+import { CheckIcon, ChevronRightIcon, TrashIcon } from '@/components/app-icons';
 import { DateInput } from '@/components/date-input';
+import { FiroSelect } from '@/components/firo-select';
 import { uniqueRegionCodes } from '@/domain/route-code';
 import { employeeApi, type EmployeeProfile, type ServerFleetVehicle, type ServerRouteAssignment } from '@/infrastructure/auth/employee-session';
 import { Alert } from '@/ui/alert';
@@ -56,7 +57,6 @@ export default function RouteManagementScreen() {
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
   const [selectedDriverId, setSelectedDriverId] = useState<string | null>(null);
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
-  const [openPicker, setOpenPicker] = useState<'route' | 'driver' | 'vehicle' | null>(null);
   const [priceSettings, setPriceSettings] = useState<RoutePriceSettings>(() => normalizeRoutePriceSettings(DEFAULT_ROUTE_PRICE_SETTINGS));
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -190,7 +190,6 @@ export default function RouteManagementScreen() {
     // preselect them so the dispatcher only has to confirm, not pick twice.
     setSelectedDriverId(routeId && freeDrivers.length === 1 ? freeDrivers[0].id : null);
     setSelectedVehicleId(routeId && vehicles.length === 1 ? vehicles[0].id : null);
-    setOpenPicker(null);
     setAssignmentCompleted(null);
     const picked = routeId ? routes.find((route) => route.id === routeId) : null;
     setAssignDate(picked?.date ?? '');
@@ -234,7 +233,6 @@ export default function RouteManagementScreen() {
       setSelectedRouteId(null);
       setSelectedDriverId(null);
       setSelectedVehicleId(null);
-      setOpenPicker(null);
       setAssignmentCompleted(confirmation);
       setMessage(null);
     } catch (error) {
@@ -772,67 +770,50 @@ export default function RouteManagementScreen() {
           </View>
 
           <View style={[styles.selectorGrid, desktop && styles.selectorGridDesktop]}>
-
-            <SelectionDropdown
-              label="1. Vairuotojas"
-              placeholder={drivers.length > 0 ? 'Pasirinkite vairuotoją' : 'Vairuotojų nėra'}
-              primary={selectedDriver?.displayName}
-              secondary={selectedDriver
-                ? (activeAssignments.filter((item) => item.driverId === selectedDriver.id).length > 0
-                  ? `${activeAssignments.filter((item) => item.driverId === selectedDriver.id).length} suplanuota`
-                  : 'Laisvas')
-                : undefined}
-              open={openPicker === 'driver'}
-              onToggle={() => setOpenPicker((current) => current === 'driver' ? null : 'driver')}
-              wide={desktop}
-              styles={styles}>
-              {drivers.length === 0 ? <Text style={styles.dropdownEmpty}>Pridėkite vairuotoją nustatymuose.</Text> : drivers.map((driver) => {
-                const driverAssignments = activeAssignments.filter((item) => item.driverId === driver.id);
-                return <Pressable
-                  accessibilityRole="button"
-                  key={driver.id}
-                  onPress={() => { selectDriver(driver); setOpenPicker(null); }}
-                  style={[styles.dropdownOption, selectedDriverId === driver.id && styles.dropdownOptionSelected]}>
-                  <View style={styles.avatar}><Text style={styles.avatarText}>{initials(driver.displayName)}</Text></View>
-                  <View style={styles.dropdownOptionContent}>
-                    <Text style={styles.dropdownOptionTitle}>{driver.displayName}</Text>
-                    <Text style={styles.dropdownOptionMeta}>{driverAssignments.length > 0 ? `${driverAssignments.length} suplanuota` : 'Laisvas'}</Text>
-                  </View>
-                  {selectedDriverId === driver.id ? <Text style={styles.selectedMark}>✓</Text> : null}
-                </Pressable>;
-              })}
-            </SelectionDropdown>
-
-            <SelectionDropdown
-              label="2. Automobilis"
-              placeholder={vehicles.length > 0 ? 'Pasirinkite automobilį' : 'Automobilių nėra'}
-              primary={selectedVehicle ? `${selectedVehicle.registrationNumber} · ${selectedVehicle.model}` : undefined}
-              secondary={selectedVehicle
-                ? (selectedLoad
-                  ? `Keliamoji galia ${Math.round(selectedVehicle.maximumPayloadKg)} kg · ${selectedLoad.summaryLabel}`
-                  : `Keliamoji galia iki ${Math.round(selectedVehicle.maximumPayloadKg)} kg`)
-                : undefined}
-              open={openPicker === 'vehicle'}
-              onToggle={() => setOpenPicker((current) => current === 'vehicle' ? null : 'vehicle')}
-              wide={desktop}
-              styles={styles}>
-              {vehicles.length === 0 ? <Text style={styles.dropdownEmpty}>Pridėkite automobilį nustatymuose.</Text> : vehicles.map((vehicle) => {
-                const load = describeVehicleLoad(selectedRoute.total_weight_kg, vehicle.maximumPayloadKg);
-                return <Pressable
-                  accessibilityRole="button"
-                  key={vehicle.id}
-                  onPress={() => { setSelectedVehicleId(vehicle.id); setOpenPicker(null); }}
-                  style={[styles.dropdownOption, selectedVehicleId === vehicle.id && styles.dropdownOptionSelected]}>
-                  <View style={styles.dropdownOptionContent}>
-                    <Text style={styles.dropdownOptionTitle}>{vehicle.registrationNumber} · {vehicle.model}</Text>
-                    <Text style={[styles.dropdownOptionMeta, load?.overCapacity && styles.loadWarning]}>
-                      Iki {Math.round(vehicle.maximumPayloadKg)} kg{load ? ` · apkrova ${load.percentLabel}` : ''}{vehicle.assignedDriverId === selectedDriverId ? ' · priskirtas pasirinktam vairuotojui' : ''}
-                    </Text>
-                  </View>
-                  {selectedVehicleId === vehicle.id ? <Text style={styles.selectedMark}>✓</Text> : null}
-                </Pressable>;
-              })}
-            </SelectionDropdown>
+            <View style={[styles.selector, desktop && styles.selectorDesktop]}>
+              <FiroSelect
+                label="1. Vairuotojas"
+                placeholder={drivers.length > 0 ? 'Pasirinkite vairuotoją' : 'Vairuotojų nėra'}
+                emptyLabel="Pridėkite vairuotoją nustatymuose."
+                testID="assign-driver-select"
+                value={selectedDriverId ?? ''}
+                onChange={(id) => {
+                  const driver = drivers.find((item) => item.id === id);
+                  if (driver) selectDriver(driver);
+                }}
+                getOptionTestID={(option) => `assign-driver-${option.id}`}
+                options={drivers.map((driver) => {
+                  const count = activeAssignments.filter((item) => item.driverId === driver.id).length;
+                  return {
+                    id: driver.id,
+                    primary: driver.displayName,
+                    secondary: count > 0 ? `${count} suplanuota` : 'Laisvas',
+                  };
+                })}
+              />
+            </View>
+            <View style={[styles.selector, desktop && styles.selectorDesktop]}>
+              <FiroSelect
+                label="2. Automobilis"
+                placeholder={vehicles.length > 0 ? 'Pasirinkite automobilį' : 'Automobilių nėra'}
+                emptyLabel="Pridėkite automobilį nustatymuose."
+                testID="assign-vehicle-select"
+                value={selectedVehicleId ?? ''}
+                onChange={setSelectedVehicleId}
+                getOptionTestID={(option) => `assign-vehicle-${option.id}`}
+                options={vehicles.map((vehicle) => {
+                  const load = describeVehicleLoad(selectedRoute.total_weight_kg, vehicle.maximumPayloadKg);
+                  const capacity = `iki ${Math.round(vehicle.maximumPayloadKg)} kg`;
+                  const loadPart = load ? `apkrova ${load.percentLabel}${load.overCapacity ? ' · viršija' : ''}` : null;
+                  const assigned = vehicle.assignedDriverId === selectedDriverId ? 'priskirtas vairuotojui' : null;
+                  return {
+                    id: vehicle.id,
+                    primary: vehicle.registrationNumber,
+                    secondary: [vehicle.model, capacity, loadPart, assigned].filter(Boolean).join(' · '),
+                  };
+                })}
+              />
+            </View>
           </View>
 
           <View style={styles.assignDateRow} testID="assign-date-inline">
@@ -875,24 +856,24 @@ export default function RouteManagementScreen() {
               <DateInput value={editingAssignmentDate} onChangeText={setEditingAssignmentDate} style={styles.modalInput} testID="assignment-date-input" />
             </View>
             <View style={styles.modalField}>
-              <Text style={styles.selectorLabel}>Vairuotojas</Text>
-              <View style={styles.chipRow}>
-                {drivers.map((driver) => (
-                  <Pressable key={driver.id} onPress={() => setEditingAssignmentDriverId(driver.id)} style={[styles.chip, editingAssignmentDriverId === driver.id && styles.chipActive]} testID={`assignment-edit-driver-${driver.id}`}>
-                    <Text style={[styles.chipText, editingAssignmentDriverId === driver.id && styles.chipTextActive]}>{driver.displayName}</Text>
-                  </Pressable>
-                ))}
-              </View>
+              <FiroSelect
+                label="Vairuotojas"
+                placeholder="Pasirinkite vairuotoją"
+                value={editingAssignmentDriverId}
+                onChange={setEditingAssignmentDriverId}
+                getOptionTestID={(option) => `assignment-edit-driver-${option.id}`}
+                options={drivers.map((driver) => ({ id: driver.id, primary: driver.displayName }))}
+              />
             </View>
             <View style={styles.modalField}>
-              <Text style={styles.selectorLabel}>Automobilis</Text>
-              <View style={styles.chipRow}>
-                {vehicles.map((vehicle) => (
-                  <Pressable key={vehicle.id} onPress={() => setEditingAssignmentVehicleId(vehicle.id)} style={[styles.chip, editingAssignmentVehicleId === vehicle.id && styles.chipActive]} testID={`assignment-edit-vehicle-${vehicle.id}`}>
-                    <Text style={[styles.chipText, editingAssignmentVehicleId === vehicle.id && styles.chipTextActive]}>{vehicle.registrationNumber} · {vehicle.model}</Text>
-                  </Pressable>
-                ))}
-              </View>
+              <FiroSelect
+                label="Automobilis"
+                placeholder="Pasirinkite automobilį"
+                value={editingAssignmentVehicleId}
+                onChange={setEditingAssignmentVehicleId}
+                getOptionTestID={(option) => `assignment-edit-vehicle-${option.id}`}
+                options={vehicles.map((vehicle) => ({ id: vehicle.id, primary: vehicle.registrationNumber, secondary: vehicle.model }))}
+              />
             </View>
             <Text style={styles.panelHint}>Datą, vairuotoją ir automobilį galima keisti, kol vairuotojas maršruto dar nepradėjo. Taškus, jų eiliškumą ir svorius redaguokite atsidarę maršrutą planavime.</Text>
             <View style={styles.modalActions}>
@@ -931,53 +912,12 @@ export default function RouteManagementScreen() {
   );
 }
 
-function SelectionDropdown({
-  label,
-  placeholder,
-  primary,
-  secondary,
-  open,
-  onToggle,
-  wide,
-  children,
-  styles,
-}: {
-  label: string;
-  placeholder: string;
-  primary?: string;
-  secondary?: string;
-  open: boolean;
-  onToggle: () => void;
-  wide: boolean;
-  children: ReactNode;
-  styles: ReturnType<typeof createStyles>;
-}) {
-  return <View style={[styles.selector, wide && styles.selectorDesktop]}>
-    <Text style={styles.selectorLabel}>{label}</Text>
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ expanded: open }}
-      onPress={onToggle}
-      style={[styles.selectorButton, open && styles.selectorButtonOpen]}>
-      <View style={styles.selectorValue}>
-        <Text numberOfLines={1} style={[styles.selectorPrimary, !primary && styles.selectorPlaceholder]}>{primary ?? placeholder}</Text>
-        {secondary ? <Text numberOfLines={2} style={styles.selectorSecondary}>{secondary}</Text> : null}
-      </View>
-      <ChevronDownIcon size={20} />
-    </Pressable>
-    {open ? <ScrollView nestedScrollEnabled style={styles.dropdownList} contentContainerStyle={styles.dropdownListContent}>
-      {children}
-    </ScrollView> : null}
-  </View>;
-}
-
 function assignmentLoadLabel(assignment: ServerRouteAssignment, weightKg: number): string {
   const load = assignment.vehicle
     ? describeVehicleLoad(weightKg, assignment.vehicle.maximumPayloadKg)
     : null;
   return load ? ` · ${load.summaryLabel}` : '';
 }
-function initials(name: string): string { return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join(''); }
 function formatDate(value: string): string { const date = new Date(`${value}T12:00:00`); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('lt-LT', { month: 'short', day: 'numeric', weekday: 'short' }).format(date); }
 function routeCodesLabel(value: string | null): string {
   const codes = (value ?? '').split(',').map((code) => code.trim().toUpperCase()).filter((code) => /^[A-Z]\d{2}$/.test(code));
@@ -1031,11 +971,6 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   modalClose: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border },
   modalCloseText: { fontSize: 26, lineHeight: 28, color: colors.textMuted },
   modalField: { gap: spacing.xs },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
-  chip: { minHeight: 40, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.md, justifyContent: 'center' },
-  chipActive: { backgroundColor: colors.info, borderColor: colors.info },
-  chipText: { ...type.secondaryStrong, color: colors.text },
-  chipTextActive: { color: colors.textInverse },
   completionNotice: { padding: spacing.md, borderRadius: radius.md, borderLeftWidth: 4, borderLeftColor: colors.info, backgroundColor: colors.infoSoft, gap: 2 },
   completionNoticeTitle: { ...type.bodyStrong, color: colors.info },
   modalInput: { minHeight: 50, paddingHorizontal: spacing.md, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surfaceSubtle, color: colors.text, ...type.bodyStrong },
@@ -1121,22 +1056,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   selectorLabel: { ...type.label, color: colors.textSecondary, textTransform: 'uppercase' },
   assignDateRow: { gap: spacing.xs, marginTop: spacing.sm },
   assignDateInput: { minHeight: 46, paddingHorizontal: spacing.md, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, color: colors.text, ...type.bodyStrong },
-  selectorButton: { minHeight: 66, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  selectorButtonOpen: { borderColor: colors.info, backgroundColor: colors.infoSoft },
-  selectorValue: { flex: 1, minWidth: 0, gap: 2 },
-  selectorPrimary: { ...type.bodyStrong, color: colors.text },
-  selectorPlaceholder: { color: colors.textMuted },
-  selectorSecondary: { ...type.meta, color: colors.textMuted },
-  dropdownList: { maxHeight: 276, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radius.md, backgroundColor: colors.surface },
-  dropdownListContent: { padding: spacing.xs, gap: 4 },
-  dropdownEmpty: { ...type.secondary, color: colors.textMuted, padding: spacing.md },
-  dropdownOption: { minHeight: 58, padding: spacing.sm, borderRadius: radius.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  dropdownOptionSelected: { backgroundColor: colors.infoSoft },
-  dropdownOptionContent: { flex: 1, minWidth: 0, gap: 2 },
-  dropdownOptionTitle: { ...type.bodyStrong, color: colors.text },
-  dropdownOptionMeta: { ...type.meta, color: colors.textMuted },
   loadWarning: { color: colors.warning },
-  selectedMark: { ...type.bodyStrong, color: colors.info },
   confirmationArea: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'stretch', gap: spacing.md, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.borderSubtle },
   confirmationSummary: { flexGrow: 1, flexBasis: 480, minWidth: 0, gap: spacing.sm },
   selectionPrompt: { ...type.secondary, color: colors.textMuted, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.borderSubtle },
@@ -1179,8 +1099,6 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   driverCard: { flexDirection: 'row', alignItems: 'center', padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, gap: 10 },
   vehicleCard: { padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, gap: 4 },
   unavailable: { opacity: 0.5, backgroundColor: colors.disabledSurface },
-  avatar: { width: 42, height: 42, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.infoSoft },
-  avatarText: { ...type.bodyStrong, color: colors.info },
   driverText: { flex: 1, minWidth: 0 },
   driverName: { ...type.cardTitle, color: colors.text },
   availability: { ...type.meta, color: colors.success },

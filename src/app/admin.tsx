@@ -21,6 +21,7 @@ import { AdminCompleteRoute } from '@/application/routes/route-workday';
 import { markRouteDeletedForCloud } from '@/application/sync/route-cloud-sync';
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 import { DateInput } from '@/components/date-input';
+import { FiroSelect } from '@/components/firo-select';
 import { FoundationScreen } from '@/components/foundation-screen';
 import {
     PALLET_CAPACITIES,
@@ -100,7 +101,6 @@ export default function AdminScreen() {
   const [selectedDriverId, setSelectedDriverId] = useState('');
   const [selectedRouteId, setSelectedRouteId] = useState('');
   const [selectedAssignmentVehicleId, setSelectedAssignmentVehicleId] = useState('');
-  const [assignmentPicker, setAssignmentPicker] = useState<'driver' | 'vehicle' | 'route' | null>(null);
   const [newVehicleNumber, setNewVehicleNumber] = useState('');
   const [newVehicleModel, setNewVehicleModel] = useState('');
   const [newVehiclePayload, setNewVehiclePayload] = useState('');
@@ -697,36 +697,51 @@ export default function AdminScreen() {
           <View style={[styles.card, Boolean(focus) && styles.hidden]} testID="route-assignment-form">
             <CollapsibleHeader title="Priskirti maršrutą vairuotojui" expanded={expandedSection === 'route-assignment'} onPress={() => toggleSection('route-assignment')} styles={styles} />
             {expandedSection === 'route-assignment' ? <>
-            <Text style={styles.sectionLabel}>1. Vairuotojas</Text>
-            <Pressable onPress={() => setAssignmentPicker((current) => current === 'driver' ? null : 'driver')} style={styles.pickerSummary}>
-              <View style={styles.listContent}><Text style={styles.listTitle}>{selectedAssignmentDriver?.displayName ?? 'Pasirinkti vairuotoją'}</Text>{selectedAssignmentDriver ? <Text style={styles.meta}>@{selectedAssignmentDriver.username}</Text> : null}</View><Text style={styles.pickerChevron}>{assignmentPicker === 'driver' ? '−' : '+'}</Text>
-            </Pressable>
-            {assignmentPicker === 'driver' ? <View style={styles.choiceColumn}>{users.filter((item) => item.role === 'driver' && !item.disabled).map((driver) =>
-              <Pressable key={driver.id} onPress={() => { setSelectedDriverId(driver.id); const assigned = vehicles.find((vehicle) => vehicle.assignedDriverId === driver.id); if (assigned) setSelectedAssignmentVehicleId(assigned.id); setAssignmentPicker(null); }} style={[styles.selection, selectedDriverId === driver.id && styles.selectionActive]}>
-                <Text style={styles.listTitle}>{driver.displayName}</Text><Text style={styles.meta}>@{driver.username}</Text>
-              </Pressable>)}</View> : null}
-            <Text style={styles.sectionLabel}>2. Automobilis</Text>
-            <Pressable onPress={() => setAssignmentPicker((current) => current === 'vehicle' ? null : 'vehicle')} style={styles.pickerSummary}>
-              <View style={styles.listContent}><Text style={styles.listTitle}>{selectedAssignmentVehicle ? `${selectedAssignmentVehicle.registrationNumber} · ${selectedAssignmentVehicle.model}` : 'Pasirinkti automobilį'}</Text>{selectedAssignmentVehicle ? <Text style={[styles.meta, assignmentLoad?.overCapacity && styles.loadWarning]}>{assignmentLoad ? assignmentLoad.summaryLabel : `iki ${selectedAssignmentVehicle.maximumPayloadKg} kg`}</Text> : null}</View><Text style={styles.pickerChevron}>{assignmentPicker === 'vehicle' ? '−' : '+'}</Text>
-            </Pressable>
-            {assignmentPicker === 'vehicle' ? <View style={styles.choiceColumn}>{vehicles.map((vehicle) => {
-              const load = selectedAssignmentRoute
-                ? describeVehicleLoad(selectedAssignmentRoute.total_weight_kg, vehicle.maximumPayloadKg)
-                : null;
-              return (
-              <Pressable key={vehicle.id} onPress={() => { setSelectedAssignmentVehicleId(vehicle.id); setAssignmentPicker(null); }} style={[styles.selection, selectedAssignmentVehicleId === vehicle.id && styles.selectionActive]}>
-                <Text style={styles.listTitle}>{vehicle.registrationNumber} · {vehicle.model}</Text><Text style={[styles.meta, load?.overCapacity && styles.loadWarning]}>{load ? `iki ${vehicle.maximumPayloadKg} kg · apkrova ${load.percentLabel}` : `iki ${vehicle.maximumPayloadKg} kg`}</Text>
-              </Pressable>
-              );
-            })}</View> : null}
-            <Text style={styles.sectionLabel}>3. Maršrutas šiame įrenginyje</Text>
-            <Pressable onPress={() => setAssignmentPicker((current) => current === 'route' ? null : 'route')} style={styles.pickerSummary}>
-              <View style={styles.listContent}><Text style={styles.listTitle}>{selectedAssignmentRoute ? `${selectedAssignmentRoute.date} · ${selectedAssignmentRoute.total_stops} tašk.` : 'Pasirinkti maršrutą'}</Text>{selectedAssignmentRoute ? <Text style={styles.meta}>{Math.round(selectedAssignmentRoute.total_weight_kg)} kg{assignmentLoad ? ` · ${assignmentLoad.percentLabel}` : ''}</Text> : null}</View><Text style={styles.pickerChevron}>{assignmentPicker === 'route' ? '−' : '+'}</Text>
-            </Pressable>
-            {assignmentPicker === 'route' ? <View style={styles.choiceColumn}>{routes.filter((route) => route.status === 'planned').map((route) =>
-              <Pressable key={route.id} onPress={() => { setSelectedRouteId(route.id); setAssignmentPicker(null); }} style={[styles.selection, selectedRouteId === route.id && styles.selectionActive]}>
-                <Text style={styles.listTitle}>{route.date} · {route.total_stops} tašk.</Text><Text style={styles.meta}>{Math.round(route.total_weight_kg)} kg · {route.status}</Text>
-              </Pressable>)}</View> : null}
+            <FiroSelect
+              label="1. Vairuotojas"
+              placeholder="Pasirinkti vairuotoją"
+              emptyLabel="Vairuotojų nėra."
+              value={selectedDriverId}
+              onChange={(driverId) => {
+                setSelectedDriverId(driverId);
+                const assigned = vehicles.find((vehicle) => vehicle.assignedDriverId === driverId);
+                if (assigned) setSelectedAssignmentVehicleId(assigned.id);
+              }}
+              options={users.filter((item) => item.role === 'driver' && !item.disabled).map((driver) => ({
+                id: driver.id,
+                primary: driver.displayName,
+                secondary: `@${driver.username}`,
+              }))}
+            />
+            <FiroSelect
+              label="2. Automobilis"
+              placeholder="Pasirinkti automobilį"
+              emptyLabel="Automobilių nėra."
+              value={selectedAssignmentVehicleId}
+              onChange={setSelectedAssignmentVehicleId}
+              options={vehicles.map((vehicle) => {
+                const load = selectedAssignmentRoute
+                  ? describeVehicleLoad(selectedAssignmentRoute.total_weight_kg, vehicle.maximumPayloadKg)
+                  : null;
+                return {
+                  id: vehicle.id,
+                  primary: `${vehicle.registrationNumber} · ${vehicle.model}`,
+                  secondary: load ? `iki ${vehicle.maximumPayloadKg} kg · apkrova ${load.percentLabel}` : `iki ${vehicle.maximumPayloadKg} kg`,
+                };
+              })}
+            />
+            <FiroSelect
+              label="3. Maršrutas šiame įrenginyje"
+              placeholder="Pasirinkti maršrutą"
+              emptyLabel="Planuotų maršrutų nėra."
+              value={selectedRouteId}
+              onChange={setSelectedRouteId}
+              options={routes.filter((route) => route.status === 'planned').map((route) => ({
+                id: route.id,
+                primary: `${route.date} · ${route.total_stops} tašk.`,
+                secondary: `${Math.round(route.total_weight_kg)} kg · ${route.status}`,
+              }))}
+            />
             <Pressable disabled={busy || !online} style={[styles.primaryButton, (busy || !online) && styles.disabled]} onPress={() => void assignRoute()}>
               <Text style={styles.primaryText}>Priskirti maršrutą</Text>
             </Pressable>
@@ -855,15 +870,19 @@ export default function AdminScreen() {
 
               <CollapsibleHeader title="Priskirti vairuotojui" expanded={showVehicleDriverAssignment} onPress={() => setShowVehicleDriverAssignment((current) => !current)} styles={styles} />
               {showVehicleDriverAssignment ? <>
-              <View style={styles.choiceColumn}>
-                <Pressable onPress={() => setSelectedVehicleDriverId('')} style={[styles.selection, selectedVehicleDriverId === '' && styles.selectionActive]}>
-                  <Text style={styles.listTitle}>Nepriskirtas</Text>
-                </Pressable>
-                {users.filter((item) => item.role === 'driver' && !item.disabled).map((driver) =>
-                  <Pressable key={driver.id} onPress={() => setSelectedVehicleDriverId(driver.id)} style={[styles.selection, selectedVehicleDriverId === driver.id && styles.selectionActive]}>
-                    <Text style={styles.listTitle}>{driver.displayName}</Text><Text style={styles.meta}>@{driver.username}</Text>
-                  </Pressable>)}
-              </View>
+              <FiroSelect
+                placeholder="Pasirinkite vairuotoją"
+                value={selectedVehicleDriverId || 'none'}
+                onChange={(id) => setSelectedVehicleDriverId(id === 'none' ? '' : id)}
+                options={[
+                  { id: 'none', primary: 'Nepriskirtas' },
+                  ...users.filter((item) => item.role === 'driver' && !item.disabled).map((driver) => ({
+                    id: driver.id,
+                    primary: driver.displayName,
+                    secondary: `@${driver.username}`,
+                  })),
+                ]}
+              />
               <Pressable disabled={busy || !online} style={[styles.primaryButton, (busy || !online) && styles.disabled]} onPress={() => void assignVehicle()}>
                 <Text style={styles.primaryText}>Patvirtinti priskyrimą</Text>
               </Pressable>
@@ -912,23 +931,30 @@ export default function AdminScreen() {
             <CollapsibleHeader title="Odometro ir kelionės duomenų korekcijos" expanded={expandedSection === 'odometer-corrections'} onPress={() => toggleSection('odometer-corrections')} styles={styles} />
             {expandedSection === 'odometer-corrections' ? <>
             <Text style={styles.meta}>Automobiliui ir dienai, kurios dar nedengia joks maršrutas (pvz. kelionė be užsakymų), taip pat tikrų užbaigtų maršrutų odometro ir vairuotojo pataisymai.</Text>
-            <View style={styles.chipRow} testID="odometer-vehicle-filter">
-              {vehicles.map((vehicle) => <Pressable key={vehicle.id} onPress={() => setOdometerVehicleId(vehicle.id)} style={[styles.chip, odometerVehicleId === vehicle.id && styles.chipActive]}>
-                <Text style={[styles.chipText, odometerVehicleId === vehicle.id && styles.chipTextActive]}>{vehicle.registrationNumber}</Text>
-              </Pressable>)}
-            </View>
+            <FiroSelect
+              label="Automobilis"
+              placeholder="Pasirinkite automobilį"
+              testID="odometer-vehicle-filter"
+              value={odometerVehicleId}
+              onChange={setOdometerVehicleId}
+              options={vehicles.map((vehicle) => ({ id: vehicle.id, primary: vehicle.registrationNumber, secondary: vehicle.model }))}
+            />
             {editingAssignmentId ? <Text style={styles.listTitle}>Taisomas tikras maršrutas ({odometerDate}) — data nekeičiama, tik odometras ir vairuotojas.</Text> : null}
             {editingAssignmentId ? null : <DateInput accessibilityLabel="Data" onChangeText={setOdometerDate} style={styles.input} value={odometerDate} />}
             <TextInput accessibilityLabel="Odometras pradžioje" keyboardType="decimal-pad" onChangeText={setOdometerStart} placeholder="Odometras pradžioje" placeholderTextColor={colors.textMuted} style={styles.input} value={odometerStart} />
             <TextInput accessibilityLabel="Odometras pabaigoje" keyboardType="decimal-pad" onChangeText={setOdometerEnd} placeholder="Odometras pabaigoje" placeholderTextColor={colors.textMuted} style={styles.input} value={odometerEnd} />
-            <Text style={styles.sectionLabel}>Vairuotojas (dėl priskyrimo prie algos)</Text>
-            <View style={styles.chipRow} testID="odometer-driver-filter">
-              {editingAssignmentId ? null : <Pressable onPress={() => setOdometerDriverId('')} style={[styles.chip, odometerDriverId === '' && styles.chipActive]}><Text style={[styles.chipText, odometerDriverId === '' && styles.chipTextActive]}>Numatytas</Text></Pressable>}
-              {users.filter((item) => item.role === 'driver' && !item.disabled).map((driver) => <Pressable key={driver.id} onPress={() => setOdometerDriverId(driver.id)} style={[styles.chip, odometerDriverId === driver.id && styles.chipActive]}>
-                <Text style={[styles.chipText, odometerDriverId === driver.id && styles.chipTextActive]}>{driver.displayName}</Text>
-              </Pressable>)}
-              <Pressable onPress={() => setOdometerDriverId('none')} style={[styles.chip, odometerDriverId === 'none' && styles.chipActive]}><Text style={[styles.chipText, odometerDriverId === 'none' && styles.chipTextActive]}>Nepriskirtas</Text></Pressable>
-            </View>
+            <FiroSelect
+              label="Vairuotojas (dėl priskyrimo prie algos)"
+              placeholder="Pasirinkite vairuotoją"
+              testID="odometer-driver-filter"
+              value={odometerDriverId === '' ? (editingAssignmentId ? '' : 'default') : odometerDriverId}
+              onChange={(id) => setOdometerDriverId(id === 'default' ? '' : id)}
+              options={[
+                ...(editingAssignmentId ? [] : [{ id: 'default', primary: 'Numatytas' }]),
+                ...users.filter((item) => item.role === 'driver' && !item.disabled).map((driver) => ({ id: driver.id, primary: driver.displayName })),
+                { id: 'none', primary: 'Nepriskirtas' },
+              ]}
+            />
             <Pressable disabled={busy || !online} onPress={() => void saveOdometer()} style={[styles.primaryButton, (busy || !online) && styles.disabled]} testID="save-odometer-entry">
               <Text style={styles.primaryText}>{editingAssignmentId ? 'Išsaugoti pataisymą' : 'Įrašyti odometrą'}</Text>
             </Pressable>
@@ -1023,14 +1049,18 @@ export default function AdminScreen() {
                   arba ištaisyti klaidingą rodmenį. Korekcija patvirtinama iš karto ir tampa kelionės lapo
                   atskaitos tašku nuo nurodytos datos.
                 </Text>
-                <View style={styles.choiceColumn}>
-                  {vehicles.map((vehicle) =>
-                    <Pressable key={vehicle.id} onPress={() => setCorrectionVehicleId(vehicle.id)}
-                      style={[styles.selection, correctionVehicleId === vehicle.id && styles.selectionActive]}>
-                      <Text style={styles.listTitle}>{vehicle.registrationNumber}</Text>
-                      <Text style={styles.meta}>{vehicle.model} · dabar {vehicle.fuelRemainingLiters ?? '—'} l</Text>
-                    </Pressable>)}
-                </View>
+                <FiroSelect
+                  label="Automobilis"
+                  placeholder="Pasirinkite automobilį"
+                  emptyLabel="Automobilių nėra."
+                  value={correctionVehicleId}
+                  onChange={setCorrectionVehicleId}
+                  options={vehicles.map((vehicle) => ({
+                    id: vehicle.id,
+                    primary: vehicle.registrationNumber,
+                    secondary: `${vehicle.model} · dabar ${vehicle.fuelRemainingLiters ?? '—'} l`,
+                  }))}
+                />
                 <TextInput accessibilityLabel="Likutis litrais" value={correctionLiters}
                   onChangeText={(value) => setCorrectionLiters(value.replace(/[^\d.,]/g, '').slice(0, 6))}
                   keyboardType="decimal-pad" placeholder="Likutis, l (pvz. 110)" placeholderTextColor={colors.textMuted} style={styles.input} />
