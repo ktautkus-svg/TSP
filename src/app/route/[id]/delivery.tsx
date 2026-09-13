@@ -15,15 +15,16 @@ import { forgetParkPin, hydrateStopParkPins } from '@/application/location/remem
 import { callPhone } from '@/application/operations/call-phone';
 import { calculateCompositeRouteProgress } from '@/application/routes/composite-route-progress';
 import {
-    buildRouteCompletionFuelRequest,
-    currentRouteCompletionClock,
-    persistRouteCompletionFuel,
-    resumeRouteCompletionClock,
-    routeCompletionTimestamp,
-    ROUTE_COMPLETION_HOURS,
-    ROUTE_COMPLETION_MINUTES,
-    RouteCompletionSingleFlight,
-    type RouteCompletionFuelChoice,
+  buildRouteCompletionFuelRequest,
+  currentRouteCompletionClock,
+  persistRouteCompletionFuel,
+  resumeRouteCompletionClock,
+  routeCompletionClockForOpen,
+  routeCompletionTimestamp,
+  ROUTE_COMPLETION_HOURS,
+  ROUTE_COMPLETION_MINUTES,
+  RouteCompletionSingleFlight,
+  type RouteCompletionFuelChoice,
 } from '@/application/routes/route-completion-form';
 import { CancelDraftRoute } from '@/application/routes/route-commands';
 import { RefreshRouteEtas } from '@/application/routes/route-eta';
@@ -131,9 +132,9 @@ export default function DeliveryScreen() {
   const [recalculation, setRecalculation] = useState<RouteRecalculationProposal | null>(null);
   const [startOdometer, setStartOdometer] = useState('');
   const [endOdometer, setEndOdometer] = useState('');
-  const [finishDate, setFinishDate] = useState('');
-  const [finishHour, setFinishHour] = useState('');
-  const [finishMinute, setFinishMinute] = useState('');
+  const [finishDate, setFinishDate] = useState(() => currentRouteCompletionClock().date);
+  const [finishHour, setFinishHour] = useState(() => currentRouteCompletionClock().hour);
+  const [finishMinute, setFinishMinute] = useState(() => currentRouteCompletionClock().minute);
   const [completionFuelChoice, setCompletionFuelChoice] = useState<RouteCompletionFuelChoice>(null);
   const [fuelLiters, setFuelLiters] = useState('');
   const [fuelReceiptNumber, setFuelReceiptNumber] = useState('');
@@ -215,10 +216,11 @@ export default function DeliveryScreen() {
         setWeatherScene(fallbackRouteWeatherScene(55.1694, 23.8813));
       }
       if (refreshed.route.completionStartedAt && !completionDismissed.current) {
-        const defaults = currentRouteCompletionClock();
-        setFinishDate((current) => current.trim() || defaults.date);
-        setFinishHour((current) => current.trim() || defaults.hour);
-        setFinishMinute((current) => current.trim() || defaults.minute);
+        // Reopen/resume must never surface an empty date/time; fill only blanks.
+        const now = new Date();
+        setFinishDate((current) => resumeRouteCompletionClock({ date: current }, now).date);
+        setFinishHour((current) => resumeRouteCompletionClock({ hour: current }, now).hour);
+        setFinishMinute((current) => resumeRouteCompletionClock({ minute: current }, now).minute);
         setShowFinish(true);
       }
       setError(null);
@@ -777,9 +779,14 @@ export default function DeliveryScreen() {
           : 'Pasirinkite grįžimo vietą, nuvykite ir patvirtinkite atvykimą.');
         return;
       }
+      const alreadyCompleting = Boolean(current.completionStartedAt);
       await new BeginRouteCompletion(db).execute(routeId);
       completionDismissed.current = false;
-      const clock = resumeRouteCompletionClock({ date: finishDate, hour: finishHour, minute: finishMinute });
+      // Fresh open must not keep a stale mount-time clock; resume keeps edits.
+      const clock = routeCompletionClockForOpen(
+        alreadyCompleting,
+        { date: finishDate, hour: finishHour, minute: finishMinute },
+      );
       setFinishDate(clock.date);
       setFinishHour(clock.hour);
       setFinishMinute(clock.minute);
