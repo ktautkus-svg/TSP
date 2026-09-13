@@ -4,6 +4,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { ChevronDownIcon } from '@/components/app-icons';
+import { FiroSelect } from '@/components/firo-select';
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { canViewOrgStatistics, canViewStatisticsEarnings, localStatisticsOwnerId } from '@/application/auth/employee-permissions';
@@ -84,7 +85,6 @@ export default function StatisticsScreen() {
   const [orgLoaded, setOrgLoaded] = useState(false);
   const [selectedDriverId, setSelectedDriverId] = useState('all');
   const [selectedVehicleId, setSelectedVehicleId] = useState('all');
-  const [openFilter, setOpenFilter] = useState<'driver' | 'vehicle' | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -193,27 +193,33 @@ export default function StatisticsScreen() {
             </Pressable>
             {filtersOpen ? <View style={styles.filterBar}>
             {drivers.length > 0 ? (
-              <FilterSelect
+              <FiroSelect
                 testID="statistics-driver-filter"
                 label="Vairuotojas"
-                value={selectedDriverId === 'all' ? 'Visi vairuotojai' : (drivers.find((driver) => driver.id === selectedDriverId)?.displayName ?? 'Visi vairuotojai')}
-                open={openFilter === 'driver'}
-                onToggle={() => setOpenFilter((current) => current === 'driver' ? null : 'driver')}
-                onSelect={(id) => { setSelectedDriverId(id); setOpenFilter(null); }}
-                options={[{ id: 'all', label: 'Visi vairuotojai' }, ...drivers.map((driver) => ({ id: driver.id, label: driver.displayName }))]}
-                styles={styles}
+                placeholder="Pasirinkite vairuotoją"
+                value={selectedDriverId}
+                onChange={setSelectedDriverId}
+                options={[
+                  { id: 'all', primary: 'Visi vairuotojai' },
+                  ...drivers.map((driver) => ({ id: driver.id, primary: driver.displayName })),
+                ]}
               />
             ) : null}
             {vehicles.length > 0 ? (
-              <FilterSelect
+              <FiroSelect
                 testID="statistics-vehicle-filter"
                 label="Automobilis"
-                value={selectedVehicleId === 'all' ? 'Visi automobiliai' : (vehicles.find((vehicle) => vehicle.id === selectedVehicleId)?.registrationNumber ?? 'Visi automobiliai')}
-                open={openFilter === 'vehicle'}
-                onToggle={() => setOpenFilter((current) => current === 'vehicle' ? null : 'vehicle')}
-                onSelect={(id) => { setSelectedVehicleId(id); setOpenFilter(null); }}
-                options={[{ id: 'all', label: 'Visi automobiliai' }, ...vehicles.map((vehicle) => ({ id: vehicle.id, label: vehicle.registrationNumber }))]}
-                styles={styles}
+                placeholder="Pasirinkite automobilį"
+                value={selectedVehicleId}
+                onChange={setSelectedVehicleId}
+                options={[
+                  { id: 'all', primary: 'Visi automobiliai' },
+                  ...vehicles.map((vehicle) => ({
+                    id: vehicle.id,
+                    primary: vehicle.registrationNumber,
+                    secondary: vehicle.model,
+                  })),
+                ]}
               />
             ) : null}
             </View> : null}
@@ -317,60 +323,6 @@ function RelatedReports({ canOpenFinance, onOpenFinance, onOpenTripSheets, style
       </Pressable> : null}
     </View> : null}
   </View>;
-}
-
-function FilterSelect({
-  label,
-  testID,
-  value,
-  options,
-  open,
-  onToggle,
-  onSelect,
-  styles,
-}: {
-  label: string;
-  testID: string;
-  value: string;
-  options: { id: string; label: string }[];
-  open: boolean;
-  onToggle: () => void;
-  onSelect: (id: string) => void;
-  styles: ReturnType<typeof createStyles>;
-}) {
-  return (
-    <View style={styles.filterSelect} testID={testID}>
-      <Text style={styles.filterSelectLabel}>{label}</Text>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={label}
-        accessibilityState={{ expanded: open }}
-        onPress={onToggle}
-        style={[styles.filterSelectButton, open && styles.filterSelectButtonOpen]}>
-        <Text numberOfLines={1} style={styles.filterSelectValue}>{value}</Text>
-        <ChevronDownIcon size={18} />
-      </Pressable>
-      {open ? (
-        <ScrollView nestedScrollEnabled style={styles.filterMenu} keyboardShouldPersistTaps="handled">
-          {options.map((option, index) => {
-            const active = option.label === value;
-            return (
-              <Pressable
-                key={option.id}
-                accessibilityRole="button"
-                accessibilityState={{ selected: active }}
-                onPress={() => onSelect(option.id)}
-                style={[styles.filterMenuItem, index === 0 && styles.filterMenuItemFirst, active && styles.filterMenuItemActive]}
-                testID={`${testID}-option-${option.id}`}>
-                <Text style={[styles.filterMenuItemText, active && styles.filterMenuItemTextActive]}>{option.label}</Text>
-                {active ? <Text style={styles.filterMenuCheck}>✓</Text> : null}
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      ) : null}
-    </View>
-  );
 }
 
 function BigNumber({ value, label, comparisonPercent, comparisonIsPoints, styles }: {
@@ -812,42 +764,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   filterDisclosureTitle: { ...type.bodyStrong, color: colors.text },
   chevron: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
   chevronOpen: { transform: [{ rotate: '180deg' }] },
-  filterBar: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  filterSelect: { flexGrow: 1, flexBasis: 240, minWidth: 200 },
-  filterSelectLabel: { ...type.label, color: colors.textMuted, marginBottom: 6 },
-  filterSelectButton: {
-    minHeight: 44,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-  },
-  filterSelectButtonOpen: { borderColor: colors.info },
-  filterSelectValue: { ...type.secondaryStrong, color: colors.text, flex: 1 },
-  filterMenu: {
-    maxHeight: 280,
-    marginTop: spacing.xs,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
-    backgroundColor: colors.surface,
-    shadowColor: '#101828',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 4,
-  },
-  filterMenuItem: { minHeight: 48, paddingHorizontal: spacing.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, borderTopWidth: 1, borderTopColor: colors.borderSubtle },
-  filterMenuItemFirst: { borderTopWidth: 0 },
-  filterMenuItemActive: { backgroundColor: colors.infoSoft },
-  filterMenuItemText: { ...type.secondary, color: colors.text },
-  filterMenuItemTextActive: { ...type.secondaryStrong, color: colors.info },
-  filterMenuCheck: { ...type.secondaryStrong, color: colors.info },
+  filterBar: { gap: spacing.sm },
   tabRow: { flexDirection: 'row', gap: spacing.xs, borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: spacing.sm },
   chip: { minHeight: 44, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
   chipActive: { borderColor: colors.info, backgroundColor: colors.infoSoft },

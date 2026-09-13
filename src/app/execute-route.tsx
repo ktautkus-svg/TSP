@@ -8,6 +8,7 @@ import { effectiveAssignmentStatus, isActiveAssignment } from '@/application/aut
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { roleHomePath } from '@/application/navigation/role-home';
 import { resolveRouteDestination } from '@/application/routes/route-navigation';
+import { FiroSelect } from '@/components/firo-select';
 import { ScreenContainer } from '@/components/screen-container';
 import { employeeApi, type EmployeeProfile, type ServerRouteAssignment } from '@/infrastructure/auth/employee-session';
 import { radius, spacing, type } from '@/ui/tokens';
@@ -105,17 +106,27 @@ export default function ExecuteRouteScreen() {
         {!busy && drivers.length === 0 ? <View style={styles.empty}><Text style={styles.cardTitle}>Vykdomų maršrutų nėra</Text><Text style={styles.helper}>Pirmiausia dispečerio lange priskirkite maršrutą vairuotojui.</Text></View> : null}
         {drivers.length > 0 ? <>
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>1. Vairuotojas</Text>
-            <View style={styles.grid}>{drivers.map((driver) => <Pressable key={driver.id} onPress={() => setSelectedDriverId(driver.id)} style={[styles.choice, selectedDriverId === driver.id && styles.choiceSelected]}>
-              <Text style={styles.cardTitle}>{driver.displayName}</Text><Text style={styles.helper}>@{driver.username}</Text>
-            </Pressable>)}</View>
+            <FiroSelect
+              label="1. Vairuotojas"
+              placeholder="Pasirinkite vairuotoją"
+              value={selectedDriverId}
+              onChange={setSelectedDriverId}
+              options={drivers.map((driver) => ({ id: driver.id, primary: driver.displayName, secondary: `@${driver.username}` }))}
+            />
           </View>
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>2. Maršrutas</Text>
-            <View style={styles.grid}>{driverAssignments.map((assignment) => <Pressable key={assignment.id} onPress={() => setSelectedAssignmentId(assignment.id)} style={[styles.choice, selectedAssignment?.id === assignment.id && styles.choiceSelected]}>
-              <Text style={styles.cardTitle}>{formatDate(String(assignment.routeSnapshot.route.date ?? ''))}</Text>
-              <Text style={styles.helper}>{Number(assignment.routeSnapshot.route.total_stops ?? 0)} taškų · {statusLabel(effectiveAssignmentStatus(assignment))}</Text>
-            </Pressable>)}</View>
+            <FiroSelect
+              label="2. Maršrutas"
+              placeholder="Pasirinkite maršrutą"
+              emptyLabel="Šiam vairuotojui aktyvių maršrutų nėra."
+              value={selectedAssignmentId}
+              onChange={setSelectedAssignmentId}
+              options={driverAssignments.map((assignment) => ({
+                id: assignment.id,
+                primary: formatDate(String(assignment.routeSnapshot.route.date ?? '')),
+                secondary: `${Number(assignment.routeSnapshot.route.total_stops ?? 0)} taškų · ${statusLabel(effectiveAssignmentStatus(assignment))}`,
+              }))}
+            />
           </View>
           <Pressable accessibilityLabel="Vykdyti pasirinktą maršrutą" accessibilityRole="button" disabled={!selectedAssignment || busy} onPress={() => void execute()} style={[styles.executeButton, (!selectedAssignment || busy) && styles.disabled]}>
             {busy ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.executeText}>Vykdyti pasirinktą maršrutą</Text>}
@@ -145,10 +156,6 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   error: { ...type.bodyStrong, color: colors.danger, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.dangerSoft },
   empty: { padding: spacing.xl, borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, backgroundColor: colors.surface, gap: spacing.sm },
   section: { gap: spacing.sm },
-  sectionTitle: { ...type.sectionTitle, color: colors.text },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  choice: { minWidth: 220, flexBasis: 220, flexGrow: 1, padding: spacing.md, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surface, gap: 2 },
-  choiceSelected: { borderWidth: 2, borderColor: colors.info, backgroundColor: colors.infoSoft },
   cardTitle: { ...type.cardTitle, color: colors.text },
   executeButton: { minHeight: 56, borderRadius: radius.md, backgroundColor: colors.actionPrimary, alignItems: 'center', justifyContent: 'center' },
   executeText: { ...type.button, color: colors.textInverse, fontSize: 16 },

@@ -12,6 +12,7 @@ import { driverSheetRunPeriod, splitDriverSheetRuns, type DriverSheetRun } from 
 import { buildTripSheetWorkbook, MIME_XLSX } from '@/application/trip-sheet/export-xlsx';
 import { buildFuelLedger, vehicleDayFuelDistanceKm, type FuelLedgerDay } from '@/application/trip-sheet/fuel-balance';
 import { buildTripSheetPrintDocument } from '@/application/trip-sheet/print-document';
+import { FiroSelect } from '@/components/firo-select';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { PeriodCalendarPicker } from '@/components/period-calendar-picker';
 import { TripSheetRepository, type TripSheetWithRoutes } from '@/database/repositories/trip-sheet-repository';
@@ -311,7 +312,6 @@ export default function TripSheetScreen() {
       setFuelBusy(false);
     }
   };
-  const selectFilter = (apply: () => void) => { apply(); };
   const setDateRange = (from: string, to: string) => { setDateFrom(from); setDateTo(to); };
   const print = () => {
     if (Platform.OS !== 'web' || typeof window === 'undefined' || typeof document === 'undefined') {
@@ -449,18 +449,52 @@ export default function TripSheetScreen() {
             testID="trip-sheet-period-calendar"
             to={dateTo}
           /> : null}
-          {vehicles.length > 1 ? <View style={styles.filters} testID="trip-sheet-vehicle-filter">
-            <Filter label="Visi automobiliai" active={selectedVehicleId === 'all'} onPress={() => selectFilter(() => setSelectedVehicleId('all'))} styles={styles} />
-            {vehicles.map(([id, registrationNumber]) => <Filter key={id} label={registrationNumber} active={selectedVehicleId === id} onPress={() => selectFilter(() => setSelectedVehicleId(id))} styles={styles} />)}
-          </View> : null}
-          {drivers.length > 1 ? <View style={styles.filters} testID="trip-sheet-driver-filter">
-            <Filter label="Visi vairuotojai" active={selectedDriverId === 'all'} onPress={() => selectFilter(() => setSelectedDriverId('all'))} styles={styles} />
-            {drivers.map(([id, name]) => <Filter key={id} label={name} active={selectedDriverId === id} onPress={() => selectFilter(() => setSelectedDriverId(id))} styles={styles} />)}
-          </View> : null}
-          {months.length > 1 ? <View style={styles.filters} testID="trip-sheet-month-filter">
-            <Filter label="Visi mėnesiai" active={selectedMonth === 'all'} onPress={() => selectFilter(() => setSelectedMonth('all'))} styles={styles} />
-            {months.map((month) => <Filter key={month} label={formatMonth(month)} active={selectedMonth === month} onPress={() => selectFilter(() => setSelectedMonth(month))} styles={styles} />)}
-          </View> : null}
+          {vehicles.length > 1 || drivers.length > 1 || months.length > 1 ? (
+            <View style={styles.filterSelects} testID="trip-sheet-entity-filters">
+              {vehicles.length > 1 ? (
+                <View testID="trip-sheet-vehicle-filter">
+                  <FiroSelect
+                    label="Automobilis"
+                    placeholder="Pasirinkite automobilį"
+                    value={selectedVehicleId}
+                    onChange={setSelectedVehicleId}
+                    options={[
+                      { id: 'all', primary: 'Visi automobiliai' },
+                      ...vehicles.map(([id, registrationNumber]) => ({ id, primary: registrationNumber })),
+                    ]}
+                  />
+                </View>
+              ) : null}
+              {drivers.length > 1 ? (
+                <View testID="trip-sheet-driver-filter">
+                  <FiroSelect
+                    label="Vairuotojas"
+                    placeholder="Pasirinkite vairuotoją"
+                    value={selectedDriverId}
+                    onChange={setSelectedDriverId}
+                    options={[
+                      { id: 'all', primary: 'Visi vairuotojai' },
+                      ...drivers.map(([id, name]) => ({ id, primary: name })),
+                    ]}
+                  />
+                </View>
+              ) : null}
+              {months.length > 1 ? (
+                <View testID="trip-sheet-month-filter">
+                  <FiroSelect
+                    label="Mėnuo"
+                    placeholder="Pasirinkite mėnesį"
+                    value={selectedMonth}
+                    onChange={setSelectedMonth}
+                    options={[
+                      { id: 'all', primary: 'Visi mėnesiai' },
+                      ...months.map((month) => ({ id: month, primary: formatMonth(month) })),
+                    ]}
+                  />
+                </View>
+              ) : null}
+            </View>
+          ) : null}
           {message ? <Text accessibilityRole="alert" style={styles.message}>{message}</Text> : null}
         </View>
         {!busy && showGroups && printableSheets.length === 0 ? <View style={styles.empty}><Text style={styles.cardTitle}>Kelionės lapų nerasta</Text><Text style={styles.meta}>Lapas atsiranda užbaigus maršrutą. Pakeiskite automobilį, vairuotoją arba laikotarpį.</Text></View> : null}
@@ -690,26 +724,24 @@ function FuelEditorModal({ state, styles, busy, offline, vehicles, drivers, onCh
               </View>
               {vehicles.length > 0 ? (
                 <View style={styles.field}>
-                  <Text style={styles.fieldLabel}>Automobilis</Text>
-                  <View style={styles.chipRow}>
-                    {vehicles.map(([id, plate]) => (
-                      <Pressable key={id} onPress={() => onChange({ vehicleId: id })} style={[styles.chip, state.vehicleId === id && styles.chipActive]}>
-                        <Text style={[styles.chipText, state.vehicleId === id && styles.chipTextActive]}>{plate}</Text>
-                      </Pressable>
-                    ))}
-                  </View>
+                  <FiroSelect
+                    label="Automobilis"
+                    placeholder="Pasirinkite automobilį"
+                    value={state.vehicleId}
+                    onChange={(id) => onChange({ vehicleId: id })}
+                    options={vehicles.map(([id, plate]) => ({ id, primary: plate }))}
+                  />
                 </View>
               ) : null}
               {drivers.length > 0 ? (
                 <View style={styles.field}>
-                  <Text style={styles.fieldLabel}>Kas pylė</Text>
-                  <View style={styles.chipRow}>
-                    {drivers.map(([id, name]) => (
-                      <Pressable key={id} onPress={() => onChange({ driverId: state.driverId === id ? '' : id })} style={[styles.chip, state.driverId === id && styles.chipActive]}>
-                        <Text style={[styles.chipText, state.driverId === id && styles.chipTextActive]}>{name}</Text>
-                      </Pressable>
-                    ))}
-                  </View>
+                  <FiroSelect
+                    label="Kas pylė"
+                    placeholder="Pasirinkite vairuotoją"
+                    value={state.driverId}
+                    onChange={(id) => onChange({ driverId: state.driverId === id ? '' : id })}
+                    options={drivers.map(([id, name]) => ({ id, primary: name }))}
+                  />
                 </View>
               ) : null}
             </View>
@@ -869,10 +901,6 @@ function applyFuelLedger(
 function minimum(values: (number | null)[]): number | null { const present = values.filter((value): value is number => value !== null); return present.length > 0 ? Math.min(...present) : null; }
 function maximum(values: (number | null)[]): number | null { const present = values.filter((value): value is number => value !== null); return present.length > 0 ? Math.max(...present) : null; }
 
-function Filter({ label, active, onPress, styles }: { label: string; active: boolean; onPress: () => void; styles: ReturnType<typeof createStyles> }) {
-  return <Pressable onPress={onPress} style={[styles.filter, active && styles.filterActive]}><Text style={[styles.filterText, active && styles.filterTextActive]}>{label}</Text></Pressable>;
-}
-
 function HeaderCell({ column, style }: { column: (typeof TRIP_SHEET_GRID_COLUMNS)[number]; style: StyleProp<TextStyle> }) {
   return <Text accessibilityLabel={column.full} style={style}>{column.short}</Text>;
 }
@@ -943,7 +971,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }, dateRange: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }, dateInput: { flexGrow: 1, flexBasis: 220, minWidth: 0 },
   primaryButton: { flexGrow: 1, minWidth: 150, minHeight: 52, borderRadius: radius.md, backgroundColor: colors.actionPrimary, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md }, primaryText: { ...type.button, color: colors.textInverse },
   secondaryButton: { flexGrow: 1, minWidth: 150, minHeight: 52, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md }, secondaryText: { ...type.button, color: colors.textSecondary },
-  filters: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }, filter: { minHeight: 44, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.md, justifyContent: 'center' }, filterActive: { backgroundColor: colors.info, borderColor: colors.info }, filterText: { ...type.secondaryStrong, color: colors.text }, filterTextActive: { color: colors.textInverse },
+  filterSelects: { gap: spacing.sm },
   message: { ...type.secondary, color: colors.textMuted }, empty: { padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surface, gap: spacing.xs },
   sheet: { padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, gap: spacing.md },
   screenView: { gap: spacing.md },
@@ -1032,10 +1060,5 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center', padding: spacing.lg },
   modalCard: { width: '100%', maxWidth: 520, borderRadius: radius.lg, backgroundColor: colors.surface, padding: spacing.lg, gap: spacing.md },
   modalTitle: { ...type.sectionTitle, color: colors.text },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
-  chip: { minHeight: 40, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.md, justifyContent: 'center' },
-  chipActive: { backgroundColor: colors.info, borderColor: colors.info },
-  chipText: { ...type.secondaryStrong, color: colors.text },
-  chipTextActive: { color: colors.textInverse },
   deleteFuelConfirm: { flex: 1, minHeight: 48, backgroundColor: colors.danger, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
 });

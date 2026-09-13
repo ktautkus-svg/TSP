@@ -5,6 +5,8 @@ import {
   completionPunctuality,
   lithuanianClockOnReferenceDay,
   lithuanianDateKey,
+  lithuanianDateTimeToIso,
+  lithuanianWallClockNow,
 } from '../../src/domain/lithuanian-time';
 
 describe('Lithuanian wall-clock handling', () => {
@@ -18,6 +20,18 @@ describe('Lithuanian wall-clock handling', () => {
       .toBe('2026-08-11T08:00:00.000Z');
     expect(new Date(lithuanianClockOnReferenceDay('2026-01-11T09:00:00.000Z', '11:00')!).toISOString())
       .toBe('2026-01-11T09:00:00.000Z');
+  });
+
+  it('formats the current Vilnius wall clock without using the host timezone', () => {
+    expect(lithuanianWallClockNow(new Date('2026-08-20T21:30:00.000Z'))).toEqual({ date: '2026-08-21', time: '00:30' });
+    expect(lithuanianWallClockNow(new Date('2026-01-11T09:00:00.000Z'))).toEqual({ date: '2026-01-11', time: '11:00' });
+  });
+
+  it('converts a Vilnius date+time pair to ISO independently of host timezone', () => {
+    expect(lithuanianDateTimeToIso('2026-08-11', '11:00')).toBe('2026-08-11T08:00:00.000Z');
+    expect(lithuanianDateTimeToIso('2026-01-11', '11:00')).toBe('2026-01-11T09:00:00.000Z');
+    expect(lithuanianDateTimeToIso('bad', '11:00')).toBeNull();
+    expect(lithuanianDateTimeToIso('2026-08-11', '25:00')).toBeNull();
   });
 
   it('returns the same result regardless of whether the process runs in UTC or Lithuania', () => {

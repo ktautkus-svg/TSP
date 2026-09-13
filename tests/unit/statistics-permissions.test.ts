@@ -57,9 +57,10 @@ describe('statistics screen copy', () => {
     expect(source).toContain('Atlygio duomenys neprieinami neprisijungus');
     expect(source).toContain('Matyti atlygio skaičiavimą');
     expect(source).toContain('visibleTabs');
-    expect(source).toContain('FilterSelect');
+    expect(source).toContain("import { FiroSelect } from '@/components/firo-select'");
     expect(source).toContain('statistics-driver-filter');
     expect(source).toContain('statistics-vehicle-filter');
+    expect(source).not.toContain('FilterSelect');
     expect(source).not.toContain('label={driver.displayName}');
     expect(source).not.toContain('label={vehicle.registrationNumber}');
   });

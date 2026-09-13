@@ -64,6 +64,35 @@ export function lithuanianDateKey(reference: string): string | null {
   return `${String(parts.year).padStart(4, '0')}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
 }
 
+/** Current Europe/Vilnius wall date (YYYY-MM-DD) and clock (HH:mm), host-TZ independent. */
+export function lithuanianWallClockNow(now: Date = new Date()): { date: string; time: string } {
+  const parts = new Map(lithuanianDateParts.formatToParts(now).map((part) => [part.type, part.value]));
+  const year = Number(parts.get('year'));
+  const month = Number(parts.get('month'));
+  const day = Number(parts.get('day'));
+  const hour = Number(parts.get('hour'));
+  const minute = Number(parts.get('minute'));
+  return {
+    date: `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+    time: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
+  };
+}
+
+/**
+ * Converts a Lithuanian calendar date + HH:mm wall clock to an absolute ISO
+ * timestamp. Uses IANA Europe/Vilnius rules so DST does not depend on the
+ * device or server process timezone.
+ */
+export function lithuanianDateTimeToIso(dateKey: string, clock: string): string | null {
+  const trimmedDate = dateKey.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmedDate)) return null;
+  // Noon UTC on the typed calendar day is always still that Lithuanian day
+  // (UTC+2/+3), so dateParts resolve to the intended Y-M-D before the clock
+  // is applied.
+  const ms = lithuanianClockOnReferenceDay(`${trimmedDate}T12:00:00.000Z`, clock);
+  return ms === null ? null : new Date(ms).toISOString();
+}
+
 export function assessDeliveryTiming(input: DeliveryTimingInput): DeliveryTiming {
   const deliveredAt = input.deliveredAt?.trim();
   if (!deliveredAt) return unknownTiming();

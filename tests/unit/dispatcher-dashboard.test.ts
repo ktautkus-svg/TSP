@@ -30,8 +30,11 @@ describe('dispatcher desktop workspace', () => {
     expect(dispatcherSource).toContain('Peržiūrėti');
     expect(dispatcherSource).toContain('1. Vairuotojas');
     expect(dispatcherSource).toContain('2. Automobilis');
-    expect(dispatcherSource).toContain('SelectionDropdown');
-    expect(dispatcherSource).toContain("const [openPicker, setOpenPicker] = useState<'route' | 'driver' | 'vehicle' | null>(null)");
+    expect(dispatcherSource).toContain("import { FiroSelect } from '@/components/firo-select'");
+    expect(dispatcherSource).toContain('testID="assign-driver-select"');
+    expect(dispatcherSource).toContain('testID="assign-vehicle-select"');
+    expect(dispatcherSource).not.toContain('SelectionDropdown');
+    expect(dispatcherSource).not.toContain('openPicker');
     expect(dispatcherSource).toContain('Priskirti maršrutą');
     expect(dispatcherSource).toContain('describeVehicleLoad');
     expect(dispatcherSource).toContain('testID="vehicle-load-percent"');
@@ -280,6 +283,17 @@ describe('driver permissions', () => {
     expect(adminSource).toContain('deleteRoute(route)');
     expect(adminSource).toContain('completeLocalRoute(route)');
     expect(adminSource).toContain("route.status === 'planned'");
+  });
+
+  it('requires both finish date and time together, or neither, when closing a route', () => {
+    expect(deliverySource).toContain('testID="route-finish-time-card"');
+    expect(deliverySource).toContain('testID="finish-time-date"');
+    expect(deliverySource).toContain('testID="finish-time-clock"');
+    expect(deliverySource).toContain('testID="finish-time-now"');
+    expect(deliverySource).toContain('finishDateFilled !== finishTimeFilled');
+    expect(deliverySource).toContain('Neužbaigta data ir laikas');
+    expect(deliverySource).toContain('lithuanianDateTimeToIso(finishDate, finishTime)');
+    expect(deliverySource).toContain('lithuanianWallClockNow()');
   });
 });
 

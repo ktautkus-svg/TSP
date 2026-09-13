@@ -13,6 +13,7 @@ import {
 import { reportVehicleFault } from '@/application/operations/vehicle-fault-report';
 import { PencilIcon, TrashIcon } from '@/components/app-icons';
 import { DateInput } from '@/components/date-input';
+import { FiroSelect } from '@/components/firo-select';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { TripSheetRepository } from '@/database/repositories/trip-sheet-repository';
 import { VehicleDepartureOverrideRepository } from '@/database/repositories/vehicle-departure-override-repository';
@@ -81,7 +82,7 @@ function distinctDrivers(rows: readonly { driverId?: string | null; driverName?:
 }
 
 /**
- * Month + driver chips above a vehicle log. Renders nothing until there is
+ * Month + driver filters above a vehicle log. Renders nothing until there is
  * more than one month or driver to choose between, so a short log stays clean.
  */
 function LogFilters({ styles, months, drivers, month, driverId, onMonth, onDriver, shownCount, totalCount, testID }: {
@@ -99,22 +100,30 @@ function LogFilters({ styles, months, drivers, month, driverId, onMonth, onDrive
   if (months.length <= 1 && drivers.length <= 1) return null;
   return (
     <View style={styles.filterPanel} testID={testID}>
-      {months.length > 1 ? <View style={styles.filterGroup}>
-        <Text style={styles.hint}>Mėnuo</Text>
-        <View style={styles.options}>
-          {['all', ...months].map((value) => <Pressable key={value} onPress={() => onMonth(value)} style={[styles.option, month === value && styles.optionSelected]}>
-            <Text style={[styles.optionText, month === value && styles.optionTextSelected]}>{value === 'all' ? 'Visi' : value}</Text>
-          </Pressable>)}
-        </View>
-      </View> : null}
-      {drivers.length > 1 ? <View style={styles.filterGroup}>
-        <Text style={styles.hint}>Vairuotojas</Text>
-        <View style={styles.options}>
-          {[{ id: 'all', name: 'Visi' }, ...drivers].map((driver) => <Pressable key={driver.id} onPress={() => onDriver(driver.id)} style={[styles.option, driverId === driver.id && styles.optionSelected]}>
-            <Text style={[styles.optionText, driverId === driver.id && styles.optionTextSelected]}>{driver.name}</Text>
-          </Pressable>)}
-        </View>
-      </View> : null}
+      {months.length > 1 ? (
+        <FiroSelect
+          label="Mėnuo"
+          placeholder="Pasirinkite mėnesį"
+          value={month}
+          onChange={onMonth}
+          options={[
+            { id: 'all', primary: 'Visi' },
+            ...months.map((value) => ({ id: value, primary: value })),
+          ]}
+        />
+      ) : null}
+      {drivers.length > 1 ? (
+        <FiroSelect
+          label="Vairuotojas"
+          placeholder="Pasirinkite vairuotoją"
+          value={driverId}
+          onChange={onDriver}
+          options={[
+            { id: 'all', primary: 'Visi' },
+            ...drivers.map((driver) => ({ id: driver.id, primary: driver.name })),
+          ]}
+        />
+      ) : null}
       {shownCount !== totalCount ? <Text style={styles.hint}>Rodoma {shownCount} iš {totalCount}</Text> : null}
     </View>
   );
@@ -621,17 +630,15 @@ export default function VehicleScreen() {
       <View style={styles.card}>
         <Text style={styles.sectionTitle}>Automobilis iš parko</Text>
         {fleetVehicles.length === 0 ? <Text style={styles.warnText}>Priskirto arba suvesto automobilio nėra. Pirmiausia pridėkite jį skiltyje „Automobiliai“.</Text> : null}
-        <View style={styles.vehicleChoices}>
-          {fleetVehicles.map((vehicle) => <Pressable
-            key={vehicle.id}
-            onPress={() => { void applyVehicle(vehicle.id); }}
-            style={[styles.vehicleChoice, selectedVehicleId === vehicle.id && styles.vehicleChoiceSelected]}
-            testID={`select-maintenance-vehicle-${vehicle.id}`}>
-            <Text style={[styles.vehicleChoiceTitle, selectedVehicleId === vehicle.id && styles.vehicleChoiceTitleSelected]}>{vehicle.registrationNumber}</Text>
-            <Text style={[styles.vehicleChoiceMeta, selectedVehicleId === vehicle.id && styles.vehicleChoiceMetaSelected]}>{vehicle.model}</Text>
-          </Pressable>)}
-        </View>
-        {selectedVehicleId ? <Text style={styles.selectedVehicle}>Pasirinkta: {registrationNumber} · {name}</Text> : null}
+        <FiroSelect
+          testID="maintenance-vehicle-select"
+          placeholder="Pasirinkite automobilį"
+          emptyLabel="Priskirto arba suvesto automobilio nėra."
+          value={selectedVehicleId}
+          onChange={(vehicleId) => { void applyVehicle(vehicleId); }}
+          getOptionTestID={(option) => `select-maintenance-vehicle-${option.id}`}
+          options={fleetVehicles.map((vehicle) => ({ id: vehicle.id, primary: vehicle.registrationNumber, secondary: vehicle.model }))}
+        />
         {selectedVehicleId && section === 'odometer' ? <View style={styles.odometerPanel} testID="vehicle-odometer-editor">
           <Text style={styles.sectionTitle}>Dienos odometras</Text>
           <Text style={styles.hint}>Taisykite jau įvestą dieną tiesiog jos eilutėje: pradžią, pabaigą ir kas vairavo.</Text>
@@ -684,7 +691,14 @@ export default function VehicleScreen() {
             <Text style={styles.hint}>{latestOdometer != null
               ? `Pradžia užpildyta paskutiniu įvestu odometru (${latestOdometer}). Patvirtinkite arba pataisykite ranka. Įvedę nuvažiuotus km, pabaiga susiskaičiuos pati.`
               : 'Įveskite tik nuvažiuotus km — pabaiga susiskaičiuos pati. Prireikus pabaigą galite įvesti ir tiesiogiai.'}</Text>
-            <View style={styles.options}>{drivers.map((driver) => <Pressable key={driver.id} onPress={() => setNewReadingDriverId(driver.id)} style={[styles.option, newReadingDriverId === driver.id && styles.optionSelected]}><Text style={[styles.optionText, newReadingDriverId === driver.id && styles.optionTextSelected]}>{driver.displayName}</Text></Pressable>)}</View>
+            <FiroSelect
+              label="Vairuotojas"
+              placeholder="Pasirinkite vairuotoją"
+              emptyLabel="Vairuotojų nėra."
+              value={newReadingDriverId}
+              onChange={setNewReadingDriverId}
+              options={drivers.map((driver) => ({ id: driver.id, primary: driver.displayName }))}
+            />
             <Pressable disabled={busy || !online} onPress={() => { void saveNewReading(); }} style={[styles.button, (busy || !online) && styles.disabled]}><Text style={styles.buttonText}>Išsaugoti naują dieną</Text></Pressable>
           </View> : null}
           <Pressable
@@ -754,8 +768,23 @@ export default function VehicleScreen() {
                   />
                   <TextInput value={editingReadingEnd} onChangeText={setEditingReadingEnd} keyboardType="decimal-pad" style={[styles.input, styles.inlineInput]} placeholder="Pabaiga" placeholderTextColor={colors.textMuted} />
                 </View>
-                {profile.role === 'admin' && !parseVehicleDayAssignmentId(reading.assignmentId) ? <View style={styles.options}>{fleetVehicles.map((vehicle) => <Pressable key={vehicle.id} onPress={() => setEditingReadingVehicleId(vehicle.id)} style={[styles.option, editingReadingVehicleId === vehicle.id && styles.optionSelected]}><Text style={[styles.optionText, editingReadingVehicleId === vehicle.id && styles.optionTextSelected]}>{vehicle.registrationNumber}</Text></Pressable>)}</View> : null}
-                <View style={styles.options}>{drivers.map((driver) => <Pressable key={driver.id} onPress={() => setEditingReadingDriverId(driver.id)} style={[styles.option, editingReadingDriverId === driver.id && styles.optionSelected]}><Text style={[styles.optionText, editingReadingDriverId === driver.id && styles.optionTextSelected]}>{driver.displayName}</Text></Pressable>)}</View>
+                {profile.role === 'admin' && !parseVehicleDayAssignmentId(reading.assignmentId) ? (
+                  <FiroSelect
+                    label="Automobilis"
+                    placeholder="Pasirinkite automobilį"
+                    value={editingReadingVehicleId}
+                    onChange={setEditingReadingVehicleId}
+                    options={fleetVehicles.map((vehicle) => ({ id: vehicle.id, primary: vehicle.registrationNumber, secondary: vehicle.model }))}
+                  />
+                ) : null}
+                <FiroSelect
+                  label="Vairuotojas"
+                  placeholder="Pasirinkite vairuotoją"
+                  emptyLabel="Vairuotojų nėra."
+                  value={editingReadingDriverId}
+                  onChange={setEditingReadingDriverId}
+                  options={drivers.map((driver) => ({ id: driver.id, primary: driver.displayName }))}
+                />
                 <View style={styles.entryActions}><Pressable disabled={busy || !online} onPress={() => { void saveReading(reading); }} style={[styles.buttonSmall, (busy || !online) && styles.disabled]}><Text style={styles.buttonText}>Išsaugoti</Text></Pressable><Pressable onPress={() => { setEditingReadingId(null); setEditingReadingVehicleId(''); }} style={styles.secondaryButtonSmall}><Text style={styles.secondaryText}>Atšaukti</Text></Pressable></View>
               </> : null}
             </View>;
@@ -768,7 +797,16 @@ export default function VehicleScreen() {
             <TextInput value={fuelLiters} onChangeText={setFuelLiters} keyboardType="decimal-pad" style={[styles.input, styles.inlineInput]} placeholder="Įpilta, l" placeholderTextColor={colors.textMuted} />
             <TextInput value={fuelReceipt} onChangeText={setFuelReceipt} style={[styles.input, styles.inlineInput]} placeholder="Čekio Nr. (nebūtina)" placeholderTextColor={colors.textMuted} />
           </View>
-          {profile.role === 'admin' ? <View style={styles.options}>{drivers.map((driver) => <Pressable key={driver.id} onPress={() => setFuelDriverId(driver.id)} style={[styles.option, fuelDriverId === driver.id && styles.optionSelected]}><Text style={[styles.optionText, fuelDriverId === driver.id && styles.optionTextSelected]}>{driver.displayName}</Text></Pressable>)}</View> : null}
+          {profile.role === 'admin' ? (
+            <FiroSelect
+              label="Vairuotojas"
+              placeholder="Pasirinkite vairuotoją"
+              emptyLabel="Vairuotojų nėra."
+              value={fuelDriverId}
+              onChange={setFuelDriverId}
+              options={drivers.map((driver) => ({ id: driver.id, primary: driver.displayName }))}
+            />
+          ) : null}
           <Pressable disabled={busy || !online} onPress={() => { void saveFuel(); }} style={[styles.button, (busy || !online) && styles.disabled]}><Text style={styles.buttonText}>{editingFuelId ? 'Išsaugoti kuro pakeitimą' : 'Įrašyti papildymą'}</Text></Pressable>
           <LogFilters
             styles={styles}
@@ -865,20 +903,11 @@ export default function VehicleScreen() {
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   card: { padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
-  vehicleChoices: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  vehicleChoice: { minWidth: 150, minHeight: 64, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surfaceSubtle, padding: spacing.md, justifyContent: 'center' },
-  vehicleChoiceSelected: { borderColor: colors.info, backgroundColor: colors.infoSoft },
-  vehicleChoiceTitle: { ...type.cardTitle, color: colors.text },
-  vehicleChoiceTitleSelected: { color: colors.info },
-  vehicleChoiceMeta: { ...type.secondary, color: colors.textMuted },
-  vehicleChoiceMetaSelected: { color: colors.textSecondary },
-  selectedVehicle: { ...type.bodyStrong, color: colors.info },
   odometerPanel: { marginTop: spacing.sm, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, gap: spacing.sm },
   addDayButton: { minHeight: 44, borderRadius: radius.md, borderWidth: 1, borderColor: colors.info, backgroundColor: colors.infoSoft, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
   addDayButtonText: { ...type.button, color: colors.info },
   newDayForm: { padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.surfaceMuted, gap: spacing.sm },
   filterPanel: { padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.surfaceMuted, gap: spacing.sm },
-  filterGroup: { gap: spacing.xs },
   bulkImportInput: { minHeight: 220, textAlignVertical: 'top' },
   bulkPanel: { marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceMuted, borderWidth: 1, borderColor: colors.borderStrong, gap: spacing.sm },
   inlineInputs: { flexDirection: 'row', gap: spacing.sm },
