@@ -14,6 +14,17 @@ import { isRecentGpsSample, readRecentDeviceGpsFix, watchDeviceGps } from '@/app
 import { forgetParkPin, hydrateStopParkPins } from '@/application/location/remember-park-pin';
 import { callPhone } from '@/application/operations/call-phone';
 import { calculateCompositeRouteProgress } from '@/application/routes/composite-route-progress';
+import {
+    buildRouteCompletionFuelRequest,
+    currentRouteCompletionClock,
+    persistRouteCompletionFuel,
+    resumeRouteCompletionClock,
+    routeCompletionTimestamp,
+    ROUTE_COMPLETION_HOURS,
+    ROUTE_COMPLETION_MINUTES,
+    RouteCompletionSingleFlight,
+    type RouteCompletionFuelChoice,
+} from '@/application/routes/route-completion-form';
 import { CancelDraftRoute } from '@/application/routes/route-commands';
 import { RefreshRouteEtas } from '@/application/routes/route-eta';
 import { resolveRoute } from '@/application/routes/route-navigation';
@@ -47,6 +58,7 @@ import { fallbackRouteWeatherScene, loadRouteWeatherScene, type RouteWeatherScen
 import { BrandHeader } from '@/components/brand-header';
 import { ClockIcon, DeliveredIcon, DistanceIcon, FailedIcon, NavigateIcon } from '@/components/dashboard-icons';
 import { DateInput } from '@/components/date-input';
+import { FiroSelect } from '@/components/firo-select';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { GroupedMenuRow, GroupedMenuSection } from '@/components/grouped-menu';
 import { InstrumentGauge } from '@/components/instrument-gauge';
@@ -54,11 +66,9 @@ import { MenuArtwork } from '@/components/menu-artwork';
 import { RoadProgressBar } from '@/components/road-progress-bar';
 import { RouteBottomTabs } from '@/components/route-bottom-tabs';
 import { SwipeActionCard } from '@/components/swipe-action-card';
-import { TimeInput } from '@/components/time-input';
 import { OperationalContactRepository } from '@/database/repositories/operational-contact-repository';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import { DELIVERY_FAILURE_REASONS, deliveryMatchesFilter, isDeliveryReturnReason, type DeliveryFailureReason } from '@/domain/delivery-failure';
-import { lithuanianDateTimeToIso, lithuanianWallClockNow } from '@/domain/lithuanian-time';
 import { isUsablePhone } from '@/domain/phone';
 import type { DeliveryFilter, DeliveryStop, Route, RouteEndpoint } from '@/domain/route';
 import type { GpsSample } from '@/domain/location-park-memory';
@@ -85,6 +95,8 @@ type DeliveryView = 'dashboard' | 'stops';
 
 /** Live progress pull cadence while the screen is in the foreground. */
 const LIVE_REFRESH_INTERVAL_MS = 10_000;
+const FINISH_HOUR_OPTIONS = ROUTE_COMPLETION_HOURS.map((hour) => ({ id: hour, primary: hour }));
+const FINISH_MINUTE_OPTIONS = ROUTE_COMPLETION_MINUTES.map((minute) => ({ id: minute, primary: minute }));
 
 // Whichever of deliveredAt/failedAt is set is when the stop was resolved.
 function recalcTimestamp(stop: DeliveryStop): string | null {
@@ -120,10 +132,13 @@ export default function DeliveryScreen() {
   const [startOdometer, setStartOdometer] = useState('');
   const [endOdometer, setEndOdometer] = useState('');
   const [finishDate, setFinishDate] = useState('');
-  const [finishTime, setFinishTime] = useState('');
+  const [finishHour, setFinishHour] = useState('');
+  const [finishMinute, setFinishMinute] = useState('');
+  const [completionFuelChoice, setCompletionFuelChoice] = useState<RouteCompletionFuelChoice>(null);
   const [fuelLiters, setFuelLiters] = useState('');
   const [fuelReceiptNumber, setFuelReceiptNumber] = useState('');
-  const [fuelEntrySaved, setFuelEntrySaved] = useState(false);
+  const [completionFuelSaved, setCompletionFuelSaved] = useState(false);
+  const [quickFuelSaved, setQuickFuelSaved] = useState(false);
   const [fuelQuickOpen, setFuelQuickOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -139,6 +154,7 @@ export default function DeliveryScreen() {
   const [returnLocations, setReturnLocations] = useState<{ warehouse: RouteEndpoint | null; home: RouteEndpoint | null }>({ warehouse: null, home: null });
   const [emergencyContacts, setEmergencyContacts] = useState<OperationalContact[]>([]);
   const completionDismissed = useRef(false);
+  const completionSubmission = useRef(new RouteCompletionSingleFlight());
   // See alternatives.tsx: keeps the periodic reload from resolving a route we
   // just cancelled ourselves into a /history redirect mid-navigation.
   const selfCancelled = useRef(false);
@@ -198,7 +214,13 @@ export default function DeliveryScreen() {
         // local time instead of being stuck on the component's midday default.
         setWeatherScene(fallbackRouteWeatherScene(55.1694, 23.8813));
       }
-      if (refreshed.route.completionStartedAt && !completionDismissed.current) setShowFinish(true);
+      if (refreshed.route.completionStartedAt && !completionDismissed.current) {
+        const defaults = currentRouteCompletionClock();
+        setFinishDate((current) => current.trim() || defaults.date);
+        setFinishHour((current) => current.trim() || defaults.hour);
+        setFinishMinute((current) => current.trim() || defaults.minute);
+        setShowFinish(true);
+      }
       setError(null);
     } catch (reason) {
       devWarn('DELIVERY_ROUTE_LOAD_FAILED', reason);
@@ -606,54 +628,96 @@ export default function DeliveryScreen() {
     }
   };
 
-  const saveRouteFuel = async () => {
-    if (busy || !online) return;
+  const createRouteFuelEntry = async (payload: {
+    filledAt: string;
+    odometer?: number;
+    liters: number;
+    receiptNumber: string | null;
+  }) => {
+    await employeeApi(`/api/routes/${encodeURIComponent(routeId)}/fuel-entries`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  };
+
+  const saveQuickRouteFuel = async () => {
+    if (busy || !online) return false;
     const liters = Number(fuelLiters.replace(',', '.'));
     if (!Number.isFinite(liters) || liters <= 0) {
       Alert.alert('Kuro įrašas', 'Įveskite įpiltų litrų kiekį.');
-      return;
+      return false;
     }
     setBusy(true);
     try {
-      await employeeApi(`/api/routes/${encodeURIComponent(routeId)}/fuel-entries`, {
-        method: 'POST',
-        body: JSON.stringify({
-          filledAt: new Date().toISOString(),
-          liters,
-          receiptNumber: fuelReceiptNumber.trim() || null,
-        }),
+      await createRouteFuelEntry({
+        filledAt: new Date().toISOString(),
+        liters,
+        receiptNumber: fuelReceiptNumber.trim() || null,
       });
       setFuelLiters('');
       setFuelReceiptNumber('');
-      setFuelEntrySaved(true);
+      setQuickFuelSaved(true);
       Alert.alert('Kuras išsaugotas', `Įrašyta ${liters} l.`);
+      return true;
     } catch (reason) {
       Alert.alert('Kuro įrašo išsaugoti nepavyko', reason instanceof Error ? reason.message : 'Patikrinkite ryšį ir bandykite dar kartą.');
+      return false;
     } finally {
       setBusy(false);
     }
   };
 
-  const finish = async (confirmUnfinished = false, confirmLargeDifference = false) => {
-    if (busy) return;
+  const finishOnce = async (confirmUnfinished = false, confirmLargeDifference = false) => {
     setBusy(true);
     try {
       await draftSaveQueue.current;
-      const finishDateFilled = finishDate.trim().length > 0;
-      const finishTimeFilled = finishTime.trim().length > 0;
-      if (finishDateFilled !== finishTimeFilled) {
-        Alert.alert('Neužbaigta data ir laikas', 'Įveskite ir datą, ir laiką, arba palikite abu tuščius — bus naudojamas dabartinis laikas.');
+      const actualFinishedAt = routeCompletionTimestamp({
+        date: finishDate,
+        hour: finishHour,
+        minute: finishMinute,
+      });
+      if (!actualFinishedAt) {
+        Alert.alert('Neteisingas laikas', 'Patikrinkite užbaigimo datą ir pasirinktą valandą bei minutę.');
         return;
       }
-      const actualFinishedAt = finishDateFilled && finishTimeFilled
-        ? lithuanianDateTimeToIso(finishDate, finishTime) ?? undefined
-        : undefined;
-      if (finishDateFilled && finishTimeFilled && !actualFinishedAt) {
-        Alert.alert('Neteisingas laikas', 'Patikrinkite užbaigimo datą (YYYY-MM-DD) ir laiką (HH:MM).');
+      const finishedMs = Date.parse(actualFinishedAt);
+      if (route?.startedAt && finishedMs < Date.parse(route.startedAt)) {
+        Alert.alert('Neteisingas laikas', 'Užbaigimo laikas negali būti ankstesnis už maršruto pradžią.');
         return;
+      }
+      if (finishedMs > Date.now() + 5 * 60_000) {
+        Alert.alert('Neteisingas laikas', 'Užbaigimo laikas negali būti ateityje.');
+        return;
+      }
+      const parsedEndOdometer = parseOdometer(endOdometer);
+      let fuelRequest;
+      try {
+        fuelRequest = buildRouteCompletionFuelRequest({
+          choice: completionFuelChoice,
+          filledAt: actualFinishedAt,
+          odometer: parsedEndOdometer,
+          litersText: fuelLiters,
+          receiptNumber: fuelReceiptNumber,
+        });
+      } catch (reason) {
+        Alert.alert('Kuro įrašas', reason instanceof Error ? reason.message : 'Patikrinkite kuro pasirinkimą.');
+        return;
+      }
+      if (fuelRequest && !online) {
+        Alert.alert('Kuro įrašo išsaugoti nepavyko', 'Kuro pylimui išsaugoti reikia ryšio. Arba pasirinkite NE, jei kuro nepylėte.');
+        return;
+      }
+      if (fuelRequest && !completionFuelSaved) {
+        try {
+          const saved = await persistRouteCompletionFuel(fuelRequest, completionFuelSaved, createRouteFuelEntry);
+          setCompletionFuelSaved(saved);
+        } catch (reason) {
+          Alert.alert('Kuro įrašo išsaugoti nepavyko', reason instanceof Error ? reason.message : 'Patikrinkite ryšį ir bandykite dar kartą.');
+          return;
+        }
       }
       const result = await new CompleteRoute(db).execute(routeId, {
-        endOdometer: parseOdometer(endOdometer),
+        endOdometer: parsedEndOdometer,
         confirmUnfinished,
         confirmLargeDifference,
         actualFinishedAt,
@@ -684,6 +748,9 @@ export default function DeliveryScreen() {
     }
   };
 
+  const finish = (confirmUnfinished = false, confirmLargeDifference = false) =>
+    completionSubmission.current.run(() => finishOnce(confirmUnfinished, confirmLargeDifference));
+
   const persistCompletionDraft = useCallback((value: string) => {
     draftSaveQueue.current = draftSaveQueue.current
       .then(() => new SaveCompletionOdometerDraft(db).execute(routeId, value))
@@ -712,9 +779,10 @@ export default function DeliveryScreen() {
       }
       await new BeginRouteCompletion(db).execute(routeId);
       completionDismissed.current = false;
-      const now = lithuanianWallClockNow();
-      setFinishDate(now.date);
-      setFinishTime(now.time);
+      const clock = resumeRouteCompletionClock({ date: finishDate, hour: finishHour, minute: finishMinute });
+      setFinishDate(clock.date);
+      setFinishHour(clock.hour);
+      setFinishMinute(clock.minute);
       setShowFinish(true);
       await load();
       void requestSync('mutation');
@@ -1191,44 +1259,85 @@ export default function DeliveryScreen() {
               <Text style={styles.meta}>Nepristatytas žinomas svoris: {formatWeightKg(progress?.remainingKnownWeightKg ?? 0)} kg</Text>
               <Text style={styles.meta}>Pradinis odometras: {route?.startOdometer ?? 'neįvestas'}</Text>
               <Text style={styles.meta}>Planuoti kilometrai: {route?.estimatedDistanceKm?.toFixed(1) ?? '—'}</Text>
-              {profile.role === 'driver' && online ? (
-                <View style={styles.reminder} testID="route-fuel-entry-card">
-                  <Text style={styles.heading}>Užsipylėte kuro?</Text>
-                  <Text style={styles.meta}>Jei nepylėte, palikite 0. Įrašas bus įtrauktas į šio reiso kuro suvestinę.</Text>
-                  <View style={styles.fuelRow}>
-                    <TextInput value={fuelLiters} onChangeText={(value) => setFuelLiters(value.replace(/[^\d.,]/g, '').slice(0, 7))} keyboardType="decimal-pad" placeholder="Įpilta, l (0, jei nepylėte)" style={[styles.input, styles.fuelInput]} />
-                    <TextInput value={fuelReceiptNumber} onChangeText={setFuelReceiptNumber} placeholder="Čekio Nr. (nebūtina)" style={[styles.input, styles.fuelInput]} />
-                  </View>
-                  <Pressable disabled={busy || !fuelLiters.trim()} onPress={() => { void saveRouteFuel(); }} style={[styles.secondaryButton, (busy || !fuelLiters.trim()) && styles.disabled]}>
-                    <Text style={styles.secondaryText}>{fuelEntrySaved ? 'Įrašyti dar vieną pylimą' : 'Išsaugoti pylimą'}</Text>
+              <View style={styles.reminder} testID="route-fuel-entry-card">
+                <Text style={styles.heading}>Ar pilta kuro?</Text>
+                <Text style={styles.meta}>Pasirinkite aiškiai. Pasirinkus NE, kuro įrašas nebus kuriamas.</Text>
+                <View style={styles.fuelChoiceRow}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: completionFuelChoice === 'yes', disabled: completionFuelSaved }}
+                    disabled={completionFuelSaved}
+                    onPress={() => { setCompletionFuelChoice('yes'); setCompletionFuelSaved(false); }}
+                    style={[styles.fuelChoiceButton, completionFuelChoice === 'yes' && styles.fuelChoiceButtonSelected]}
+                    testID="completion-fuel-yes">
+                    <Text style={[styles.fuelChoiceText, completionFuelChoice === 'yes' && styles.fuelChoiceTextSelected]}>TAIP</Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: completionFuelChoice === 'no', disabled: completionFuelSaved }}
+                    disabled={completionFuelSaved}
+                    onPress={() => { setCompletionFuelChoice('no'); setCompletionFuelSaved(false); }}
+                    style={[styles.fuelChoiceButton, completionFuelChoice === 'no' && styles.fuelChoiceButtonSelected]}
+                    testID="completion-fuel-no">
+                    <Text style={[styles.fuelChoiceText, completionFuelChoice === 'no' && styles.fuelChoiceTextSelected]}>NE</Text>
                   </Pressable>
                 </View>
-              ) : null}
+                {completionFuelChoice === 'yes' ? (
+                  <>
+                    <View style={styles.fuelRow}>
+                      <TextInput editable={!completionFuelSaved} value={fuelLiters} onChangeText={(value) => setFuelLiters(value.replace(/[^\d.,]/g, '').slice(0, 7))} keyboardType="decimal-pad" placeholder="Įpilta, l" style={[styles.input, styles.fuelInput]} testID="completion-fuel-liters" />
+                      <TextInput editable={!completionFuelSaved} value={fuelReceiptNumber} onChangeText={setFuelReceiptNumber} placeholder="Čekio Nr. (nebūtina)" style={[styles.input, styles.fuelInput]} testID="completion-fuel-receipt" />
+                    </View>
+                    <Text style={styles.meta}>{completionFuelSaved ? 'Kuro pylimas išsaugotas šiam reisui.' : 'Kuro pylimas bus išsaugotas patvirtinant maršruto užbaigimą.'}</Text>
+                    {!online ? <Text style={styles.activeReason}>Nėra ryšio — kuro pylimo išsaugoti dabar nepavyks.</Text> : null}
+                  </>
+                ) : null}
+              </View>
               <View style={styles.reminder} testID="route-finish-time-card">
                 <Text style={styles.heading}>Kada iš tikrųjų baigėte?</Text>
                 <Text style={styles.meta}>Laikas užpildytas pagal Vilniaus laiką. Jei uždarote maršrutą vėliau, patikslinkite — kitaip statistika parodys neteisingą trukmę.</Text>
-                <View style={styles.fuelRow}>
-                  <DateInput
-                    onChangeText={setFinishDate}
-                    style={[styles.input, styles.fuelInput]}
-                    testID="finish-time-date"
-                    value={finishDate}
-                  />
-                  <TimeInput
-                    onChangeText={setFinishTime}
-                    style={[styles.input, styles.fuelInput]}
-                    testID="finish-time-clock"
-                    value={finishTime}
-                  />
+                <DateInput
+                  editable={!completionFuelSaved}
+                  onChangeText={setFinishDate}
+                  style={styles.input}
+                  testID="finish-time-date"
+                  value={finishDate}
+                />
+                <View style={styles.finishClockRow} testID="finish-time-clock">
+                  <View style={styles.finishClockSelect}>
+                    <FiroSelect
+                      disabled={completionFuelSaved}
+                      label="Valanda"
+                      onChange={setFinishHour}
+                      options={FINISH_HOUR_OPTIONS}
+                      placeholder="00"
+                      testID="finish-time-hour"
+                      value={finishHour}
+                    />
+                  </View>
+                  <Text style={styles.finishClockSeparator}>:</Text>
+                  <View style={styles.finishClockSelect}>
+                    <FiroSelect
+                      disabled={completionFuelSaved}
+                      label="Minutė"
+                      onChange={setFinishMinute}
+                      options={FINISH_MINUTE_OPTIONS}
+                      placeholder="00"
+                      testID="finish-time-minute"
+                      value={finishMinute}
+                    />
+                  </View>
                 </View>
                 <Pressable
                   accessibilityRole="button"
+                  disabled={completionFuelSaved}
                   onPress={() => {
-                    const now = lithuanianWallClockNow();
-                    setFinishDate(now.date);
-                    setFinishTime(now.time);
+                    const clock = currentRouteCompletionClock();
+                    setFinishDate(clock.date);
+                    setFinishHour(clock.hour);
+                    setFinishMinute(clock.minute);
                   }}
-                  style={styles.secondaryButton}
+                  style={[styles.secondaryButton, completionFuelSaved && styles.disabled]}
                   testID="finish-time-now">
                   <Text style={styles.secondaryText}>Nustatyti dabartinį Vilniaus laiką</Text>
                 </Pressable>
@@ -1283,7 +1392,7 @@ export default function DeliveryScreen() {
             <GroupedMenuRow
               description="Ką tik užsipylėte? Įrašykite iškart, nelaukdami maršruto pabaigos."
               icon={<MenuArtwork kind="dispatch" />}
-              onPress={() => { setMenuOpen(false); setActiveMenuExpanded(false); setFuelEntrySaved(false); setFuelQuickOpen(true); }}
+              onPress={() => { setMenuOpen(false); setActiveMenuExpanded(false); setQuickFuelSaved(false); setFuelQuickOpen(true); }}
               testID="menu-quick-fuel"
               title="Įrašyti kuro pylimą"
             />
@@ -1308,8 +1417,8 @@ export default function DeliveryScreen() {
             {!online ? <Text style={styles.activeReason}>Nėra ryšio — pylimą įrašysite prisijungę.</Text> : null}
             <View style={styles.stopInfoActions}>
               <Pressable style={styles.secondaryButton} onPress={() => setFuelQuickOpen(false)}><Text style={styles.secondaryText}>Atšaukti</Text></Pressable>
-              <Pressable disabled={busy || !online || !fuelLiters.trim()} onPress={() => { void saveRouteFuel().then(() => { if (fuelLiters.trim() === '') setFuelQuickOpen(false); }); }} style={[styles.deliverButton, (busy || !online || !fuelLiters.trim()) && styles.disabled]} testID="quick-fuel-save">
-                <Text style={styles.buttonText}>Išsaugoti</Text>
+              <Pressable disabled={busy || !online || !fuelLiters.trim()} onPress={() => { void saveQuickRouteFuel().then((saved) => { if (saved) setFuelQuickOpen(false); }); }} style={[styles.deliverButton, (busy || !online || !fuelLiters.trim()) && styles.disabled]} testID="quick-fuel-save">
+                <Text style={styles.buttonText}>{quickFuelSaved ? 'Išsaugota' : 'Išsaugoti'}</Text>
               </Pressable>
             </View>
           </View>
@@ -1706,6 +1815,23 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   reminder: { padding: spacing.md, borderWidth: 1, borderRadius: radius.md, borderColor: colors.warning, backgroundColor: colors.warningSoft, gap: spacing.sm },
   fuelRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   fuelInput: { flexGrow: 1, flexBasis: 180, minWidth: 0 },
+  fuelChoiceRow: { flexDirection: 'row', gap: spacing.sm },
+  fuelChoiceButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fuelChoiceButtonSelected: { borderColor: colors.info, backgroundColor: colors.infoSoft },
+  fuelChoiceText: { ...type.bodyStrong, color: colors.textSecondary },
+  fuelChoiceTextSelected: { color: colors.info },
+  finishClockRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  finishClockSelect: { flex: 1, minWidth: 0 },
+  finishClockSeparator: { ...type.sectionTitle, color: colors.text, paddingTop: spacing.lg },
   stopsProgress: { borderRadius: radius.lg, padding: spacing.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, gap: 9 },
   stopsProgressHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   stopsProgressLabel: { ...type.label, color: colors.textMuted },
