@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { selectRouteFuelAssignment } from '../src/domain/fuel-entry-assignment.js';
 
 import { GatewayNonceRegistry, verifyGatewaySignature } from '../gateway/security.js';
 import {
@@ -557,7 +558,7 @@ export async function handleEmployeeApi(
       requireRole(profile, ['driver', 'admin', 'dispatcher']);
       const body = parseObject(await readBody(request, 32_000));
       const routeId = decodeURIComponent(routeFuelMatch[1]);
-      const assignment = (await store.listAssignments(profile)).find((item) => item.routeId === routeId && item.status !== 'cancelled');
+      const assignment = selectRouteFuelAssignment(await store.listAssignments(profile), routeId);
       if (!assignment) throw new EmployeeApiError('ROUTE_ASSIGNMENT_NOT_FOUND', 'Aktyvaus maršruto priskyrimas nerastas.', 404);
       const entry = await store.addFuelEntry(profile, assignment.id, {
         filledAt: stringField(body, 'filledAt'),
@@ -567,7 +568,7 @@ export async function handleEmployeeApi(
         station: optionalString(body, 'station'),
         receiptNumber: optionalString(body, 'receiptNumber'),
         notes: optionalString(body, 'notes'),
-      });
+      }, 'active_route');
       return send(response, 201, { entry }, requestId);
     }
     const fuelEntryMatch = pathname.match(/^\/api\/fuel-entries\/([^/]+)$/);

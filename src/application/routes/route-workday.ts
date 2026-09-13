@@ -1031,7 +1031,7 @@ export class CompleteRoute extends WorkdayCommand {
         now,
         actual,
         JSON.stringify(summary),
-        now,
+        routeEndedAt,
         now,
         routeId,
       );
@@ -1039,7 +1039,7 @@ export class CompleteRoute extends WorkdayCommand {
         throw new RouteCommandError('INVALID_ROUTE_STATE', 'Maršruto būsena jau pasikeitė.');
       }
       await this.journal(routeId, null, 'route_completed', { status: 'in_progress' }, {
-        status: 'completed', endOdometer: input.endOdometer, summary,
+        status: 'completed', endOdometer: input.endOdometer, completedAt: routeEndedAt, summary,
       });
     });
     return { idempotent: false, summary };

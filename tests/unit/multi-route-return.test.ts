@@ -112,6 +112,8 @@ describe('several planned routes and durable return stage', () => {
     const completed = await new CompleteRoute(db, () => '2026-08-11T19:00:00.000Z').execute('route-duration', { endOdometer: 142 });
 
     expect(completed.summary).toMatchObject({ actualDurationMinutes: 80, actualDistanceKm: 42 });
+    expect(await db.getFirstAsync<{ completed_at: string }>("SELECT completed_at FROM routes WHERE id = 'route-duration'"))
+      .toEqual({ completed_at: '2026-08-11T18:20:00.000Z' });
   });
 
   it('lets the driver correct the finish time when closing out late, instead of inflating the duration', async () => {
@@ -133,6 +135,33 @@ describe('several planned routes and durable return stage', () => {
     });
 
     expect(completed.summary).toMatchObject({ actualDurationMinutes: 80, actualDistanceKm: 42 });
+    expect(await db.getFirstAsync<{ completed_at: string }>("SELECT completed_at FROM routes WHERE id = 'route-late-close'"))
+      .toEqual({ completed_at: '2026-08-11T18:20:00.000Z' });
+  });
+
+  it('updates only the completed route timestamp and leaves historical route data intact', async () => {
+    const { db } = database();
+    await new CreateDraftRoute(db).execute({ id: 'historical-route', startLocation: endpoint, endLocation: endpoint });
+    await db.runAsync(
+      "UPDATE routes SET status = 'completed', completed_at = ?, updated_at = ? WHERE id = 'historical-route'",
+      '2025-12-31T18:30:00.000Z',
+      '2025-12-31T18:30:00.000Z',
+    );
+    await new CreateDraftRoute(db).execute({ id: 'current-route', startLocation: endpoint, endLocation: endpoint });
+    await db.runAsync(
+      "UPDATE routes SET status = 'in_progress', remaining_stops = 0, started_at = ?, start_odometer = 500 WHERE id = 'current-route'",
+      '2026-09-13T06:00:00.000Z',
+    );
+    await new StartRouteReturn(db, () => '2026-09-13T15:30:00.000Z').execute('current-route', 'warehouse', endpoint);
+    await new ConfirmRouteReturnArrival(db, () => '2026-09-13T15:42:00.000Z').execute('current-route');
+    await new CompleteRoute(db, () => '2026-09-13T16:00:00.000Z').execute('current-route', {
+      endOdometer: 575,
+      actualFinishedAt: '2026-09-13T15:42:00.000Z',
+    });
+
+    expect(await db.getFirstAsync<{ completed_at: string; updated_at: string }>(
+      "SELECT completed_at, updated_at FROM routes WHERE id = 'historical-route'",
+    )).toEqual({ completed_at: '2025-12-31T18:30:00.000Z', updated_at: '2025-12-31T18:30:00.000Z' });
   });
 
   it('rejects a corrected finish time before the route even started', async () => {

@@ -31,6 +31,7 @@ describe('Lithuanian wall-clock handling', () => {
     expect(lithuanianDateTimeToIso('2026-08-11', '11:00')).toBe('2026-08-11T08:00:00.000Z');
     expect(lithuanianDateTimeToIso('2026-01-11', '11:00')).toBe('2026-01-11T09:00:00.000Z');
     expect(lithuanianDateTimeToIso('bad', '11:00')).toBeNull();
+    expect(lithuanianDateTimeToIso('2026-02-31', '11:00')).toBeNull();
     expect(lithuanianDateTimeToIso('2026-08-11', '25:00')).toBeNull();
   });
 

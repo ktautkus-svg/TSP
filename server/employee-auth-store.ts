@@ -65,6 +65,7 @@ import {
     type AdminCompleteAssignmentInput,
 } from '../src/domain/historical-assignment-complete.js';
 import { lithuanianDateKey } from '../src/domain/lithuanian-time.js';
+import { canAddFuelEntryToAssignment, type FuelEntryAssignmentContext } from '../src/domain/fuel-entry-assignment.js';
 import {
     AUGUST_2026_EXCEL_BACKFILL_ID,
     AUGUST_2026_EXCEL_BACKFILL_V2_ID,
@@ -1941,7 +1942,7 @@ export class EmployeeAuthStore {
     station?: string;
     receiptNumber?: string;
     notes?: string;
-  }): Promise<ServerFuelEntry> {
+  }, context: FuelEntryAssignmentContext = 'trip_sheet'): Promise<ServerFuelEntry> {
     const filledAt = new Date(input.filledAt);
     if (Number.isNaN(filledAt.getTime())) throw new EmployeeApiError('INVALID_FUEL_DATE', 'Neteisinga kuro pylimo data.', 400);
     if (!Number.isFinite(input.liters) || input.liters <= 0 || input.liters > 1_000) throw new EmployeeApiError('INVALID_FUEL_AMOUNT', 'Įpilto kuro kiekis turi būti nuo 0,1 iki 1000 litrų.', 400);
@@ -1972,7 +1973,9 @@ export class EmployeeAuthStore {
       resolvedAssignmentId = safeId(assignmentIdInput);
       const assignmentDocument = await this.assignments.doc(resolvedAssignmentId).get();
       const assignment = assignmentDocument.data() as RouteAssignment | undefined;
-      if (!assignment || assignment.status !== 'completed') throw new EmployeeApiError('TRIP_SHEET_NOT_FOUND', 'Užbaigtas kelionės lapas nerastas.', 404);
+      if (!assignment || !canAddFuelEntryToAssignment(assignment.status, context)) {
+        throw new EmployeeApiError('TRIP_SHEET_NOT_FOUND', 'Užbaigtas kelionės lapas nerastas.', 404);
+      }
       driverId = assignment.driverId;
       driverName = assignment.driverName;
       routeId = assignment.routeId;

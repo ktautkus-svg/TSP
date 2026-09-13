@@ -85,7 +85,13 @@ export function lithuanianWallClockNow(now: Date = new Date()): { date: string; 
  */
 export function lithuanianDateTimeToIso(dateKey: string, clock: string): string | null {
   const trimmedDate = dateKey.trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmedDate)) return null;
+  const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmedDate);
+  if (!dateMatch) return null;
+  const year = Number(dateMatch[1]);
+  const month = Number(dateMatch[2]);
+  const day = Number(dateMatch[3]);
+  const calendarProbe = new Date(Date.UTC(year, month - 1, day));
+  if (calendarProbe.getUTCFullYear() !== year || calendarProbe.getUTCMonth() !== month - 1 || calendarProbe.getUTCDate() !== day) return null;
   // Noon UTC on the typed calendar day is always still that Lithuanian day
   // (UTC+2/+3), so dateParts resolve to the intended Y-M-D before the clock
   // is applied.

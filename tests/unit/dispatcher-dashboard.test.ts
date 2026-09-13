@@ -285,15 +285,16 @@ describe('driver permissions', () => {
     expect(adminSource).toContain("route.status === 'planned'");
   });
 
-  it('requires both finish date and time together, or neither, when closing a route', () => {
+  it('uses a complete Lithuanian date and selector-based clock when closing a route', () => {
     expect(deliverySource).toContain('testID="route-finish-time-card"');
     expect(deliverySource).toContain('testID="finish-time-date"');
     expect(deliverySource).toContain('testID="finish-time-clock"');
+    expect(deliverySource).toContain('testID="finish-time-hour"');
+    expect(deliverySource).toContain('testID="finish-time-minute"');
     expect(deliverySource).toContain('testID="finish-time-now"');
-    expect(deliverySource).toContain('finishDateFilled !== finishTimeFilled');
-    expect(deliverySource).toContain('Neužbaigta data ir laikas');
-    expect(deliverySource).toContain('lithuanianDateTimeToIso(finishDate, finishTime)');
-    expect(deliverySource).toContain('lithuanianWallClockNow()');
+    expect(deliverySource).toContain('routeCompletionTimestamp({');
+    expect(deliverySource).toContain('currentRouteCompletionClock()');
+    expect(deliverySource).not.toContain('<TimeInput');
   });
 });
 
