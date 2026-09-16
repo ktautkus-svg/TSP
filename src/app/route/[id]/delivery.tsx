@@ -65,6 +65,7 @@ import { GroupedMenuRow, GroupedMenuSection } from '@/components/grouped-menu';
 import { InstrumentGauge } from '@/components/instrument-gauge';
 import { MenuArtwork } from '@/components/menu-artwork';
 import { RoadProgressBar } from '@/components/road-progress-bar';
+import { CloudSyncStatus } from '@/components/cloud-sync-status';
 import { RouteBottomTabs } from '@/components/route-bottom-tabs';
 import { SwipeActionCard } from '@/components/swipe-action-card';
 import { OperationalContactRepository } from '@/database/repositories/operational-contact-repository';
@@ -608,6 +609,13 @@ export default function DeliveryScreen() {
     try {
       await new ConfirmRouteReturnArrival(db).execute(routeId);
       completionDismissed.current = false;
+      const clock = routeCompletionClockForOpen(
+        Boolean(route?.completionStartedAt),
+        { date: finishDate, hour: finishHour, minute: finishMinute },
+      );
+      setFinishDate(clock.date);
+      setFinishHour(clock.hour);
+      setFinishMinute(clock.minute);
       await load();
       setShowFinish(true);
       void requestSync('mutation');
@@ -645,8 +653,8 @@ export default function DeliveryScreen() {
   const saveQuickRouteFuel = async () => {
     if (busy || !online) return false;
     const liters = Number(fuelLiters.replace(',', '.'));
-    if (!Number.isFinite(liters) || liters <= 0) {
-      Alert.alert('Kuro įrašas', 'Įveskite įpiltų litrų kiekį.');
+    if (!Number.isFinite(liters) || liters < 0.1 || liters > 1_000) {
+      Alert.alert('Kuro įrašas', 'Įpilto kuro kiekis turi būti nuo 0,1 iki 1000 litrų.');
       return false;
     }
     setBusy(true);
@@ -724,7 +732,9 @@ export default function DeliveryScreen() {
         confirmLargeDifference,
         actualFinishedAt,
       });
-      await pushRouteAssignmentProgress(db, routeId).catch((reason) => {
+      // Completion is committed locally; a slow connection must not block the result.
+      // The result screen and mutation sync retry publishing the saved route.
+      void pushRouteAssignmentProgress(db, routeId).catch((reason) => {
         devWarn('TRIP_SHEET_SYNC_FAILED', reason);
       });
       void requestSync('mutation');
@@ -907,6 +917,32 @@ export default function DeliveryScreen() {
         <View style={[styles.routeContent, wideLayout && styles.routeContentWide]}>
           {redirectReason ? <Text style={styles.notice}>Maršrutas jau pradėtas. Grąžinome į vykdomą maršrutą.</Text> : null}
           {error ? <Text style={styles.error}>{error}</Text> : null}
+          {progress ? (
+            <View style={styles.stopsProgress} testID="driver-day-progress">
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Dienos progresas. Atverti visų sustojimų suvestinę"
+                onPress={() => { setFilter('all'); setActiveView('stops'); }}
+                style={styles.dayProgressAction}>
+                <Text style={styles.stopsProgressLabel}>DIENOS PROGRESAS · ŠIS MARŠRUTAS</Text>
+                <Text style={styles.stopsProgressValue}>Atlikta {progress.deliveredStops} iš {progress.totalStops} sustojimų</Text>
+                <View style={styles.stopsProgressTrack}
+                  accessibilityRole="progressbar"
+                  accessibilityLabel="Sėkmingai pristatyti sustojimai"
+                  accessibilityValue={{ min: 0, max: progress.totalStops, now: progress.deliveredStops }}>
+                  <View style={[styles.stopsProgressFill, { width: `${Math.min(100, Math.max(0, progress.deliveryPercent))}%` }]} />
+                </View>
+                <Text style={styles.meta}>Likę: {progress.remainingStops} · Nepavykę: {progress.failedStops}</Text>
+                <Text style={styles.meta}>Pristatyti su grąžinimu / trūkumu: {stops.filter((stop) => stop.deliveryStatus === 'delivered' && isDeliveryReturnReason(stop.failureReason)).length}</Text>
+                <Text style={styles.meta}>Atlikta – pristatyti sustojimai, įskaitant dalinius grąžinimus.</Text>
+                <Text style={styles.dayProgressLink}>Visų sustojimų suvestinė →</Text>
+              </Pressable>
+              <View style={styles.dayProgressSync}>
+                <Text style={styles.stopsProgressLabel}>Sinchronizacija</Text>
+                <CloudSyncStatus />
+              </View>
+            </View>
+          ) : null}
           {activeView === 'dashboard' && progress ? (
             <View style={[styles.dashboard, wideLayout && styles.dashboardWide]} testID="route-dashboard">
               <View style={[styles.dashboardPrimary, wideLayout && styles.dashboardPrimaryWide]}>
@@ -1113,15 +1149,6 @@ export default function DeliveryScreen() {
           ) : null}
           {activeView === 'stops' ? (
             <View style={styles.stopsView}>
-              <View style={styles.stopsProgress} testID="stops-route-progress">
-                <View style={styles.stopsProgressHeading}>
-                  <Text style={styles.stopsProgressLabel}>MARŠRUTO EIGA</Text>
-                  <Text style={styles.stopsProgressValue}>{progress?.deliveryPercent ?? 0}%</Text>
-                </View>
-                <View style={styles.stopsProgressTrack}>
-                  <View style={[styles.stopsProgressFill, { width: `${Math.min(100, Math.max(0, progress?.deliveryPercent ?? 0))}%` }]} />
-                </View>
-              </View>
               {undo ? <Pressable style={styles.undoButton} onPress={undoLast}><Text style={styles.undoText}>Atšaukti paskutinį veiksmą</Text></Pressable> : null}
               <View style={styles.filters}>
                 {(['undelivered', 'all', 'delivered', 'failed'] as DeliveryFilter[]).map((value) => (
@@ -1840,7 +1867,9 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   finishClockSelect: { flex: 1, minWidth: 0 },
   finishClockSeparator: { ...type.sectionTitle, color: colors.text, paddingTop: spacing.lg },
   stopsProgress: { borderRadius: radius.lg, padding: spacing.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, gap: 9 },
-  stopsProgressHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  dayProgressAction: { minHeight: 44, minWidth: 0, gap: spacing.sm },
+  dayProgressSync: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
+  dayProgressLink: { ...type.bodyStrong, color: colors.info },
   stopsProgressLabel: { ...type.label, color: colors.textMuted },
   stopsProgressValue: { ...type.sectionTitle, color: colors.success },
   stopsProgressTrack: { height: 9, borderRadius: radius.pill, overflow: 'hidden', backgroundColor: colors.disabledSurface },

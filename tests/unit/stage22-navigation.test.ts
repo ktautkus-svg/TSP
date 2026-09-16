@@ -17,6 +17,9 @@ describe('stage 2.2 deterministic navigation', () => {
     expect(result).toContain('gestureEnabled: false');
     expect(result).toContain("title: 'Maršruto rezultatas'");
     expect(result).not.toContain('router.back(');
+    // Page refresh / refocus must restore the completed result from local SQLite.
+    expect(result).toContain('repository.getById(routeId)');
+    expect(result).toContain("persisted.status !== 'completed'");
   });
 
   it('labels the preliminary pay as day-wide and re-reads it after the odometer syncs', () => {

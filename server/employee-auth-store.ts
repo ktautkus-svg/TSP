@@ -1952,7 +1952,12 @@ export class EmployeeAuthStore {
   }, context: FuelEntryAssignmentContext = 'trip_sheet'): Promise<ServerFuelEntry> {
     const filledAt = new Date(input.filledAt);
     if (Number.isNaN(filledAt.getTime())) throw new EmployeeApiError('INVALID_FUEL_DATE', 'Neteisinga kuro pylimo data.', 400);
-    if (!Number.isFinite(input.liters) || input.liters <= 0 || input.liters > 1_000) throw new EmployeeApiError('INVALID_FUEL_AMOUNT', 'Įpilto kuro kiekis turi būti nuo 0,1 iki 1000 litrų.', 400);
+    let liters: number;
+    try {
+      liters = validateLiters(input.liters);
+    } catch (error) {
+      throw new EmployeeApiError('INVALID_FUEL_AMOUNT', error instanceof Error ? error.message : 'Įpilto kuro kiekis turi būti nuo 0,1 iki 1000 litrų.', 400);
+    }
     if (input.pricePerLiter !== undefined && (!Number.isFinite(input.pricePerLiter) || input.pricePerLiter < 0 || input.pricePerLiter > 100)) throw new EmployeeApiError('INVALID_FUEL_PRICE', 'Neteisinga litro kaina.', 400);
     if (input.odometer !== undefined) validateDayOdometer(input.odometer);
 
@@ -2005,16 +2010,17 @@ export class EmployeeAuthStore {
     }
     if (!vehicle) throw new EmployeeApiError('VEHICLE_NOT_ASSIGNED', 'Kelionės lapui nepriskirtas automobilis.', 409);
 
-    const liters = Math.round(input.liters * 100) / 100;
     const pricePerLiter = input.pricePerLiter === undefined ? null : Math.round(input.pricePerLiter * 1000) / 1000;
     const filledAtIso = filledAt.toISOString();
     const receiptNumber = optionalText(input.receiptNumber);
+    const roundedOdometer = Math.round((odometer ?? 0) * 10) / 10;
 
     // Stable IDs plus Firestore create() make concurrent completion retries atomic.
-    // Ordinary trip-sheet entries retain their existing independent-entry semantics.
+    // Include odometer so a lost-response retry with a corrected reading cannot
+    // silently reuse the earlier fill's document. Trip-sheet entries stay UUID-based.
     const completionFuelId = context === 'active_route'
       ? `route-fuel-${createHash('sha256').update(JSON.stringify([
-        resolvedAssignmentId, filledAtIso, liters, receiptNumber,
+        resolvedAssignmentId, filledAtIso, liters, receiptNumber, roundedOdometer,
       ])).digest('hex')}`
       : null;
 
@@ -2029,7 +2035,7 @@ export class EmployeeAuthStore {
       vehicleId: vehicle.id,
       registrationNumber: vehicle.registrationNumber,
       filledAt: filledAtIso,
-      odometer: Math.round((odometer ?? 0) * 10) / 10,
+      odometer: roundedOdometer,
       liters,
       pricePerLiter,
       totalCost: pricePerLiter === null ? null : Math.round(liters * pricePerLiter * 100) / 100,

@@ -52,7 +52,7 @@ export function validateFuelRemainingLiters(value: number): number {
 export const validateFuelLiters = validateFuelRemainingLiters;
 
 export function validateFuelAmount(value: number): number {
-  if (!Number.isFinite(value) || value <= 0 || value > 1_000) {
+  if (!Number.isFinite(value) || value < 0.1 || value > 1_000) {
     throw new Error('Įpilto kuro kiekis turi būti nuo 0,1 iki 1000 litrų.');
   }
   return Math.round(value * 100) / 100;
