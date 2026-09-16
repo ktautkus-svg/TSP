@@ -103,6 +103,23 @@ describe('route completion form', () => {
     });
   });
 
+  it('refreshes the completion clock on return arrival after a long-running delivery screen', () => {
+    const mountedClock = currentRouteCompletionClock(new Date('2026-09-12T06:00:00.000Z'));
+    const arrival = new Date('2026-09-13T21:00:00.000Z');
+    expect(routeCompletionClockForOpen(false, mountedClock, arrival))
+      .toEqual({ date: '2026-09-14', hour: '00', minute: '00' });
+    expect(routeCompletionClockForOpen(true, mountedClock, arrival)).toEqual(mountedClock);
+    const arrivalHandler = deliverySource.slice(
+      deliverySource.indexOf('const confirmReturnArrival ='),
+      deliverySource.indexOf('const saveLateStartOdometer ='),
+    );
+    expect(arrivalHandler).toContain('routeCompletionClockForOpen(');
+    expect(arrivalHandler).toContain('Boolean(route?.completionStartedAt)');
+    for (const field of ['Date', 'Hour', 'Minute']) {
+      expect(arrivalHandler).toContain(`setFinish${field}(clock.${field.toLowerCase()})`);
+    }
+  });
+
   it('uses selectors rather than a free-text time field in route completion', () => {
     expect(deliverySource).not.toContain('<TimeInput');
     expect(deliverySource).toContain('testID="finish-time-hour"');
@@ -188,6 +205,23 @@ describe('route completion form', () => {
     expect(workdaySource).toContain('WHERE id = ?');
     expect(deliverySource).toContain('new CompleteRoute(db).execute(routeId,');
     expect(deliverySource).toContain('actualFinishedAt,');
+  });
+
+  it('opens the local result screen without awaiting server sync after CompleteRoute', () => {
+    // Mission critical: a slow/offline trip-sheet push must not block the driver
+    // from seeing the completed result already committed to SQLite.
+    const finishOnce = deliverySource.slice(
+      deliverySource.indexOf('const finishOnce = async'),
+      deliverySource.indexOf('const finish = (confirmUnfinished'),
+    );
+    const completeAt = finishOnce.indexOf('await new CompleteRoute(db).execute');
+    const voidPushAt = finishOnce.indexOf('void pushRouteAssignmentProgress(db, routeId)');
+    const navigateAt = finishOnce.indexOf("pathname: '/route/[id]/result'");
+    expect(completeAt).toBeGreaterThan(-1);
+    expect(voidPushAt).toBeGreaterThan(completeAt);
+    expect(navigateAt).toBeGreaterThan(voidPushAt);
+    expect(finishOnce).not.toContain('await pushRouteAssignmentProgress');
+    expect(finishOnce).toContain('void requestSync(\'mutation\')');
   });
 
   it('stops before route completion when the existing fuel API fails', async () => {
@@ -377,6 +411,87 @@ describe('route fuel assignment integrity', () => {
     await store.addFuelEntry(profile, assignment.id, input);
     await store.addFuelEntry(profile, assignment.id, input);
     expect(saved).toHaveLength(3);
+  });
+
+  it('treats a corrected odometer on retry as a distinct completion fill, not a silent reuse', async () => {
+    const assignment: RouteAssignment = {
+      id: 'assignment-odo-123456',
+      routeId: 'route-odo-12345678',
+      driverId: 'driver-odo-123456',
+      driverName: 'Vairuotojas',
+      status: 'in_progress',
+      progress: null,
+      createdBy: 'admin-odo-123456',
+      assignedAt: '2026-09-13T05:00:00.000Z',
+      updatedAt: '2026-09-13T15:00:00.000Z',
+      vehicle: { id: 'VAN789', registrationNumber: 'VAN789', model: 'Fiat Ducato', maximumPayloadKg: 1500 },
+      routeSnapshot: { route: { id: 'route-odo-12345678', start_odometer: 1000 }, stops: [], shipmentLines: [] },
+    };
+    const saved: ServerFuelEntry[] = [];
+    const store = new EmployeeAuthStore();
+    Object.assign(store as unknown as Record<string, unknown>, {
+      assignments: { doc: () => ({ get: async () => ({ data: () => assignment }) }) },
+      vehicles: { doc: () => ({ get: async () => ({ data: () => undefined }) }) },
+      vehicleDayReadings: { doc: () => ({ get: async () => ({ data: () => undefined }) }) },
+      fuelEntries: {
+        doc: (id: string) => ({
+          create: async (entry: ServerFuelEntry) => {
+            if (saved.some((item) => item.id === id)) throw Object.assign(new Error('Already exists'), { code: 6 });
+            saved.push(entry);
+          },
+          get: async () => ({ data: () => saved.find((item) => item.id === id) }),
+        }),
+        where: () => ({ get: async () => ({ docs: [] }) }),
+      },
+    });
+    const profile = {
+      id: assignment.driverId,
+      displayName: assignment.driverName,
+      role: 'driver',
+      permissions: { canEnterTripReadings: false },
+    } as EmployeeProfile;
+    const base = { filledAt: '2026-09-13T15:42:00.000Z', liters: 42 };
+    const first = await store.addFuelEntry(profile, assignment.id, { ...base, odometer: 1075 }, 'active_route');
+    const corrected = await store.addFuelEntry(profile, assignment.id, { ...base, odometer: 1100 }, 'active_route');
+    expect(corrected.id).not.toBe(first.id);
+    expect(corrected.odometer).toBe(1100);
+    expect(saved).toHaveLength(2);
+    expect(storeSource).toContain('roundedOdometer');
+  });
+
+  it('rejects completion fuel amounts below 0.1 L that would previously round toward zero', async () => {
+    const assignment: RouteAssignment = {
+      id: 'assignment-min-123456',
+      routeId: 'route-min-12345678',
+      driverId: 'driver-min-123456',
+      driverName: 'Vairuotojas',
+      status: 'in_progress',
+      progress: null,
+      createdBy: 'admin-min-123456',
+      assignedAt: '2026-09-13T05:00:00.000Z',
+      updatedAt: '2026-09-13T15:00:00.000Z',
+      vehicle: { id: 'VAN321', registrationNumber: 'VAN321', model: 'Fiat Ducato', maximumPayloadKg: 1500 },
+      routeSnapshot: { route: { id: 'route-min-12345678', start_odometer: 1000 }, stops: [], shipmentLines: [] },
+    };
+    const store = new EmployeeAuthStore();
+    Object.assign(store as unknown as Record<string, unknown>, {
+      assignments: { doc: () => ({ get: async () => ({ data: () => assignment }) }) },
+      vehicles: { doc: () => ({ get: async () => ({ data: () => undefined }) }) },
+      vehicleDayReadings: { doc: () => ({ get: async () => ({ data: () => undefined }) }) },
+      fuelEntries: { doc: () => ({ create: async () => undefined }), where: () => ({ get: async () => ({ docs: [] }) }) },
+    });
+    const profile = {
+      id: assignment.driverId,
+      displayName: assignment.driverName,
+      role: 'driver',
+      permissions: { canEnterTripReadings: false },
+    } as EmployeeProfile;
+    await expect(store.addFuelEntry(profile, assignment.id, {
+      filledAt: '2026-09-13T15:42:00.000Z', odometer: 1075, liters: 0.09,
+    }, 'active_route')).rejects.toMatchObject({ code: 'INVALID_FUEL_AMOUNT' });
+    await expect(store.addFuelEntry(profile, assignment.id, {
+      filledAt: '2026-09-13T15:42:00.000Z', odometer: 1075, liters: 0.004,
+    }, 'active_route')).rejects.toMatchObject({ code: 'INVALID_FUEL_AMOUNT' });
   });
 
   it('routes active fuel through the existing addFuelEntry path without weakening trip-sheet rules', () => {

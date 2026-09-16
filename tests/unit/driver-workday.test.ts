@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, unlinkSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
@@ -107,6 +108,43 @@ async function arriveAtRouteEnd(db: SQLiteDatabase) {
 }
 
 describe('driver workday persistence', () => {
+  it('rebuilds day progress from stored outcomes after reload and corrections', async () => {
+    const { db, adapter } = createDb();
+    const path = resolve(import.meta.dirname, `day-progress-${randomUUID()}.sqlite`);
+    let reopened: DatabaseSync | undefined;
+    try {
+      await startedRoute(db);
+      expect(await new GetRouteProgress(db).execute('route-1')).toMatchObject({
+        totalStops: 2, deliveredStops: 0, failedStops: 0, remainingStops: 2, deliveryPercent: 0,
+      });
+      await new MarkStopDelivered(db).execute('route-1', 'stop-1', {
+        partialReturn: { note: 'Grąžinta viena dėžė' },
+      });
+      await new MarkStopFailed(db).execute('route-1', 'stop-2', { reason: 'Nedirba', comment: 'Uždaryta' });
+      adapter.raw.prepare('VACUUM INTO ?').run(path);
+      adapter.raw.close();
+      reopened = new DatabaseSync(path);
+      const reloadedDb = new ExpoLikeDatabase(reopened) as unknown as SQLiteDatabase;
+      expect(await new GetRouteProgress(reloadedDb).execute('route-1')).toMatchObject({
+        totalStops: 2, deliveredStops: 1, failedStops: 1, remainingStops: 0, deliveryPercent: 50,
+      });
+      const reloadedStops = await new RouteRepository(reloadedDb).getStops('route-1');
+      expect(reloadedStops.find((item) => item.id === 'stop-1')).toMatchObject({
+        deliveryStatus: 'delivered', failureReason: 'Grąžinimas / trūkumas', failureComment: 'Grąžinta viena dėžė',
+      });
+      await new RevertStopToPending(reloadedDb).execute('route-1', 'stop-2');
+      expect(await new GetRouteProgress(reloadedDb).execute('route-1')).toMatchObject({
+        totalStops: 2, deliveredStops: 1, failedStops: 0, remainingStops: 1, deliveryPercent: 50,
+      });
+    } finally {
+      reopened?.close();
+      if (adapter.raw.isOpen) adapter.raw.close();
+      try { unlinkSync(path); } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      }
+    }
+  });
+
   it('migrates the product defaults and remembers the preferred route end', async () => {
     const { adapter, db } = createDb(9);
     adapter.raw.exec(migration('migrationV10'));
@@ -531,6 +569,39 @@ describe('driver workday persistence', () => {
     const restarted = new RouteRepository(db);
     expect((await restarted.listHistory())[0]).toMatchObject({ id: 'route-1', status: 'completed', actualDistanceKm: 1 });
     expect((await restarted.getWithStops('route-1'))?.stops).toHaveLength(2);
+  });
+
+  it('restores the completed result after closing and reopening the SQLite database', async () => {
+    const { adapter, db } = createDb();
+    const path = resolve(import.meta.dirname, `completion-${randomUUID()}.sqlite`);
+    let reopened: DatabaseSync | undefined;
+    try {
+      await startedRoute(db);
+      await new MarkStopDelivered(db).execute('route-1', 'stop-1');
+      await new MarkStopDelivered(db).execute('route-1', 'stop-2');
+      await arriveAtRouteEnd(db);
+      const result = await new CompleteRoute(db).execute('route-1', { endOdometer: 1042.5 });
+      adapter.raw.prepare('VACUUM INTO ?').run(path);
+      adapter.raw.close();
+      reopened = new DatabaseSync(path);
+      const restoredDb = new ExpoLikeDatabase(reopened) as unknown as SQLiteDatabase;
+      const repository = new RouteRepository(restoredDb);
+      expect(await repository.getById('route-1')).toMatchObject({
+        status: 'completed', endOdometer: 1042.5, actualDistanceKm: 42,
+        completionSummary: result.summary,
+      });
+      expect(await repository.listOperational()).toEqual([]);
+      expect(await repository.listHistory()).toHaveLength(1);
+      expect((await repository.getStops('route-1')).every((stop) => stop.deliveryStatus === 'delivered')).toBe(true);
+      await new CompleteRoute(restoredDb).execute('route-1', { endOdometer: 1100 });
+      expect((await repository.getById('route-1'))?.endOdometer).toBe(1042.5);
+    } finally {
+      reopened?.close();
+      if (adapter.raw.isOpen) adapter.raw.close();
+      try { unlinkSync(path); } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      }
+    }
   });
 
   it('exports a redacted pilot diagnostic with route, stops, audit and versions', async () => {
