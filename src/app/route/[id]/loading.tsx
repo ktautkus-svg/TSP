@@ -664,7 +664,7 @@ export default function LoadingScreen() {
             testID="mark-all-stops-loaded"
             style={[styles.markAllButton, bulkBusy && styles.disabled]}
             onPress={markAllLoaded}>
-            {bulkBusy ? <ActivityIndicator color="#fff" /> : <Text style={styles.markAllText}>Pažymėti visus kaip pakrautus</Text>}
+            {bulkBusy ? <ActivityIndicator color="#fff" /> : <Text style={styles.markAllText}>Visus iškart</Text>}
           </Pressable>
         )
       ) : null}
