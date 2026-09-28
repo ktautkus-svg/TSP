@@ -1,14 +1,24 @@
-import { useEffect, useMemo } from 'react';
-import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import L from 'leaflet';
 import { MapContainer, Marker, Polyline, TileLayer, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 
 import { decodePolyline } from '@/domain/routing/evaluation/geo';
 import type { RoutingLocation } from '@/domain/routing/models';
-import { spacing } from '@/ui/tokens';
+import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
+
+// CARTO started watermarking keyless basemaps with “API KEY REQUIRED”. For this
+// personal, human-operated map use the official OSM endpoint and preserve a
+// normal browser Referer, as required by OSM's tile usage policy. The URL stays
+// configurable so a self-hosted/contracted OSM-compatible service can be used
+// without another application release.
+const MAP_TILE_URL = process.env.EXPO_PUBLIC_OSM_TILE_URL?.trim()
+  || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+const MAP_TILE_ATTRIBUTION =
+  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>';
 
 export interface RouteMapViewProps {
   readonly startLocation: RoutingLocation;
@@ -20,6 +30,8 @@ export interface RouteMapViewProps {
   readonly allowStraightLineFallback?: boolean;
   readonly compact?: boolean;
   readonly polylineError?: string | null;
+  /** When false, hide the idle „line not received yet“ hint (e.g. before the driver asks for the real polyline). Errors still show. */
+  readonly expectPolyline?: boolean;
 }
 
 function pinIcon(color: string, label: string): L.DivIcon {
@@ -98,7 +110,11 @@ export function RouteMapView({
   allowStraightLineFallback = false,
   compact = false,
   polylineError,
+  expectPolyline = true,
 }: RouteMapViewProps) {
+  const [tileFailed, setTileFailed] = useState(false);
+  const [showFailureDetails, setShowFailureDetails] = useState(false);
+  const [tileAttempt, setTileAttempt] = useState(0);
   const { colors } = useTheme();
   const { width } = useWindowDimensions();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -135,8 +151,22 @@ export function RouteMapView({
         ) : null}
       </View> : null}
 
-      <View style={[styles.canvasContainer, compact && styles.compactCanvas, { height: mapHeight }]} testID="route-map-canvas">
-        <MapContainer
+      <View style={[styles.canvasContainer, compact && styles.compactCanvas, { height: tileFailed ? 'auto' : mapHeight }]} testID="route-map-canvas">
+        {tileFailed ? (
+          <View style={styles.failure} testID="route-map-error" accessibilityLiveRegion="polite">
+            <Text style={styles.title}>Nepavyko įkelti žemėlapio</Text>
+            <Text style={styles.pending}>Sustojimų duomenys išlieka pasiekiami. Galite tęsti darbą be žemėlapio.</Text>
+            <Pressable accessibilityRole="button" accessibilityState={{ expanded: showFailureDetails }} style={styles.retry}
+              onPress={() => setShowFailureDetails((value) => !value)}>
+              <Text style={styles.attention}>Reikia dėmesio: žemėlapio sluoksnis nepasiekiamas</Text>
+            </Pressable>
+            {showFailureDetails ? <Text style={styles.pending}>Nepavyko gauti žemėlapio vaizdų iš tiekėjo. Patikrinkite interneto ryšį arba bandykite vėliau. Tai nekeičia apskaičiuoto maršruto.</Text> : null}
+            <Pressable accessibilityRole="button" style={styles.retry} testID="retry-route-map"
+              onPress={() => { setTileAttempt((value) => value + 1); setTileFailed(false); setShowFailureDetails(false); }}>
+              <Text style={styles.retryText}>Bandyti dar kartą</Text>
+            </Pressable>
+          </View>
+        ) : <MapContainer
           key={orderedStops.map((stop) => stop.id).join('|')}
           center={[startLocation.latitude, startLocation.longitude]}
           zoom={12}
@@ -145,8 +175,12 @@ export function RouteMapView({
           scrollWheelZoom
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}>
           <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            key={tileAttempt}
+            eventHandlers={{ tileerror: () => setTileFailed(true) }}
+            attribution={MAP_TILE_ATTRIBUTION}
+            url={MAP_TILE_URL}
+            maxZoom={19}
+            referrerPolicy="strict-origin-when-cross-origin"
           />
           <WheelZoomGuard />
           <FitBounds points={allPoints} />
@@ -166,17 +200,21 @@ export function RouteMapView({
             />
           ))}
           <Marker position={[endLocation.latitude, endLocation.longitude]} icon={endIcon} />
-        </MapContainer>
+        </MapContainer>}
       </View>
 
-      {!compact && (polylineError || (!encodedPolyline && !allowStraightLineFallback)) ? (
-        <Text style={styles.pending}>Maršruto linija dar kraunama. Taškai jau rodomi žemėlapyje.</Text>
+      {!tileFailed && !compact && (polylineError || (expectPolyline && !encodedPolyline && !allowStraightLineFallback)) ? (
+        <Text style={styles.pending}>{polylineError ? 'Kelio linijos įkelti nepavyko. Sustojimų taškai rodomi žemėlapyje.' : 'Kelio linija dar negauta. Sustojimų taškai rodomi žemėlapyje.'}</Text>
       ) : null}
     </View>
   );
 }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
+  failure: { justifyContent: 'center', padding: spacing.md, gap: spacing.sm },
+  retry: { minHeight: 48, justifyContent: 'center', padding: spacing.sm, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radius.md },
+  retryText: { ...type.button, color: colors.info },
+  attention: { ...type.secondaryStrong, color: colors.warning },
   container: {
     borderRadius: 18,
     borderWidth: 1,
@@ -186,8 +224,8 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     gap: spacing.sm,
   },
   compactContainer: { borderWidth: 0, borderRadius: 0, padding: 0, gap: 0 },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  title: { color: colors.text, fontSize: 16, fontWeight: '800' },
+  header: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, alignItems: 'center', justifyContent: 'space-between' },
+  title: { color: colors.text, ...type.sectionTitle },
   badge: {
     color: colors.primary,
     fontWeight: '700',

@@ -1,7 +1,7 @@
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { pushRouteAssignmentProgress, pushRouteAssignmentRevision } from '@/application/auth/route-assignment-sync';
@@ -20,6 +20,7 @@ import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { ManualRouteOrderList } from '@/components/manual-route-order-list';
 import { RouteMapView } from '@/components/route-map';
+import { RouteVariantStops, RouteVariantSummary } from '@/components/route-variant-overview';
 import { ExcelImportRepository } from '@/database/repositories/excel-import-repository';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import { evaluateCandidate } from '@/domain/routing/evaluation/candidate-evaluator';
@@ -37,6 +38,8 @@ import type { ColorPalette } from '@/ui/theme-palette';
 import { radius, spacing, type } from '@/ui/tokens';
 
 export default function RouteAlternativesScreen() {
+  const { width } = useWindowDimensions();
+  const wideWorkspace = width >= 1024;
   const router = useRouter();
   const navigation = useNavigation();
   const db = useSQLiteContext();
@@ -51,7 +54,11 @@ export default function RouteAlternativesScreen() {
   const [labeledAlternatives, setLabeledAlternatives] = useState<LabeledRouteAlternative[]>([]);
   const [polylineResult, setPolylineResult] = useState<RoutePolylineResult | null>(null);
   const [polylineError, setPolylineError] = useState<string | null>(null);
-  const [showPolyline, setShowPolyline] = useState(false);
+  // A planning map without the road geometry is misleading: straight joins
+  // between pins say nothing about rivers, motorway access or the real driving
+  // direction. Load the selected variant's Google road line immediately.
+  const [showPolyline, setShowPolyline] = useState(true);
+  const [polylineAttempt, setPolylineAttempt] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [allowSynthetic, setAllowSynthetic] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -188,7 +195,7 @@ export default function RouteAlternativesScreen() {
         if (active) setPolylineError(reason instanceof Error ? reason.message : 'Maršruto linijos užklausa nepavyko.');
       });
     return () => { active = false; };
-  }, [manualMode, request, selectedCandidate, showPolyline]);
+  }, [manualMode, polylineAttempt, request, selectedCandidate, showPolyline]);
 
   const saveSelectedRoute = async () => {
     if (!result || !selectedId || !selectedCandidate || savingRef.current) return;
@@ -235,7 +242,9 @@ export default function RouteAlternativesScreen() {
         setManualPriorityIds((existing) =>
           existing.length > 0 ? existing : request.stops.filter((stop) => stop.preferEarly).map((stop) => stop.id),
         );
-        setManualPolyline(null);
+        // The initial manual order is the selected candidate, so its already
+        // fetched road line is still truthful until the driver moves a stop.
+        setManualPolyline(polylineResult);
         setManualPolylineError(null);
       }
       return next;
@@ -250,9 +259,9 @@ export default function RouteAlternativesScreen() {
     next.splice(targetIndex, 0, stopId);
     setManualOrder(next);
     setManualError(null);
-    // Drop the previous driving line immediately — pins and the straight-line
-    // fallback follow the new order. A fresh polyline is fetched only when the
-    // driver presses „Perskaičiuoti pasirinktą eiliškumą“.
+    // Drop the previous driving line immediately. Pins follow the new order,
+    // but never join them with a misleading straight line. A fresh Google road
+    // line is fetched when the driver asks to recalculate the chosen order.
     manualPolylineRequestId.current += 1;
     setManualPolyline(null);
     setManualPolylineError(null);
@@ -503,9 +512,10 @@ export default function RouteAlternativesScreen() {
   const softWarnings = selectedCandidate?.violations.filter((violation) => violation.type === 'soft') ?? [];
   return (
     <FoundationScreen
+      contentMaxWidth={1400}
       showFoundationNotice={false}
       title="Maršruto variantai"
-      description="Variantai apskaičiuoti iš SQLite išsaugotų ir patvirtintų pristatymo taškų.">
+      description="Palyginkite variantus, patikrinkite sustojimų eiliškumą ir pasirinkite maršrutą.">
       {!result && !error ? (
         <View style={styles.loading}>
           <ActivityIndicator color={colors.primary} size="large" />
@@ -548,6 +558,10 @@ export default function RouteAlternativesScreen() {
           ) : null}
         </View>
       ) : null}
+      {selectedCandidate ? (
+        <RouteVariantSummary candidate={selectedCandidate} count={candidates.length}
+          title={labeledAlternatives.find((item) => item.candidate.id === selectedCandidate.id)?.title ?? 'Maršrutas'} />
+      ) : null}
       {candidates.length > 0 ? (
         <View style={styles.topActions}>
           <Pressable
@@ -576,64 +590,79 @@ export default function RouteAlternativesScreen() {
           </Pressable>
         </View>
       ) : null}
-      {request ? (
-        <View style={styles.list}>
-          {[...new Set(labeledAlternatives.map((item) => item.group))].map((group) => (
-            <View key={group} style={styles.groupBlock}>
-              <Text style={styles.groupTitle}>{group.toUpperCase()}</Text>
-              <View style={styles.groupRow}>
-                {labeledAlternatives.filter((item) => item.group === group).map((item) => (
-                  <CandidateCard
-                    styles={styles}
-                    key={item.candidate.id}
-                    candidate={item.candidate}
-                    request={request}
-                    title={item.title}
-                    comment={item.comment}
-                    recommended={item.candidate.id === result?.recommended?.id}
-                    selected={item.candidate.id === selectedId}
-                    onSelect={() => setSelectedId(item.candidate.id)}
-                    expanded={item.candidate.id === expandedCandidateId}
-                    onToggleDetails={() => setExpandedCandidateId((current) => current === item.candidate.id ? null : item.candidate.id)}
-                    onManualEdit={() => {
-                      setSelectedId(item.candidate.id);
-                      setManualOrder(item.candidate.stopSequence);
-                      setManualPriorityIds(request?.stops.filter((stop) => stop.preferEarly).map((stop) => stop.id) ?? []);
-                      setManualCandidate(null);
-                      setManualError(null);
-                      setManualPolyline(null);
-                      setManualPolylineError(null);
-                      setManualMode(true);
-                    }}
-                  />
-                ))}
+      <View style={[styles.workspace, wideWorkspace && styles.workspaceWide]}>
+        <View style={[styles.panel, wideWorkspace && styles.panelWide]}>
+        {request ? (
+          <View style={styles.list}>
+            {[...new Set(labeledAlternatives.map((item) => item.group))].map((group) => (
+              <View key={group} style={styles.groupBlock}>
+                <Text style={styles.groupTitle}>{group.toUpperCase()}</Text>
+                <View style={[styles.groupRow, (width < 720 || wideWorkspace) && styles.groupColumn]}>
+                  {labeledAlternatives.filter((item) => item.group === group).map((item) => (
+                    <CandidateCard
+                      styles={styles}
+                      key={item.candidate.id}
+                      candidate={item.candidate}
+                      request={request}
+                      title={item.title}
+                      comment={item.comment}
+                      recommended={item.candidate.id === result?.recommended?.id}
+                      selected={item.candidate.id === selectedId}
+                      onSelect={() => setSelectedId(item.candidate.id)}
+                      expanded={item.candidate.id === expandedCandidateId}
+                      onToggleDetails={() => setExpandedCandidateId((current) => current === item.candidate.id ? null : item.candidate.id)}
+                      onManualEdit={() => {
+                        setSelectedId(item.candidate.id);
+                        setManualOrder(item.candidate.stopSequence);
+                        setManualPriorityIds(request?.stops.filter((stop) => stop.preferEarly).map((stop) => stop.id) ?? []);
+                        setManualCandidate(null);
+                        setManualError(null);
+                        // This order is exactly the selected candidate; reuse
+                        // its real Google line instead of replacing it with a
+                        // straight sketch while the editor opens.
+                        setManualPolyline(
+                          item.candidate.id === selectedCandidate?.id ? polylineResult : null,
+                        );
+                        setManualPolylineError(null);
+                        setManualMode(true);
+                      }}
+                    />
+                  ))}
+                </View>
               </View>
-            </View>
-          ))}
+            ))}
+          </View>
+        ) : null}
+        {request && selectedCandidate ? (
+          <RouteVariantStops candidate={selectedCandidate} request={request} />
+        ) : null}
         </View>
-      ) : null}
-      {/* Below the options, not above them: the driver picks a variant first and
-          then looks at it. A 330px map ahead of the list pushed all five choices
-          off the bottom of the screen. */}
-      {orderedLocations ? (
-        <>
-          <Pressable
-            disabled={showPolyline}
-            onPress={() => setShowPolyline(true)}
-            style={[styles.secondaryButton, showPolyline && styles.disabled]}
-            testID="show-route-polyline">
-            <Text style={styles.secondaryText}>{showPolyline ? 'Kelio linija užkrauta' : 'Rodyti tikrą kelio liniją'}</Text>
-          </Pressable>
-          {showPolyline ? <RouteMapView
-            {...orderedLocations}
-            encodedPolyline={polylineResult?.encodedPolyline}
-            totalDistanceKm={selectedCandidate?.totalDistanceKm}
-            totalDurationMinutes={selectedCandidate?.totalWorkMinutes}
-            allowStraightLineFallback={false}
-            polylineError={polylineError}
-          /> : null}
-        </>
-      ) : null}
+        {orderedLocations ? (
+          <View style={[styles.mapPanel, wideWorkspace && styles.mapPanelWide]}>
+            <RouteMapView
+              {...orderedLocations}
+              encodedPolyline={polylineResult?.encodedPolyline}
+              totalDistanceKm={selectedCandidate?.totalDistanceKm}
+              totalDurationMinutes={selectedCandidate?.totalWorkMinutes}
+              allowStraightLineFallback={false}
+              expectPolyline
+              polylineError={polylineError}
+            />
+            <Pressable
+              disabled={showPolyline && !polylineError}
+              onPress={() => {
+                setPolylineError(null);
+                setPolylineResult(null);
+                setShowPolyline(true);
+                setPolylineAttempt((attempt) => attempt + 1);
+              }}
+              style={[styles.secondaryButton, showPolyline && !polylineError && styles.disabled]}
+              testID="show-route-polyline">
+              <Text style={styles.secondaryText}>{polylineError ? 'Bandyti tikrą kelio liniją dar kartą' : polylineResult ? 'Tikras kelias įkeltas' : 'Tikras kelias kraunamas…'}</Text>
+            </Pressable>
+          </View>
+        ) : null}
+      </View>
       {request ? (
         <Pressable style={styles.secondaryButton} onPress={toggleManualMode} testID="toggle-manual-sequencing">
           <Text style={styles.secondaryText}>{manualMode ? 'Išjungti rankinį maršrutizavimą' : 'Įjungti rankinį maršrutizavimą'}</Text>
@@ -702,7 +731,10 @@ export default function RouteAlternativesScreen() {
               <RouteMapView
                 {...manualMapLocations}
                 encodedPolyline={manualPolyline?.encodedPolyline}
-                allowStraightLineFallback
+                allowStraightLineFallback={false}
+                // After a drag the road line is cleared on purpose. Do not claim
+                // it is „still loading“ until the driver asks to recalculate.
+                expectPolyline={manualRecalculating || Boolean(manualPolyline || manualPolylineError)}
                 totalDistanceKm={manualCandidate?.totalDistanceKm}
                 totalDurationMinutes={manualCandidate?.totalWorkMinutes}
                 polylineError={manualPolylineError}
@@ -860,6 +892,13 @@ function CandidateCard(props: {
 }
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
+  workspace: { gap: spacing.lg, minWidth: 0 },
+  workspaceWide: { flexDirection: 'row', alignItems: 'flex-start' },
+  panel: { gap: spacing.lg, minWidth: 0 },
+  panelWide: { width: 380 },
+  mapPanel: { minWidth: 0, gap: spacing.sm },
+  mapPanelWide: { flex: 1 },
+  groupColumn: { flexDirection: 'column' },
   topActions: { gap: spacing.sm },
   list: { gap: spacing.md },
   groupBlock: { gap: spacing.xs },
@@ -869,7 +908,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   card: { flex: 1, minWidth: 0, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.xs },
   recommended: { borderColor: colors.info },
   selected: { borderWidth: 2, borderColor: colors.info, backgroundColor: colors.infoSoft },
-  title: { ...type.cardTitle, color: colors.text },
+  title: { ...type.cardTitle, color: colors.text, flexShrink: 1 },
   description: { ...type.secondary, color: colors.textMuted, marginTop: spacing.xs },
   candidateSummary: { gap: 4 },
   candidateTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
