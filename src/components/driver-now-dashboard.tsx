@@ -57,7 +57,16 @@ export function DriverNowDashboard({ route, routeLabel, progress, stops, onConti
     </View>
 
     <Pressable accessibilityLabel={driverNowCopy.mapAction} accessibilityRole="button" onPress={onOpenMap} style={styles.mapCard}>
-      {map ? <RouteMapView compact allowStraightLineFallback startLocation={map.start} orderedStops={map.stops} endLocation={map.end} /> : <View style={styles.mapEmpty}><MapIcon palette={palette} /><Text style={styles.mapEmptyText}>{driverNowCopy.noCoordinates}</Text></View>}
+      {map ? (
+        <RouteMapView
+          compact
+          allowStraightLineFallback={false}
+          expectPolyline={false}
+          startLocation={map.start}
+          orderedStops={map.stops}
+          endLocation={map.end}
+        />
+      ) : <View style={styles.mapEmpty}><MapIcon palette={palette} /><Text style={styles.mapEmptyText}>{driverNowCopy.noCoordinates}</Text></View>}
       <View style={styles.mapAction}><Text style={styles.mapActionText}>{driverNowCopy.mapAction}</Text><Text style={styles.chevron}>›</Text></View>
     </Pressable>
 

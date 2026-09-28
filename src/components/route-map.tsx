@@ -26,6 +26,8 @@ export interface RouteMapViewProps {
   readonly allowStraightLineFallback?: boolean;
   readonly compact?: boolean;
   readonly polylineError?: string | null;
+  /** When false, hide the idle „line not received yet“ hint (e.g. before the driver asks for the real polyline). Errors still show. */
+  readonly expectPolyline?: boolean;
 }
 
 const WIDTH = 320;
@@ -42,6 +44,7 @@ export function RouteMapView({
   allowStraightLineFallback = false,
   compact = false,
   polylineError,
+  expectPolyline = true,
 }: RouteMapViewProps) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -128,7 +131,7 @@ export function RouteMapView({
 
       {!compact && polylineError ? (
         <Text style={styles.error}>Kelio linijos gauti nepavyko: {polylineError}</Text>
-      ) : !encodedPolyline && !allowStraightLineFallback ? (
+      ) : expectPolyline && !encodedPolyline && !allowStraightLineFallback ? (
         <Text style={styles.pending}>Tikroji kelio linija dar negauta.</Text>
       ) : allowStraightLineFallback && !encodedPolyline ? (
         <Text style={styles.synthetic}>Sintetinė schema jungia taškus tiesiomis linijomis.</Text>

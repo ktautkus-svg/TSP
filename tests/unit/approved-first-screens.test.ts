@@ -34,6 +34,9 @@ describe('approved first screens', () => {
     expect(copy).toContain('LIKO SVORIO');
     expect(copy).toContain('Artimiausi sustojimai');
     expect(copy).toContain('TĘSTI MARŠRUTĄ');
-    expect(dashboard).toContain('<RouteMapView compact');
+    expect(dashboard).toContain('<RouteMapView');
+    expect(dashboard).toContain('compact');
+    expect(dashboard).toContain('allowStraightLineFallback={false}');
+    expect(dashboard).toContain('expectPolyline={false}');
   });
 });

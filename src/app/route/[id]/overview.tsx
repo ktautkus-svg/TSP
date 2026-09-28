@@ -25,6 +25,8 @@ import { Alert } from '@/ui/alert';
 import { ReorderRemainingStops } from '@/application/routes/route-workday';
 import { ManualRouteOrderList } from '@/components/manual-route-order-list';
 import { RouteMapView } from '@/components/route-map';
+import type { RoutePolylineResult } from '@/domain/routing/models';
+import { GatewayPolylineProvider } from '@/infrastructure/routing/providers/gateway-polyline-provider';
 import { devWarn } from '@/ui/dev-log';
 
 export default function RouteOverviewScreen() {
@@ -43,6 +45,8 @@ export default function RouteOverviewScreen() {
   const [editingOrder, setEditingOrder] = useState(false);
   const [pendingOrder, setPendingOrder] = useState<string[]>([]);
   const [savingOrder, setSavingOrder] = useState(false);
+  const [orderPolyline, setOrderPolyline] = useState<RoutePolylineResult | null>(null);
+  const [orderPolylineError, setOrderPolylineError] = useState<string | null>(null);
   const requestedEditorRef = useRef(false);
   const [assignment, setAssignment] = useState<ServerRouteAssignment | null>(null);
   const [priceSettings, setPriceSettings] = useState<RoutePriceSettings>(() => normalizeRoutePriceSettings(DEFAULT_ROUTE_PRICE_SETTINGS));
@@ -175,6 +179,43 @@ export default function RouteOverviewScreen() {
   const canEditOrder = profile.role !== 'driver' || profile.permissions?.canReorderAssignedRoute;
   const terminal = route ? ['completed', 'cancelled'].includes(route.status) : false;
   const orderMap = useMemo(() => buildOrderMap(route, stops, pendingOrder), [pendingOrder, route, stops]);
+  useEffect(() => {
+    let active = true;
+    if (!editingOrder || !orderMap || orderMap.stops.length === 0) {
+      setOrderPolyline(null);
+      setOrderPolylineError(null);
+      return () => { active = false; };
+    }
+    setOrderPolyline(null);
+    setOrderPolylineError(null);
+    // Reordering can emit several updates in quick succession. Debounce the
+    // paid road-line request so dragging one stop does not buy a route for every
+    // intermediate position.
+    const timer = setTimeout(() => {
+      void new GatewayPolylineProvider().fetchPolyline({
+        startLocation: orderMap.start,
+        orderedStops: orderMap.stops,
+        endLocation: orderMap.end,
+        departureAt: route?.plannedDepartureAt ?? undefined,
+        trafficMode: 'live',
+      }).then((polyline) => {
+        if (!active) return;
+        if (!polyline.encodedPolyline) {
+          setOrderPolyline(null);
+          setOrderPolylineError('Gateway negrąžino maršruto linijos.');
+          return;
+        }
+        setOrderPolyline(polyline);
+        setOrderPolylineError(null);
+      }).catch((reason: unknown) => {
+        if (active) setOrderPolylineError(reason instanceof Error ? reason.message : 'Tikro kelio linijos gauti nepavyko.');
+      });
+    }, 600);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [editingOrder, orderMap, route?.plannedDepartureAt]);
   const vehicleLoad = route && assignment?.vehicle
     ? describeVehicleLoad(route.totalWeightKg, assignment.vehicle.maximumPayloadKg)
     : null;
@@ -243,9 +284,11 @@ export default function RouteOverviewScreen() {
           </View>
           {orderMap ? <View style={styles.orderMap} testID="active-route-order-map">
             <RouteMapView
-              allowStraightLineFallback
+              allowStraightLineFallback={false}
+              encodedPolyline={orderPolyline?.encodedPolyline}
               endLocation={orderMap.end}
               orderedStops={orderMap.stops}
+              polylineError={orderPolylineError}
               startLocation={orderMap.start}
             />
           </View> : <Text style={styles.orderSummary}>Žemėlapis bus rodomas, kai maršruto taškai turės koordinates.</Text>}
