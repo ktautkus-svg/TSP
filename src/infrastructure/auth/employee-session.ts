@@ -1,7 +1,7 @@
-import type { EmployeePermissions } from '@/application/auth/employee-permissions';
-import { handleDemoEmployeeRequest } from '@/infrastructure/auth/demo-employee-api';
-import { EmployeeClientError } from '@/infrastructure/auth/employee-client-error';
-import { createGatewayAuthorizationHeaders } from '@/infrastructure/gateway/device-auth';
+import type { EmployeePermissions } from '../../application/auth/employee-permissions';
+import { handleDemoEmployeeRequest } from './demo-employee-api';
+import { EmployeeClientError } from './employee-client-error';
+import { createGatewayAuthorizationHeaders } from '../gateway/device-auth';
 
 export { EmployeeClientError };
 

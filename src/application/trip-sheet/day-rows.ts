@@ -1,7 +1,7 @@
-import { vehicleDayFuelDistanceKm } from '@/domain/excel-fuel-log';
-import { vehicleDayAssignmentId } from '@/domain/nll182-odometer-log';
-import { fuelFillContinuesLedger } from '@/application/trip-sheet/fuel-balance';
-import { lithuanianDateKey } from '@/domain/lithuanian-time';
+import { vehicleDayFuelDistanceKm } from '../../domain/excel-fuel-log';
+import { vehicleDayAssignmentId } from '../../domain/nll182-odometer-log';
+import { fuelFillContinuesLedger } from './fuel-balance';
+import { lithuanianDateKey } from '../../domain/lithuanian-time';
 
 /**
  * Calendar day stored on the fill. The trip-sheet editor writes the chosen

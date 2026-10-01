@@ -1,7 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-import { validateFuelAmount } from '@/domain/shared-validation';
-import { EmployeeClientError } from '@/infrastructure/auth/employee-client-error';
+import { validateFuelAmount } from '../../domain/shared-validation';
+import { EmployeeClientError } from './employee-client-error';
 
 let demoDatabase: SQLiteDatabase | null = null;
 
