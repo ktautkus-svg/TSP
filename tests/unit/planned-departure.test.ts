@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-import { buildOptimizationRequestFromRoute } from '../../src/application/routes/route-request-builder';
+import { buildOptimizationRequestFromRoute, isStopReadyForRouting } from '../../src/application/routes/route-request-builder';
 import { isHistoricalPlanningDate } from '../../src/application/routes/planning-schedule';
 import type { DeliveryStop, Route } from '../../src/domain/route';
 
@@ -113,6 +113,24 @@ describe('planned departure stays until Start', () => {
     const ms = Date.parse(request.plannedDepartureAt);
     expect(ms).toBeGreaterThanOrEqual(before);
     expect(ms).toBeLessThanOrEqual(after + 1_000);
+  });
+
+  it('accepts explicitly confirmed coordinates even when an older stop has no normalized address', () => {
+    const stop = { ...stopFixture(), originalAddress: '54.6872, 25.2797', normalizedAddress: null };
+    expect(isStopReadyForRouting(stop)).toBe(true);
+
+    const request = buildOptimizationRequestFromRoute(routeFixture(), [stop]);
+    expect(request.stops[0]?.location).toMatchObject({
+      address: '54.6872, 25.2797',
+      latitude: 55.94,
+      longitude: 23.32,
+    });
+  });
+
+  it('does not mark a green state as ready when the coordinates themselves are missing', () => {
+    const stop = { ...stopFixture(), latitude: null, longitude: null };
+    expect(isStopReadyForRouting(stop)).toBe(false);
+    expect(() => buildOptimizationRequestFromRoute(routeFixture(), [stop])).toThrow('dar neturi patvirtintų koordinačių');
   });
 
   it('keeps the loading screen compact and starts live ETAs only from StartRoute', () => {

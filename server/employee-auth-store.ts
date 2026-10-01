@@ -2082,7 +2082,7 @@ export class EmployeeAuthStore {
    * so a later manual correction is never clobbered.
    */
   async applyKarolisSeptember2026PaperSync(): Promise<{ applied: boolean; changes: string[]; skipped: string[] }> {
-    const flagRef = this.settings.doc('karolis-september-2026-paper-sync-v1');
+    const flagRef = this.settings.doc('karolis-september-2026-paper-sync-v2');
     if ((await flagRef.get()).data()?.status === 'applied') return { applied: false, changes: [], skipped: [] };
     const changes: string[] = [];
     const skipped: string[] = [];
@@ -2128,12 +2128,15 @@ export class EmployeeAuthStore {
 
     // 2. 09-01 drove two vans; the MET630 day carries the paper's route, stops and weight.
     const allAssignments = (await this.assignments.get()).docs.map((document) => document.data() as RouteAssignment);
-    const hasSep01 = allAssignments.some((item) => item.driverId === driverId && item.status !== 'cancelled' && tripSheetWorkDate(item) === '2026-09-01');
+    const hasSep01 = allAssignments.some((item) => item.driverId === driverId
+      && item.vehicle?.id === 'MET630'
+      && item.status !== 'cancelled'
+      && tripSheetWorkDate(item) === '2026-09-01');
     const met0901 = (await this.vehicleDayReadings.doc(vehicleDayReadingDocId('MET630', '2026-09-01')).get()).data() as VehicleDayReading | undefined;
     if (!hasSep01 && met0901 && met0901.startOdometer === 680012 && met0901.endOdometer === 680434) {
       try {
         await this.createAccountingTrip(profile, {
-          date: '2026-09-01', driverId, vehicleId: 'MET630', routeLabel: 'R70;R09;R99',
+          date: '2026-09-01', driverId, vehicleId: 'MET630', routeLabel: 'R09;R99',
           totalStops: 6, totalWeightKg: 1214, startOdometer: 680012, endOdometer: 680434,
           startedClock: '', completedClock: '',
         });
@@ -2172,7 +2175,55 @@ export class EmployeeAuthStore {
       changes.push('fuel duplicate 09-07');
     } else skipped.push('fuel duplicate 09-07');
 
-    // 5. "Papildomai" and comments from the paper sheet.
+    // 5. The paper sheet records the real tank balance when MET630 returned
+    // after another driver had used it. Those dated readings deliberately
+    // reset Karolis' fuel chain; kilometres driven by somebody else must not
+    // be guessed or charged to Karolis.
+    const existingFuelReports = (await this.fuelReports.get()).docs
+      .map((document) => normalizeFuelReport(document.data() as FuelReport));
+    const fuelAnchors = [
+      { date: '2026-09-08', liters: 112 },
+      { date: '2026-09-16', liters: 65 },
+    ];
+    for (const anchor of fuelAnchors) {
+      const exists = existingFuelReports.some((report) => report.vehicleId === 'MET630'
+        && report.status === 'approved'
+        && report.effectiveAt === anchor.date
+        && Math.abs(report.reportedLiters - anchor.liters) < 0.01);
+      if (exists) { skipped.push(`fuel anchor ${anchor.date}`); continue; }
+      try {
+        await this.correctFuelBalance(profile, {
+          vehicleId: 'MET630',
+          liters: anchor.liters,
+          effectiveAt: anchor.date,
+          note: 'Faktinis likutis pagal 2026 m. rugsėjo popierinį kelionės lapą',
+        });
+        changes.push(`fuel anchor ${anchor.date}`);
+      } catch { skipped.push(`fuel anchor ${anchor.date} (klaida)`); }
+    }
+
+    // 09-18 was a real 10 km service trip, not just a free-floating fill.
+    const hasServiceTrip = allAssignments.some((item) => item.driverId === driverId
+      && item.vehicle?.id === 'MET630'
+      && item.status !== 'cancelled'
+      && tripSheetWorkDate(item) === '2026-09-18');
+    const metFuelEntries = (await this.fuelEntries.get()).docs
+      .map((document) => document.data() as ServerFuelEntry)
+      .filter((entry) => entry.vehicleId === 'MET630');
+    const serviceFill = fuelEntriesOnDate(metFuelEntries, '2026-09-18')
+      .some((entry) => Math.abs(entry.liters - 50) < 0.01 && entry.receiptNumber === '3/1200');
+    if (!hasServiceTrip && serviceFill) {
+      try {
+        await this.createAccountingTrip(profile, {
+          date: '2026-09-18', driverId, vehicleId: 'MET630', routeLabel: 'Servisas',
+          totalStops: 0, totalWeightKg: 0, startOdometer: 683504, endOdometer: 683514,
+          startedClock: '', completedClock: '',
+        });
+        changes.push('accounting trip 09-18');
+      } catch { skipped.push('accounting trip 09-18 (klaida)'); }
+    } else skipped.push('accounting trip 09-18');
+
+    // 6. "Papildomai" and comments from the paper sheet.
     const extras: { date: string; amountEur: number; comment: string }[] = [
       { date: '2026-09-01', amountEur: 0, comment: 'Su dviem mašinom (MET630 + NLL182)' },
       { date: '2026-09-02', amountEur: 30, comment: 'Priedas už taškus ir svorį su maža mašina' },

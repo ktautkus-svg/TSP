@@ -16,7 +16,8 @@ export function buildOptimizationStop(
   options: { priorityRank?: number; deliverBeforeStopIds?: string[] } = {},
 ): OptimizationStop {
   const coords = routingCoordinates(stop);
-  if (stop.addressValidationState !== 'auto_confirmed' || !coords || !stop.normalizedAddress) {
+  const routingAddress = stop.normalizedAddress?.trim() || stop.originalAddress.trim();
+  if (!isStopReadyForRouting(stop) || !coords) {
     throw new Error(`Taškas „${stop.originalAddress}“ dar neturi patvirtintų koordinačių.`);
   }
   const priorityRank = options.priorityRank ?? (stop.priorityFirst ? 1 : 0);
@@ -24,8 +25,8 @@ export function buildOptimizationStop(
     id: stop.id,
     location: {
       id: stop.id,
-      label: stop.recipient || stop.normalizedAddress,
-      address: stop.normalizedAddress,
+      label: stop.recipient || routingAddress,
+      address: routingAddress,
       latitude: coords.latitude,
       longitude: coords.longitude,
     },
@@ -58,7 +59,7 @@ export function buildOptimizationRequestFromRoute(
   const end = requireEndpoint(route.endLocation ?? route.startLocation, 'pabaigos');
   if (stops.length === 0) throw new Error('Maršrutas neturi pristatymo taškų.');
   for (const stop of stops) {
-    if (stop.addressValidationState !== 'auto_confirmed' || !routingCoordinates(stop) || !stop.normalizedAddress) {
+    if (!isStopReadyForRouting(stop)) {
       throw new Error(`Taškas „${stop.originalAddress}“ dar neturi patvirtintų koordinačių.`);
     }
   }
@@ -135,6 +136,18 @@ export function buildOptimizationRequestFromRoute(
       defaultEndLocation: endLocation,
     },
   };
+}
+
+/**
+ * One readiness rule for both the address-review screen and the optimizer.
+ * Explicit coordinates are a complete routing location even when an older
+ * synced stop has no separate normalized-address value; its original label is
+ * retained for the driver's stop list.
+ */
+export function isStopReadyForRouting(stop: DeliveryStop): boolean {
+  return stop.addressValidationState === 'auto_confirmed'
+    && routingCoordinates(stop) !== null
+    && Boolean(stop.normalizedAddress?.trim() || stop.originalAddress.trim());
 }
 
 function searchBudgetFor(

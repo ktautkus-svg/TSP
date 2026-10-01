@@ -4,6 +4,8 @@ export function calculateTripFuelEnd(startLiters: number | null, addedLiters: nu
 
 export type FuelLedgerInputDay = {
   date: string;
+  /** A measured/corrected opening balance for this exact day resets the chain. */
+  openingLiters?: number | null;
   /** Odometer difference for the day; null when the readings are not in yet. */
   distanceKm: number | null;
   /** Litres per 100 km for the vehicle driven that day. */
@@ -102,7 +104,7 @@ export function buildFuelLedger(
 ): FuelLedgerDay[] {
   let carried = openingLiters;
   return days.map((day) => {
-    const startLiters = carried;
+    const startLiters = day.openingLiters === undefined ? carried : day.openingLiters;
     const consumedLiters = day.fuelOnly
       ? 0
       : day.distanceKm === null || day.fuelNormLPer100Km === null

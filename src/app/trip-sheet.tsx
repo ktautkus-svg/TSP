@@ -641,11 +641,18 @@ function applyFuelLedger(
       .map((sheet) => sheet.vehicle?.fuelRemainingLiters)
       .find((value): value is number => value !== null && value !== undefined)
     ?? null;
+  const exactDayAnchors = new Map<string, number>();
+  for (const sheet of sheets) {
+    const anchor = sheet.fuelAnchor;
+    if (anchor && anchor.effectiveAt === sheet.date) exactDayAnchors.set(sheet.date, anchor.liters);
+  }
   const ledger = buildFuelLedger(
     days.map((day) => {
       const fuelOnly = fuelFillContinuesLedger(day);
+      const exactOpening = exactDayAnchors.get(day.date);
       return {
         date: day.date,
+        ...(exactOpening === undefined ? {} : { openingLiters: exactOpening }),
         distanceKm: fuelOnly ? 0 : day.distanceKm,
         fuelOnly,
         fuelNormLPer100Km: day.fuelNorm,

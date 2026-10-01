@@ -68,6 +68,20 @@ function sheet(partial: Partial<MonthSummarySheet> & Pick<MonthSummarySheet, 'as
 }
 
 describe('month summary', () => {
+  it('keeps the overview focused while retaining full fields in the editor', () => {
+    const source = readFileSync(resolve(import.meta.dirname, '../../src/app/finance/month-summary.tsx'), 'utf8');
+    const table = source.slice(source.indexOf('function DesktopTable'), source.indexOf('function EditorModal'));
+    expect(table).toContain("['Data', 'Vairuotojas', 'Numeris', 'Maršrutas', 'Taškai', 'Svoris', 'Km', 'Pastabos', '']");
+    expect(table).not.toContain('<Fact label="Automobilis"');
+    expect(table).not.toContain('<Fact label="Būsena"');
+    expect(table).not.toContain('<Fact label="Išvykimas"');
+    expect(table).not.toContain('<Fact label="Užbaigimas"');
+    const editor = source.slice(source.indexOf('function EditorModal'));
+    expect(editor).toContain('label="Automobilis"');
+    expect(editor).toContain('label="Išvykimas"');
+    expect(editor).toContain('label="Užbaigimas"');
+  });
+
   it('keeps every day and does not merge two trips on the same day', () => {
     const summary = buildMonthSummary({
       year: 2026,

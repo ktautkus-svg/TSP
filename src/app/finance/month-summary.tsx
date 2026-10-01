@@ -376,7 +376,7 @@ function DesktopTable({ rows, corrections, onEdit, onCreate, styles }: {
 }) {
   return <View>
     <View style={styles.head}>
-      {['Data', 'Vairuotojas', 'Automobilis', 'Numeris', 'Maršrutas', 'Būsena', 'Taškai', 'Svoris', 'Km', 'Išvykimas', 'Užbaigimas', 'Pastabos', ''].map((label) => (
+      {['Data', 'Vairuotojas', 'Numeris', 'Maršrutas', 'Taškai', 'Svoris', 'Km', 'Pastabos', ''].map((label) => (
         <Text key={label || 'action'} style={[styles.headCell, label === '' && styles.actionCell]}>{label}</Text>
       ))}
     </View>
@@ -395,15 +395,11 @@ function DesktopRow({ row, corrections, onEdit, onCreate, styles }: {
   return <View style={[styles.row, row.issues.length > 0 && (severe ? styles.rowDanger : styles.rowWarning)]} testID={`month-summary-row-${row.key}`}>
     <Text style={styles.cell}>{formatMonthSummaryDay(row.date)}</Text>
     <Text style={styles.cell}>{shownDriver(row)}</Text>
-    <Text style={styles.cell}>{shownVehicle(row)}</Text>
     <Text style={styles.cell}>{row.registrationNumber || 'Nėra numerio'}</Text>
     <Text style={styles.cell}>{row.source === 'empty' ? '—' : row.routeLabel}</Text>
-    <Text style={styles.cell}>{row.statusLabel}</Text>
     <Text style={styles.cell}>{shownCount(row.totalStops)}</Text>
     <Text style={styles.cell}>{shownDecimal(row.totalWeightKg)}</Text>
     <Text style={styles.cell}>{kmText(row)}</Text>
-    <Text style={styles.cell}>{formatSummaryClock(row.startedAt)}</Text>
-    <Text style={styles.cell}>{formatSummaryClock(row.completedAt)}</Text>
     <Text style={styles.cell}>{noteText(row, corrections)}</Text>
     <View style={styles.actionCell}>
       {row.source === 'empty'
@@ -431,15 +427,11 @@ function PhoneList({ rows, corrections, onEdit, onCreate, styles }: {
         const severe = isSevere(row);
         return <View key={row.key} style={[styles.dayCard, row.issues.length > 0 && (severe ? styles.rowDanger : styles.rowWarning)]} testID={`month-summary-row-${row.key}`}>
           <Fact label="Vairuotojas" styles={styles} value={shownDriver(row)} />
-          <Fact label="Automobilis" styles={styles} value={shownVehicle(row)} />
           <Fact label="Valstybinis numeris" styles={styles} value={row.registrationNumber || 'Nėra numerio'} />
           <Fact label="Maršrutas" styles={styles} value={row.source === 'empty' ? '—' : row.routeLabel} />
-          <Fact label="Būsena" styles={styles} value={row.statusLabel} />
           <Fact label="Taškai" styles={styles} value={shownCount(row.totalStops)} />
           <Fact label="Svoris, kg" styles={styles} value={shownDecimal(row.totalWeightKg)} />
           <Fact label="Kilometrai" styles={styles} value={kmText(row)} />
-          <Fact label="Išvykimas" styles={styles} value={formatSummaryClock(row.startedAt)} />
-          <Fact label="Užbaigimas" styles={styles} value={formatSummaryClock(row.completedAt)} />
           <Fact label="Pastabos" styles={styles} value={noteText(row, corrections)} />
           {row.source === 'empty'
             ? <AppButton label="Pridėti" onPress={() => onCreate(date)} variant="secondary" />
