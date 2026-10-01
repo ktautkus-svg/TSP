@@ -134,4 +134,4 @@ function round(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
-export { extraDistanceKmOf, vehicleDayFuelDistanceKm } from '@/domain/excel-fuel-log';
+export { extraDistanceKmOf, vehicleDayFuelDistanceKm } from '../../domain/excel-fuel-log';

@@ -1,6 +1,6 @@
-import { odometerDistanceKm } from '@/domain/nll182-odometer-log';
-import { normalizeRegionCode, uniqueRegionCodes, type RouteCodeSource } from '@/domain/route-code';
-import { lithuanianDateTimeToIso } from '@/domain/lithuanian-time';
+import { odometerDistanceKm } from './nll182-odometer-log';
+import { normalizeRegionCode, uniqueRegionCodes, type RouteCodeSource } from './route-code';
+import { lithuanianDateTimeToIso } from './lithuanian-time';
 
 const FUTURE_TOLERANCE_MS = 5 * 60_000;
 
