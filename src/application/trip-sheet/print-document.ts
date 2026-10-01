@@ -1,7 +1,7 @@
 import { distinctDriverCount, TRIP_SHEET_PRINT_COLUMNS, tripSheetCells, tripSheetColumnLegend, type TripSheetCell } from '@/application/trip-sheet/columns';
 import { FUEL_OVER_CAPACITY_NOTE, closingFuelLiters, fuelRemainderExceedsTank, openingFuelLiters } from '@/application/trip-sheet/fuel-balance';
 
-const PRINT_COL_PERCENTS = [6, 10, 16, 7, 10, 8, 9, 12, 8, 7, 7];
+const PRINT_COL_PERCENTS = [5, 9, 12, 6, 9, 7, 8, 10, 8, 7, 7, 12];
 
 export type TripSheetPrintRow = {
   date: string;

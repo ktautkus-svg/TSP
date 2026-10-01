@@ -20,6 +20,7 @@ export const TRIP_SHEET_COLUMNS = [
   { key: 'fuelEnd', short: 'Kuro likutis', full: 'Kuro likutis, l' },
   { key: 'odoStart', short: 'Odo prad.', full: 'Odometras pradžioje' },
   { key: 'odoEnd', short: 'Odo pab.', full: 'Odometras pabaigoje' },
+  { key: 'driver', short: 'Vairuotojas', full: 'Vairuotojas' },
 ] as const satisfies readonly TripSheetColumn[];
 
 export const TRIP_SHEET_GRID_COLUMNS = TRIP_SHEET_COLUMNS;
@@ -79,7 +80,7 @@ export function tripSheetCells(input: TripSheetCellInput): TripSheetCell[] {
   const values: Record<TripSheetCell['key'], number | string | null> = {
     line: input.lineNumber,
     date: input.date,
-    route: tripSheetDisplayedRoute(input.route, input.driverName, input.distinctDriverCount),
+    route: input.route,
     km: input.distanceKm,
     fuelStart: input.fuelStart,
     added: input.fuelAdded,
@@ -88,6 +89,7 @@ export function tripSheetCells(input: TripSheetCellInput): TripSheetCell[] {
     fuelEnd: input.fuelEnd,
     odoStart: input.startOdometer,
     odoEnd: input.endOdometer,
+    driver: input.driverName.trim() || null,
   };
   return TRIP_SHEET_COLUMNS.map((column) => ({ key: column.key, value: values[column.key] }));
 }
