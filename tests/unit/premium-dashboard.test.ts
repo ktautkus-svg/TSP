@@ -177,6 +177,12 @@ describe('premium route dashboard', () => {
     expect(delivery).toContain('maxWidth: 430');
     expect(delivery).toContain('edgeToEdge');
     expect(delivery).toContain('showHeading={false}');
+    // The driver-designed cockpit must be the first content on the dashboard.
+    // The verbose day summary belongs to the dedicated Stops tab only.
+    expect(delivery).toContain("{activeView === 'stops' && progress ? (");
+    expect(delivery.indexOf("{activeView === 'stops' && progress ? (")).toBeLessThan(
+      delivery.indexOf('testID="driver-day-progress"'),
+    );
     expect(delivery).toContain('routeMain: { flex: 1, minHeight: 0');
     expect(delivery).toContain('dashboardSecondaryMobile: { flexGrow: 1, flexShrink: 1');
     expect(delivery).toContain("dashboardStopActionsCompact: { marginTop: 'auto' }");

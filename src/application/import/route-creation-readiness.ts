@@ -1,4 +1,5 @@
 import { unresolvedExcelIssues } from '@/application/import/excel-route-mapper';
+import { hasSafelyConfirmedDeliveryAddress } from '@/application/import/address-resolver';
 import type { ExcelImportPreview } from '@/domain/import/excel-models';
 import type { ImportResult, ParsedDelivery } from '@/domain/import/models';
 import type { PlanningMode, RouteEndpoint } from '@/domain/route';
@@ -31,7 +32,7 @@ export function getRouteCreationBlockers(input: {
     blockers.push('Atkurto importo duomenys paseno. Paspauskite „Patikrinti pataisytus adresus“.');
   }
   for (const [index, delivery] of relevantDeliveries.entries()) {
-    if (!delivery.address.value || !delivery.selectedAddress || delivery.validationState !== 'valid') {
+    if (!hasSafelyConfirmedDeliveryAddress(delivery)) {
       blockers.push(`Pristatymo taškas ${index + 1}: adresas dar nepatvirtintas.`);
     }
   }

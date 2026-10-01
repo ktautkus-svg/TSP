@@ -3,6 +3,7 @@ import { Stack, usePathname, useRouter, type Href } from 'expo-router';
 import { SQLiteProvider } from 'expo-sqlite';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useState, type ReactNode } from 'react';
+import type { SQLiteDatabase } from 'expo-sqlite';
 import { Pressable, Text, View } from 'react-native';
 import {
   useFonts,
@@ -13,12 +14,17 @@ import {
   Archivo_800ExtraBold,
 } from '@expo-google-fonts/archivo';
 
+import { subscribeActiveDatabase } from '@/application/auth/active-database';
+import { markDemoDatabase, seedDemoDriverDatabase } from '@/application/auth/demo-driver-seed';
 import { PwaRuntime } from '@/components/pwa-runtime';
 import { LocalAccessGate } from '@/components/local-access-gate';
 import { StackBrandTitle } from '@/components/stack-brand-title';
 import { StackBackButton, StackHeaderActions } from '@/components/stack-navigation';
 import { RouteCloudSyncProvider } from '@/application/sync/route-cloud-sync-context';
 import { migrateDatabase } from '@/database/migrations';
+import { DEMO_DATABASE_NAME, REAL_DATABASE_NAME } from '@/domain/demo-driver';
+import { getEmployeeSession } from '@/infrastructure/auth/employee-session';
+import { bindDemoDatabase } from '@/infrastructure/auth/demo-employee-api';
 import { ThemeProvider } from '@/ui/theme';
 import { AlertHost } from '@/ui/alert';
 import { colors, radius, type } from '@/ui/tokens';
@@ -34,6 +40,9 @@ function RoleAccessBoundary({ children }: { children: ReactNode }) {
     || pathname === '/dispatcher'
     || pathname === '/route-management'
     || pathname === '/financial-settings'
+    || pathname === '/finance'
+    || pathname.startsWith('/finance/')
+    || pathname === '/fleet'
     || pathname.startsWith('/import')
     || pathname === '/route/new';
   const routePlanning = /\/route\/[^/]+\/(review|alternatives)$/.test(pathname);
@@ -60,7 +69,7 @@ const failureStyles = {
 
 function localDatabaseError(error: unknown): Error {
   const fallback = error instanceof Error ? error.message : String(error);
-  if (/NoModificationAllowedError|Access Handles? cannot be created/i.test(fallback)) {
+  if (/InvalidStateError|NoModificationAllowedError|Access Handles? cannot be created/i.test(fallback)) {
     return new Error('FiRo vietinė bazė jau naudojama kitame naršyklės lange. Uždarykite kitą FiRo kortelę arba įdiegtos programėlės langą ir paspauskite „Perkrauti puslapį“.');
   }
   return error instanceof Error ? error : new Error(`Vietinės bazės klaida: ${fallback}`);
@@ -84,7 +93,19 @@ export function ErrorBoundary({ error, retry }: { error: Error; retry: () => Pro
   );
 }
 
+async function prepareDatabase(database: SQLiteDatabase, databaseName: string): Promise<void> {
+  await migrateDatabase(database);
+  if (databaseName === DEMO_DATABASE_NAME) {
+    bindDemoDatabase(database);
+    await markDemoDatabase(database);
+    await seedDemoDriverDatabase(database);
+    return;
+  }
+  bindDemoDatabase(null);
+}
+
 export default function RootLayout() {
+  const [databaseName, setDatabaseName] = useState<string | null>(null);
   const [dbError, setDbError] = useState<Error | null>(null);
   const [fontsLoaded, fontsError] = useFonts({
     Archivo_400Regular,
@@ -95,13 +116,21 @@ export default function RootLayout() {
   });
 
   useEffect(() => {
+    const unsubscribe = subscribeActiveDatabase(setDatabaseName);
+    void getEmployeeSession()
+      .then((session) => setDatabaseName(session?.demo ? DEMO_DATABASE_NAME : REAL_DATABASE_NAME))
+      .catch(() => setDatabaseName(REAL_DATABASE_NAME));
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
     if (!fontsLoaded && !fontsError) return;
     void SplashScreen.hideAsync().catch((reason) => {
       devWarn('SPLASH_HIDE_FAILED', reason);
     });
   }, [fontsLoaded, fontsError]);
 
-  if (!fontsLoaded && !fontsError) {
+  if (!fontsLoaded && !fontsError || !databaseName) {
     return null;
   }
 
@@ -129,8 +158,9 @@ export default function RootLayout() {
 
   return (
     <SQLiteProvider
-      databaseName="deliveries.db"
-      onInit={migrateDatabase}
+      key={databaseName}
+      databaseName={databaseName}
+      onInit={(database) => prepareDatabase(database, databaseName)}
       onError={(error) => {
         devWarn('SQLite DB init error:', error);
         setDbError(localDatabaseError(error));
@@ -180,6 +210,7 @@ export default function RootLayout() {
               <Stack.Screen name="finance/wages" options={{ title: 'Darbuotojų atlygis' }} />
               <Stack.Screen name="finance/route-price" options={{ title: 'Reiso kaina' }} />
               <Stack.Screen name="finance/calculator" options={{ title: 'Skaičiuoklė' }} />
+              <Stack.Screen name="finance/month-summary" options={{ title: 'Mėnesio suvestinė' }} />
               <Stack.Screen name="fleet" options={{ title: 'Automobiliai' }} />
               <Stack.Screen name="loading-schema-preview" options={{ title: 'Krovimo schema (peržiūra)' }} />
               <Stack.Screen name="directory" options={{ title: 'Kontaktai' }} />

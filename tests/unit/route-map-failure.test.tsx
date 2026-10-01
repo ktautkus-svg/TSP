@@ -103,12 +103,15 @@ describe('pasirinkto varianto duomenys be žemėlapio', () => {
     expect(content).toContain('Laikas neapskaičiuotas');
   });
   it('santraukoje pateikia pasirinkto varianto rodiklius', () => {
-    const content = text(nodes(RouteVariantSummary({ candidate, count: 4, title: 'Greičiausias' })));
+    const tree = nodes(RouteVariantSummary({ candidate, count: 4, title: 'Greičiausias' }));
+    const content = text(tree);
+    const metrics = tree.filter((node) => typeof node.type === 'function')
+      .map((node) => ({ label: node.props.label, value: node.props.value }));
     expect(content).toContain('Greičiausias');
-    expect(content).toContain('Variantų: 4');
-    expect(content).toContain('42.5 km');
-    expect(content).toContain('1 val. 30 min');
-    expect(content).toContain('Sustojimų: 3');
+    expect(metrics).toContainEqual({ label: 'VARIANTAI', value: '4' });
+    expect(metrics).toContainEqual({ label: 'ATSTUMAS', value: '42.5 km' });
+    expect(metrics).toContainEqual({ label: 'TRUKMĖ', value: '1 val. 30 min.' });
+    expect(metrics).toContainEqual({ label: 'SUSTOJIMAI', value: '3' });
   });
 });
 

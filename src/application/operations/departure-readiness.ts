@@ -38,11 +38,13 @@ export async function loadDepartureReadiness(
   db: SQLiteDatabase,
   _stops: readonly DeliveryStop[] = [],
   now?: string,
+  vehicleId?: string | null,
 ): Promise<DepartureReadiness> {
   if (!await schemaSupportsDepartureGates(db)) {
     return emptyReadiness();
   }
-  const vehicle = await new TripSheetRepository(db).getVehicle();
+  const repository = new TripSheetRepository(db);
+  const vehicle = vehicleId ? await repository.getVehicleById(vehicleId) : await repository.getVehicle();
   const faults = vehicle ? await new VehicleFaultRepository(db).listOpen(vehicle.id) : [];
   const evaluated = evaluateDepartureReadiness({
     vehicle: vehicle ? {
@@ -72,8 +74,9 @@ export async function loadDepartureReadiness(
   });
 }
 
-async function currentExpiredGate(db: SQLiteDatabase, now?: string) {
-  const vehicle = await new TripSheetRepository(db).getVehicle();
+async function currentExpiredGate(db: SQLiteDatabase, now?: string, vehicleId?: string | null) {
+  const repository = new TripSheetRepository(db);
+  const vehicle = vehicleId ? await repository.getVehicleById(vehicleId) : await repository.getVehicle();
   if (!vehicle) throw new Error('Pirmiausia išsaugokite automobilį.');
   const faults = await new VehicleFaultRepository(db).listOpen(vehicle.id);
   const readiness = evaluateDepartureReadiness({
@@ -100,13 +103,13 @@ async function currentExpiredGate(db: SQLiteDatabase, now?: string) {
 
 export async function requestExpiredDepartureOverride(
   db: SQLiteDatabase,
-  input: { requestedBy: string; online: boolean },
+  input: { requestedBy: string; online: boolean; vehicleId?: string | null },
   now = new Date().toISOString(),
 ) {
   if (!await schemaSupportsDepartureOverrides(db)) {
     throw new Error('Ši programos versija dar nepalaiko išvykimo patvirtinimų.');
   }
-  const gate = await currentExpiredGate(db, now);
+  const gate = await currentExpiredGate(db, now, input.vehicleId);
   const override = await new VehicleDepartureOverrideRepository(db).request({
     vehicleId: gate.vehicle.id,
     fingerprint: gate.fingerprint,
@@ -135,13 +138,13 @@ export async function requestExpiredDepartureOverride(
 
 export async function approveExpiredDepartureOverride(
   db: SQLiteDatabase,
-  input: { approvedBy: string; note?: string | null; online: boolean },
+  input: { approvedBy: string; note?: string | null; online: boolean; vehicleId?: string | null },
   now = new Date().toISOString(),
 ) {
   if (!await schemaSupportsDepartureOverrides(db)) {
     throw new Error('Ši programos versija dar nepalaiko išvykimo patvirtinimų.');
   }
-  const gate = await currentExpiredGate(db, now);
+  const gate = await currentExpiredGate(db, now, input.vehicleId);
   const override = await new VehicleDepartureOverrideRepository(db).approve({
     vehicleId: gate.vehicle.id,
     fingerprint: gate.fingerprint,
@@ -169,9 +172,10 @@ export async function approveExpiredDepartureOverride(
   return override;
 }
 
-export async function pullDepartureOverride(db: SQLiteDatabase): Promise<void> {
+export async function pullDepartureOverride(db: SQLiteDatabase, vehicleId?: string | null): Promise<void> {
   if (!await schemaSupportsDepartureOverrides(db)) return;
-  const vehicle = await new TripSheetRepository(db).getVehicle();
+  const repository = new TripSheetRepository(db);
+  const vehicle = vehicleId ? await repository.getVehicleById(vehicleId) : await repository.getVehicle();
   if (!vehicle) return;
   const query = new URLSearchParams({
     vehicleId: vehicle.id,
@@ -200,10 +204,10 @@ export async function pullDepartureOverride(db: SQLiteDatabase): Promise<void> {
 export async function refreshDepartureReadiness(
   db: SQLiteDatabase,
   stops: readonly DeliveryStop[] = [],
-  options?: { now?: string; online?: boolean },
+  options?: { now?: string; online?: boolean; vehicleId?: string | null },
 ): Promise<DepartureReadiness> {
   if (options?.online) {
-    await pullDepartureOverride(db).catch(() => undefined);
+    await pullDepartureOverride(db, options.vehicleId).catch(() => undefined);
   }
-  return loadDepartureReadiness(db, stops, options?.now);
+  return loadDepartureReadiness(db, stops, options?.now, options?.vehicleId);
 }

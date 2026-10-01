@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { selectRouteFuelAssignment } from '../src/domain/fuel-entry-assignment.js';
+import { sessionMaxAgeSeconds } from '../src/domain/session-lifetime.js';
 
 import { GatewayNonceRegistry, verifyGatewaySignature } from '../gateway/security.js';
 import {
@@ -14,10 +15,13 @@ import {
     type EmployeeRole,
     type RouteSnapshot,
 } from './employee-auth-store.js';
+import { FirestoreMailConnectionRepository } from './mail-connection-store.js';
+import { handleMailImport, mailErrorStatus } from './mail-import-api.js';
 import { RouteSyncStore, type RouteSyncPushItem } from './route-sync-store.js';
 
 const store = new EmployeeAuthStore();
 const routeSyncStore = new RouteSyncStore();
+const mailConnections = new FirestoreMailConnectionRepository();
 const bootstrapNonces = new GatewayNonceRegistry();
 const loginAttempts = new Map<string, number[]>();
 let legacyAdminMigration: Promise<void> | null = null;
@@ -210,8 +214,19 @@ export async function handleEmployeeApi(
       });
       const session = await store.login(profile.username, pin);
       return send(response, 201, { profile: session.profile, expiresAt: session.expiresAt }, requestId, {
-        'set-cookie': sessionCookie(session.token),
+        'set-cookie': sessionCookie(session.token, sessionMaxAgeSeconds(session.profile.role)),
       });
+    }
+
+    if (request.method === 'GET' && pathname === '/api/mail/callback') {
+      return writeMailResult(response, await handleMailImport({
+        method: 'GET',
+        pathname,
+        url: request.url ?? '',
+        body: null,
+        profileId: null,
+        repository: mailConnections,
+      }), requestId);
     }
 
     if (request.method === 'POST' && pathname === '/api/auth/login') {
@@ -221,12 +236,32 @@ export async function handleEmployeeApi(
       const session = await store.login(stringField(body, 'username'), stringField(body, 'pin'));
       loginAttempts.delete(client);
       return send(response, 200, { profile: session.profile, expiresAt: session.expiresAt }, requestId, {
-        'set-cookie': sessionCookie(session.token),
+        'set-cookie': sessionCookie(session.token, sessionMaxAgeSeconds(session.profile.role)),
       });
     }
 
     const token = sessionToken(request);
-    const profile = await store.authenticate(token);
+    const resolved = await store.resolveSession(token);
+    const profile = resolved.profile;
+    if (resolved.refreshCookie) {
+      response.setHeader('set-cookie', sessionCookie(token, sessionMaxAgeSeconds(profile.role)));
+    }
+    if (pathname.startsWith('/api/mail/')) {
+      try {
+        const mailBody = request.method === 'GET' ? null : parseObject(await readBody(request, 32_000));
+        return writeMailResult(response, await handleMailImport({
+          method: request.method ?? 'GET',
+          pathname,
+          url: request.url ?? '',
+          body: mailBody,
+          profileId: profile.id,
+          repository: mailConnections,
+        }), requestId);
+      } catch (error) {
+        const failed = mailErrorStatus(error);
+        return send(response, failed.status, failed.body, requestId);
+      }
+    }
 
     if (request.method === 'GET' && pathname === '/api/auth/me') {
       return send(response, 200, { profile }, requestId);
@@ -436,6 +471,42 @@ export async function handleEmployeeApi(
       requireRole(profile, ['admin', 'dispatcher', 'quality']);
       return send(response, 200, { assignments: await store.listAssignments(profile) }, requestId);
     }
+    if (pathname === '/api/admin/accounting-trips' && request.method === 'POST') {
+      requireManagementPermission(profile, 'canManageFinancials');
+      const body = parseObject(await readBody(request, 32_000));
+      const created = await store.createAccountingTrip(profile, {
+        date: stringField(body, 'date'),
+        driverId: stringField(body, 'driverId'),
+        vehicleId: stringField(body, 'vehicleId'),
+        routeLabel: optionalString(body, 'routeLabel') ?? '',
+        totalStops: numberField(body, 'totalStops'),
+        totalWeightKg: numberField(body, 'totalWeightKg'),
+        startOdometer: nullableNumberField(body, 'startOdometer'),
+        endOdometer: nullableNumberField(body, 'endOdometer'),
+        startedClock: optionalString(body, 'startedClock') ?? '',
+        completedClock: optionalString(body, 'completedClock') ?? '',
+      });
+      return send(response, 201, created, requestId);
+    }
+    if (pathname === '/api/admin/accounting-corrections' && request.method === 'GET') {
+      requireManagementPermission(profile, 'canManageFinancials');
+      const month = new URL(request.url ?? '', 'http://localhost').searchParams.get('month') ?? '';
+      return send(response, 200, { corrections: await store.listAdminCorrections(month) }, requestId);
+    }
+    if (pathname === '/api/admin/vehicle-day-readings/move' && request.method === 'POST') {
+      requireManagementPermission(profile, 'canManageFinancials');
+      const body = parseObject(await readBody(request, 32_000));
+      const reading = await store.relocateVehicleDayReading(profile, {
+        fromVehicleId: stringField(body, 'fromVehicleId'),
+        fromDate: stringField(body, 'fromDate'),
+        toVehicleId: stringField(body, 'toVehicleId'),
+        toDate: stringField(body, 'toDate'),
+        startOdometer: numberField(body, 'startOdometer'),
+        endOdometer: numberField(body, 'endOdometer'),
+        driverId: body.driverId === null || body.driverId === undefined ? null : stringField(body, 'driverId'),
+      });
+      return send(response, 200, { reading }, requestId);
+    }
     if (pathname === '/api/assignments' && request.method === 'GET') {
       requireRole(profile, ['driver']);
       return send(response, 200, { assignments: await store.listAssignments(profile) }, requestId);
@@ -471,28 +542,50 @@ export async function handleEmployeeApi(
       const assignment = await store.cancelAssignment(decodeURIComponent(adminAssignmentCancelMatch[1]));
       return send(response, 200, { assignment }, requestId);
     }
+    const adminAssignmentWorkDateMatch = pathname.match(/^\/api\/admin\/assignments\/([^/]+)\/work-date$/);
+    if (adminAssignmentWorkDateMatch && request.method === 'POST') {
+      requireManagementPermission(profile, 'canManageFinancials');
+      const body = parseObject(await readBody(request, 8_000));
+      const result = await store.correctAssignmentWorkDate(
+        decodeURIComponent(adminAssignmentWorkDateMatch[1]),
+        stringField(body, 'date'),
+        { id: profile.id, displayName: profile.displayName },
+      );
+      if (result.assignment.routeSnapshot.stops.length > 0) {
+        await routeSyncStore.seedAssignment(result.assignment.driverId, result.assignment.routeSnapshot).catch((reason) => {
+          process.stderr.write(`${JSON.stringify({ event: 'route_sync_work_date_seed_failed', requestId, error: reason instanceof Error ? reason.message : String(reason) })}\n`);
+        });
+      }
+      return send(response, 200, result, requestId);
+    }
     const adminAssignmentMatch = pathname.match(/^\/api\/admin\/assignments\/([^/]+)$/);
     if (adminAssignmentMatch && request.method === 'PATCH') {
       requireRole(profile, ['admin', 'dispatcher']);
       const body = parseObject(await readBody(request, 32_000));
       const assignmentId = decodeURIComponent(adminAssignmentMatch[1]);
+      const actor = { id: profile.id, displayName: profile.displayName };
       let assignment = body.date === undefined
         ? (await store.listAssignments(profile)).find((item) => item.id === assignmentId)!
-        : await store.updateAssignmentSchedule(assignmentId, stringField(body, 'date'));
+        : await store.updateAssignmentSchedule(assignmentId, stringField(body, 'date'), actor);
       if (body.driverId !== undefined || body.vehicleId !== undefined) {
         assignment = await store.reassignAssignment(assignmentId, {
           driverId: body.driverId === undefined ? undefined : stringField(body, 'driverId'),
           vehicleId: body.vehicleId === undefined ? undefined : stringField(body, 'vehicleId'),
-        });
+        }, actor);
       }
       if (body.totalStops !== undefined || body.totalWeightKg !== undefined) {
         assignment = await store.updateAssignmentManualMetrics(assignmentId, {
           totalStops: body.totalStops === undefined ? undefined : numberField(body, 'totalStops'),
           totalWeightKg: body.totalWeightKg === undefined ? undefined : numberField(body, 'totalWeightKg'),
-        });
+        }, actor);
       }
       if (!assignment) throw new EmployeeApiError('ASSIGNMENT_NOT_FOUND', 'Maršruto priskyrimas nerastas.', 404);
-      await routeSyncStore.seedAssignment(assignment.driverId, assignment.routeSnapshot);
+      // Historical wage-only assignments legitimately have totals but no
+      // delivery-stop rows. They can be edited here, but are not full route
+      // snapshots and therefore must not be sent through route sync.
+      if (assignment.routeSnapshot.stops.length > 0) {
+        await routeSyncStore.seedAssignment(assignment.driverId, assignment.routeSnapshot);
+      }
       return send(response, 200, { assignment }, requestId);
     }
     if (adminAssignmentMatch && request.method === 'DELETE') {
@@ -517,6 +610,7 @@ export async function handleEmployeeApi(
         extraDistanceKm: body.extraDistanceKm === undefined
           ? undefined
           : body.extraDistanceKm === null ? null : numberField(body, 'extraDistanceKm'),
+        recordAudit: true,
       });
       return send(response, 200, { reading }, requestId);
     }
@@ -529,7 +623,7 @@ export async function handleEmployeeApi(
         endOdometer: body.endOdometer === undefined ? undefined : body.endOdometer === null ? null : numberField(body, 'endOdometer'),
         driverId: body.driverId === undefined ? undefined : stringField(body, 'driverId'),
         vehicleId: body.vehicleId === undefined ? undefined : stringField(body, 'vehicleId'),
-      });
+      }, { id: profile.id, displayName: profile.displayName });
       return send(response, 200, { tripSheet }, requestId);
     }
     const unassignedTripDayMatch = pathname.match(/^\/api\/admin\/trip-sheets\/unassigned-day\/([^/]+)\/([^/]+)$/);
@@ -748,7 +842,12 @@ export async function authenticateApiRequest(request: IncomingMessage): Promise<
   return store.authenticate(sessionToken(request));
 }
 
-function isEmployeePath(pathname: string): boolean {
+/**
+ * Exact `/api/routes` stays the routing gateway polyline proxy.
+ * Only the route fuel-entry URL belongs to the employee API. Before this
+ * check, a valid fuel save returned a message-less 404 and blocked completion.
+ */
+export function isEmployeePath(pathname: string): boolean {
   return pathname.startsWith('/api/auth/')
     || pathname.startsWith('/api/admin/')
     || pathname.startsWith('/api/assignments')
@@ -757,7 +856,9 @@ function isEmployeePath(pathname: string): boolean {
     || pathname.startsWith('/api/fuel-status')
     || pathname.startsWith('/api/operations/')
     || pathname.startsWith('/api/quality/')
-    || pathname.startsWith('/api/route-sync');
+    || pathname.startsWith('/api/route-sync')
+    || pathname.startsWith('/api/mail/')
+    || /^\/api\/routes\/[^/]+\/fuel-entries$/.test(pathname);
 }
 
 function routeSyncItems(value: unknown): RouteSyncPushItem[] {
@@ -910,6 +1011,15 @@ function numberField(body: Record<string, unknown>, name: string): number {
   return value;
 }
 
+function nullableNumberField(body: Record<string, unknown>, name: string): number | null {
+  const value = body[name];
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new EmployeeApiError('INVALID_REQUEST', `Neteisingas laukas: ${name}.`, 400);
+  }
+  return value;
+}
+
 function header(request: IncomingMessage, name: string): string | undefined {
   const value = request.headers[name];
   return Array.isArray(value) ? value[0] : value;
@@ -927,8 +1037,27 @@ function send(response: ServerResponse, status: number, body: unknown, requestId
   return true;
 }
 
-function sessionCookie(token: string): string {
-  return `tsp_session=${encodeURIComponent(token)}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${30 * 86_400}`;
+function sessionCookie(token: string, maxAgeSeconds: number): string {
+  return `tsp_session=${encodeURIComponent(token)}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAgeSeconds}`;
+}
+
+function writeMailResult(
+  response: ServerResponse,
+  result: { status: number; body?: unknown; html?: string } | null,
+  requestId: string,
+): true {
+  if (!result) return send(response, 404, { error: { code: 'NOT_FOUND', message: 'API veiksmas nerastas.' } }, requestId);
+  if (result.html) {
+    response.writeHead(result.status, {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': 'no-store',
+      'x-content-type-options': 'nosniff',
+      'x-request-id': requestId,
+    });
+    response.end(result.html);
+    return true;
+  }
+  return send(response, result.status, result.body ?? null, requestId);
 }
 
 function expiredSessionCookie(): string {

@@ -9,6 +9,6 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    exclude: ['**/node_modules/**', '**/dist/**', 'tsp-integration/**', 'tsp-premium-cockpit/**'],
+    exclude: ['**/node_modules/**', '**/dist/**', '**/.runtime-logs/**', 'tsp-integration/**', 'tsp-premium-cockpit/**'],
   },
 });

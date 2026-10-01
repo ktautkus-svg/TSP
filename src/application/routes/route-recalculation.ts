@@ -28,7 +28,11 @@ export class ProposeRemainingRouteRecalculation {
     private readonly idFactory = () => `recalc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
   ) {}
 
-  async execute(routeId: string, currentStopId: string): Promise<RouteRecalculationProposal> {
+  async execute(
+    routeId: string,
+    currentStopId: string,
+    currentLocation?: { latitude: number; longitude: number } | null,
+  ): Promise<RouteRecalculationProposal> {
     const repository = new RouteRepository(this.db);
     const persisted = await repository.getWithStops(routeId);
     if (!persisted || persisted.route.status !== 'in_progress' || !persisted.route.selectedRunId) {
@@ -43,7 +47,12 @@ export class ProposeRemainingRouteRecalculation {
     const original = JSON.parse(row.request_json) as RouteOptimizationRequest;
     const stops = await hydrateStopParkPins(this.db, persisted.stops);
     const currentStop = stops.find((stop) => stop.id === currentStopId);
-    const origin = currentStop ? routingCoordinates(currentStop) : null;
+    const liveOrigin = currentLocation
+      && Number.isFinite(currentLocation.latitude)
+      && Number.isFinite(currentLocation.longitude)
+      ? currentLocation
+      : null;
+    const origin = liveOrigin ?? (currentStop ? routingCoordinates(currentStop) : null);
     if (!currentStop || !origin) {
       throw new Error('Dabartinė vieta neturi patvirtintų koordinačių. Esama seka nekeičiama.');
     }
@@ -71,9 +80,9 @@ export class ProposeRemainingRouteRecalculation {
       ...original,
       routeId,
       plannedDepartureAt,
-      // Prefer the courtyard / last GPS pin over the rooftop geocode so the
-      // remaining-route origin is where the driver actually is. Uses the same
-      // already-purchased (or haversine) planning path — no extra matrix.
+      // Prefer the device's current GPS. If it is unavailable, fall back to
+      // the last resolved stop's courtyard/geocode. Uses the same planning
+      // path — no additional route-matrix call beyond this recalculation.
       startLocation: {
         id: `current-${currentStop.id}`,
         label: 'Dabartinė vieta',

@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BackHandler, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { isAddressCandidateSafeForAutomaticSelection } from '@/application/import/address-resolver';
 import { launchNavigation } from '@/application/navigation/navigation-launcher';
 import { buildNavigationUrls, navigationTargetFromStop } from '@/application/navigation/navigation-url-builder';
 import { isRecentGpsSample, readRecentDeviceGpsFix, watchDeviceGps } from '@/application/location/device-gps';
@@ -20,6 +21,7 @@ import {
   persistRouteCompletionFuel,
   resumeRouteCompletionClock,
   routeCompletionClockForOpen,
+  routeCompletionFuelFieldError,
   routeCompletionTimestamp,
   ROUTE_COMPLETION_HOURS,
   ROUTE_COMPLETION_MINUTES,
@@ -58,6 +60,7 @@ import { NavigationPreference } from '@/application/settings/navigation-preferen
 import { fallbackRouteWeatherScene, loadRouteWeatherScene, type RouteWeatherScene } from '@/application/weather/route-weather';
 import { BrandHeader } from '@/components/brand-header';
 import { ClockIcon, DeliveredIcon, DistanceIcon, FailedIcon, NavigateIcon } from '@/components/dashboard-icons';
+import { VoiceCommandButton } from '@/components/voice-command-button';
 import { DateInput } from '@/components/date-input';
 import { FiroSelect } from '@/components/firo-select';
 import { FoundationScreen } from '@/components/foundation-screen';
@@ -110,7 +113,7 @@ function hasLearnedParkPin(stop: Pick<DeliveryStop, 'parkLatitude' | 'parkLongit
 }
 
 export default function DeliveryScreen() {
-  const { profile, online } = useLocalAccess();
+  const { profile, online, demo } = useLocalAccess();
   const { requestSync, revision: syncRevision } = useRouteCloudSync();
   const db = useSQLiteContext();
   const router = useRouter();
@@ -140,6 +143,7 @@ export default function DeliveryScreen() {
   const [fuelLiters, setFuelLiters] = useState('');
   const [fuelReceiptNumber, setFuelReceiptNumber] = useState('');
   const [completionFuelSaved, setCompletionFuelSaved] = useState(false);
+  const completionFuelSavedRef = useRef(false);
   const [quickFuelSaved, setQuickFuelSaved] = useState(false);
   const [fuelQuickOpen, setFuelQuickOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -442,7 +446,17 @@ export default function DeliveryScreen() {
 
   const proposeRecalculation = async (currentStopId: string) => {
     try {
-      const proposal = await new ProposeRemainingRouteRecalculation(db).execute(routeId, currentStopId);
+      const gpsFix = isRecentGpsSample(gpsFixRef.current)
+        ? gpsFixRef.current
+        : await Promise.race([
+          readRecentDeviceGpsFix(),
+          new Promise<null>((resolve) => { setTimeout(() => resolve(null), 1_800); }),
+        ]);
+      const proposal = await new ProposeRemainingRouteRecalculation(db).execute(
+        routeId,
+        currentStopId,
+        gpsFix ? { latitude: gpsFix.latitude, longitude: gpsFix.longitude } : null,
+      );
       setRecalculation(proposal);
     } catch (reason) {
       devWarn('ROUTE_RECALCULATION_FAILED', reason);
@@ -469,7 +483,11 @@ export default function DeliveryScreen() {
     setAddingStop(true);
     try {
       const response = await geocoder.geocode(address);
-      if (!response.isUnambiguous || !response.result) {
+      if (
+        !response.isUnambiguous
+        || !response.result
+        || !isAddressCandidateSafeForAutomaticSelection(address, response.result)
+      ) {
         Alert.alert(
           'Adresas neatpažintas vienareikšmiškai',
           'Pabandykite įvesti tikslesnį adresą (su miestu ar gatvės numeriu).',
@@ -690,6 +708,11 @@ export default function DeliveryScreen() {
         Alert.alert('Neteisingas laikas', 'Patikrinkite užbaigimo datą ir pasirinktą valandą bei minutę.');
         return;
       }
+      const fuelFieldError = routeCompletionFuelFieldError(completionFuelChoice, fuelLiters);
+      if (fuelFieldError) {
+        Alert.alert('Kuro įrašas', fuelFieldError);
+        return;
+      }
       const finishedMs = Date.parse(actualFinishedAt);
       if (route?.startedAt && finishedMs < Date.parse(route.startedAt)) {
         Alert.alert('Neteisingas laikas', 'Užbaigimo laikas negali būti ankstesnis už maršruto pradžią.');
@@ -697,6 +720,10 @@ export default function DeliveryScreen() {
       }
       if (finishedMs > Date.now() + 5 * 60_000) {
         Alert.alert('Neteisingas laikas', 'Užbaigimo laikas negali būti ateityje.');
+        return;
+      }
+      if (!endOdometer.trim()) {
+        Alert.alert('Odometras', 'Įveskite galutinį odometro rodmenį.');
         return;
       }
       const parsedEndOdometer = parseOdometer(endOdometer);
@@ -713,13 +740,19 @@ export default function DeliveryScreen() {
         Alert.alert('Kuro įrašas', reason instanceof Error ? reason.message : 'Patikrinkite kuro pasirinkimą.');
         return;
       }
-      if (fuelRequest && !online) {
+      if (fuelRequest && !online && !demo) {
         Alert.alert('Kuro įrašo išsaugoti nepavyko', 'Kuro pylimui išsaugoti reikia ryšio. Arba pasirinkite NE, jei kuro nepylėte.');
         return;
       }
-      if (fuelRequest && !completionFuelSaved) {
+      if (fuelRequest && !completionFuelSavedRef.current) {
         try {
-          const saved = await persistRouteCompletionFuel(fuelRequest, completionFuelSaved, createRouteFuelEntry);
+          await pushRouteAssignmentProgress(db, routeId);
+        } catch (reason) {
+          devWarn('TRIP_SHEET_SYNC_FAILED', reason);
+        }
+        try {
+          const saved = await persistRouteCompletionFuel(fuelRequest, completionFuelSavedRef.current, createRouteFuelEntry);
+          completionFuelSavedRef.current = saved;
           setCompletionFuelSaved(saved);
         } catch (reason) {
           Alert.alert('Kuro įrašo išsaugoti nepavyko', reason instanceof Error ? reason.message : 'Patikrinkite ryšį ir bandykite dar kartą.');
@@ -917,7 +950,7 @@ export default function DeliveryScreen() {
         <View style={[styles.routeContent, wideLayout && styles.routeContentWide]}>
           {redirectReason ? <Text style={styles.notice}>Maršrutas jau pradėtas. Grąžinome į vykdomą maršrutą.</Text> : null}
           {error ? <Text style={styles.error}>{error}</Text> : null}
-          {progress ? (
+          {activeView === 'stops' && progress ? (
             <View style={styles.stopsProgress} testID="driver-day-progress">
               <Pressable
                 accessibilityRole="button"
@@ -930,7 +963,7 @@ export default function DeliveryScreen() {
                   accessibilityRole="progressbar"
                   accessibilityLabel="Sėkmingai pristatyti sustojimai"
                   accessibilityValue={{ min: 0, max: progress.totalStops, now: progress.deliveredStops }}>
-                  <View style={[styles.stopsProgressFill, { width: `${Math.min(100, Math.max(0, progress.deliveryPercent))}%` }]} />
+                  <View style={[styles.stopsProgressFill, { width: `${progress.deliveryPercent}%` }]} />
                 </View>
                 <Text style={styles.meta}>Likę: {progress.remainingStops} · Nepavykę: {progress.failedStops}</Text>
                 <Text style={styles.meta}>Pristatyti su grąžinimu / trūkumu: {stops.filter((stop) => stop.deliveryStatus === 'delivered' && isDeliveryReturnReason(stop.failureReason)).length}</Text>
@@ -1076,6 +1109,28 @@ export default function DeliveryScreen() {
                       </Pressable>
                     </View>
                   </View>
+                  <VoiceCommandButton
+                    disabled={busy}
+                    onAction={(action) => {
+                      if (action === 'status_delivered') void delivered(nextStop.id);
+                      else if (action === 'open_navigation') void navigate(nextStop);
+                      else if (action === 'report_issue') beginFailed(nextStop.id);
+                    }}
+                  />
+                  {canRecalculateRemaining ? (
+                    <Pressable
+                      accessibilityLabel="Perdėlioti likusius sustojimus nuo dabartinės vietos"
+                      accessibilityRole="button"
+                      disabled={busy}
+                      onPress={() => {
+                        setActiveView('stops');
+                        if (recalculationAnchor) void proposeRecalculation(recalculationAnchor.id);
+                      }}
+                      style={[styles.recalculateButton, busy && styles.disabled]}
+                      testID="dashboard-recalculate-remaining-route">
+                      <Text style={styles.secondaryText}>PERDĖLIOTI LIKUSIUS</Text>
+                    </Pressable>
+                  ) : null}
                 </View>
               ) : (
                 <View style={[styles.nextStopCard, compactDashboard && styles.nextStopCardCompact]} testID="dashboard-next-stop">
@@ -1301,7 +1356,7 @@ export default function DeliveryScreen() {
                     accessibilityRole="button"
                     accessibilityState={{ selected: completionFuelChoice === 'yes', disabled: completionFuelSaved }}
                     disabled={completionFuelSaved}
-                    onPress={() => { setCompletionFuelChoice('yes'); setCompletionFuelSaved(false); }}
+                    onPress={() => { setCompletionFuelChoice('yes'); completionFuelSavedRef.current = false; setCompletionFuelSaved(false); }}
                     style={[styles.fuelChoiceButton, completionFuelChoice === 'yes' && styles.fuelChoiceButtonSelected]}
                     testID="completion-fuel-yes">
                     <Text style={[styles.fuelChoiceText, completionFuelChoice === 'yes' && styles.fuelChoiceTextSelected]}>TAIP</Text>
@@ -1310,7 +1365,7 @@ export default function DeliveryScreen() {
                     accessibilityRole="button"
                     accessibilityState={{ selected: completionFuelChoice === 'no', disabled: completionFuelSaved }}
                     disabled={completionFuelSaved}
-                    onPress={() => { setCompletionFuelChoice('no'); setCompletionFuelSaved(false); }}
+                    onPress={() => { setCompletionFuelChoice('no'); completionFuelSavedRef.current = false; setCompletionFuelSaved(false); }}
                     style={[styles.fuelChoiceButton, completionFuelChoice === 'no' && styles.fuelChoiceButtonSelected]}
                     testID="completion-fuel-no">
                     <Text style={[styles.fuelChoiceText, completionFuelChoice === 'no' && styles.fuelChoiceTextSelected]}>NE</Text>

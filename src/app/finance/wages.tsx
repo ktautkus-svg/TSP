@@ -1,16 +1,22 @@
 import { Stack, useRouter, type Href } from 'expo-router';
+import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 
 import { ChevronDownIcon } from '@/components/app-icons';
 import { normalizeEmployeePermissions } from '@/application/auth/employee-permissions';
 import { useLocalAccess } from '@/application/auth/local-access-context';
+import { buildWagePrintDocument } from '@/application/finance/wage-document';
+import { aggregateWageDays, summarizeWageDays, wageDayCell, wageTableColumns, wageTotalCell, type WageColumnKey, type WageDayRow } from '@/application/finance/wage-report';
+import { buildWageWorkbook } from '@/application/finance/wage-workbook';
 import { roleHomePath } from '@/application/navigation/role-home';
 import {
   calendarPresetRange,
   formatDateKey,
 } from '@/application/reporting/period-range';
-import { aggregateWageDays, type WageDayRow } from '@/application/finance/wage-report';
+import { CompanyProfileSettings } from '@/application/settings/company-profile';
+import { printHtmlDocument } from '@/application/trip-sheet/print-frame';
+import { MIME_XLSX } from '@/application/trip-sheet/export-xlsx';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { MenuArtwork } from '@/components/menu-artwork';
 import { PeriodCalendarPicker } from '@/components/period-calendar-picker';
@@ -35,17 +41,21 @@ type DriverFinanceRow = {
   sheets: ServerTripSheet[];
 };
 
-const eurFormatter = new Intl.NumberFormat('lt-LT', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
 const eur2Formatter = new Intl.NumberFormat('lt-LT', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const kmFormatter = new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 0 });
+const qtyFormatter = new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 });
 
 const ALL_DRIVERS = 'all';
+const DESKTOP_WIDTH = 1280;
 
 export default function FinanceScreen() {
   const router = useRouter();
+  const db = useSQLiteContext();
+  const { width } = useWindowDimensions();
+  const desktop = width >= DESKTOP_WIDTH;
   const { profile, online } = useLocalAccess();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const [companyName, setCompanyName] = useState('FiRo');
   const permissions = normalizeEmployeePermissions(profile.permissions);
   const allowed = profile.role === 'admin' || (profile.role === 'dispatcher' && permissions.canManageFinancials);
 
@@ -59,6 +69,13 @@ export default function FinanceScreen() {
   const [driverFilter, setDriverFilter] = useState<string>(ALL_DRIVERS);
   const [driverPickerOpen, setDriverPickerOpen] = useState(false);
   const [expandedDayKey, setExpandedDayKey] = useState<string | null>(null);
+  const [exportNote, setExportNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    void new CompanyProfileSettings(db).get().then((company) => {
+      if (company.name.trim()) setCompanyName(company.name.trim());
+    }).catch(() => undefined);
+  }, [db]);
 
   const load = useCallback(async () => {
     if (!online) { setError('Nėra ryšio su serveriu. Finansų ataskaita skaičiuojama serveryje.'); setBusy(false); return; }
@@ -103,18 +120,64 @@ export default function FinanceScreen() {
   const wageDays = useMemo(() => aggregateWageDays(visible), [visible]);
   const showDriverNames = useMemo(() => new Set(wageDays.map((day) => day.driverId)).size > 1, [wageDays]);
   const unassignedRow = useMemo(() => rows.find((row) => row.driverId === UNASSIGNED_DRIVER_ID) ?? null, [rows]);
-  const totals = useMemo(() => {
-    const operational = rows.reduce((sum, row) => ({
-      routes: sum.routes + row.routes,
-      km: sum.km + row.km,
-      fuelLiters: sum.fuelLiters + row.fuelLiters,
-      fuelCostEur: sum.fuelCostEur + row.fuelCostEur,
-    }), { routes: 0, km: 0, fuelLiters: 0, fuelCostEur: 0 });
-    // The headline and the visible list intentionally share the exact same
-    // daily rows, so the displayed total cannot drift from the amounts below.
-    const wageEur = wageDays.reduce((sum, day) => sum + day.wageEur, 0);
-    return { ...operational, wageEur, totalEur: operational.fuelCostEur + wageEur };
-  }, [rows, wageDays]);
+  const wageTotals = useMemo(() => summarizeWageDays(wageDays), [wageDays]);
+  const selectedEmployeeName = activeDriver === ALL_DRIVERS
+    ? 'Visi darbuotojai'
+    : drivers.find((driver) => driver.driverId === activeDriver)?.driverName ?? 'Darbuotojas';
+  const periodLabel = `${periodFrom} – ${periodTo}`;
+
+  const openWagePrint = (purpose: 'pdf' | 'print') => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') {
+      setExportNote('PDF ir spausdinimą atidarykite interneto naršyklėje.');
+      return;
+    }
+    if (wageDays.length === 0) {
+      setExportNote('Pasirinktu laikotarpiu nėra dienų.');
+      return;
+    }
+    printHtmlDocument(buildWagePrintDocument({
+      companyName,
+      employeeName: selectedEmployeeName,
+      periodLabel,
+      days: wageDays,
+    }));
+    setExportNote(purpose === 'pdf'
+      ? 'Atsidariusiame lange pasirinkite „Išsaugoti kaip PDF“. Dokumentas naudoja tas pačias dienas kaip ekranas.'
+      : 'Spausdinimo dokumentas naudoja tas pačias dienas kaip ekranas.');
+  };
+
+  const exportExcel = () => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') {
+      setExportNote('Excel eksportą atidarykite interneto naršyklėje.');
+      return;
+    }
+    if (wageDays.length === 0) {
+      setExportNote('Pasirinktu laikotarpiu nėra dienų.');
+      return;
+    }
+    const bytes = buildWageWorkbook({
+      companyName,
+      employeeName: selectedEmployeeName,
+      periodLabel,
+      days: wageDays,
+    });
+    const payload = new Uint8Array(bytes);
+    const blob = new Blob([payload], { type: MIME_XLSX });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const fileEmployee = selectedEmployeeName.toLowerCase().replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '') || 'darbuotojas';
+    link.href = url;
+    link.download = `firo-atlygis-${fileEmployee}-${periodFrom}-${periodTo}.xlsx`;
+    link.rel = 'noopener';
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    window.setTimeout(() => {
+      link.remove();
+      URL.revokeObjectURL(url);
+    }, 60_000);
+    setExportNote('Excel failas paruoštas. Skaičiai įrašyti kaip skaičiai, FiRo duomenys nebuvo pakeisti.');
+  };
 
   const deleteUnassigned = (row: DriverFinanceRow) => {
     Alert.alert(
@@ -152,7 +215,7 @@ export default function FinanceScreen() {
     <>
       <Stack.Screen options={{ title: 'Darbuotojų atlygis' }} />
       <FoundationScreen
-        contentMaxWidth={1100}
+        contentMaxWidth={1240}
         description="Kiekvieno vairuotojo atlygis ir kuro sąnaudos pagal kelionės lapų faktinius duomenis."
         showFoundationNotice={false}
         title="Darbuotojų atlygis">
@@ -205,19 +268,36 @@ export default function FinanceScreen() {
         {!busy && rows.length === 0 ? <View style={styles.empty}><Text style={styles.emptyTitle}>Pasirinktu laikotarpiu duomenų nėra</Text><Text style={styles.meta}>Pakeiskite laikotarpį arba patikrinkite, ar kelionės lapai užpildyti.</Text></View> : null}
 
         {!busy && rows.length > 0 ? <View style={styles.totalsRow} testID="finance-totals">
-          <Metric label="Reisų" value={String(totals.routes)} styles={styles} />
-          <Metric label="Km" value={kmFormatter.format(totals.km)} styles={styles} />
-          <Metric label="Kuras" value={eurFormatter.format(totals.fuelCostEur)} styles={styles} />
-          <Metric label="Atlygis" value={eurFormatter.format(totals.wageEur)} styles={styles} />
-          <Metric label="Iš viso" value={eurFormatter.format(totals.totalEur)} emphasis styles={styles} />
+          <Metric label="Reisų" value={String(wageTotals.routes)} styles={styles} />
+          <Metric label="Km" value={qtyFormatter.format(wageTotals.km)} styles={styles} />
+          <Metric label="Kuras" value={eur2Formatter.format(wageTotals.fuelCostEur)} styles={styles} />
+          <Metric label="Atlygis" value={eur2Formatter.format(wageTotals.wageEur)} styles={styles} />
+          <Metric label="Iš viso" value={eur2Formatter.format(wageTotals.totalEur)} emphasis styles={styles} />
         </View> : null}
+
+        {!busy && wageDays.length > 0 ? <View style={styles.exportRow} testID="finance-wage-export">
+          <Pressable onPress={exportExcel} style={styles.exportButton} testID="finance-wage-excel"><Text style={styles.exportButtonText}>Eksportuoti į Excel</Text></Pressable>
+          <Pressable onPress={() => openWagePrint('pdf')} style={styles.exportButton} testID="finance-wage-pdf"><Text style={styles.exportButtonText}>Atsisiųsti PDF</Text></Pressable>
+          <Pressable onPress={() => openWagePrint('print')} style={styles.exportButton} testID="finance-wage-print"><Text style={styles.exportButtonText}>Spausdinti</Text></Pressable>
+        </View> : null}
+        {exportNote ? <Text style={styles.meta}>{exportNote}</Text> : null}
 
         {!busy && wageDays.length > 0 ? <View style={styles.wageList} testID="finance-wage-days">
           <View style={styles.wageListHeading}>
             <Text style={styles.wageListTitle}>Atlygis pagal dieną</Text>
-            <Text style={styles.meta}>Viena diena rodoma vieną kartą, nepriklausomai nuo reisų skaičiaus.</Text>
+            <Text style={styles.meta}>Seniausia diena viršuje. Viena diena rodoma vieną kartą, nepriklausomai nuo reisų skaičiaus.</Text>
           </View>
-          {wageDays.map((day) => {
+          {desktop ? <WageDayTable
+            days={wageDays}
+            expandedDayKey={expandedDayKey}
+            onToggle={(key) => setExpandedDayKey(expandedDayKey === key ? null : key)}
+            showDriverNames={showDriverNames}
+            totals={wageTotals}
+            canEdit={profile.role === 'admin'}
+            online={online}
+            onSaved={load}
+            styles={styles}
+          /> : wageDays.map((day) => {
             const expanded = expandedDayKey === day.key;
             return <View key={day.key} testID={`finance-wage-day-${day.key}`}>
               <Pressable
@@ -231,7 +311,7 @@ export default function FinanceScreen() {
                   {showDriverNames ? <Text style={styles.wageDayDriver}>{day.driverName}</Text> : null}
                   {day.preliminary ? <Text style={styles.wageDayStatus}>Preliminaru</Text> : null}
                 </View>
-                <Text style={styles.wageDayAmount}>{eurFormatter.format(day.wageEur)}</Text>
+                <Text style={styles.wageDayAmount}>{formatWageAmount(day.figures.wageEur)}</Text>
                 <Text style={styles.wageDayChevron}>{expanded ? '⌃' : '⌄'}</Text>
               </Pressable>
               {expanded ? <WageDayDetail canEdit={profile.role === 'admin'} day={day} online={online} onSaved={load} styles={styles} /> : null}
@@ -245,7 +325,7 @@ export default function FinanceScreen() {
           </View> : null}
         </View> : null}
 
-        <Text style={styles.disclaimer}>Kuro suma skaičiuojama iš pylimų, kuriuose nurodyta kaina — jei kaina nenurodyta, litrai matomi, bet į € sumą neįskaičiuojami. Atlygis skaičiuojamas serveryje pagal vairuotojo sutartį. „Iš viso“ šiuo metu apima tik kurą ir atlygį — draudimas, kelių mokestis ir kitos sąnaudos į reiso kainos skaičiuoklę bus įtraukti atskirai vėliau.</Text>
+        <Text style={styles.disclaimer}>Atlygis yra rodomų dienų sumų suma. Iš viso prideda kuro pylimų kainą. Kuro suma skaičiuojama iš pylimų, kuriuose nurodyta kaina — jei kaina nenurodyta, litrai matomi, bet į € sumą neįskaičiuojami. Bazinis dienos atlygis skaičiuojamas vieną kartą. Papildomo priedo lauko FiRo nesaugo. Draudimas ir kelių mokestis į šią sumą neįtraukti.</Text>
 
         <Pressable
           accessibilityRole="button"
@@ -305,7 +385,7 @@ function aggregateByDriver(sheets: readonly ServerTripSheet[]): DriverFinanceRow
         fuelCostEur: bucket.fuelCostEur,
         wageEur,
         totalEur: bucket.fuelCostEur + wageEur,
-        sheets: bucket.sheets.sort((left, right) => right.date.localeCompare(left.date)),
+        sheets: bucket.sheets.sort((left, right) => left.date.localeCompare(right.date) || left.id.localeCompare(right.id)),
       };
     })
     .sort((left, right) => right.totalEur - left.totalEur);
@@ -362,7 +442,7 @@ function RouteMetricsRow({ sheet, canEdit, online, onSaved, styles }: {
   return <View style={styles.detailRoute}>
     <Text style={styles.detailRouteTitle}>{sheet.routeNumbers.length > 0 ? sheet.routeNumbers.join(' · ') : 'Maršrutas'}</Text>
     <Text style={styles.detailRouteMeta}>
-      {kmFormatter.format(sheet.actualDistanceKm ?? sheet.plannedDistanceKm ?? 0)} km · {sheet.totalStops} tašk. · {kmFormatter.format(sheet.totalWeightKg)} kg{sheet.vehicle ? ` · ${sheet.vehicle.registrationNumber}` : ''}
+      {qtyFormatter.format(sheet.actualDistanceKm ?? sheet.plannedDistanceKm ?? 0)} km · {sheet.totalStops} tašk. · {qtyFormatter.format(sheet.totalWeightKg)} kg{sheet.vehicle ? ` · ${sheet.vehicle.registrationNumber}` : ''}
     </Text>
     {canEdit && !editing ? (
       <Pressable
@@ -420,6 +500,75 @@ function DetailLine({ label, value, emphasis, styles }: { label: string; value: 
   </View>;
 }
 
+function formatWageAmount(value: number | null): string {
+  return value === null ? '—' : eur2Formatter.format(value);
+}
+
+function formatWageCell(day: WageDayRow, key: WageColumnKey): string {
+  if (key === 'date') return formatDateKey(day.date);
+  const value = wageDayCell(day, key);
+  if (value === null || value === '') return '—';
+  if (typeof value === 'number') {
+    if (key === 'stops') return String(value);
+    if (key === 'km' || key === 'kg') return qtyFormatter.format(value);
+    return eur2Formatter.format(value);
+  }
+  return value;
+}
+
+function formatWageTotal(totals: ReturnType<typeof summarizeWageDays>, key: WageColumnKey): string {
+  if (key === 'date') return 'Iš viso';
+  const value = wageTotalCell(totals, key);
+  if (value === null || value === '') return '';
+  if (typeof value === 'number') {
+    if (key === 'stops') return String(value);
+    if (key === 'km' || key === 'kg') return qtyFormatter.format(value);
+    return eur2Formatter.format(value);
+  }
+  return value;
+}
+
+function WageDayTable({ days, totals, showDriverNames, expandedDayKey, onToggle, canEdit, online, onSaved, styles }: {
+  days: WageDayRow[];
+  totals: ReturnType<typeof summarizeWageDays>;
+  showDriverNames: boolean;
+  expandedDayKey: string | null;
+  onToggle: (key: string) => void;
+  canEdit: boolean;
+  online: boolean;
+  onSaved: () => void;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  const columns = wageTableColumns(showDriverNames);
+  return <ScrollView horizontal showsHorizontalScrollIndicator testID="finance-wage-table">
+    <View style={styles.wageTable}>
+      <View style={[styles.wageTableRow, styles.wageTableHeader]}>
+        {columns.map((column) => <Text key={column.key} style={[styles.wageTableCell, column.format === 'text' ? styles.wageTableText : styles.wageTableNumber, styles.wageTableHeaderText]}>{column.header}</Text>)}
+        <Text style={styles.wageTableToggle} />
+      </View>
+      {days.map((day) => {
+        const expanded = expandedDayKey === day.key;
+        return <View key={day.key} testID={`finance-wage-day-${day.key}`}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ expanded }}
+            onPress={() => onToggle(day.key)}
+            style={({ pressed }) => [styles.wageTableRow, pressed && styles.wageDayRowPressed]}
+            testID={`finance-wage-day-toggle-${day.key}`}>
+            {columns.map((column) => <Text key={column.key} style={[styles.wageTableCell, column.format === 'text' ? styles.wageTableText : styles.wageTableNumber, column.key === 'totalEur' ? styles.wageDayAmount : null]}>{formatWageCell(day, column.key)}{column.key === 'date' && day.preliminary ? ' · prel.' : ''}</Text>)}
+            <Text style={styles.wageTableToggle}>{expanded ? '⌃' : '⌄'}</Text>
+          </Pressable>
+          {expanded ? <WageDayDetail canEdit={canEdit} day={day} online={online} onSaved={onSaved} styles={styles} /> : null}
+        </View>;
+      })}
+      <View style={[styles.wageTableRow, styles.wageTableTotal]}>
+        {columns.map((column) => <Text key={column.key} style={[styles.wageTableCell, column.format === 'text' ? styles.wageTableText : styles.wageTableNumber, styles.wageTableTotalText]}>{formatWageTotal(totals, column.key)}</Text>)}
+        <Text style={styles.wageTableToggle} />
+      </View>
+    </View>
+  </ScrollView>;
+}
+
 function WageDayDetail({ day, canEdit, online, onSaved, styles }: {
   day: WageDayRow;
   canEdit: boolean;
@@ -427,23 +576,25 @@ function WageDayDetail({ day, canEdit, online, onSaved, styles }: {
   onSaved: () => void;
   styles: ReturnType<typeof createStyles>;
 }) {
-  const breakdown = day.sheets.find((sheet) => sheet.compensation)?.compensation ?? null;
+  const figures = day.figures;
   const fuelEntries = [...new Map(day.sheets.flatMap((sheet) => sheet.fuelEntries).map((entry) => [entry.id, entry])).values()];
+  const distanceSource = day.sheets.find((sheet) => sheet.compensation)?.compensation?.distanceSource;
   return <View style={styles.wageDayDetail} testID={`finance-wage-day-detail-${day.key}`}>
     <View style={styles.detailSection}>
-      <Text style={styles.detailSectionTitle}>{day.sheets.length > 1 ? `Maršrutai (${day.sheets.length})` : 'Maršrutas'}</Text>
+      <Text style={styles.detailSectionTitle}>{day.sheets.length > 1 ? `Reisai (${day.sheets.length})` : 'Reisas'}</Text>
       {day.sheets.map((sheet) => (
         <RouteMetricsRow key={sheet.id} canEdit={canEdit} onSaved={onSaved} online={online} sheet={sheet} styles={styles} />
       ))}
     </View>
 
-    {breakdown ? <View style={styles.detailSection}>
-      <Text style={styles.detailSectionTitle}>Atlygio sudėtis{breakdown.preliminary ? ' · preliminaru' : ''}</Text>
-      <DetailLine label="Bazinis (diena)" value={eur2Formatter.format(breakdown.fixedAmountEur)} styles={styles} />
-      <DetailLine label={`Atstumas · ${kmFormatter.format(breakdown.distanceKm)} km (${breakdown.distanceSource === 'odometer' ? 'odometras' : 'planuota'})`} value={eur2Formatter.format(breakdown.distanceAmountEur)} styles={styles} />
-      <DetailLine label={`Svoris · ${kmFormatter.format(breakdown.weightKg)} kg`} value={eur2Formatter.format(breakdown.weightAmountEur)} styles={styles} />
-      <DetailLine label={`Taškai · ${breakdown.stops}`} value={eur2Formatter.format(breakdown.stopsAmountEur)} styles={styles} />
-      <DetailLine label="Iš viso neto" value={eur2Formatter.format(breakdown.totalNetEur)} emphasis styles={styles} />
+    {figures.hasCompensation ? <View style={styles.detailSection}>
+      <Text style={styles.detailSectionTitle}>Atlygio sudėtis{day.preliminary ? ' · preliminaru' : ''}</Text>
+      {day.sheets.length > 1 ? <Text style={styles.meta}>Bazinis dienos atlygis įrašytas vieną kartą ir nėra dauginamas iš reisų skaičiaus. Eurai yra dienos, ne atskiro reiso.</Text> : null}
+      <DetailLine label="Bazinis (diena)" value={formatWageAmount(figures.fixedAmountEur)} styles={styles} />
+      <DetailLine label={`Atstumas · ${qtyFormatter.format(figures.distanceKm)} km${distanceSource ? ` (${distanceSource === 'odometer' ? 'odometras' : 'planuota'})` : ''}`} value={formatWageAmount(figures.distanceAmountEur)} styles={styles} />
+      <DetailLine label={`Svoris · ${qtyFormatter.format(figures.weightKg)} kg`} value={formatWageAmount(figures.weightAmountEur)} styles={styles} />
+      <DetailLine label={`Taškai · ${figures.stops}`} value={formatWageAmount(figures.stopsAmountEur)} styles={styles} />
+      <DetailLine label="Dienos suma" value={formatWageAmount(figures.wageEur)} emphasis styles={styles} />
     </View> : <Text style={styles.meta}>Atlygio detalizacija dar neapskaičiuota.</Text>}
 
     {fuelEntries.length > 0 ? <View style={styles.detailSection}>
@@ -451,7 +602,7 @@ function WageDayDetail({ day, canEdit, online, onSaved, styles }: {
       {fuelEntries.map((entry) => (
         <DetailLine
           key={entry.id}
-          label={`${kmFormatter.format(entry.liters)} l${entry.receiptNumber ? ` · čekis ${entry.receiptNumber}` : ''}`}
+          label={`${qtyFormatter.format(entry.liters)} l${entry.receiptNumber ? ` · čekis ${entry.receiptNumber}` : ''}`}
           value={entry.totalCost != null ? eur2Formatter.format(entry.totalCost) : '—'}
           styles={styles}
         />
@@ -488,7 +639,20 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   metricValue: { ...type.sectionTitle, color: colors.text },
   metricValueEmphasis: { color: colors.info },
   metricLabel: { ...type.label, color: colors.textMuted },
+  exportRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  exportButton: { minHeight: 48, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+  exportButtonText: { ...type.button, color: colors.textSecondary },
   wageList: { borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, overflow: 'hidden' },
+  wageTable: { minWidth: 860 },
+  wageTableRow: { minHeight: 48, flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderTopColor: colors.borderSubtle },
+  wageTableHeader: { backgroundColor: colors.surfaceMuted, borderTopWidth: 0 },
+  wageTableHeaderText: { ...type.label, color: colors.textMuted },
+  wageTableTotal: { backgroundColor: colors.surfaceSubtle },
+  wageTableTotalText: { ...type.secondaryStrong, color: colors.text },
+  wageTableCell: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
+  wageTableText: { ...type.secondary, color: colors.text, width: 168 },
+  wageTableNumber: { ...type.secondary, color: colors.text, width: 96, textAlign: 'right' },
+  wageTableToggle: { ...type.body, color: colors.textMuted, width: 44, textAlign: 'center' },
   wageListHeading: { padding: spacing.md, gap: 2, backgroundColor: colors.surfaceSubtle },
   wageListTitle: { ...type.sectionTitle, color: colors.text },
   wageDayRow: { minHeight: 64, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.md, borderTopWidth: 1, borderTopColor: colors.borderSubtle },

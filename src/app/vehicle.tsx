@@ -560,7 +560,10 @@ export default function VehicleScreen() {
         nextServiceOdometer: odometer,
       });
       setMessage('Transporto priemonė išsaugota. Tušti terminai darbo nestabdo.');
-      await load();
+      // Stay on the vehicle the user just edited. Reloading the whole screen
+      // selected the driver's default/first vehicle again and made the newly
+      // entered TA warning appear to belong to that other vehicle.
+      await applyVehicle(selectedVehicleId);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Išsaugoti nepavyko.');
     } finally {
@@ -596,7 +599,7 @@ export default function VehicleScreen() {
     if (busy) return;
     setBusy(true);
     try {
-      await requestExpiredDepartureOverride(db, { requestedBy: profile.id, online });
+      await requestExpiredDepartureOverride(db, { requestedBy: profile.id, online, vehicleId: selectedVehicleId });
       setMessage(online
         ? 'Prašymas išsiųstas administratoriui. Kol nepatvirtinta, važiuoti negalima.'
         : 'Prašymas išsaugotas šiame įrenginyje. Prisijungus jis bus perduotas administratoriui.');
@@ -612,7 +615,7 @@ export default function VehicleScreen() {
     if (busy) return;
     setBusy(true);
     try {
-      await approveExpiredDepartureOverride(db, { approvedBy: profile.id, online });
+      await approveExpiredDepartureOverride(db, { approvedBy: profile.id, online, vehicleId: selectedVehicleId });
       setMessage('Patvirtinta: su šiais pasibaigusiais terminais važiuoti galima.');
       await load();
     } catch (error) {

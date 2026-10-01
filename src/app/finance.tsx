@@ -25,10 +25,17 @@ export default function FinanceHubScreen() {
     <Stack.Screen options={{ title: 'Finansai' }} />
     <FoundationScreen
       contentMaxWidth={900}
-      description="Pasirinkite, ką norite peržiūrėti: vairuotojų atlygį, reiso savikainą ar skaičiuoklę."
+      description="Pasirinkite, ką norite peržiūrėti: mėnesio suvestinę, vairuotojų atlygį, reiso savikainą ar skaičiuoklę."
       showFoundationNotice={false}
       title="Finansai">
       <View style={styles.cards} testID="finance-hub-menu">
+        <FinanceCard
+          description="Viso mėnesio reisai dienomis: vairuotojas, automobilis, maršrutas, taškai, svoris ir kilometrai. Tinka sutikrinti su apskaita."
+          icon="statistics"
+          onPress={() => open({ pathname: '/finance/month-summary', params: { returnTo: 'finance' } } as unknown as Href)}
+          styles={styles}
+          testID="finance-open-month-summary"
+          title="Mėnesio suvestinė" />
         <FinanceCard
           description="Kuro sąnaudos ir apskaičiuotas atlygis kiekvienam vairuotojui pagal kelionės lapus."
           icon="finance"

@@ -1,8 +1,10 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import type { ResolvedAddressCandidate } from '@/domain/import/models';
+import { isAddressLocalityCompatible } from '@/domain/import/address-locality';
 
 type AddressMemoryRow = {
+  source_address: string;
   normalized_address: string;
   latitude: number;
   longitude: number;
@@ -29,14 +31,26 @@ export class AddressResolutionMemoryRepository {
     let row: AddressMemoryRow | null = null;
     for (const key of keys) {
       row = await this.db.getFirstAsync<AddressMemoryRow>(
-        `SELECT normalized_address, latitude, longitude, place_id, confidence
+        `SELECT source_address, normalized_address, latitude, longitude, place_id, confidence
          FROM address_resolution_memory WHERE address_key = ?`,
         key,
       );
+      // The exact normalized source text is a confirmed mapping. A looser
+      // street+house match is reusable only when its returned locality still
+      // matches this query; this prevents equal street names in neighbouring
+      // settlements from poisoning one another.
+      if (
+        row
+        && key !== keys[0]
+        && !isAddressLocalityCompatible(sourceAddress, row.normalized_address)
+      ) {
+        row = null;
+        continue;
+      }
       if (row) { matchedKey = key; break; }
     }
     if (!row || !matchedKey) {
-      const historical = await this.findInRouteHistory(keys);
+      const historical = await this.findInRouteHistory(sourceAddress, keys);
       if (!historical) return null;
       await this.remember(sourceAddress, historical);
       return historical;
@@ -52,6 +66,7 @@ export class AddressResolutionMemoryRepository {
       longitude: row.longitude,
       placeId: row.place_id,
       confidence: row.confidence,
+      trustedMemory: true,
     };
   }
 
@@ -86,7 +101,7 @@ export class AddressResolutionMemoryRepository {
     }
   }
 
-  private async findInRouteHistory(keys: string[]): Promise<ResolvedAddressCandidate | null> {
+  private async findInRouteHistory(sourceAddress: string, keys: string[]): Promise<ResolvedAddressCandidate | null> {
     try {
       const expected = new Set(keys);
       const rows = await this.db.getAllAsync<HistoricalStopRow>(
@@ -106,13 +121,23 @@ export class AddressResolutionMemoryRepository {
           row.geocoding_query,
           row.normalized_address,
         ].filter((value): value is string => Boolean(value));
-        if (!aliases.some((alias) => addressMemoryKeys(alias).some((key) => expected.has(key)))) continue;
+        const exactMatch = aliases.some((alias) => addressMemoryKeys(alias)[0] === keys[0]);
+        const semanticMatch = aliases.some((alias) => addressMemoryKeys(alias).some((key) => expected.has(key)));
+        if (!semanticMatch) continue;
+        if (
+          !exactMatch
+          && !isAddressLocalityCompatible(
+            sourceAddress,
+            row.normalized_address ?? row.address ?? row.original_address,
+          )
+        ) continue;
         return {
           normalizedAddress: row.normalized_address ?? row.address ?? row.original_address,
           latitude: row.latitude,
           longitude: row.longitude,
           placeId: null,
           confidence: 1,
+          trustedMemory: true,
         };
       }
     } catch {

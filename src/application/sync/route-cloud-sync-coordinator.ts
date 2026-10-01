@@ -22,6 +22,7 @@ export type RouteCloudSyncTrigger =
   | 'dispatcher-refresh'
   | 'foreground'
   | 'window-focus'
+  | 'periodic'
   | 'network-restored'
   | 'mutation'
   | 'manual-retry';
@@ -108,12 +109,16 @@ export class RouteCloudSyncCoordinator {
         // Reporting that as plain "Sinchronizuota" would tell the driver their
         // data is safely in the cloud when some of it deliberately is not.
         const attention = attentionFrom(outcome);
+        const changed = changedBy(outcome);
         this.publish({
           status: attention ? 'attention' : 'synced',
           lastSyncedAt: (this.options.now ?? (() => new Date().toISOString()))(),
           error: null,
           attention,
-          revision: this.state.revision + 1,
+          // Consumers reload SQLite on revision changes. A successful polling
+          // pass with no transferred data must not reset forms or repeatedly
+          // republish completed assignments every ten seconds.
+          revision: this.state.revision + (changed ? 1 : 0),
         });
       } catch (reason) {
         if (this.stopped) return;
@@ -132,6 +137,13 @@ export class RouteCloudSyncCoordinator {
     this.state = { ...this.state, ...patch };
     this.options.onStateChange?.(this.state);
   }
+}
+
+function changedBy(outcome: unknown): boolean {
+  if (!outcome || typeof outcome !== 'object') return false;
+  const counts = outcome as Record<string, unknown>;
+  return ['pushed', 'pulled', 'deleted', 'conflicts']
+    .some((key) => positiveCount(counts[key]) > 0);
 }
 
 /**

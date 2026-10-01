@@ -38,7 +38,7 @@ describe('address correction memory', () => {
     expect(knownSplitUnloadSite('Dainų g. 11, Šiauliai')).toBe(false);
   });
 
-  it('uses a semantic street key across spacing and locality variants', async () => {
+  it('reuses a semantic street key only when the locality is still compatible', async () => {
     const memory = new AddressResolutionMemoryRepository(new MemoryDatabase() as never);
     const candidate = {
       normalizedAddress: 'Pajuosčio pl. 73, Dembavos k., Lietuva',
@@ -49,7 +49,28 @@ describe('address correction memory', () => {
     };
     await memory.remember('Pajuosčio pl.73 Dembavos k. Velžio sen.', candidate);
     expect(addressMemoryKeys('Pajuosčio pl. 73, Panevėžio r.')).toContain('street:pajuoscio:pl:73');
-    await expect(memory.find('Pajuosčio pl. 73, Panevėžio r.')).resolves.toMatchObject(candidate);
+    await expect(memory.find('Pajuosčio pl. 73, Dembavos k.')).resolves.toMatchObject({
+      ...candidate,
+      trustedMemory: true,
+    });
+    await expect(memory.find('Pajuosčio pl. 73, Panevėžio r.')).resolves.toBeNull();
+  });
+
+  it('always reuses the exact source text that the driver already confirmed', async () => {
+    const memory = new AddressResolutionMemoryRepository(new MemoryDatabase() as never);
+    const candidate = {
+      normalizedAddress: 'Mokyklos g. 1, Vėveržėnai, Šilutės r. sav., Lietuva',
+      latitude: 55.38,
+      longitude: 21.63,
+      placeId: 'confirmed-place',
+      confidence: 1,
+    };
+    const source = 'Mokyklos g. 1, Žemaičių Naumiestis, Lietuva';
+    await memory.remember(source, candidate);
+    await expect(memory.find(source)).resolves.toMatchObject({
+      ...candidate,
+      trustedMemory: true,
+    });
   });
 
   it('recovers a repeatedly driven address from confirmed route history', async () => {
@@ -79,5 +100,27 @@ describe('address correction memory', () => {
       latitude: 55.734,
       longitude: 24.357,
     });
+  });
+
+  it('does not recover the same street and number from route history in another settlement', async () => {
+    const database = new MemoryDatabase();
+    database.raw.prepare(
+      `INSERT INTO delivery_stops (
+         address, original_address, geocoding_query, normalized_address,
+         latitude, longitude, address_validation_state, delivered_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, 'auto_confirmed', ?, ?)`,
+    ).run(
+      'Mokyklos g. 1, Vėveržėnai',
+      'Mokyklos g. 1, Vėveržėnai',
+      'Mokyklos g. 1, Vėveržėnai',
+      'Mokyklos g. 1, Vėveržėnai, Šilutės r. sav., Lietuva',
+      55.38,
+      21.63,
+      '2026-09-01T08:00:00.000Z',
+      '2026-09-01T08:00:00.000Z',
+    );
+    const memory = new AddressResolutionMemoryRepository(database as never);
+
+    await expect(memory.find('Mokyklos g. 1, Žemaičių Naumiestis')).resolves.toBeNull();
   });
 });

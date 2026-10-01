@@ -2,6 +2,13 @@ import * as Crypto from 'expo-crypto';
 import type { DocumentPickerAsset } from 'expo-document-picker';
 import { File as ExpoFile } from 'expo-file-system';
 
+export async function hashExcelBytes(bytes: Uint8Array): Promise<string> {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  const digest = await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, copy);
+  return bytesToHex(new Uint8Array(digest));
+}
+
 export async function readPickedExcelAsset(asset: DocumentPickerAsset): Promise<{
   bytes: Uint8Array;
   sha256: string;
@@ -9,8 +16,7 @@ export async function readPickedExcelAsset(asset: DocumentPickerAsset): Promise<
   const bytes = asset.file
     ? new Uint8Array(await asset.file.arrayBuffer())
     : await new ExpoFile(asset.uri).bytes();
-  const digest = await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, bytes);
-  return { bytes, sha256: bytesToHex(new Uint8Array(digest)) };
+  return { bytes, sha256: await hashExcelBytes(bytes) };
 }
 
 function bytesToHex(bytes: Uint8Array): string {

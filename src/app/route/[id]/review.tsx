@@ -9,7 +9,10 @@ import {
     View,
 } from 'react-native';
 
-import { parseCoordinateInput } from '@/application/import/address-resolver';
+import {
+    isAddressCandidateSafeForAutomaticSelection,
+    parseCoordinateInput,
+} from '@/application/import/address-resolver';
 import {
     DeleteDraftStop,
     PruneUncommittedDraftRoutes,
@@ -160,19 +163,49 @@ export default function RouteReviewScreen() {
         responseCache.set(key, response);
         return response;
       };
+      const resolveForReview = async (sourceAddress: string, query: string): Promise<{
+        selected: GeocodeCandidate | null;
+        alternatives: GeocodeCandidate[];
+        localityMismatch: boolean;
+      }> => {
+        const remembered = await addressMemory.find(sourceAddress);
+        if (remembered) {
+          const selected: GeocodeCandidate = {
+            normalizedAddress: remembered.normalizedAddress,
+            latitude: remembered.latitude,
+            longitude: remembered.longitude,
+            placeId: remembered.placeId,
+            locationType: 'REMEMBERED_CONFIRMATION',
+            resultTypes: ['remembered_confirmation'],
+          };
+          return { selected, alternatives: [selected], localityMismatch: false };
+        }
+        const response = await geocode(query);
+        const selected = response.isUnambiguous
+          && response.result
+          && isAddressCandidateSafeForAutomaticSelection(query, response.result)
+          ? response.result
+          : null;
+        return {
+          selected,
+          alternatives: response.alternatives,
+          localityMismatch: Boolean(response.isUnambiguous && response.result && !selected),
+        };
+      };
       const start = route.startLocation;
       if (!start?.normalizedAddress || start.latitude === null || start.longitude === null) {
         try {
-          const response = await geocode(start?.geocodingQuery ?? start?.originalAddress ?? '');
-          const selected = response.isUnambiguous ? response.result : null;
+          const source = start?.originalAddress ?? '';
+          const query = start?.geocodingQuery ?? source;
+          const { selected, alternatives } = await resolveForReview(source, query);
           if (selected) {
             await new UpdateDraftRouteLocations(db).execute(
               routeId,
-              routeEndpointFromGeocode(start!.originalAddress, selected, start!.geocodingQuery ?? start!.originalAddress),
-              route.endLocation ?? routeEndpointFromGeocode(start!.originalAddress, selected, start!.geocodingQuery ?? start!.originalAddress),
+              routeEndpointFromGeocode(start!.originalAddress, selected, query),
+              route.endLocation ?? routeEndpointFromGeocode(start!.originalAddress, selected, query),
             );
           } else {
-            setCandidates((current) => ({ ...current, start: response.alternatives }));
+            setCandidates((current) => ({ ...current, start: alternatives }));
           }
         } catch (reason) {
           setError(reason instanceof Error ? reason.message : 'Starto vietos geokodavimo klaida.');
@@ -181,17 +214,18 @@ export default function RouteReviewScreen() {
       const end = route.endLocation;
       if (!end?.normalizedAddress || end.latitude === null || end.longitude === null) {
         try {
-          const response = await geocode(end?.geocodingQuery ?? end?.originalAddress ?? '');
-          const selected = response.isUnambiguous ? response.result : null;
+          const source = end?.originalAddress ?? '';
+          const query = end?.geocodingQuery ?? source;
+          const { selected, alternatives } = await resolveForReview(source, query);
           const refreshedRoute = await repository.getById(routeId);
           if (selected && refreshedRoute?.startLocation) {
             await new UpdateDraftRouteLocations(db).execute(
               routeId,
               refreshedRoute.startLocation,
-              routeEndpointFromGeocode(end!.originalAddress, selected, end!.geocodingQuery ?? end!.originalAddress),
+              routeEndpointFromGeocode(end!.originalAddress, selected, query),
             );
           } else {
-            setCandidates((current) => ({ ...current, end: response.alternatives }));
+            setCandidates((current) => ({ ...current, end: alternatives }));
           }
         } catch (reason) {
           setError(reason instanceof Error ? reason.message : 'Pabaigos vietos geokodavimo klaida.');
@@ -202,17 +236,18 @@ export default function RouteReviewScreen() {
         if (stop.addressValidationState === 'auto_confirmed') continue;
         const query = stop.geocodingQuery ?? queries[index] ?? stop.originalAddress;
         try {
-          const response = await geocode(query);
-          const selected = response.isUnambiguous ? response.result : null;
+          const { selected, alternatives, localityMismatch } = await resolveForReview(stop.originalAddress, query);
           if (selected) {
             await confirmStop(stop.id, stop.originalAddress, query, selected);
           } else {
             await new UpdateDraftStop(db).execute(routeId, stop.id, {
               geocodingQuery: query,
-              addressValidationState: response.alternatives.length ? 'ambiguous' : 'geocode_error',
-              geocodingError: response.alternatives.length ? null : 'Adresas nerastas.',
+              addressValidationState: alternatives.length ? 'ambiguous' : 'geocode_error',
+              geocodingError: localityMismatch
+                ? 'Rastas adresas neatitinka įvestos gyvenvietės. Patvirtinkite variantą rankiniu būdu arba pataisykite adresą.'
+                : alternatives.length ? null : 'Adresas nerastas.',
             });
-            setCandidates((current) => ({ ...current, [stop.id]: response.alternatives }));
+            setCandidates((current) => ({ ...current, [stop.id]: alternatives }));
           }
         } catch (reason) {
           await new UpdateDraftStop(db).execute(routeId, stop.id, {
@@ -751,7 +786,7 @@ function Candidate({ styles, candidate, onPress }: { styles: ReturnType<typeof c
 function StateLabel({ styles, ready, state }: { styles: ReturnType<typeof createStyles>; ready: boolean; state: DeliveryStop['addressValidationState'] }) {
   const labels: Record<DeliveryStop['addressValidationState'], string> = {
     auto_confirmed: 'Automatiškai patvirtinta',
-    ambiguous: 'Keli variantai',
+    ambiguous: 'Reikia patvirtinti',
     unconfirmed: 'Nepatikrinta',
     geocode_error: 'Geokodavimo klaida',
   };

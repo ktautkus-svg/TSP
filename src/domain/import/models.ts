@@ -66,6 +66,8 @@ export type ResolvedAddressCandidate = {
   longitude: number;
   placeId: string | null;
   confidence: Confidence;
+  /** Exact or locality-safe mapping previously accepted for this address. */
+  trustedMemory?: boolean;
 };
 
 export type ParsedDelivery = {

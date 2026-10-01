@@ -6,6 +6,8 @@ export type LocalAccessContextValue = {
   username: string;
   profile: EmployeeProfile;
   online: boolean;
+  /** True only for the isolated test1 driver. Real accounts stay false. */
+  demo: boolean;
   logout: () => Promise<void>;
   /** Set only for admin/dispatcher: the driver this device is currently operating as, if any. */
   actingDriver: ActingDriver | null;

@@ -49,6 +49,22 @@ export function DistanceIcon({ size = 20, color = colors.success }: IconProps) {
   );
 }
 
+/** Microphone for Lithuanian voice commands on the delivery dashboard. */
+export function MicIcon({ size = 20, color = colors.text }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path
+        d="M12 3.5 A3 3 0 0 1 15 6.5 V11.5 A3 3 0 0 1 9 11.5 V6.5 A3 3 0 0 1 12 3.5 Z"
+        stroke={color}
+        strokeWidth={1.8}
+        fill="none"
+      />
+      <Path d="M7 11.2 A5 5 0 0 0 17 11.2" stroke={color} strokeWidth={1.8} fill="none" strokeLinecap="round" />
+      <Path d="M12 16.2 V20.2 M8.5 20.2 H15.5" stroke={color} strokeWidth={1.8} fill="none" strokeLinecap="round" />
+    </Svg>
+  );
+}
+
 /** Clock face, replacing the ⏱ glyph on the "time to next stop" tile. */
 export function ClockIcon({ size = 20, color = colors.success }: IconProps) {
   return (

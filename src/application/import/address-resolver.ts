@@ -1,7 +1,39 @@
 import type { ParsedDelivery, ResolvedAddressCandidate } from '@/domain/import/models';
+import { isAddressLocalityCompatible } from '@/domain/import/address-locality';
 
 export interface AddressLookupProvider {
   resolve(address: string): Promise<ResolvedAddressCandidate[]>;
+}
+
+type AddressCandidate = Pick<ResolvedAddressCandidate, 'normalizedAddress' | 'trustedMemory'>;
+
+/**
+ * A single provider hit is not necessarily the requested place. Google can
+ * return the same street and house number from a neighbouring settlement, so
+ * compare an explicitly supplied locality before accepting the hit without a
+ * driver decision. The candidate remains visible and can still be selected
+ * manually.
+ */
+export function isAddressCandidateSafeForAutomaticSelection(
+  query: string,
+  candidate: AddressCandidate,
+): boolean {
+  // This mapping has already been explicitly confirmed (or was a previously
+  // safe automatic hit) for this source address. The memory repository only
+  // marks exact or locality-compatible matches as trusted.
+  if (candidate.trustedMemory) return true;
+  return isAddressLocalityCompatible(query, candidate.normalizedAddress);
+}
+
+export function hasSafelyConfirmedDeliveryAddress(
+  delivery: Pick<ParsedDelivery, 'address' | 'addressQuery' | 'selectedAddress' | 'validationState'>,
+): boolean {
+  if (!delivery.address.value || !delivery.selectedAddress || delivery.validationState !== 'valid') return false;
+  if (delivery.address.manuallyCorrected) return true;
+  return isAddressCandidateSafeForAutomaticSelection(
+    delivery.addressQuery ?? delivery.address.value,
+    delivery.selectedAddress,
+  );
 }
 
 /** Accepts "54.6872, 25.2797" style input so a stop can be pinned directly
@@ -106,7 +138,10 @@ export async function resolveDeliveryAddresses(
     // Already confirmed for this exact text — skip the paid lookup. Without
     // this, re-running validation (now automatic on blur) would re-geocode
     // every already-approved stop again on each edit.
-    if (delivery.validationState === 'valid' && delivery.selectedAddress && delivery.addressQuery === (delivery.address.value ?? '')) {
+    if (
+      hasSafelyConfirmedDeliveryAddress(delivery)
+      && delivery.addressQuery === (delivery.address.value ?? '')
+    ) {
       resolved.push(delivery);
       continue;
     }
@@ -137,7 +172,10 @@ export async function resolveDeliveryAddresses(
     } catch {
       candidates = delivery.addressCandidates ?? [];
     }
-    const selected = candidates.length === 1 ? candidates[0] : null;
+    const selected = candidates.length === 1
+      && isAddressCandidateSafeForAutomaticSelection(addressQuery, candidates[0]!)
+      ? candidates[0]!
+      : null;
     const addressConfidence = selected?.confidence ?? candidates[0]?.confidence ?? 0;
     resolved.push({
       ...delivery,
@@ -146,7 +184,7 @@ export async function resolveDeliveryAddresses(
       selectedAddress: selected,
       addressConfidence,
       importConfidence: (delivery.parserConfidence + addressConfidence) / 2,
-      validationState: candidates.length === 0 ? 'invalid' : candidates.length === 1 ? 'valid' : 'ambiguous',
+      validationState: candidates.length === 0 ? 'invalid' : selected ? 'valid' : 'ambiguous',
     });
   }
   return resolved;

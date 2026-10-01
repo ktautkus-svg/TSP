@@ -116,7 +116,7 @@ export default function LoadingScreen() {
         setStops(persisted.stops);
         setProgress(null);
         setUndo(null);
-        setReadiness(await refreshDepartureReadiness(db, [], { online }));
+        setReadiness(await refreshDepartureReadiness(db, [], { online, vehicleId: persisted.route.vehicleId }));
         setError(null);
         return;
       }
@@ -132,7 +132,7 @@ export default function LoadingScreen() {
         return;
       }
       if (refreshed.route.status === 'loaded' && !odometerPrompted.current) {
-        const nextReadiness = await refreshDepartureReadiness(db, await repository.getStops(routeId, 'loading'), { online });
+        const nextReadiness = await refreshDepartureReadiness(db, await repository.getStops(routeId, 'loading'), { online, vehicleId: refreshed.route.vehicleId });
         if (nextReadiness.canDepart) {
           odometerPrompted.current = true;
           setOdometerModalVisible(true);
@@ -143,7 +143,7 @@ export default function LoadingScreen() {
       setStops(loadingStops);
       setProgress(await new GetRouteProgress(db).execute(routeId));
       setUndo(await new GetLatestUndoableAction(db).execute(routeId));
-      setReadiness(await refreshDepartureReadiness(db, loadingStops, { online }));
+      setReadiness(await refreshDepartureReadiness(db, loadingStops, { online, vehicleId: refreshed.route.vehicleId }));
       if (refreshed.route.startOdometer !== null) setOdometer(String(refreshed.route.startOdometer));
       setError(null);
     } catch (reason) {
@@ -371,8 +371,8 @@ export default function LoadingScreen() {
     if (gateBusy) return;
     setGateBusy(true);
     try {
-      await requestExpiredDepartureOverride(db, { requestedBy: profile.id, online });
-      setReadiness(await refreshDepartureReadiness(db, stops, { online }));
+      await requestExpiredDepartureOverride(db, { requestedBy: profile.id, online, vehicleId: route?.vehicleId });
+      setReadiness(await refreshDepartureReadiness(db, stops, { online, vehicleId: route?.vehicleId }));
     } catch (reason) {
       Alert.alert('Prašymas neišsiųstas', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
     } finally {
@@ -384,8 +384,8 @@ export default function LoadingScreen() {
     if (gateBusy) return;
     setGateBusy(true);
     try {
-      await approveExpiredDepartureOverride(db, { approvedBy: profile.id, online });
-      setReadiness(await refreshDepartureReadiness(db, stops, { online }));
+      await approveExpiredDepartureOverride(db, { approvedBy: profile.id, online, vehicleId: route?.vehicleId });
+      setReadiness(await refreshDepartureReadiness(db, stops, { online, vehicleId: route?.vehicleId }));
     } catch (reason) {
       Alert.alert('Patvirtinti nepavyko', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
     } finally {

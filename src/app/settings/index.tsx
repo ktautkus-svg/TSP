@@ -5,6 +5,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { resetDemoDriverDatabase } from '@/application/auth/demo-driver-seed';
 import { roleLabel, sessionStateLabel } from '@/application/auth/employee-permissions';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import {
@@ -67,7 +68,7 @@ type SettingsSection = 'account' | 'appearance' | 'navigation' | 'gateway' | 'da
 export default function SettingsScreen() {
   const router = useRouter();
   const db = useSQLiteContext();
-  const { profile, online, logout } = useLocalAccess();
+  const { profile, online, demo, logout } = useLocalAccess();
   const { colors, preference, setPreference } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const navigationPreference = useMemo(() => new NavigationPreference(db), [db]);
@@ -296,8 +297,14 @@ export default function SettingsScreen() {
                 <Text style={styles.meta}>Prisijungta kaip @{profile.username}</Text>
                 <View style={styles.badgeRow}>
                   <StatusBadge label={roleLabel(profile.role)} tone="neutral" />
-                  <StatusBadge label={sessionStateLabel(online).label} tone={sessionStateLabel(online).tone} />
+                  <StatusBadge label={demo ? 'Demonstracinė paskyra' : sessionStateLabel(online).label} tone={demo ? 'warning' : sessionStateLabel(online).tone} />
                 </View>
+                {demo ? <Pressable style={styles.secondaryButton} onPress={() => {
+                  Alert.alert('Atstatyti demonstraciją', 'Demonstraciniai maršrutai bus grąžinti į pradinę būseną. Tikri FIRO duomenys nebus paliesti.', [
+                    { text: 'Atšaukti', style: 'cancel' },
+                    { text: 'Atstatyti', onPress: () => void resetDemoDriverDatabase(db).then(() => setMessage('Demonstraciniai duomenys atstatyti.')).catch((reason) => setMessage(reason instanceof Error ? reason.message : 'Atstatyti nepavyko.')) },
+                  ]);
+                }} testID="reset-demo-button"><Text style={styles.secondaryText}>Atstatyti demonstracinius duomenis</Text></Pressable> : null}
                 <Pressable style={styles.secondaryButton} onPress={confirmSwitchAccount} testID="switch-account-button"><Text style={styles.secondaryText}>Keisti paskyrą</Text></Pressable>
                 <Pressable style={styles.logoutButton} onPress={confirmLogout} testID="logout-button"><Text style={styles.logoutText}>Atsijungti</Text></Pressable>
               </View>
