@@ -29,6 +29,7 @@ import {
     routeEndpointFromGeocode,
 } from '@/application/routes/route-draft-mappers';
 import { resolveRoute } from '@/application/routes/route-navigation';
+import { isStopReadyForRouting } from '@/application/routes/route-request-builder';
 import { GetDefaultLocations, KRETINGA_WAREHOUSE_ADDRESS } from '@/application/routes/saved-locations';
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 import { ChevronDownIcon, ChevronRightIcon, TrashIcon } from '@/components/app-icons';
@@ -233,7 +234,7 @@ export default function RouteReviewScreen() {
       }
       const queries = applyDominantCityContext(stops.map((stop) => stop.originalAddress));
       for (const [index, stop] of stops.entries()) {
-        if (stop.addressValidationState === 'auto_confirmed') continue;
+        if (isStopReadyForRouting(stop)) continue;
         const query = stop.geocodingQuery ?? queries[index] ?? stop.originalAddress;
         try {
           const { selected, alternatives, localityMismatch } = await resolveForReview(stop.originalAddress, query);
@@ -451,18 +452,18 @@ export default function RouteReviewScreen() {
     route.startLocation.latitude !== null &&
     route.startLocation.longitude !== null,
   );
-  const allReady = stops.length > 0 && stops.every((stop) => stop.addressValidationState === 'auto_confirmed');
+  const allReady = stops.length > 0 && stops.every(isStopReadyForRouting);
   const endReady = Boolean(
     route?.endLocation?.normalizedAddress &&
     route.endLocation.latitude !== null &&
     route.endLocation.longitude !== null,
   );
   const knownWeightKg = stops.reduce((total, stop) => total + (stop.weightKg ?? 0), 0);
-  const confirmedStops = stops.filter((stop) => stop.addressValidationState === 'auto_confirmed').length;
+  const confirmedStops = stops.filter(isStopReadyForRouting).length;
   const canCalculate = startReady && endReady && allReady;
   const visibleStops = allReady
     ? stops
-    : stops.filter((stop) => stop.addressValidationState !== 'auto_confirmed');
+    : stops.filter((stop) => !isStopReadyForRouting(stop));
 
   useEffect(() => {
     if (!route || running || canCalculate || stops.length === 0 || automaticValidationRoute.current === route.id) return;
@@ -554,7 +555,7 @@ export default function RouteReviewScreen() {
           key={stop.id}
           stop={stop}
           priorityRank={priorityRank}
-          compact={allReady || stop.addressValidationState === 'auto_confirmed'}
+          compact={allReady || isStopReadyForRouting(stop)}
           candidates={candidates[stop.id] ?? []}
           onCandidate={(candidate) => { void selectCandidate(stop, candidate); }}
           onEdit={(patch) => editStop(stop, patch)}
@@ -648,7 +649,7 @@ function StopEditor(props: {
   const [time, setTime] = useState(formatTimeWindowInput(stop.deliveryTimeFrom, stop.deliveryTimeTo));
   const [notes, setNotes] = useState(stop.notes ?? '');
   const [expanded, setExpanded] = useState(!props.compact);
-  const isOk = stop.addressValidationState === 'auto_confirmed';
+  const isOk = isStopReadyForRouting(stop);
   const cityHint = extractCityHint(stop.normalizedAddress ?? stop.originalAddress);
   useEffect(() => {
     setAddress(stop.originalAddress);
@@ -790,7 +791,8 @@ function StateLabel({ styles, ready, state }: { styles: ReturnType<typeof create
     unconfirmed: 'Nepatikrinta',
     geocode_error: 'Geokodavimo klaida',
   };
-  return <Text style={ready ? styles.ready : styles.warning}>{labels[state]}</Text>;
+  const label = state === 'auto_confirmed' && !ready ? 'Trūksta koordinačių' : labels[state];
+  return <Text style={ready ? styles.ready : styles.warning}>{label}</Text>;
 }
 
 function nullableNumber(value: string): number | null {

@@ -81,6 +81,25 @@ describe('kuro likučio grandinė', () => {
     expect(ledger[2].endLiters).toBeNull();
   });
 
+  it('atnaujina grandinę nuo konkrečios dienos faktinio likučio po kito vairuotojo naudojimo', () => {
+    const ledger = buildFuelLedger([
+      day('2026-09-01', 422, 105.5, 12),
+      day('2026-09-07', null),
+      { ...day('2026-09-08', 512, 100, 12), openingLiters: 112 },
+      day('2026-09-09', 344, 0, 12),
+      { ...day('2026-09-16', 701, 97.81, 12), openingLiters: 65 },
+    ], 55);
+
+    expect(ledger[0].endLiters).toBe(109.86);
+    expect(ledger[1].endLiters).toBeNull();
+    expect(ledger[2].startLiters).toBe(112);
+    expect(ledger[2].endLiters).toBe(150.56);
+    expect(ledger[3].startLiters).toBe(150.56);
+    expect(ledger[3].endLiters).toBe(109.28);
+    expect(ledger[4].startLiters).toBe(65);
+    expect(ledger[4].endLiters).toBe(78.69);
+  });
+
   it('pažymi trūkstamą normą ir trūkstamą pradinį likutį', () => {
     expect(buildFuelLedger([day('2026-01-02', 100, 0, null)], 110)[0].missing).toBe('no_norm');
     expect(buildFuelLedger([day('2026-01-02', 100)], null)[0].missing).toBe('no_opening');
