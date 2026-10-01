@@ -107,7 +107,7 @@ describe('trip sheet print document', () => {
     const html = sampleDocument();
     const headers = [...html.matchAll(/<th\b[^>]*>([\s\S]*?)<\/th>/g)].map((match) => match[1]);
     expect(headers).toEqual(TRIP_SHEET_PRINT_COLUMNS.map((column) => column.short));
-    expect(headers).toEqual(['Eil. nr.', 'Data', 'Maršrutas', 'Km', 'Kuras pradžioje', 'Įpilta', 'Čekio nr.', 'Sunaudotas kuro kiekis', 'Kuro likutis', 'Odo prad.', 'Odo pab.']);
+    expect(headers).toEqual(['Eil. nr.', 'Data', 'Maršrutas', 'Km', 'Kuras pradžioje', 'Įpilta', 'Čekio nr.', 'Sunaudotas kuro kiekis', 'Kuro likutis', 'Odo prad.', 'Odo pab.', 'Vairuotojas']);
     expect(html).toContain('title="Odometras pradžioje"');
     expect(html).toContain('Odo prad. — Odometras pradžioje');
     expect(html).toContain('L. d.d.p.:');

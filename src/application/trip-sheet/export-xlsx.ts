@@ -49,7 +49,7 @@ export { MIME_XLSX };
 
 const SUMMARY_SHEET_NAME = 'Suvestinė';
 const PRINT_HEADERS = TRIP_SHEET_PRINT_COLUMNS.map((column) => column.short);
-const PRINT_COL_WIDTHS = [8, 12, 28, 10, 16, 10, 14, 18, 14, 12, 12];
+const PRINT_COL_WIDTHS = [8, 12, 24, 10, 16, 10, 14, 18, 14, 12, 12, 24];
 const SUMMARY_HEADERS = [
   'Transporto priemonė',
   'Modelis',

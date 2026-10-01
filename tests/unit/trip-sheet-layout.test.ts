@@ -1,7 +1,7 @@
 import { strFromU8, unzipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
 
-import { TRIP_SHEET_COLUMNS, tripSheetCells, tripSheetDisplayedRoute } from '../../src/application/trip-sheet/columns';
+import { TRIP_SHEET_COLUMNS, tripSheetCells } from '../../src/application/trip-sheet/columns';
 import { buildTripSheetWorkbook } from '../../src/application/trip-sheet/export-xlsx';
 import { buildTripSheetPrintDocument, type TripSheetPrintRow } from '../../src/application/trip-sheet/print-document';
 
@@ -92,9 +92,10 @@ describe('trip sheet column layout', () => {
       expect.stringContaining('70'),
       expect.stringMatching(/675/),
       expect.stringMatching(/628/),
+      'Karolis Tautkus',
     ]);
     expect(TRIP_SHEET_COLUMNS.map((column) => column.key)).toEqual([
-      'line', 'date', 'route', 'km', 'fuelStart', 'added', 'receipt', 'consumed', 'fuelEnd', 'odoStart', 'odoEnd',
+      'line', 'date', 'route', 'km', 'fuelStart', 'added', 'receipt', 'consumed', 'fuelEnd', 'odoStart', 'odoEnd', 'driver',
     ]);
     const keys = tripSheetCells({
       lineNumber: 1, date: '2026-08-17', route: 'R11', driverName: 'Karolis', distinctDriverCount: 1,
@@ -104,16 +105,15 @@ describe('trip sheet column layout', () => {
     expect(keys).toEqual(TRIP_SHEET_COLUMNS.map((column) => column.key));
   });
 
-  it('adds the driver to the route only when the sheet has more than one driver', () => {
-    expect(tripSheetDisplayedRoute('R1', 'Karolis', 1)).toBe('R1');
-    expect(tripSheetDisplayedRoute('R1', 'Karolis', 2)).toBe('R1 · Karolis');
+  it('shows the driver in its own last column, never inside the route', () => {
     const html = document([
       row({ date: '2026-09-01', route: 'R1', driverName: 'Karolis Tautkus' }),
       row({ date: '2026-09-02', route: 'R2', driverName: 'Aleksandras' }),
     ], 'Karolis Tautkus, Aleksandras');
     expect(html).toContain('Vairuotojas(-ai): Karolis Tautkus, Aleksandras');
-    expect(bodyCells(html, 0)[2]).toContain('R1 · Karolis Tautkus');
-    expect(bodyCells(html, 1)[2]).toContain('R2 · Aleksandras');
+    expect(bodyCells(html, 0)[2]).not.toContain('Karolis');
+    expect(bodyCells(html, 0)[11]).toContain('Karolis Tautkus');
+    expect(bodyCells(html, 1)[11]).toContain('Aleksandras');
     expect(html).not.toMatch(/<th[^>]*>Vair\.<\/th>/);
   });
 
@@ -154,7 +154,9 @@ describe('trip sheet column layout', () => {
     }
     expect(sheet).toMatch(/<c r="A7"[^>]*><v>1<\/v><\/c>/);
     expect(sheet).toMatch(/<c r="A8"[^>]*><v>2<\/v><\/c>/);
-    expect(sheet).toContain('Kuro pylimas · Aleksandras');
+    expect(sheet).toContain('Kuro pylimas');
+    expect(sheet).not.toContain('Kuro pylimas · Aleksandras');
+    expect(sheet).toContain('Aleksandras');
     expect(sheet).toContain('<v>100</v>');
     expect(sheet).toContain('<v>83</v>');
     expect(sheet).toContain('<v>13.9</v>');

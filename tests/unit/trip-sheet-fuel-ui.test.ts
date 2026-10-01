@@ -119,23 +119,13 @@ describe('trip sheet fuel workflow', () => {
     expect(source).toContain('const ledgerByDate = new Map(applyFuelLedger(ledgerRows, ledgerSheets).map((row) => [row.date, row]))');
   });
 
-  it('lets an administrator edit, delete and add fuel entries on the kelionės lapas via an in-app modal', () => {
-    // The screen used to be read-only for fuel; P0.5 makes it admin-editable.
-    expect(source).toContain("const canEditFuel = profile.role === 'admin'");
-    expect(source).toContain('trip-sheet-fuel-modal');
-    expect(source).toContain('+ Pridėti pylimą');
-    expect(source).toContain('fuel-edit-${entry.id}');
-    expect(source).toContain('fuel-delete-${entry.id}');
-    // Admin session, real endpoints — not rewritten.
-    expect(source).toContain("`/api/fuel-entries/${encodeURIComponent(fuelEditor.entryId!)}`, { method: 'DELETE' }");
-    expect(source).toContain("method: 'PATCH'");
-    expect(source).toContain('/fuel-entries');
-    expect(source).toContain("await load();");
-    // Web confirm() / Alert.alert are unreliable — delete goes through the modal.
+  it('keeps fuel editing on the vehicle screen, not on the kelionės lapas', () => {
+    // Fuel is entered and edited under Automobiliai; the trip sheet only reports it.
+    expect(source).not.toContain('Kuro įrašai — redagavimas');
+    expect(source).not.toContain('+ Pridėti pylimą');
+    expect(source).not.toContain('FuelEditorModal');
     expect(source).not.toContain('Alert.alert');
     expect(source).not.toContain('window.confirm');
-    // Offline is surfaced, never a silent no-op.
-    expect(source).toContain('Nėra ryšio su serveriu — kuro įrašo pakeisti negalima');
   });
 
   it('splits a picked driver into numbered per-driver sheets and offers per-sheet selection', () => {
