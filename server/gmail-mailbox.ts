@@ -114,7 +114,7 @@ export async function downloadGmailAttachment(
   fetcher: typeof fetch,
 ): Promise<Uint8Array> {
   assertGmailId(messageId);
-  assertGmailId(attachmentId);
+  assertGmailAttachmentId(attachmentId);
   const url = new URL(`${GMAIL_API}/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}`);
   const payload = await gmailJson<{ data?: string; size?: number }>(url, accessToken, fetcher);
   if (!payload.data) throw new Error('Excel priedas tuščias.');
@@ -169,6 +169,15 @@ async function gmailJson<T>(url: URL, accessToken: string, fetcher: typeof fetch
 
 function assertGmailId(value: string): void {
   if (!/^[a-zA-Z0-9_-]{1,200}$/.test(value)) throw new Error('Neteisingas laiško identifikatorius.');
+}
+
+/**
+ * Attachment ids are long base64url blobs — real ones routinely pass 200 and
+ * reach several hundred characters. The 200-character message-id limit
+ * rejected every genuine attachment, so the picker looked dead on click.
+ */
+function assertGmailAttachmentId(value: string): void {
+  if (!/^[a-zA-Z0-9_-]{1,4000}$/.test(value)) throw new Error('Neteisingas priedo identifikatorius.');
 }
 
 function configurationValue(raw: string | undefined, name: string): string {

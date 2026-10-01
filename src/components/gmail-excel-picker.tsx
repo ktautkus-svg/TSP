@@ -34,6 +34,7 @@ export function GmailExcelPicker({
   const [messages, setMessages] = useState<MailMessageSummary[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
+  const [takingId, setTakingId] = useState<string | null>(null);
   const oauthOutcome = useRef<'connected' | 'error' | null>(null);
 
   const loadStatus = useCallback(async () => {
@@ -124,6 +125,7 @@ export function GmailExcelPicker({
 
   const choose = async (messageId: string, attachmentId: string, fileName: string) => {
     setWorking(true);
+    setTakingId(attachmentId);
     setNotice(null);
     try {
       const result = await employeeApi<{ fileName: string; bytesBase64: string }>(
@@ -135,6 +137,7 @@ export function GmailExcelPicker({
       setNotice(error instanceof Error ? error.message : 'Excel priedo nepavyko paimti.');
     } finally {
       setWorking(false);
+      setTakingId(null);
     }
   };
 
@@ -144,6 +147,8 @@ export function GmailExcelPicker({
       <Text style={styles.openHint}>Gmail · tik šios paskyros Excel priedai</Text>
     </Pressable>
     {open ? <View style={styles.panel} testID="gmail-import-panel">
+      {/* Kept above the fold: a failure shown under the list reads as "nothing happened". */}
+      {notice ? <Text accessibilityRole="alert" style={styles.notice} testID="gmail-notice">{notice}</Text> : null}
       <Text style={styles.note}>Jungiamasi tik prie prisijungusio darbuotojo Gmail. Kitas naudotojas, net ir su ribotomis teisėmis, mato tik savo laiškus. Laiško turinys nerodomas.</Text>
       {demo ? <Text style={styles.notice}>Demonstracinė paskyra neturi el. pašto ir nemato tikrų laiškų.</Text> : null}
       {!demo && status && !status.configured ? <Text style={styles.notice}>{status.message}</Text> : null}
@@ -164,18 +169,19 @@ export function GmailExcelPicker({
           <Text style={styles.messageMeta}>{message.from} · {message.date}</Text>
           {message.attachments.map((attachment) => <Pressable
             key={attachment.id}
+            accessibilityRole="button"
             disabled={working || busy}
             onPress={() => void choose(message.id, attachment.id, attachment.filename)}
-            style={styles.attachment}
+            style={({ pressed }) => [styles.attachment, pressed && styles.attachmentPressed, (working || busy) && styles.attachmentDisabled]}
             testID={`gmail-attachment-${attachment.id}`}>
             <Text style={styles.attachmentText}>{attachment.filename}</Text>
+            <Text style={styles.attachmentAction}>{takingId === attachment.id ? 'Imama…' : 'Importuoti'}</Text>
           </Pressable>)}
         </View>)}
         <Pressable onPress={() => void employeeApi('/api/mail/disconnect', { method: 'POST', body: '{}' }).then(() => loadStatus())} style={styles.quiet}>
           <Text style={styles.quietText}>Atjungti šį paštą</Text>
         </Pressable>
       </> : null}
-      {notice ? <Text style={styles.notice}>{notice}</Text> : null}
     </View> : null}
   </View>;
 }
@@ -215,8 +221,11 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   message: { gap: spacing.xs, paddingTop: spacing.sm },
   messageTitle: { ...type.bodyStrong, color: colors.text },
   messageMeta: { ...type.secondary, color: colors.textMuted },
-  attachment: { minHeight: 48, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderStrong, justifyContent: 'center', paddingHorizontal: spacing.md },
-  attachmentText: { ...type.body, color: colors.text },
+  attachment: { minHeight: 48, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.info, backgroundColor: colors.infoSoft, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, paddingHorizontal: spacing.md },
+  attachmentPressed: { opacity: 0.7 },
+  attachmentDisabled: { opacity: 0.5 },
+  attachmentText: { ...type.body, color: colors.text, flexShrink: 1 },
+  attachmentAction: { ...type.label, color: colors.info },
   quiet: { minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   quietText: { ...type.secondary, color: colors.textMuted },
 });
