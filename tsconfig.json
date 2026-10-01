@@ -26,6 +26,8 @@
     "dist-*",
     "build-server",
     "tsp-integration",
-    "tsp-premium-cockpit"
+    "tsp-premium-cockpit",
+    "firo-*",
+    "*.worktrees"
   ]
 }
