@@ -89,7 +89,8 @@ describe('trip sheet fuel workflow', () => {
     // time the form opens, and the user confirms or corrects it.
     expect(vehicleSource).toContain('if (next && latestOdometer != null) setNewReadingStart(String(latestOdometer))');
     expect(vehicleSource).toContain('reading.endOdometer ?? reading.startOdometer ?? null');
-    expect(vehicleSource).toContain('Pradžia užpildyta paskutiniu įvestu odometru');
+    expect(vehicleSource).toContain('Pradžia užpildyta ankstesnės dienos odometru');
+    expect(vehicleSource).toContain('const odometerBefore = (date: string)');
     expect(vehicleSource).toContain('testID="new-vehicle-odometer-km"');
     expect(vehicleSource).toContain('setNewReadingKm(text); applyKmToEnd(newReadingStart, text, setNewReadingEnd)');
     expect(vehicleSource).toContain('setEditingReadingKm(text); applyKmToEnd(editingReadingStart, text, setEditingReadingEnd)');
@@ -103,7 +104,8 @@ describe('trip sheet fuel workflow', () => {
     expect(vehicleSource).toContain('[newReadingExtraKm, setNewReadingExtraKm]');
     // An empty-km-only day needs no odometer span.
     expect(vehicleSource).toContain("const end = newReadingEnd.trim() ? Number(newReadingEnd.replace(',', '.')) : start");
-    expect(vehicleSource).toContain('extraDistanceKm: extraKm > 0 ? extraKm : undefined');
+    expect(vehicleSource).toContain('extraDistanceKm: extraKm }) },');
+    expect(vehicleSource).toContain('testID="edit-vehicle-extra-km"');
     const apiSource = readFileSync(resolve(import.meta.dirname, '../../server/employee-api.ts'), 'utf8');
     expect(apiSource).toContain('extraDistanceKm: body.extraDistanceKm === undefined');
   });

@@ -117,7 +117,7 @@ describe('month summary', () => {
     const row = summary.rows.find((item) => item.date === '2026-10-03' && item.source === 'odometer-day');
     expect(row?.startedAt).toBeNull();
     expect(row?.completedAt).toBeNull();
-    expect(row?.routeLabel).toBe('Odometro diena');
+    expect(row?.routeLabel).toBe('—');
     expect(row?.issues).toContain('missing-driver');
     expect(row?.distanceKm).toBe(12.5);
   });

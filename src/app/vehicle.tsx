@@ -161,6 +161,7 @@ export default function VehicleScreen() {
   const [editingReadingDate, setEditingReadingDate] = useState('');
   const [editingReadingStart, setEditingReadingStart] = useState('');
   const [editingReadingEnd, setEditingReadingEnd] = useState('');
+  const [editingReadingExtraKm, setEditingReadingExtraKm] = useState('');
   const [editingReadingKm, setEditingReadingKm] = useState('');
   const [editingReadingDriverId, setEditingReadingDriverId] = useState('');
   const [editingReadingVehicleId, setEditingReadingVehicleId] = useState('');
@@ -227,6 +228,7 @@ export default function VehicleScreen() {
     setEditingReadingKm(reading.startOdometer == null || reading.endOdometer == null ? '' : String(odometerDistanceKm(reading.startOdometer, reading.endOdometer)));
     setEditingReadingDriverId(reading.driverId || 'none');
     setEditingReadingVehicleId(reading.vehicle?.id ?? selectedVehicleId);
+    setEditingReadingExtraKm(reading.extraDistanceKm ? String(reading.extraDistanceKm) : '');
   };
 
   // Lets a day be entered as "how many km were driven" instead of typing the
@@ -245,6 +247,10 @@ export default function VehicleScreen() {
       const start = Number(editingReadingStart.replace(',', '.'));
       const end = Number(editingReadingEnd.replace(',', '.'));
       if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) throw new Error('Patikrinkite odometro pradžią ir pabaigą.');
+      // Empty km are always sent so clearing the field really removes them;
+      // a stale value would otherwise be added on top of the odometer km.
+      const extraKm = editingReadingExtraKm.trim() ? Number(editingReadingExtraKm.replace(',', '.')) : 0;
+      if (!Number.isFinite(extraKm) || extraKm < 0) throw new Error('Tušči kilometrai turi būti teigiamas skaičius.');
       const driverId = editingReadingDriverId === 'none' ? null : editingReadingDriverId || undefined;
       const vehicleDay = parseVehicleDayAssignmentId(reading.assignmentId);
       if (vehicleDay) {
@@ -257,7 +263,7 @@ export default function VehicleScreen() {
           // corrected, only re-entered alongside the stale original.
           await employeeApi(`/api/admin/trip-sheets/unassigned-day/${encodeURIComponent(selectedVehicleId)}/${encodeURIComponent(reading.date)}`, { method: 'DELETE' });
         }
-        await employeeApi('/api/trip-sheets/day-readings', { method: 'POST', body: JSON.stringify({ vehicleId: selectedVehicleId, date: editingReadingDate, startOdometer: start, endOdometer: end, driverId }) });
+        await employeeApi('/api/trip-sheets/day-readings', { method: 'POST', body: JSON.stringify({ vehicleId: selectedVehicleId, date: editingReadingDate, startOdometer: start, endOdometer: end, driverId, extraDistanceKm: extraKm }) });
       } else {
         await employeeApi(`/api/trip-sheets/${encodeURIComponent(reading.assignmentId)}`, { method: 'PATCH', body: JSON.stringify({ startOdometer: start, endOdometer: end, driverId: driverId ?? undefined, vehicleId: profile.role === 'admin' ? editingReadingVehicleId || selectedVehicleId : undefined }) });
       }
@@ -311,7 +317,7 @@ export default function VehicleScreen() {
       // goes looking for the entry and can't find it.
       const { reading } = await employeeApi<{ reading: { vehicleId: string; date: string } }>(
         '/api/trip-sheets/day-readings',
-        { method: 'POST', body: JSON.stringify({ vehicleId: selectedVehicleId, date: newReadingDate, startOdometer: start, endOdometer: end, driverId: newReadingDriverId || undefined, extraDistanceKm: extraKm > 0 ? extraKm : undefined }) },
+        { method: 'POST', body: JSON.stringify({ vehicleId: selectedVehicleId, date: newReadingDate, startOdometer: start, endOdometer: end, driverId: newReadingDriverId || undefined, extraDistanceKm: extraKm }) },
       );
       setAddingReading(false); setNewReadingStart(''); setNewReadingEnd(''); setNewReadingKm(''); setNewReadingExtraKm(''); setNewReadingDriverId('');
       setMessage(`Išsaugota: ${registrationNumber} · ${reading.date}.`);
@@ -371,10 +377,19 @@ export default function VehicleScreen() {
   // The odometer only ever climbs, so the suggestion for a new day is the
   // highest end reading on record (a wrongly-dated later row can't drag it
   // down). Falls back to the highest start when no day has an end yet.
-  const latestOdometer = vehicleReadings.reduce<number | null>((max, reading) => {
-    const value = reading.endOdometer ?? reading.startOdometer ?? null;
-    return value != null && (max == null || value > max) ? value : max;
-  }, null);
+  // The start of a new day is the end of the closest EARLIER day, not the
+  // highest odometer ever typed — a day added later for an earlier date used
+  // to start from month-end (NLL182 09-08 began at 289 122 instead of 284 749).
+  const odometerBefore = (date: string): number | null => {
+    let best: { date: string; value: number } | null = null;
+    for (const reading of vehicleReadings) {
+      const value = reading.endOdometer ?? reading.startOdometer ?? null;
+      if (value == null || reading.date >= date) continue;
+      if (!best || reading.date > best.date || (reading.date === best.date && value > best.value)) best = { date: reading.date, value };
+    }
+    return best?.value ?? null;
+  };
+  const latestOdometer = /^\d{4}-\d{2}-\d{2}$/.test(newReadingDate) ? odometerBefore(newReadingDate) : null;
   const vehicleFuelEntries = useMemo(
     () => chronologicalVehicleFuelEntries(vehicleReadings, selectedVehicleId),
     [vehicleReadings, selectedVehicleId],
@@ -660,7 +675,17 @@ export default function VehicleScreen() {
             <Text style={styles.addDayButtonText}>{addingReading ? 'Uždaryti naujos dienos įvedimą' : '+ Pridėti naują dieną'}</Text>
           </Pressable>
           {addingReading ? <View style={styles.newDayForm} testID="new-vehicle-odometer-day">
-            <DateInput accessibilityLabel="Naujos dienos data" value={newReadingDate} onChangeText={setNewReadingDate} style={styles.input} placeholderTextColor={colors.textMuted} />
+            <DateInput accessibilityLabel="Naujos dienos data" value={newReadingDate} onChangeText={(date) => {
+              setNewReadingDate(date);
+              // Re-anchor the start on the day before the chosen date.
+              if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+                const start = odometerBefore(date);
+                if (start != null) {
+                  setNewReadingStart(String(start));
+                  if (newReadingKm) applyKmToEnd(String(start), newReadingKm, setNewReadingEnd);
+                }
+              }
+            }} style={styles.input} placeholderTextColor={colors.textMuted} />
             <TextInput
               value={newReadingKm}
               onChangeText={(text) => { setNewReadingKm(text); applyKmToEnd(newReadingStart, text, setNewReadingEnd); }}
@@ -692,7 +717,7 @@ export default function VehicleScreen() {
               <TextInput value={newReadingEnd} onChangeText={setNewReadingEnd} keyboardType="decimal-pad" style={[styles.input, styles.inlineInput]} placeholder="Pabaiga" placeholderTextColor={colors.textMuted} />
             </View>
             <Text style={styles.hint}>{latestOdometer != null
-              ? `Pradžia užpildyta paskutiniu įvestu odometru (${latestOdometer}). Patvirtinkite arba pataisykite ranka. Įvedę nuvažiuotus km, pabaiga susiskaičiuos pati.`
+              ? `Pradžia užpildyta ankstesnės dienos odometru (${latestOdometer}). Patvirtinkite arba pataisykite ranka. Įvedę nuvažiuotus km, pabaiga susiskaičiuos pati.`
               : 'Įveskite tik nuvažiuotus km — pabaiga susiskaičiuos pati. Prireikus pabaigą galite įvesti ir tiesiogiai.'}</Text>
             <FiroSelect
               label="Vairuotojas"
@@ -747,7 +772,7 @@ export default function VehicleScreen() {
           {visibleReadings.map((reading) => {
             const editing = editingReadingId === reading.assignmentId;
             return <View key={reading.assignmentId} style={styles.readingCard}>
-              <View style={styles.readingDisplayRow}><View style={styles.readingHeader}><View style={styles.readingMain}><Text style={styles.readingTitle}>{reading.date}</Text><Text style={styles.hint}>{reading.startOdometer ?? '—'} → {reading.endOdometer ?? '—'} km{reading.startOdometer != null && reading.endOdometer != null ? ` · ${odometerDistanceKm(reading.startOdometer, reading.endOdometer)} km per dieną` : ''}</Text></View><Text style={styles.hint}>{reading.driverName || 'Nepriskirtas'}</Text></View>
+              <View style={styles.readingDisplayRow}><View style={styles.readingHeader}><View style={styles.readingMain}><Text style={styles.readingTitle}>{reading.date}</Text><Text style={styles.hint}>{reading.startOdometer ?? '—'} → {reading.endOdometer ?? '—'} km{reading.startOdometer != null && reading.endOdometer != null ? ` · ${odometerDistanceKm(reading.startOdometer, reading.endOdometer)} km per dieną` : ''}{reading.extraDistanceKm ? ` · + ${reading.extraDistanceKm} tušči km` : ''}</Text></View><Text style={styles.hint}>{reading.driverName || 'Nepriskirtas'}</Text></View>
                 {!editing ? <View style={styles.readingActions}><Pressable accessibilityLabel={`Redaguoti ${reading.date}`} onPress={() => editReading(reading)} style={styles.iconButton}><PencilIcon size={18} color={colors.warning} /></Pressable><Pressable accessibilityLabel={`Ištrinti ${reading.date}`} onPress={() => deleteReading(reading)} style={styles.iconButton}><TrashIcon size={18} color={colors.danger} /></Pressable></View> : null}
               </View>
               {editing ? <>
@@ -760,6 +785,15 @@ export default function VehicleScreen() {
                   placeholder="Nuvažiuota per dieną, km"
                   placeholderTextColor={colors.textMuted}
                 />
+                {parseVehicleDayAssignmentId(reading.assignmentId) ? <TextInput
+                  value={editingReadingExtraKm}
+                  onChangeText={setEditingReadingExtraKm}
+                  keyboardType="decimal-pad"
+                  style={styles.input}
+                  placeholder="Tušči km (ne maršruto) — palikite tuščią, jei nėra"
+                  placeholderTextColor={colors.textMuted}
+                  testID="edit-vehicle-extra-km"
+                /> : null}
                 <View style={styles.inlineInputs}>
                   <TextInput
                     value={editingReadingStart}

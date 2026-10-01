@@ -372,7 +372,7 @@ export default function TripSheetScreen() {
             testID="trip-sheet-period-calendar"
             to={dateTo}
           /> : null}
-          {vehicles.length > 1 || drivers.length > 1 || months.length > 1 ? (
+          {vehicles.length > 1 || drivers.length > 1 || (months.length > 1 && profile.role === 'driver') ? (
             <View style={styles.filterSelects} testID="trip-sheet-entity-filters">
               {vehicles.length > 1 ? (
                 <View testID="trip-sheet-vehicle-filter">
@@ -402,7 +402,8 @@ export default function TripSheetScreen() {
                   />
                 </View>
               ) : null}
-              {months.length > 1 ? (
+              {/* The office picks the period in the calendar above; a second month list only confused it. */}
+              {months.length > 1 && profile.role === 'driver' ? (
                 <View testID="trip-sheet-month-filter">
                   <FiroSelect
                     label="Mėnuo"

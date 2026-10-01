@@ -487,7 +487,6 @@ export function formatMonthSummaryDay(date: string): string {
   if (Number.isNaN(parsed.getTime())) return date;
   return new Intl.DateTimeFormat('lt-LT', {
     timeZone: 'Europe/Vilnius',
-    weekday: 'short',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -602,11 +601,10 @@ function buildSyntheticRow(sheet: MonthSummarySheet, source: 'odometer-day' | 'f
   const parsed = parseVehicleDayAssignmentId(sheet.assignmentId);
   const distance = describeDistance(sheet.actualDistanceKm, sheet.plannedDistanceKm, sheet.startOdometer, sheet.endOdometer);
   const clocks = realClocks(sheet.startedAt, sheet.completedAt, source);
-  const routeLabel = source === 'odometer-day'
-    ? 'Odometro diena'
-    : source === 'fuel-day'
-      ? 'Kuro įrašas'
-      : displayAccountingRouteLabel(sheet.routeNumbers.join(', '), sheet.routeId);
+  // A day without a route shows a plain dash — no invented labels.
+  const routeLabel = source === 'odometer-day' || source === 'fuel-day'
+    ? '—'
+    : displayAccountingRouteLabel(sheet.routeNumbers.join(', '), sheet.routeId);
   const issues: MonthSummaryIssue[] = [];
   if (isMissingDriver(sheet.driverId, sheet.driverName)) issues.push('missing-driver');
   if (!sheet.vehicle?.id) issues.push('missing-vehicle');
@@ -626,7 +624,7 @@ function buildSyntheticRow(sheet: MonthSummarySheet, source: 'odometer-day' | 'f
     registrationNumber: sheet.vehicle?.registrationNumber?.trim() ?? '',
     routeLabel,
     status: sheet.status,
-    statusLabel: source === 'odometer-day' ? 'Odometro diena' : source === 'fuel-day' ? 'Kuro įrašas' : assignmentStatusLabel(sheet.status),
+    statusLabel: source === 'odometer-day' ? '—' : source === 'fuel-day' ? 'Kuro įrašas' : assignmentStatusLabel(sheet.status),
     totalStops: null,
     totalWeightKg: null,
     distanceKm: distance.km,
