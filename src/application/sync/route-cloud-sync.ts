@@ -1,7 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { applyRouteSnapshot, exportRouteSnapshot } from '@/application/auth/route-assignment-sync';
-import { employeeApi, type EmployeeProfile, type RouteSnapshot } from '@/infrastructure/auth/employee-session';
+import { employeeApi, getEmployeeSession, type EmployeeProfile, type RouteSnapshot } from '@/infrastructure/auth/employee-session';
 
 const CURSOR_ENTITY = 'routes';
 const WORKING_STATUSES = ['loading', 'loaded', 'in_progress'];
@@ -64,6 +64,9 @@ export async function markRouteDeletedForCloud(db: SQLiteDatabase, routeId: stri
  * offline", matching the existing `pullAssignedRoutes` convention.
  */
 export async function syncRoutesWithCloud(db: SQLiteDatabase): Promise<RouteCloudSyncResult> {
+  if ((await getEmployeeSession())?.demo) {
+    return { pushed: 0, conflicts: 0, pulled: 0, deferred: 0, deleted: 0, rejected: 0, foreign: 0 };
+  }
   const employeeId = await resolveAuthenticatedEmployeeId();
   await claimUnownedRoutes(db, employeeId);
   const pushOutcome = await pushDirtyRoutes(db, employeeId);

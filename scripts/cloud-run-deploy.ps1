@@ -79,12 +79,42 @@ function Set-Secret([string]$name, [string]$value) {
   }
 }
 
-$apiKeys = @('GOOGLE_ROUTES_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_GEOCODING_API_KEY', 'GOOGLE_MAPS_API_KEY', 'GOOGLE_VISION_API_KEY', 'HERE_API_KEY', 'TSP_INITIAL_ADMIN_PIN')
+$apiKeys = @(
+  'GOOGLE_ROUTES_API_KEY',
+  'GOOGLE_API_KEY',
+  'GOOGLE_GEOCODING_API_KEY',
+  'GOOGLE_MAPS_API_KEY',
+  'GOOGLE_VISION_API_KEY',
+  'HERE_API_KEY',
+  'TSP_INITIAL_ADMIN_PIN',
+  'GMAIL_OAUTH_CLIENT_ID',
+  'GMAIL_OAUTH_CLIENT_SECRET',
+  'MAIL_TOKEN_ENCRYPTION_KEY'
+)
 $allSecrets = [System.Collections.Generic.List[string]]::new()
 $allSecrets.Add('GATEWAY_DEVICE_SECRET')
-Set-Secret 'GATEWAY_DEVICE_SECRET' $deviceSecret
+$oldDevicePref = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+& $gcloudExe secrets describe GATEWAY_DEVICE_SECRET --project $project 2>&1 | Out-Null
+$deviceSecretExists = ($LASTEXITCODE -eq 0)
+$ErrorActionPreference = $oldDevicePref
+if (-not $deviceSecretExists) {
+  Set-Secret 'GATEWAY_DEVICE_SECRET' $deviceSecret
+} else {
+  Write-Host 'GATEWAY_DEVICE_SECRET jau yra Secret Manager - lokalus raktas neperrašomas.'
+}
 
 foreach ($keyName in $apiKeys) {
+  $oldKeyPref = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  & $gcloudExe secrets describe $keyName --project $project 2>&1 | Out-Null
+  $keyExists = ($LASTEXITCODE -eq 0)
+  $ErrorActionPreference = $oldKeyPref
+  if ($keyExists) {
+    Write-Host "Prijungiama esama Secret Manager reikšmė: $keyName"
+    $allSecrets.Add($keyName)
+    continue
+  }
   $val = $null
   if (Get-Item "env:$keyName" -ErrorAction SilentlyContinue) {
     $val = (Get-Item "env:$keyName").Value
@@ -101,6 +131,35 @@ foreach ($keyName in $apiKeys) {
 }
 if (-not ($allSecrets | Where-Object { $_ -match '^GOOGLE_' })) {
   throw 'Joks Google API raktas (GOOGLE_ROUTES_API_KEY, GOOGLE_API_KEY, GOOGLE_GEOCODING_API_KEY ir t.t.) nerastas aplinkoje arba vietiniame .env.'
+}
+
+# Vietinis .env gali neturėti visų produkcijos raktų. Cloud Run vis tiek turi
+# gauti Secret Manager reikšmes, kurias GitHub deploy jau laiko privalomomis.
+foreach ($name in @(
+  'GOOGLE_ROUTES_API_KEY',
+  'GOOGLE_API_KEY',
+  'GOOGLE_GEOCODING_API_KEY',
+  'GOOGLE_MAPS_API_KEY',
+  'GOOGLE_VISION_API_KEY',
+  'HERE_API_KEY',
+  'TSP_INITIAL_ADMIN_PIN',
+  'GMAIL_OAUTH_CLIENT_ID',
+  'GMAIL_OAUTH_CLIENT_SECRET',
+  'MAIL_TOKEN_ENCRYPTION_KEY'
+)) {
+  if ($allSecrets -contains $name) { continue }
+  $oldErrPref = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  & $gcloudExe secrets describe $name --project $project 2>&1 | Out-Null
+  $exists = ($LASTEXITCODE -eq 0)
+  $ErrorActionPreference = $oldErrPref
+  if ($exists) {
+    Write-Host "Prijungiama esama Secret Manager reikšmė: $name"
+    $allSecrets.Add($name)
+  }
+}
+if (-not ($allSecrets -contains 'TSP_INITIAL_ADMIN_PIN')) {
+  throw 'TSP_INITIAL_ADMIN_PIN nerastas Secret Manager. Be jo produkcijos serveris nepasileidžia.'
 }
 
 $projectNumber = (& $gcloudExe projects describe $project --format='value(projectNumber)').Trim()
@@ -134,7 +193,20 @@ $dailyBudgetCents = Get-DeployVar 'GATEWAY_DAILY_BUDGET_CENTS' '900'
 $weeklyBudgetCents = Get-DeployVar 'GATEWAY_WEEKLY_BUDGET_CENTS' '3000'
 $dailyUsageUnits = Get-DeployVar 'GATEWAY_DAILY_USAGE_UNITS' '900'
 $weeklyUsageUnits = Get-DeployVar 'GATEWAY_WEEKLY_USAGE_UNITS' '3000'
-$envArg = "GATEWAY_AUTH_MODE=none,GATEWAY_ENV=production,GATEWAY_REAL_PROVIDER_ARMED=$armed,ROUTING_PRICING_CURRENCY=USD,GOOGLE_PRICE_PER_1000_ELEMENTS=10,GATEWAY_DAILY_BUDGET_CENTS=$dailyBudgetCents,GATEWAY_WEEKLY_BUDGET_CENTS=$weeklyBudgetCents,GATEWAY_DAILY_USAGE_UNITS=$dailyUsageUnits,GATEWAY_WEEKLY_USAGE_UNITS=$weeklyUsageUnits,APP_VERSION=1.0.0"
+$gmailRedirectUri = Get-DeployVar 'GMAIL_OAUTH_REDIRECT_URI' ''
+if (-not $gmailRedirectUri) {
+  $existingServiceUrl = (& $gcloudExe run services describe $service --project $project --region $region --format='value(status.url)' 2>$null).Trim()
+  if ($existingServiceUrl) { $gmailRedirectUri = "$existingServiceUrl/api/mail/callback" }
+}
+if (-not $gmailRedirectUri) {
+  throw 'GMAIL_OAUTH_REDIRECT_URI nenustatytas ir Cloud Run serviso URL dar neegzistuoja.'
+}
+foreach ($gmailSecret in @('GMAIL_OAUTH_CLIENT_ID', 'GMAIL_OAUTH_CLIENT_SECRET', 'MAIL_TOKEN_ENCRYPTION_KEY')) {
+  if (-not ($allSecrets -contains $gmailSecret)) {
+    throw "$gmailSecret nerastas Secret Manager. Gmail importas be jo neveiks."
+  }
+}
+$envArg = "GATEWAY_AUTH_MODE=none,GATEWAY_ENV=production,GATEWAY_REAL_PROVIDER_ARMED=$armed,ROUTING_PRICING_CURRENCY=USD,GOOGLE_PRICE_PER_1000_ELEMENTS=10,GATEWAY_DAILY_BUDGET_CENTS=$dailyBudgetCents,GATEWAY_WEEKLY_BUDGET_CENTS=$weeklyBudgetCents,GATEWAY_DAILY_USAGE_UNITS=$dailyUsageUnits,GATEWAY_WEEKLY_USAGE_UNITS=$weeklyUsageUnits,GMAIL_OAUTH_REDIRECT_URI=$gmailRedirectUri,APP_VERSION=1.0.0"
 if ($armed -ne '1') {
   Write-Host 'DĖMESIO: GATEWAY_REAL_PROVIDER_ARMED=0 - geokodavimas, matrix ir polyline grąžins 503 REAL_PROVIDER_DISABLED (adresai nebus patvirtinami).'
 }

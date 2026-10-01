@@ -6,15 +6,17 @@ import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, StyleSheet, 
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { pushCompletedRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
 import { CompanyProfileSettings, type CompanyProfile } from '@/application/settings/company-profile';
-import { TRIP_SHEET_GRID_COLUMNS, tripSheetColumnLegend } from '@/application/trip-sheet/columns';
+import { TRIP_SHEET_GRID_COLUMNS, tripSheetCells, tripSheetColumnLegend, type TripSheetCell } from '@/application/trip-sheet/columns';
+import { printHtmlDocument } from '@/application/trip-sheet/print-frame';
 import { driverSheetRunPeriod, splitDriverSheetRuns, type DriverSheetRun } from '@/application/trip-sheet/driver-sheets';
 import { buildTripSheetWorkbook, MIME_XLSX } from '@/application/trip-sheet/export-xlsx';
-import { buildFuelLedger, vehicleDayFuelDistanceKm, type FuelLedgerDay } from '@/application/trip-sheet/fuel-balance';
+import { buildFuelLedger, closingFuelLiters, FUEL_OVER_CAPACITY_NOTE, fuelFillContinuesLedger, fuelRemainderExceedsTank, openingFuelLiters, vehicleDayFuelDistanceKm, type FuelLedgerDay } from '@/application/trip-sheet/fuel-balance';
 import { buildTripSheetPrintDocument } from '@/application/trip-sheet/print-document';
 import { FiroSelect } from '@/components/firo-select';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { PeriodCalendarPicker } from '@/components/period-calendar-picker';
 import { TripSheetRepository, type TripSheetWithRoutes } from '@/database/repositories/trip-sheet-repository';
+import { resolveFuelTankCapacity } from '@/domain/fleet-cargo-specs';
 import type { FuelType } from '@/domain/vehicle-and-trip';
 import {
     employeeApi,
@@ -334,6 +336,7 @@ export default function TripSheetScreen() {
         vehicleModel: sheet.vehicleModel,
         driverNames: sheet.driverNames,
         fuelNorm: sheet.fuelNorm,
+        tankCapacityLiters: resolveFuelTankCapacity(sheet.vehicle),
         rows: sheet.rows.map((row) => ({
           date: row.date,
           driverName: row.driverName,
@@ -557,22 +560,14 @@ function PrintableTripSheet({ sheet, selectable, selected, onToggle, canEditFuel
   const totalFuelAdded = rows.reduce((sum, row) => sum + (row.fuelAdded ?? 0), 0);
   const firstOdometer = rows.find((row) => row.startOdometer !== null)?.startOdometer ?? null;
   const lastOdometer = [...rows].reverse().find((row) => row.endOdometer !== null)?.endOdometer ?? null;
-  const firstFuel = rows.find((row) => row.fuelStart !== null)?.fuelStart ?? null;
-  const lastFuel = [...rows].reverse().find((row) => row.fuelEnd !== null)?.fuelEnd ?? null;
+  const tankCapacityLiters = resolveFuelTankCapacity(sheet.vehicle);
+  const firstFuel = openingFuelLiters(rows.map((row) => row.fuelStart));
+  const lastFuel = closingFuelLiters(rows.map((row) => row.fuelEnd));
+  const fuelOverCapacity = rows.some((row) =>
+    fuelRemainderExceedsTank(row.fuelStart, tankCapacityLiters) || fuelRemainderExceedsTank(row.fuelEnd, tankCapacityLiters));
   const heading = sheet.sheetNumber == null ? sheet.monthLabel : `Kelionės lapas Nr. ${sheet.sheetNumber}`;
   const subheading = sheet.sheetNumber == null ? sheet.driverNames : `${sheet.driverNames} · ${sheet.periodLabel}`;
-  const cellStyle = {
-    date: styles.reportDateCell,
-    driver: styles.reportDriverCell,
-    route: styles.reportRouteCell,
-    odoStart: styles.reportNumberCell,
-    odoEnd: styles.reportNumberCell,
-    km: styles.reportNumberCell,
-    consumed: styles.reportNumberCell,
-    added: styles.reportNumberCell,
-    fuelStart: styles.reportNumberCell,
-    fuelEnd: styles.reportNumberCell,
-  } as const;
+  const drivers = new Set(rows.map((row) => row.driverName.trim()).filter(Boolean)).size;
   return <View style={styles.sheet} testID={`monthly-trip-sheet-${sheet.key}`}>
     {selectable ? (
       <Pressable
@@ -609,36 +604,51 @@ function PrintableTripSheet({ sheet, selectable, selected, onToggle, canEditFuel
     <View style={styles.reportTable} testID="trip-sheet-report-table">
       <View style={[styles.reportTableRow, styles.reportTableHeader]}>
         {TRIP_SHEET_GRID_COLUMNS.map((column) => (
-          <HeaderCell key={column.key} column={column} style={[styles.reportTableCell, cellStyle[column.key]]} />
+          <HeaderCell key={column.key} column={column} style={[styles.reportTableCell, reportCellStyle(column.key, styles)]} />
         ))}
       </View>
-      {rows.map((row) => <View key={row.date} style={styles.reportTableRow}>
-        <Text style={[styles.reportTableCell, styles.reportDateCell]}>{row.date}</Text>
-        <Text style={[styles.reportTableCell, styles.reportDriverCell]}>{row.driverName}</Text>
-        <Text style={[styles.reportTableCell, styles.reportRouteCell]}>{tripRouteLabel(row)}</Text>
-        <Text style={[styles.reportTableCell, styles.reportNumberCell]}>{formatNumber(row.startOdometer)}</Text>
-        <Text style={[styles.reportTableCell, styles.reportNumberCell]}>{formatNumber(row.endOdometer)}</Text>
-        <Text style={[styles.reportTableCell, styles.reportNumberCell]}>{formatNumber(row.distanceKm)}</Text>
-        <Text style={[styles.reportTableCell, styles.reportNumberCell]}>{formatNumber(row.fuelConsumed)}</Text>
-        <Text style={[styles.reportTableCell, styles.reportNumberCell]}>{formatNumber(row.fuelAdded)}</Text>
-        <Text style={[styles.reportTableCell, styles.reportNumberCell]}>{formatNumber(row.fuelStart)}</Text>
-        <Text style={[styles.reportTableCell, styles.reportNumberCell]}>{formatNumber(row.fuelEnd)}</Text>
+      {rows.map((row, index) => <View key={`${row.date}-${index}`} style={styles.reportTableRow}>
+        {tripSheetCells({
+          lineNumber: index + 1,
+          date: row.date,
+          route: tripRouteLabel(row),
+          driverName: row.driverName,
+          distinctDriverCount: drivers,
+          distanceKm: row.distanceKm,
+          fuelStart: row.fuelStart,
+          fuelAdded: row.fuelAdded,
+          receiptNumbers: row.fuelEntries.map((entry) => entry.receiptNumber),
+          fuelConsumed: row.fuelConsumed,
+          fuelEnd: row.fuelEnd,
+          startOdometer: row.startOdometer,
+          endOdometer: row.endOdometer,
+        }).map((cell) => (
+          <ReportCell key={cell.key} cell={cell} styles={styles} tankCapacityLiters={tankCapacityLiters} total={false} />
+        ))}
       </View>)}
       <View style={[styles.reportTableRow, styles.reportTableTotal]}>
-        <Text style={[styles.reportTableCell, styles.reportDateCell]} />
-        <Text style={[styles.reportTableCell, styles.reportDriverCell]} />
-        <Text style={[styles.reportTableCell, styles.reportRouteCell, styles.reportTotalText]}>Iš viso</Text>
-        <Text style={[styles.reportTableCell, styles.reportNumberCell, styles.reportTotalText]}>{formatNumber(firstOdometer)}</Text>
-        <Text style={[styles.reportTableCell, styles.reportNumberCell, styles.reportTotalText]}>{formatNumber(lastOdometer)}</Text>
-        <Text style={[styles.reportTableCell, styles.reportNumberCell, styles.reportTotalText]}>{formatNumber(totalDistance)}</Text>
-        <Text style={[styles.reportTableCell, styles.reportNumberCell, styles.reportTotalText]}>{formatNumber(totalFuel)}</Text>
-        <Text style={[styles.reportTableCell, styles.reportNumberCell, styles.reportTotalText]}>{formatNumber(totalFuelAdded)}</Text>
-        <Text style={[styles.reportTableCell, styles.reportNumberCell]}>{formatNumber(firstFuel)}</Text>
-        <Text style={[styles.reportTableCell, styles.reportNumberCell]}>{formatNumber(lastFuel)}</Text>
+        {tripSheetCells({
+          lineNumber: null,
+          date: '',
+          route: 'Iš viso',
+          driverName: '',
+          distinctDriverCount: 1,
+          distanceKm: totalDistance,
+          fuelStart: firstFuel,
+          fuelAdded: totalFuelAdded,
+          receiptNumbers: [],
+          fuelConsumed: totalFuel,
+          fuelEnd: lastFuel,
+          startOdometer: firstOdometer,
+          endOdometer: lastOdometer,
+        }).map((cell) => (
+          <ReportCell key={cell.key} cell={cell} styles={styles} tankCapacityLiters={tankCapacityLiters} total />
+        ))}
       </View>
     </View>
     </ScrollView>
     <Text style={styles.columnLegend} testID="trip-sheet-column-legend">{tripSheetColumnLegend(TRIP_SHEET_GRID_COLUMNS)}</Text>
+    {fuelOverCapacity ? <Text style={styles.fuelOverCapacityNote} testID="fuel-over-capacity-note">{FUEL_OVER_CAPACITY_NOTE}</Text> : null}
     {canEditFuel ? (
       <View style={styles.fuelAdmin} testID={`trip-sheet-fuel-admin-${sheet.key}`}>
         <Text style={styles.fuelEntriesTitle}>Kuro įrašai — redagavimas</Text>
@@ -878,12 +888,16 @@ function applyFuelLedger(
       .find((value): value is number => value !== null && value !== undefined)
     ?? null;
   const ledger = buildFuelLedger(
-    days.map((day) => ({
-      date: day.date,
-      distanceKm: day.distanceKm,
-      fuelNormLPer100Km: day.fuelNorm,
-      addedLiters: day.fuelAdded ?? 0,
-    })),
+    days.map((day) => {
+      const fuelOnly = fuelFillContinuesLedger(day);
+      return {
+        date: day.date,
+        distanceKm: fuelOnly ? 0 : day.distanceKm,
+        fuelOnly,
+        fuelNormLPer100Km: day.fuelNorm,
+        addedLiters: day.fuelAdded ?? 0,
+      };
+    }),
     openingLiters,
   );
 
@@ -916,35 +930,30 @@ function HeaderCell({ column, style }: { column: (typeof TRIP_SHEET_GRID_COLUMNS
   return <Text accessibilityLabel={column.full} style={style}>{column.short}</Text>;
 }
 
-function printHtmlDocument(html: string) {
-  const iframe = document.createElement('iframe');
-  iframe.setAttribute('data-testid', 'trip-sheet-print-frame');
-  iframe.setAttribute('aria-hidden', 'true');
-  iframe.style.position = 'fixed';
-  iframe.style.right = '0';
-  iframe.style.bottom = '0';
-  iframe.style.width = '0';
-  iframe.style.height = '0';
-  iframe.style.border = '0';
-  // srcdoc keeps the frame document on about:srcdoc, so Chrome's print
-  // footer has no app URL to stamp on the page. (document.write would
-  // inherit the parent's URL.)
-  iframe.srcdoc = html;
-  const cleanup = () => {
-    iframe.remove();
-    iframe.contentWindow?.removeEventListener('afterprint', cleanup);
-  };
-  iframe.onload = () => {
-    const frameWindow = iframe.contentWindow;
-    if (!frameWindow) {
-      iframe.remove();
-      return;
-    }
-    frameWindow.addEventListener('afterprint', cleanup);
-    requestAnimationFrame(() => frameWindow.print());
-  };
-  document.body.appendChild(iframe);
-  window.setTimeout(cleanup, 60_000);
+function reportCellStyle(key: TripSheetCell['key'], styles: ReturnType<typeof createStyles>) {
+  if (key === 'line') return styles.reportLineCell;
+  if (key === 'date') return styles.reportDateCell;
+  if (key === 'route') return styles.reportRouteCell;
+  if (key === 'receipt') return styles.reportReceiptCell;
+  if (key === 'fuelStart' || key === 'fuelEnd' || key === 'consumed') return styles.reportWideNumberCell;
+  if (key === 'odoStart' || key === 'odoEnd') return styles.reportOdoCell;
+  return styles.reportNumberCell;
+}
+
+function ReportCell({ cell, total, tankCapacityLiters, styles }: {
+  cell: TripSheetCell;
+  total: boolean;
+  tankCapacityLiters: number | null;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  const style = [styles.reportTableCell, reportCellStyle(cell.key, styles), total ? styles.reportTotalText : null];
+  if (cell.key === 'fuelStart' || cell.key === 'fuelEnd') {
+    return <FuelLiterCell cellStyle={reportCellStyle(cell.key, styles)} styles={styles} tankCapacityLiters={tankCapacityLiters} total={total} value={typeof cell.value === 'number' ? cell.value : null} />;
+  }
+  const text = cell.value === null || cell.value === ''
+    ? (total ? '' : '—')
+    : typeof cell.value === 'number' ? formatNumber(cell.value) : cell.value;
+  return <Text style={style}>{text}</Text>;
 }
 
 function Metric({ label, value, styles }: { label: string; value: string; styles: ReturnType<typeof createStyles> }) {
@@ -974,6 +983,17 @@ function tripRouteLabel(row: DailyTripRow): string {
   return `${row.startAddress} - ${row.endAddress}`;
 }
 function formatMonth(value: string): string { const date = new Date(`${value}-15T12:00:00`); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('lt-LT', { year: 'numeric', month: 'long' }).format(date); }
+function FuelLiterCell({ value, tankCapacityLiters, styles, total = false, cellStyle }: {
+  value: number | null;
+  tankCapacityLiters: number | null;
+  styles: ReturnType<typeof createStyles>;
+  total?: boolean;
+  cellStyle: StyleProp<TextStyle>;
+}) {
+  const over = fuelRemainderExceedsTank(value, tankCapacityLiters);
+  return <Text accessibilityLabel={over ? `${formatNumber(value)}. ${FUEL_OVER_CAPACITY_NOTE}` : undefined} style={[styles.reportTableCell, cellStyle, total ? styles.reportTotalText : null, over ? styles.fuelOverCapacity : null]}>{formatNumber(value)}</Text>;
+}
+
 function formatNumber(value: number | null): string { return value === null ? '—' : new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(value); }
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   headerAction: { minWidth: 120, minHeight: 48, justifyContent: 'center' }, headerText: { ...type.button, color: colors.brandNavy },
@@ -991,18 +1011,23 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   routeBadge: { borderRadius: radius.sm, backgroundColor: colors.infoSoft, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }, routeBadgeText: { ...type.label, color: colors.info },
   vehicleBar: { padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceMuted, gap: 2 }, vehicleNumber: { ...type.readout, color: colors.text },
   metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }, metric: { flexGrow: 1, minWidth: 115, padding: spacing.sm, borderRadius: radius.sm, backgroundColor: colors.surfaceSubtle, borderWidth: 1, borderColor: colors.borderSubtle, gap: 2 }, metricLabel: { ...type.label, color: colors.textMuted }, metricValue: { ...type.bodyStrong, color: colors.text },
-  reportTable: { borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radius.sm, overflow: 'hidden' },
+  reportTable: { minWidth: 1040, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radius.sm, overflow: 'hidden' },
   reportTableScroll: { minWidth: '100%' },
   reportTableRow: { minHeight: 44, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: colors.borderSubtle },
-  reportTableHeader: { backgroundColor: colors.surfaceMuted },
+  reportTableHeader: { minHeight: 56, backgroundColor: colors.surfaceMuted },
   reportTableTotal: { backgroundColor: colors.infoSoft, borderBottomWidth: 0 },
   reportTableCell: { ...type.meta, color: colors.text, paddingHorizontal: spacing.xs, paddingVertical: spacing.xs },
-  reportDateCell: { width: 72 },
-  reportDriverCell: { width: 88 },
-  reportRouteCell: { flex: 1, minWidth: 72 },
+  reportLineCell: { width: 56, textAlign: 'right' },
+  reportDateCell: { width: 96 },
+  reportRouteCell: { flex: 1, minWidth: 140 },
+  reportReceiptCell: { width: 96 },
   reportNumberCell: { width: 68, textAlign: 'right' },
+  reportWideNumberCell: { width: 118, textAlign: 'right' },
+  reportOdoCell: { width: 84, textAlign: 'right' },
   reportTotalText: { ...type.secondaryStrong },
   columnLegend: { ...type.meta, color: colors.textMuted },
+  fuelOverCapacity: { color: colors.warning },
+  fuelOverCapacityNote: { ...type.secondary, color: colors.warning, backgroundColor: colors.warningSoft, borderRadius: radius.sm, padding: spacing.sm },
   compensation: { padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.success, backgroundColor: colors.surfaceSubtle, gap: spacing.sm }, compensationHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm }, compensationEyebrow: { ...type.label, color: colors.success }, compensationTotal: { ...type.readout, color: colors.text, marginTop: 2 }, compensationSource: { ...type.secondary, color: colors.textMuted }, compensationRows: { gap: 3 }, compensationLine: { ...type.secondary, color: colors.textSecondary },
   routeBlock: { borderLeftWidth: 3, borderLeftColor: colors.info, paddingLeft: spacing.sm, gap: 2 }, routeLabel: { ...type.label, color: colors.textMuted }, routeAddress: { ...type.body, color: colors.text }, cardTitle: { ...type.sectionTitle, color: colors.text }, meta: { ...type.secondary, color: colors.textMuted },
   tableHeader: { minHeight: 48, paddingHorizontal: spacing.sm, borderRadius: radius.sm, backgroundColor: colors.surfaceMuted, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },

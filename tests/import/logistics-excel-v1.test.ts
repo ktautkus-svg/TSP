@@ -11,7 +11,9 @@ import {
   extractAddressText,
   filterExcelPreviewByRouteCodes,
   looksLikeAddress,
+  normalizeOptionalTimeWindowRows,
   normalizeLithuanianAddress,
+  parseDeliveryTimeWindow,
   parseLithuanianWeightToGrams,
   parseLogisticsExcelWorkbook,
   stripSupplierPrefix,
@@ -135,6 +137,22 @@ describe('LOGISTICS_EXCEL_V1 direct cell parser', () => {
   it('rejects negative and invalid weights without inventing zero', () => {
     expect(parseLithuanianWeightToGrams('-1,5')).toEqual({ grams: null, issue: 'NEGATIVE_WEIGHT' });
     expect(parseLithuanianWeightToGrams('daug')).toEqual({ grams: null, issue: 'INVALID_WEIGHT' });
+  });
+
+  it.each(['00:00-00:00', '0:00–0:00'])('treats the optional empty time placeholder %s as no delivery window', (raw) => {
+    expect(parseDeliveryTimeWindow(raw)).toEqual({ from: null, to: null, issue: null });
+  });
+
+  it('repairs the false time error in an import saved before the placeholder fix', () => {
+    const original = parseFixture().rows[0]!;
+    const [repaired] = normalizeOptionalTimeWindowRows([{
+      ...original,
+      deliveryTimeRaw: '00:00-00:00',
+      deliveryTimeFrom: null,
+      deliveryTimeTo: null,
+      issueCodes: [...original.issueCodes, 'INVALID_TIME_WINDOW'],
+    }]);
+    expect(repaired!.issueCodes).not.toContain('INVALID_TIME_WINDOW');
   });
 
   it('keeps an empty self-closing Excel weight cell null without shifting later columns', () => {
@@ -293,6 +311,36 @@ describe('LOGISTICS_EXCEL_V1 direct cell parser', () => {
     });
     expect(preview.groups.filter((group) => group.normalizedAddress.includes('Smėlynės'))).toHaveLength(1);
     expect(preview.summary.physicalStopCount).toBe(1);
+  });
+
+  it('never drops Užventis by merging two distinct Excel groups that geocoded to the same pin', () => {
+    const preview = parseLogisticsExcelWorkbook(logisticsWorkbook([
+      ['Užs. Nr.', 'Svoris', 'Stulpelis', 'Adresas', 'Pavadinimas', 'Kryptis'],
+      ['S624329', 14.5, '08:00-12:00', 'Vilties g. 2, Užventis, Lietuva', 'Liolių socialinės globos namai', 'R73'],
+      ['S623137', 27.5, '07:00-14:00', 'Mokyklos g. 1, Žemaičių Naumiestis, Lietuva', 'Žemaičių Naumiesčio gimnazija', 'R85'],
+    ]), {
+      importId: 'same-wrong-pin-regression', fileName: 'same-wrong-pin.xlsx', fileHash: 'same-wrong-pin-hash',
+    });
+    expect(preview.groups).toHaveLength(2);
+
+    const result = confirmAddressesAt(preview, 55.35, 21.7);
+    const stops = excelPreviewToDraftStops(preview, result.deliveries);
+
+    expect(stops).toHaveLength(2);
+    expect(stops.map((stop) => stop.orderNumber).sort()).toEqual(['S623137', 'S624329']);
+  });
+
+  it('throws instead of silently filtering an unconfirmed Excel delivery', () => {
+    const preview = parseLogisticsExcelWorkbook(logisticsWorkbook([
+      ['Užs. Nr.', 'Svoris', 'Stulpelis', 'Adresas', 'Pavadinimas', 'Kryptis'],
+      ['S624329', 14.5, '08:00-12:00', 'Vilties g. 2, Užventis, Lietuva', 'Liolių socialinės globos namai', 'R73'],
+      ['S623137', 27.5, '07:00-14:00', 'Mokyklos g. 1, Žemaičių Naumiestis, Lietuva', 'Žemaičių Naumiesčio gimnazija', 'R85'],
+    ]), {
+      importId: 'unconfirmed-regression', fileName: 'unconfirmed.xlsx', fileHash: 'unconfirmed-hash',
+    });
+
+    expect(() => excelPreviewToDraftStops(preview, excelPreviewToImportResult(preview).deliveries))
+      .toThrow(/adresas dar nepatvirtintas/u);
   });
 });
 

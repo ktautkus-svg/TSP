@@ -3,9 +3,13 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 
+import { publishActiveDatabase } from '@/application/auth/active-database';
+import { createDemoEmployeeSession } from '@/application/auth/demo-driver-session';
 import { LocalAccessService, validateNewPin, type ActingDriver } from '@/application/auth/local-access';
 import { LocalAccessContext, type LocalAccessContextValue } from '@/application/auth/local-access-context';
 import { pullAssignedRoutes } from '@/application/auth/route-assignment-sync';
+import { PIN_GRACE_PERIOD_MS, shouldRestoreSessionWithoutPin } from '@/application/auth/session-persistence';
+import { DEMO_DATABASE_NAME, REAL_DATABASE_NAME, isDemoDriverLogin } from '@/domain/demo-driver';
 import { FiroBrand } from '@/components/firo-brand';
 import { useForegroundInterval } from '@/hooks/use-foreground-interval';
 import {
@@ -16,6 +20,7 @@ import {
     loginEmployee,
     logoutEmployee,
     refreshEmployeeSession,
+    saveEmployeeSession,
     type EmployeeProfile,
 } from '@/infrastructure/auth/employee-session';
 import { saveGatewayDeviceSecret } from '@/infrastructure/gateway/device-auth';
@@ -28,13 +33,6 @@ import { fonts, radius, spacing, type } from '@/ui/tokens';
 type LoginPalette = ReturnType<typeof stitchColorsFor>['login'];
 
 type GateMode = 'bootstrap' | 'login';
-
-// How long a driver can put the phone down (screen lock, switch apps, the
-// mobile browser evicting the tab from memory) and come straight back in
-// without re-entering the PIN. Long enough to cover a whole shift's normal
-// interruptions, short enough that a phone left in the vehicle or handed to
-// someone else needs the PIN again before it exposes anything.
-const PIN_GRACE_PERIOD_MS = 4 * 60 * 60 * 1000;
 
 // `online` used to be set once at login/app-mount and never touched again,
 // so a single transient failure at that moment (a deploy rollover, a flaky
@@ -71,6 +69,7 @@ export function LocalAccessGate({ children }: LocalAccessGateProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [actingDriver, setActingDriverState] = useState<ActingDriver | null>(null);
+  const [demo, setDemo] = useState(false);
 
   const refresh = useCallback(async () => {
     const [configuration, initialized, storedSession, lastUnlockedAt, storedActingDriver] = await Promise.all([
@@ -82,26 +81,34 @@ export function LocalAccessGate({ children }: LocalAccessGateProps) {
     ]);
     setActingDriverState(storedActingDriver);
     let cachedSession = storedSession;
-    if (storedSession && initialized !== null) {
+    if (storedSession && !storedSession.demo && initialized !== null) {
       try { cachedSession = await refreshEmployeeSession(); } catch { /* Offline or expired server session: keep the explicit local session. */ }
     }
     setConfigured(configuration.configured);
     setUsername(cachedSession?.profile.username ?? configuration.username ?? '');
     setDisplayName(cachedSession?.profile.displayName ?? '');
-    // A cached session only unlocks the app by itself within the PIN grace
-    // period (a fresh mount from the mobile browser evicting the tab, not a
-    // real cold start); otherwise it is just a fast path for the PIN check
-    // inside submit() (see the offline fallback there).
-    const withinGracePeriod = Boolean(lastUnlockedAt) && Date.now() - Date.parse(lastUnlockedAt!) < PIN_GRACE_PERIOD_MS;
-    if (cachedSession && withinGracePeriod) {
+    const demoSession = Boolean(cachedSession?.demo);
+    setDemo(demoSession);
+    // Drivers stay unlocked on this device. Administrators, dispatchers and
+    // quality control still need the PIN again after the grace window.
+    const restore = shouldRestoreSessionWithoutPin({
+      role: cachedSession?.profile.role,
+      demo: demoSession,
+      lastUnlockedAt,
+      nowMs: Date.now(),
+      graceMs: PIN_GRACE_PERIOD_MS,
+    });
+    if (cachedSession && restore) {
       setProfile(cachedSession.profile);
       setUnlocked(true);
-      setOnline(initialized !== null);
-      void pullAssignedRoutes(db, cachedSession.profile).catch((reason) => {
-        devWarn('ASSIGNMENT_PULL_FAILED', reason);
-      });
+      setOnline(demoSession ? false : initialized !== null);
+      if (!demoSession) {
+        void pullAssignedRoutes(db, cachedSession.profile).catch((reason) => {
+          devWarn('ASSIGNMENT_PULL_FAILED', reason);
+        });
+      }
     } else {
-      setOnline(Boolean(cachedSession && initialized !== null));
+      setOnline(Boolean(cachedSession && !demoSession && initialized !== null));
     }
     setMode(initialized === false && !cachedSession ? 'bootstrap' : 'login');
     if (initialized === null && !configuration.configured) {
@@ -116,9 +123,9 @@ export function LocalAccessGate({ children }: LocalAccessGateProps) {
   }); }, [refresh]);
 
   const recheckOnline = useCallback(() => {
-    if (!unlocked || !profile) return;
+    if (!unlocked || !profile || demo) return;
     void employeeServerInitialized().then((initialized) => setOnline(initialized !== null));
-  }, [unlocked, profile]);
+  }, [demo, unlocked, profile]);
   useForegroundInterval(recheckOnline, ONLINE_RECHECK_INTERVAL_MS);
 
   const submit = async () => {
@@ -128,6 +135,10 @@ export function LocalAccessGate({ children }: LocalAccessGateProps) {
     try {
       if (pin !== confirmPin && mode === 'bootstrap') throw new Error('Pakartotas PIN nesutampa.');
       if (mode === 'bootstrap') validateNewPin(pin);
+      if (mode !== 'bootstrap' && isDemoDriverLogin(username, pin)) {
+        await enterDemoDriver();
+        return;
+      }
       let session;
       if (mode === 'bootstrap') {
         if (deviceKey.trim()) await saveGatewayDeviceSecret(deviceKey);
@@ -168,10 +179,27 @@ export function LocalAccessGate({ children }: LocalAccessGateProps) {
     }
   };
 
+  const enterDemoDriver = async () => {
+    await logoutEmployee();
+    const session = createDemoEmployeeSession();
+    await saveEmployeeSession(session);
+    publishActiveDatabase(DEMO_DATABASE_NAME);
+    await service.markUnlocked();
+    setDemo(true);
+    setProfile(session.profile);
+    setUsername(session.profile.username);
+    setPin('');
+    setConfirmPin('');
+    setOnline(false);
+    setUnlocked(true);
+  };
+
   const logout = useCallback(async () => {
     await logoutEmployee();
     await service.setActingDriver(null);
+    publishActiveDatabase(REAL_DATABASE_NAME);
     setActingDriverState(null);
+    setDemo(false);
     setUnlocked(false);
     setProfile(null);
     setOnline(false);
@@ -192,8 +220,8 @@ export function LocalAccessGate({ children }: LocalAccessGateProps) {
    * unstable value re-renders every screen.
    */
   const accessValue = useMemo<LocalAccessContextValue | null>(
-    () => (profile ? { username: profile.username, profile, online, logout, actingDriver, setActingDriver } : null),
-    [actingDriver, logout, online, profile, setActingDriver],
+    () => (profile ? { username: profile.username, profile, online, demo, logout, actingDriver, setActingDriver } : null),
+    [actingDriver, demo, logout, online, profile, setActingDriver],
   );
 
   if (loading) return <View style={styles.screen}><ActivityIndicator color={colors.accent} size="large" /></View>;

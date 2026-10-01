@@ -134,7 +134,8 @@ describe('trip sheet Excel export', () => {
     expect(sheet).toContain('675154');
     expect(sheet).toContain('675628');
     expect(sheet).toContain('<v>474</v>');
-    expect(sheet).toMatch(/<c r="A7" t="inlineStr"[^>]*>[\s\S]*?<t[^>]*>2026-08-17<\/t>/);
+    expect(sheet).toMatch(/<c r="A7"[^>]*><v>1<\/v><\/c>/);
+    expect(sheet).toMatch(/<c r="B7" t="inlineStr"[^>]*>[\s\S]*?<t[^>]*>2026-08-17<\/t>/);
     expect(sheet).not.toContain('<f>');
     expect(sheet).not.toContain('Sustojimo trukmė');
     expect(sheet).not.toContain('Stovėjimo laikas');
@@ -168,9 +169,16 @@ describe('trip sheet Excel export', () => {
     expect(first).toContain('t="inlineStr"');
     expect(first).toContain('MET630');
     expect(first).toContain('Karolis Tautkus');
-    expect(first).toMatch(/<c r="A7" t="inlineStr"[^>]*>[\s\S]*?<t[^>]*>2026-08-17<\/t>/);
+    expect(first).toMatch(/<c r="A7"[^>]*><v>1<\/v><\/c>/);
+    expect(first).toMatch(/<c r="B7" t="inlineStr"[^>]*>[\s\S]*?<t[^>]*>2026-08-17<\/t>/);
     expect(first).toMatch(/<c r="C7" t="inlineStr"[^>]*>[\s\S]*?<t[^>]*>R11 · R15<\/t>/);
-    expect(first).toMatch(/<c r="F7"[^>]*><v>474<\/v><\/c>/);
+    expect(first).toMatch(/<c r="D7"[^>]*><v>474<\/v><\/c>/);
+    expect(first).toMatch(/<c r="E7"[^>]*><v>90<\/v><\/c>/);
+    expect(first).toMatch(/<c r="F7"[^>]*><v>49<\/v><\/c>/);
+    expect(first).toMatch(/<c r="H7"[^>]*><v>68.7<\/v><\/c>/);
+    expect(first).toMatch(/<c r="I7"[^>]*><v>70.3<\/v><\/c>/);
+    expect(first).toMatch(/<c r="J7"[^>]*><v>675154<\/v><\/c>/);
+    expect(first).toMatch(/<c r="K7"[^>]*><v>675628<\/v><\/c>/);
     expect(first).toContain('Iš viso');
     for (const column of TRIP_SHEET_PRINT_COLUMNS) {
       expect(first).toContain(`>${column.short}<`);
@@ -178,13 +186,13 @@ describe('trip sheet Excel export', () => {
 
     const nll = sheetText(archive, 2);
     expect(nll).toContain('Kelionės lapas');
-    expect(nll).toMatch(/<c r="A7" t="inlineStr"[^>]*>[\s\S]*?<t[^>]*>2026-08-19<\/t>/);
-    expect(nll).toMatch(/<c r="F7"[^>]*><v>210<\/v><\/c>/);
+    expect(nll).toMatch(/<c r="B7" t="inlineStr"[^>]*>[\s\S]*?<t[^>]*>2026-08-19<\/t>/);
+    expect(nll).toMatch(/<c r="D7"[^>]*><v>210<\/v><\/c>/);
 
     const lri = sheetText(archive, 3);
     expect(lri).toContain('Kelionės lapas');
-    expect(lri).toMatch(/<c r="A7" t="inlineStr"[^>]*>[\s\S]*?<t[^>]*>2026-08-09<\/t>/);
-    expect(lri).toMatch(/<c r="F7"[^>]*><v>12<\/v><\/c>/);
+    expect(lri).toMatch(/<c r="B7" t="inlineStr"[^>]*>[\s\S]*?<t[^>]*>2026-08-09<\/t>/);
+    expect(lri).toMatch(/<c r="D7"[^>]*><v>12<\/v><\/c>/);
     expect(lri).toContain('R56');
 
     const summary = sheetText(archive, 4);

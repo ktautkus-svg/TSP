@@ -69,6 +69,21 @@ export function routeCompletionTimestamp(clock: RouteCompletionClock): string | 
   return lithuanianDateTimeToIso(clock.date, `${clock.hour}:${clock.minute}`);
 }
 
+/** Reports the first missing or invalid fuel field, before odometer or network work. */
+export function routeCompletionFuelFieldError(
+  choice: RouteCompletionFuelChoice,
+  litersText: string,
+): string | null {
+  if (choice === null) return 'Pasirinkite, ar buvo pilti degalai.';
+  if (choice === 'no') return null;
+  if (!litersText.trim()) return 'Įveskite įpilto kuro kiekį litrais.';
+  const liters = Number(litersText.trim().replace(',', '.'));
+  if (!Number.isFinite(liters) || liters < 0.1 || liters > 1_000) {
+    return 'Įpilto kuro kiekis turi būti nuo 0,1 iki 1000 litrų.';
+  }
+  return null;
+}
+
 export function buildRouteCompletionFuelRequest(input: {
   choice: RouteCompletionFuelChoice;
   filledAt: string;
@@ -76,12 +91,10 @@ export function buildRouteCompletionFuelRequest(input: {
   litersText: string;
   receiptNumber: string;
 }): RouteCompletionFuelRequest | null {
-  if (input.choice === null) throw new Error('Pasirinkite, ar pylėte kuro.');
-  if (input.choice === 'no') return null;
-  const liters = Number(input.litersText.replace(',', '.'));
-  if (!Number.isFinite(liters) || liters < 0.1 || liters > 1_000) {
-    throw new Error('Įpilto kuro kiekis turi būti nuo 0,1 iki 1000 litrų.');
-  }
+  const fieldError = routeCompletionFuelFieldError(input.choice, input.litersText);
+  if (fieldError) throw new Error(fieldError);
+  if (input.choice !== 'yes') return null;
+  const liters = Number(input.litersText.trim().replace(',', '.'));
   return {
     filledAt: input.filledAt,
     odometer: input.odometer,

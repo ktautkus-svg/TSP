@@ -54,7 +54,7 @@ describe('responsive administration workspace', () => {
     expect(apiSource).toContain('store.updateAssignmentSchedule');
     expect(apiSource).toContain('store.reassignAssignment(assignmentId, {');
     expect(storeSource).toContain('async updateAssignmentSchedule');
-    expect(storeSource).toContain('async reassignAssignment(assignmentId: string, input: { driverId?: string; vehicleId?: string })');
+    expect(storeSource).toContain('async reassignAssignment(assignmentId: string, input: { driverId?: string; vehicleId?: string }, actor?: AdminActor)');
     expect(storeSource).toContain("'ASSIGNMENT_ALREADY_STARTED'");
     // Reassign is blocked once the route has started, just like the date.
     const reassign = storeSource.slice(storeSource.indexOf('async reassignAssignment'), storeSource.indexOf('async reassignAssignment') + 2400);

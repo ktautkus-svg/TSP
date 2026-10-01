@@ -124,6 +124,14 @@ describe('cloud sync status reflects unresolved work', () => {
     expect(coordinator.getState()).toMatchObject({ status: 'synced', attention: null });
   });
 
+  it('does not wake every screen when a periodic pass transferred nothing', async () => {
+    const coordinator = new RouteCloudSyncCoordinator({
+      sync: async () => ({ pushed: 0, conflicts: 0, pulled: 0, deferred: 0, deleted: 0, rejected: 0, foreign: 0 }),
+    });
+    await coordinator.trigger('periodic');
+    expect(coordinator.getState()).toMatchObject({ status: 'synced', revision: 0 });
+  });
+
   it('ignores an outcome that carries no counts at all', () => {
     expect(attentionFrom(undefined)).toBeNull();
     expect(attentionFrom({})).toBeNull();

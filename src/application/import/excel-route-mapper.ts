@@ -1,8 +1,9 @@
 import { parseDeliveryTimeWindow } from '@/application/import/logistics-excel-v1';
+import { hasSafelyConfirmedDeliveryAddress } from '@/application/import/address-resolver';
 import type { DraftStopInput } from '@/application/routes/route-commands';
 import type { ExcelDeliveryGroup, ExcelImportPreview, ExcelSourceRow } from '@/domain/import/excel-models';
-import type { ImportResult, ParsedDelivery, ResolvedAddressCandidate } from '@/domain/import/models';
-import { smelynes25UnloadKeyFromRows, smelynes25UnloadLabel } from '@/domain/import/smelynes-25-unloads';
+import type { ImportResult, ParsedDelivery } from '@/domain/import/models';
+import { smelynes25UnloadLabel } from '@/domain/import/smelynes-25-unloads';
 import type { DraftShipmentLineInput } from '@/domain/shipment-line';
 import type { PlanningMode } from '@/domain/route';
 
@@ -52,18 +53,27 @@ export function excelPreviewToDraftStops(
 ): DraftStopInput[] {
   const deliveryByGroup = new Map(deliveries.map((delivery) => [delivery.id, delivery]));
   const rowById = new Map(preview.rows.map((row) => [row.id, row]));
-  const confirmed = preview.groups.map((group) => ({
+  const entries = preview.groups.map((group) => ({
     group,
     delivery: deliveryByGroup.get(group.id),
     rows: group.lineIds.map((id) => rowById.get(id)).filter((row): row is ExcelSourceRow => Boolean(row && !row.excluded)),
-  })).filter((entry): entry is { group: ExcelDeliveryGroup; delivery: ParsedDelivery; rows: ExcelSourceRow[] } =>
-    Boolean(entry.delivery?.selectedAddress && entry.delivery.validationState === 'valid'),
+  }));
+
+  const unresolved = entries.filter((entry) =>
+    !entry.delivery || !hasSafelyConfirmedDeliveryAddress(entry.delivery),
   );
+  if (unresolved.length > 0) {
+    throw new Error(`Negalima kurti maršruto: ${unresolved.length} pristatymo adresas dar nepatvirtintas.`);
+  }
+  const confirmed = entries as { group: ExcelDeliveryGroup; delivery: ParsedDelivery; rows: ExcelSourceRow[] }[];
 
   const physicalGroups = new Map<string, typeof confirmed>();
   for (const entry of confirmed) {
-    const candidate = entry.delivery.selectedAddress!;
-    const key = `${confirmedAddressKey(candidate)}${smelynes25UnloadKeyFromRows(entry.rows)}`;
+    // Excel groups are already the audited physical stops. Never merge two
+    // distinct groups merely because a geocoder returned the same coordinates:
+    // a wrong pin used to make a whole delivery (for example Užventis) vanish
+    // silently into another stop.
+    const key = entry.group.id;
     const bucket = physicalGroups.get(key) ?? [];
     bucket.push(entry);
     physicalGroups.set(key, bucket);
@@ -178,14 +188,6 @@ function rowToShipmentLine(row: ExcelSourceRow): DraftShipmentLineInput {
     rawColumnE: row.rawColumnE,
     rawRow: row.rawRow,
   };
-}
-
-function confirmedAddressKey(candidate: ResolvedAddressCandidate): string {
-  const coordinateKey = `${candidate.latitude.toFixed(5)}:${candidate.longitude.toFixed(5)}`;
-  const addressKey = candidate.normalizedAddress.toLocaleLowerCase('lt-LT').replace(/[^a-ząčęėįšųūž0-9]/giu, '');
-  return Number.isFinite(candidate.latitude) && Number.isFinite(candidate.longitude)
-    ? `coordinates:${coordinateKey}`
-    : `address:${addressKey}`;
 }
 
 function field<T>(value: T | null, confidence: number, evidence: string | null) {

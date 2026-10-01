@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 
 import { Stack, useFocusEffect, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
+import { isAddressCandidateSafeForAutomaticSelection } from '@/application/import/address-resolver';
 import { GetDefaultLocations, SaveDefaultLocation } from '@/application/routes/saved-locations';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { GatewayAddressResolver } from '@/infrastructure/import/gateway-address-resolver';
@@ -155,6 +156,7 @@ async function geocodeEndpoint(resolver: GatewayAddressResolver, address: string
     const candidates = await resolver.resolve(value);
     if (!candidates.length) return null;
     const best = candidates.reduce((a, b) => (b.confidence > a.confidence ? b : a));
+    if (!isAddressCandidateSafeForAutomaticSelection(value, best)) return null;
     if (best.latitude === null || best.longitude === null) return null;
     return {
       originalAddress: value,

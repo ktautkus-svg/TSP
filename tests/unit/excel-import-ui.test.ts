@@ -27,7 +27,13 @@ describe('compact daily Excel UI', () => {
     expect(importScreen).toContain('Tikrinti dabar');
     expect(importScreen).toContain('koordinates arba Google Maps nuorodą');
     expect(importScreen).not.toContain('revalidate-visible-address');
-    expect(importScreen).toContain('Taisyti šį adresą');
+    expect(importScreen).toContain('Taisyti šį tašką');
+    expect(importScreen).toContain('Neįtraukti į maršrutą');
+    expect(importScreen).toContain('exclude-excel-group-');
+    expect(importScreen).toContain('normalizeExcelPreviewOptionalTimes');
+    expect(importScreen).toContain('timeWasCorrected');
+    expect(importScreen).toContain('initiallyShowCompactDetails');
+    expect(importScreen).toContain('Uždaryti taškų sąrašą');
     expect(importScreen).toContain('showHeading={!result}');
     expect(importScreen).toContain('testID="planning-date"');
     expect(importScreen).toContain('testID="planning-time"');
@@ -204,12 +210,21 @@ describe('compact daily Excel UI', () => {
     expect(alternativesScreen).toContain('ManualRouteOrderList');
     expect(alternativesScreen).toContain('testID="manual-order-map"');
     expect(alternativesScreen).toContain('manualMapLocations');
-    expect(alternativesScreen).toContain('allowStraightLineFallback');
+    expect(alternativesScreen).toContain('allowStraightLineFallback={false}');
     expect(alternativesScreen).toContain('encodedPolyline={manualPolyline?.encodedPolyline}');
     expect(alternativesScreen).toContain('fetchManualDrivingPolyline');
     expect(alternativesScreen).toContain("Alert.alert('Nėra taškų'");
+    expect(alternativesScreen).toContain('const [showPolyline, setShowPolyline] = useState(true)');
     expect(alternativesScreen).toContain('if (!showPolyline || manualMode || !selectedCandidate || !request)');
     expect(alternativesScreen).toContain('testID="show-route-polyline"');
+    expect(alternativesScreen).toContain('[manualMode, polylineAttempt, request, selectedCandidate, showPolyline]');
+    expect(alternativesScreen).toContain('setManualPolyline(null)');
+    expect(routeOverview).toContain('encodedPolyline={orderPolyline?.encodedPolyline}');
+    expect(routeOverview).toContain('new GatewayPolylineProvider().fetchPolyline');
+    expect(routeOverview).toContain('}, 600)');
+    expect(routeOverview).toContain('allowStraightLineFallback={false}');
+    expect(readFileSync(resolve(here, '../../src/components/driver-now-dashboard.tsx'), 'utf8')).toContain('allowStraightLineFallback={false}');
+    expect(readFileSync(resolve(here, '../../src/components/driver-now-dashboard.tsx'), 'utf8')).toContain('expectPolyline={false}');
     expect(alternativesScreen.indexOf('testID="recalculate-manual-sequence"'))
       .toBeLessThan(alternativesScreen.indexOf('testID="manual-order-map"'));
     expect(alternativesScreen).not.toContain('compact\n                totalDistanceKm={manualCandidate');

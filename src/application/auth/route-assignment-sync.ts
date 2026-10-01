@@ -3,6 +3,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { LocalAccessService } from '@/application/auth/local-access';
 import { ensureParkMemorySchema, omitUnavailableParkStopColumns } from '@/database/migrations';
 import { AdminCompleteRoute } from '@/application/routes/route-workday';
+import { TripSheetRepository } from '@/database/repositories/trip-sheet-repository';
 import {
   EmployeeClientError,
   employeeApi,
@@ -116,6 +117,7 @@ export async function applyRouteSnapshot(
 
 export async function pullAssignedRoutes(db: SQLiteDatabase, profile: EmployeeProfile): Promise<{ imported: number; skipped: number }> {
   if (profile.role !== 'driver') return { imported: 0, skipped: 0 };
+  if ((await getEmployeeSession())?.demo) return { imported: 0, skipped: 0 };
   const response = await employeeApi<{ assignments: ServerRouteAssignment[] }>('/api/assignments');
   return reconcileAndImportAssignments(db, profile.id, response.assignments, (assignmentId) =>
     employeeApi<void>(`/api/assignments/${encodeURIComponent(assignmentId)}/downloaded`, { method: 'POST' }));
@@ -154,6 +156,7 @@ async function reconcileAndImportAssignments(
   let imported = 0;
   let skipped = 0;
   for (const assignment of assignments.filter((item) => item.status !== 'cancelled')) {
+    await ensureAssignmentVehicle(db, assignment);
     const existingSync = await db.getFirstAsync<{ route_id: string; server_revision: string | null }>(
       'SELECT route_id, server_revision FROM route_sync_state WHERE assignment_id = ?', assignment.id,
     );
@@ -168,10 +171,16 @@ async function reconcileAndImportAssignments(
          WHERE assignment_id = ?`,
         assignment.updatedAt, new Date().toISOString(), new Date().toISOString(), assignment.id,
       );
+      if (assignment.vehicle?.id) {
+        await db.runAsync('UPDATE routes SET vehicle_id = ? WHERE id = ?', assignment.vehicle.id, existingSync.route_id);
+      }
       skipped += 1;
       continue;
     }
     await importAssignmentSnapshot(db, assignment, employeeId);
+    if (assignment.vehicle?.id) {
+      await db.runAsync('UPDATE routes SET vehicle_id = ? WHERE id = ?', assignment.vehicle.id, assignment.routeId);
+    }
     await markDownloaded(assignment.id);
     imported += 1;
   }
@@ -240,6 +249,7 @@ async function ensureSelfAssignment(db: SQLiteDatabase, routeId: string): Promis
 }
 
 export async function pushRouteAssignmentProgress(db: SQLiteDatabase, routeId: string): Promise<boolean> {
+  if ((await getEmployeeSession())?.demo) return false;
   let sync = await db.getFirstAsync<{ assignment_id: string }>(
     'SELECT assignment_id FROM route_sync_state WHERE route_id = ?', routeId,
   );
@@ -398,6 +408,19 @@ export async function importAssignmentSnapshot(db: SQLiteDatabase, assignment: S
          updated_at = excluded.updated_at`,
       assignment.id, assignment.routeId, employeeId, assignment.updatedAt, now, now, now,
     );
+  });
+}
+
+async function ensureAssignmentVehicle(db: SQLiteDatabase, assignment: ServerRouteAssignment): Promise<void> {
+  const vehicle = assignment.vehicle;
+  if (!vehicle) return;
+  const repository = new TripSheetRepository(db);
+  if (await repository.getVehicleById(vehicle.id)) return;
+  await repository.saveVehicle({
+    id: vehicle.id,
+    name: vehicle.model,
+    registrationNumber: vehicle.registrationNumber,
+    fuelType: 'diesel',
   });
 }
 

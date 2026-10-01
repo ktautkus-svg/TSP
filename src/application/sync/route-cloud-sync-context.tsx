@@ -10,6 +10,9 @@ import {
 } from '@/application/sync/route-cloud-sync-coordinator';
 import { registerRouteCloudSyncLifecycle } from '@/application/sync/route-cloud-sync-lifecycle';
 import { useLocalAccess } from '@/application/auth/local-access-context';
+import { useForegroundInterval } from '@/hooks/use-foreground-interval';
+
+const LIVE_SYNC_INTERVAL_MS = 10_000;
 
 type RouteCloudSyncContextValue = RouteCloudSyncState & {
   requestSync: (reason: RouteCloudSyncTrigger) => Promise<void>;
@@ -27,7 +30,7 @@ const RouteCloudSyncContext = createContext<RouteCloudSyncContextValue | null>(n
 
 export function RouteCloudSyncProvider({ children }: { children: ReactNode }) {
   const db = useSQLiteContext();
-  const { profile } = useLocalAccess();
+  const { profile, demo } = useLocalAccess();
   const [state, setState] = useState<RouteCloudSyncState>(initialState);
   const coordinator = useMemo(() => new RouteCloudSyncCoordinator({
     sync: () => syncRoutesWithCloud(db),
@@ -40,12 +43,19 @@ export function RouteCloudSyncProvider({ children }: { children: ReactNode }) {
     return coordinator.trigger(reason);
   }, [coordinator]);
 
+  // A second device can stay open on the dashboard for an entire workday.
+  // Focus/startup events alone leave that screen stale after another device
+  // delivers a stop, so poll only while the app is actually visible.
+  useForegroundInterval(useCallback(() => {
+    if (profile.role !== 'quality' && !demo) void requestSync('periodic');
+  }, [demo, profile.role, requestSync]), LIVE_SYNC_INTERVAL_MS);
+
   useEffect(() => {
     // Quality control reads its own server projection and must never run the
     // driver's two-way SQLite sync. Apart from wasting requests, that sync is
     // intentionally forbidden for this read-only role and used to surface a
     // misleading red "Klaida" badge in the header.
-    if (profile.role === 'quality') {
+    if (profile.role === 'quality' || demo) {
       setState({ status: 'synced', lastSyncedAt: new Date().toISOString(), error: null, attention: null, revision: 0 });
       return () => coordinator.stop();
     }
@@ -71,7 +81,7 @@ export function RouteCloudSyncProvider({ children }: { children: ReactNode }) {
       cleanup();
       coordinator.stop();
     };
-  }, [coordinator, profile.role, requestSync]);
+  }, [coordinator, demo, profile.role, requestSync]);
 
   const value = useMemo<RouteCloudSyncContextValue>(
     () => ({ ...state, requestSync }),

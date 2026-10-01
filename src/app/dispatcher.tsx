@@ -2,6 +2,7 @@ import { Stack, useRouter, type Href } from 'expo-router';
 import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
+import { normalizeEmployeePermissions } from '@/application/auth/employee-permissions';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { ChevronRightIcon } from '@/components/app-icons';
 import { FoundationScreen } from '@/components/foundation-screen';
@@ -18,6 +19,8 @@ export default function DispatcherHomeScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const compact = width < 720;
+  const permissions = normalizeEmployeePermissions(profile.permissions);
+  const canFinance = profile.role === 'admin' || permissions.canManageFinancials;
   const open = (href: Href) => router.push(href);
 
   return <>
@@ -77,6 +80,7 @@ export default function DispatcherHomeScreen() {
           <GroupedMenuRow description="Praeitų reisų archyvas pagal dieną ar laikotarpį, bet kuriam vairuotojui ar automobiliui." icon={<MenuArtwork kind="quality" />} onPress={() => open({ pathname: '/quality-control', params: { returnTo: 'dispatcher' } } as Href)} title="Istorija" tone="success" />
           <GroupedMenuRow description="Odometrai, kilometrai, kuro norma ir spausdinimas." icon={<MenuArtwork kind="trip-sheet" />} onPress={() => open({ pathname: '/trip-sheet', params: { returnTo: 'dispatcher' } } as Href)} title="Kelionės lapai" tone="neutral" />
           <GroupedMenuRow description="Kilometrai, taškai, svoris ir kokybė pagal laikotarpį." icon={<MenuArtwork kind="statistics" />} onPress={() => open({ pathname: '/statistics', params: { returnTo: 'dispatcher' } } as Href)} title="Statistika" tone="info" />
+          {canFinance ? <GroupedMenuRow description="Mėnesio reisai dienomis: vairuotojas, automobilis, taškai, svoris ir kilometrai." icon={<MenuArtwork kind="finance" />} onPress={() => open({ pathname: '/finance/month-summary', params: { returnTo: 'dispatcher' } } as unknown as Href)} title="Mėnesio suvestinė" tone="neutral" /> : null}
         </GroupedMenuSection></View>
       </View>
     </FoundationScreen>

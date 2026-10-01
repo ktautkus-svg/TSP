@@ -1,7 +1,7 @@
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { pushRouteAssignmentProgress, pushRouteAssignmentRevision } from '@/application/auth/route-assignment-sync';
@@ -39,7 +39,10 @@ import { radius, spacing, type } from '@/ui/tokens';
 
 export default function RouteAlternativesScreen() {
   const { width } = useWindowDimensions();
-  const wideWorkspace = width >= 1024;
+  // A 1024 px tablet does not have enough room for a useful alternatives rail
+  // beside the map. Keep it single-column until a genuine desktop workspace
+  // fits, then use the extra width for readable route comparison.
+  const wideWorkspace = width >= 1180;
   const router = useRouter();
   const navigation = useNavigation();
   const db = useSQLiteContext();
@@ -512,7 +515,7 @@ export default function RouteAlternativesScreen() {
   const softWarnings = selectedCandidate?.violations.filter((violation) => violation.type === 'soft') ?? [];
   return (
     <FoundationScreen
-      contentMaxWidth={1400}
+      contentMaxWidth={1600}
       showFoundationNotice={false}
       title="Maršruto variantai"
       description="Palyginkite variantus, patikrinkite sustojimų eiliškumą ir pasirinkite maršrutą.">
@@ -563,10 +566,10 @@ export default function RouteAlternativesScreen() {
           title={labeledAlternatives.find((item) => item.candidate.id === selectedCandidate.id)?.title ?? 'Maršrutas'} />
       ) : null}
       {candidates.length > 0 ? (
-        <View style={styles.topActions}>
+        <View style={[styles.topActions, wideWorkspace && styles.topActionsWide]}>
           <Pressable
             disabled={saving || cancelling}
-            style={[styles.secondaryButton, (saving || cancelling) && styles.disabled]}
+            style={[styles.secondaryButton, wideWorkspace && styles.topActionItem, (saving || cancelling) && styles.disabled]}
             onPress={() => {
               stayInPlanning.current = true;
               router.replace({ pathname: '/route/[id]/review', params: { id: routeId } });
@@ -576,14 +579,14 @@ export default function RouteAlternativesScreen() {
           </Pressable>
           <Pressable
             disabled={!selectedId || saving || cancelling}
-            style={[styles.primaryButton, (!selectedId || saving || cancelling) && styles.disabled]}
+            style={[styles.primaryButton, wideWorkspace && styles.topActionPrimary, (!selectedId || saving || cancelling) && styles.disabled]}
             onPress={saveSelectedRoute}
             testID="save-selected-route-top">
             {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>Patvirtinti pasirinktą maršrutą</Text>}
           </Pressable>
           <Pressable
             disabled={saving || cancelling}
-            style={[styles.restartButton, (saving || cancelling) && styles.disabled]}
+            style={[styles.restartButton, wideWorkspace && styles.topActionItem, (saving || cancelling) && styles.disabled]}
             onPress={cancelAndChooseAnotherFile}
             testID="cancel-route-and-new-file">
             {cancelling ? <ActivityIndicator color={colors.danger} /> : <Text style={styles.restartText}>Atšaukti ir pasirinkti kitą failą</Text>}
@@ -610,6 +613,7 @@ export default function RouteAlternativesScreen() {
                       selected={item.candidate.id === selectedId}
                       onSelect={() => setSelectedId(item.candidate.id)}
                       expanded={item.candidate.id === expandedCandidateId}
+                      desktop={wideWorkspace}
                       onToggleDetails={() => setExpandedCandidateId((current) => current === item.candidate.id ? null : item.candidate.id)}
                       onManualEdit={() => {
                         setSelectedId(item.candidate.id);
@@ -633,7 +637,7 @@ export default function RouteAlternativesScreen() {
             ))}
           </View>
         ) : null}
-        {request && selectedCandidate ? (
+        {!wideWorkspace && request && selectedCandidate ? (
           <RouteVariantStops candidate={selectedCandidate} request={request} />
         ) : null}
         </View>
@@ -648,18 +652,33 @@ export default function RouteAlternativesScreen() {
               expectPolyline
               polylineError={polylineError}
             />
-            <Pressable
-              disabled={showPolyline && !polylineError}
-              onPress={() => {
-                setPolylineError(null);
-                setPolylineResult(null);
-                setShowPolyline(true);
-                setPolylineAttempt((attempt) => attempt + 1);
-              }}
-              style={[styles.secondaryButton, showPolyline && !polylineError && styles.disabled]}
-              testID="show-route-polyline">
-              <Text style={styles.secondaryText}>{polylineError ? 'Bandyti tikrą kelio liniją dar kartą' : polylineResult ? 'Tikras kelias įkeltas' : 'Tikras kelias kraunamas…'}</Text>
-            </Pressable>
+            {polylineError ? (
+              <Pressable
+                onPress={() => {
+                  setPolylineError(null);
+                  setPolylineResult(null);
+                  setShowPolyline(true);
+                  setPolylineAttempt((attempt) => attempt + 1);
+                }}
+                style={styles.routeRetryButton}
+                testID="show-route-polyline">
+                <Text style={styles.routeRetryText}>Bandyti kelio liniją dar kartą</Text>
+              </Pressable>
+            ) : (
+              <View style={styles.routeStatus} testID="show-route-polyline">
+                {polylineResult
+                  ? <View style={styles.routeStatusDot} />
+                  : <ActivityIndicator color={colors.info} size="small" />}
+                <Text style={styles.routeStatusText}>
+                  {polylineResult ? 'Tikras kelias įkeltas' : 'Kraunama tikroji kelio linija…'}
+                </Text>
+              </View>
+            )}
+            {wideWorkspace && request && selectedCandidate ? (
+              <View style={styles.selectedStopsPanel}>
+                <RouteVariantStops candidate={selectedCandidate} request={request} />
+              </View>
+            ) : null}
           </View>
         ) : null}
       </View>
@@ -818,6 +837,7 @@ function CandidateCard(props: {
   recommended: boolean;
   selected: boolean;
   expanded: boolean;
+  desktop: boolean;
   onSelect: () => void;
   onToggleDetails: () => void;
   onManualEdit: () => void;
@@ -838,6 +858,15 @@ function CandidateCard(props: {
   const lastDelivery = clockLabel(props.candidate.schedules.at(-1)?.departureAt);
   const waitingMinutes = Math.round(props.candidate.waitingMinutes);
   const shiftMinutes = Math.round(props.candidate.departureShiftMinutes);
+  const sequenceRows = orderedStops.map((stop, index) => {
+    const at = clockLabel(scheduleById.get(stop.id)?.serviceStartAt);
+    return (
+      <Text key={stop.id} style={styles.sequenceRow}>
+        {index + 1}. {at ? `${at} · ` : ''}{stop.location.label}
+        {stop.weightKg !== null ? ` · ${Math.round(stop.weightKg)} kg` : ''}
+      </Text>
+    );
+  });
 
   return (
     <View style={[styles.card, props.recommended && styles.recommended, props.selected && styles.selected]}>
@@ -868,23 +897,26 @@ function CandidateCard(props: {
           </Text>
         ) : null}
       </Pressable>
-      <Pressable onPress={props.onToggleDetails} style={styles.detailsButton}>
-        <Text style={styles.secondaryText}>{props.expanded ? 'Slėpti eiliškumą' : 'Rodyti eiliškumą'}</Text>
-      </Pressable>
-      <Pressable onPress={props.onManualEdit} style={styles.detailsButton} testID={`manual-edit-${props.candidate.id}`}>
-        <Text style={styles.secondaryText}>Redaguoti rankiniu būdu</Text>
-      </Pressable>
-      {props.expanded ? (
+      <View style={[styles.candidateActions, props.desktop && styles.candidateActionsDesktop]}>
+        <Pressable onPress={props.onToggleDetails} style={styles.detailsButton}>
+          <Text style={styles.secondaryText}>{props.expanded ? 'Slėpti eiliškumą' : 'Rodyti eiliškumą'}</Text>
+        </Pressable>
+        <Pressable onPress={props.onManualEdit} style={styles.detailsButton} testID={`manual-edit-${props.candidate.id}`}>
+          <Text style={styles.secondaryText}>Redaguoti rankiniu būdu</Text>
+        </Pressable>
+      </View>
+      {props.expanded && props.desktop ? (
+        <ScrollView
+          nestedScrollEnabled
+          showsVerticalScrollIndicator
+          style={styles.sequenceViewport}
+          contentContainerStyle={styles.sequenceList}
+          testID={`candidate-sequence-${props.candidate.id}`}>
+          {sequenceRows}
+        </ScrollView>
+      ) : props.expanded ? (
         <View style={styles.sequenceList} testID={`candidate-sequence-${props.candidate.id}`}>
-          {orderedStops.map((stop, index) => {
-            const at = clockLabel(scheduleById.get(stop.id)?.serviceStartAt);
-            return (
-              <Text key={stop.id} style={styles.sequenceRow}>
-                {index + 1}. {at ? `${at} · ` : ''}{stop.location.label}
-                {stop.weightKg !== null ? ` · ${Math.round(stop.weightKg)} kg` : ''}
-              </Text>
-            );
-          })}
+          {sequenceRows}
         </View>
       ) : null}
     </View>
@@ -893,13 +925,16 @@ function CandidateCard(props: {
 
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   workspace: { gap: spacing.lg, minWidth: 0 },
-  workspaceWide: { flexDirection: 'row', alignItems: 'flex-start' },
+  workspaceWide: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xl },
   panel: { gap: spacing.lg, minWidth: 0 },
-  panelWide: { width: 380 },
+  panelWide: { width: 460, flexShrink: 0 },
   mapPanel: { minWidth: 0, gap: spacing.sm },
   mapPanelWide: { flex: 1 },
   groupColumn: { flexDirection: 'column' },
   topActions: { gap: spacing.sm },
+  topActionsWide: { flexDirection: 'row', alignItems: 'stretch' },
+  topActionItem: { flex: 1 },
+  topActionPrimary: { flex: 1.25 },
   list: { gap: spacing.md },
   groupBlock: { gap: spacing.xs },
   groupTitle: { ...type.label, color: colors.textMuted },
@@ -917,9 +952,12 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   comment: { ...type.meta, color: colors.textMuted },
   scheduleLine: { ...type.meta, color: colors.textSecondary },
   scheduleHint: { ...type.label, color: colors.warning },
-  sequenceList: { marginTop: spacing.xs, gap: 1 },
+  sequenceViewport: { maxHeight: 260, marginTop: spacing.xs, borderTopWidth: 1, borderTopColor: colors.borderSubtle },
+  sequenceList: { gap: spacing.xs, paddingTop: spacing.sm, paddingRight: spacing.xs },
   sequenceRow: { ...type.secondary, color: colors.textMuted },
-  detailsButton: { minHeight: 42, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
+  candidateActions: { gap: spacing.sm },
+  candidateActionsDesktop: { flexDirection: 'row' },
+  detailsButton: { flex: 1, minHeight: 44, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.sm },
   selectButton: { minHeight: 44, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.actionPrimary, marginTop: spacing.sm },
   primaryButton: { minHeight: 56, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.actionPrimary },
   primaryText: { ...type.button, color: colors.textInverse },
@@ -927,6 +965,12 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   secondaryText: { ...type.button, color: colors.textSecondary },
   restartButton: { minHeight: 48, borderRadius: radius.md, borderWidth: 1, borderColor: colors.danger, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
   restartText: { ...type.button, color: colors.danger },
+  routeStatus: { minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceSubtle, paddingHorizontal: spacing.md },
+  routeStatusDot: { width: 9, height: 9, borderRadius: radius.pill, backgroundColor: colors.success },
+  routeStatusText: { ...type.secondaryStrong, color: colors.textSecondary },
+  routeRetryButton: { minHeight: 48, borderRadius: radius.md, borderWidth: 1, borderColor: colors.warning, backgroundColor: colors.warningSoft, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
+  routeRetryText: { ...type.button, color: colors.warning },
+  selectedStopsPanel: { marginTop: spacing.sm, padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
   error: { ...type.secondaryStrong, color: colors.danger },
   errorCard: { padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.danger, backgroundColor: colors.dangerSoft },
   warningCard: { padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.warning, backgroundColor: colors.warningSoft },

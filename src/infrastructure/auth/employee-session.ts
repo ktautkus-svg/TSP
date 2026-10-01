@@ -1,5 +1,9 @@
 import type { EmployeePermissions } from '@/application/auth/employee-permissions';
+import { handleDemoEmployeeRequest } from '@/infrastructure/auth/demo-employee-api';
+import { EmployeeClientError } from '@/infrastructure/auth/employee-client-error';
 import { createGatewayAuthorizationHeaders } from '@/infrastructure/gateway/device-auth';
+
+export { EmployeeClientError };
 
 export const EMPLOYEE_ROLES = ['admin', 'dispatcher', 'driver', 'quality'] as const;
 export type EmployeeRole = (typeof EMPLOYEE_ROLES)[number];
@@ -29,6 +33,8 @@ export type EmployeeProfile = {
 export type EmployeeSession = {
   profile: EmployeeProfile;
   expiresAt: string;
+  /** Isolated on-device driver. Never sent to the employee server. */
+  demo?: boolean;
 };
 
 export type ServerRouteAssignment = {
@@ -227,6 +233,20 @@ export type ServerTripSheet = {
   fuelEntries: ServerFuelEntry[];
 };
 
+export type ServerAdminCorrection = {
+  id: string;
+  actorId: string;
+  actorName: string;
+  at: string;
+  months: string[];
+  workDate: string;
+  targetType: 'assignment' | 'vehicle-day';
+  targetId: string;
+  field: string;
+  before: string;
+  after: string;
+};
+
 export type QualityStopMonitor = {
   sequence: number;
   recipient: string;
@@ -345,7 +365,7 @@ export async function loginEmployee(
 
 export async function logoutEmployee(fetcher: typeof fetch = globalThis.fetch): Promise<void> {
   const session = await getEmployeeSession();
-  if (session) {
+  if (session && !session.demo) {
     await fetcher('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }).catch(() => undefined);
   }
   await clearEmployeeSession();
@@ -354,6 +374,7 @@ export async function logoutEmployee(fetcher: typeof fetch = globalThis.fetch): 
 export async function refreshEmployeeSession(fetcher: typeof fetch = globalThis.fetch): Promise<EmployeeSession | null> {
   const session = await getEmployeeSession();
   if (!session) return null;
+  if (session.demo) return session;
   const response = await fetcher('/api/auth/me', { credentials: 'same-origin', headers: { accept: 'application/json' } });
   if (!response.ok) throw await readEmployeeError(response);
   const payload = await response.json() as { profile?: EmployeeProfile };
@@ -366,6 +387,7 @@ export async function refreshEmployeeSession(fetcher: typeof fetch = globalThis.
 export async function employeeApi<T>(path: string, init: RequestInit = {}, fetcher: typeof fetch = globalThis.fetch): Promise<T> {
   const session = await getEmployeeSession();
   if (!session) throw new EmployeeClientError('SESSION_REQUIRED', 'Reikia prisijungti.', 401);
+  if (session.demo) return handleDemoEmployeeRequest<T>(path, init);
   const response = await fetcher(path, {
     ...init,
     credentials: 'same-origin',
@@ -377,12 +399,6 @@ export async function employeeApi<T>(path: string, init: RequestInit = {}, fetch
   if (response.status === 204) return undefined as T;
   if (!response.ok) throw await readEmployeeError(response);
   return response.json() as Promise<T>;
-}
-
-export class EmployeeClientError extends Error {
-  constructor(public readonly code: string, message: string, public readonly status: number) {
-    super(message);
-  }
 }
 
 async function readSession(response: Response): Promise<EmployeeSession> {

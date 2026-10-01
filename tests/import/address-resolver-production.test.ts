@@ -43,4 +43,89 @@ describe('address resolver (30 cases)', () => {
     expect(results[1].addressQuery).toBe('Stoties g. 9C, Šiauliai');
     expect(results[1].selectedAddress?.normalizedAddress).toBe('Stoties g. 9C, Šiauliai, Lietuva');
   });
+
+  it.each([
+    [
+      'Mokyklos g. 1, Žemaičių Naumiestis, Lietuva',
+      'Mokyklos g. 1, Vėveržėnai, Žemaičių Naumiesčio sen., Šilutės r. sav., Lietuva',
+    ],
+    [
+      'Vilties g. 2, Užventis, Lietuva',
+      'Vilties g. 2, Kaltinėnai, Šilalės r. sav., Lietuva',
+    ],
+  ])('does not silently accept a single result from another settlement: %s', async (address, providerAddress) => {
+    const provider: AddressLookupProvider = {
+      resolve: async () => [{
+        normalizedAddress: providerAddress,
+        latitude: 55.35,
+        longitude: 21.7,
+        placeId: 'wrong-settlement',
+        confidence: 0.96,
+      }],
+    };
+
+    const [result] = await resolveDeliveryAddresses([deliveryFixture(31, address)], provider);
+
+    expect(result.validationState).toBe('ambiguous');
+    expect(result.selectedAddress).toBeNull();
+    expect(result.addressCandidates).toHaveLength(1);
+  });
+
+  it('accepts a single result when the explicit settlement matches', async () => {
+    const provider: AddressLookupProvider = {
+      resolve: async () => [{
+        normalizedAddress: 'Mokyklos g. 1, 99207 Žemaičių Naumiestis, Šilutės r. sav., Lietuva',
+        latitude: 55.36,
+        longitude: 21.7,
+        placeId: 'correct-settlement',
+        confidence: 0.96,
+      }],
+    };
+
+    const [result] = await resolveDeliveryAddresses([
+      deliveryFixture(32, 'Mokyklos g. 1, Žemaičių Naumiestis, Lietuva'),
+    ], provider);
+
+    expect(result.validationState).toBe('valid');
+    expect(result.selectedAddress?.placeId).toBe('correct-settlement');
+  });
+
+  it('rechecks an older automatically accepted result when its settlement does not match', async () => {
+    const wrong = {
+      normalizedAddress: 'Mokyklos g. 1, Vėveržėnai, Šilutės r. sav., Lietuva',
+      latitude: 55.35,
+      longitude: 21.7,
+      placeId: 'old-wrong-result',
+      confidence: 0.96,
+    };
+    const provider: AddressLookupProvider = { resolve: async () => [wrong] };
+    const delivery = deliveryFixture(33, 'Mokyklos g. 1, Žemaičių Naumiestis');
+    const [result] = await resolveDeliveryAddresses([{
+      ...delivery,
+      validationState: 'valid',
+      selectedAddress: wrong,
+      addressCandidates: [wrong],
+    }], provider);
+
+    expect(result.validationState).toBe('ambiguous');
+    expect(result.selectedAddress).toBeNull();
+  });
+
+  it('reuses an exact driver-confirmed memory without asking the same question again', async () => {
+    const remembered = {
+      normalizedAddress: 'Mokyklos g. 1, Vėveržėnai, Šilutės r. sav., Lietuva',
+      latitude: 55.35,
+      longitude: 21.7,
+      placeId: 'driver-confirmed',
+      confidence: 1,
+      trustedMemory: true,
+    };
+    const provider: AddressLookupProvider = { resolve: async () => [remembered] };
+    const [result] = await resolveDeliveryAddresses([
+      deliveryFixture(34, 'Mokyklos g. 1, Žemaičių Naumiestis, Lietuva'),
+    ], provider);
+
+    expect(result.validationState).toBe('valid');
+    expect(result.selectedAddress).toMatchObject({ placeId: 'driver-confirmed', trustedMemory: true });
+  });
 });

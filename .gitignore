@@ -52,6 +52,8 @@ expo-env.d.ts
 npm-debug.*
 yarn-debug.*
 yarn-error.*
+.audit-before-tests.log
+.firo-*-tests.log
 
 # macOS
 .DS_Store

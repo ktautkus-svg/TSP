@@ -65,7 +65,23 @@ import {
     type AdminCompleteAssignmentInput,
 } from '../src/domain/historical-assignment-complete.js';
 import { lithuanianDateKey } from '../src/domain/lithuanian-time.js';
+import {
+    accountingRouteLabel,
+    assignmentCorrectionFact,
+    buildCompletedAccountingAssignment,
+    correctionChanges,
+    displayAccountingRouteLabel,
+    emptyCorrectionFact,
+    findAccountingDuplicate,
+    resolveAccountingClocks,
+    validateAccountingMetrics,
+    validateAccountingOdometers,
+    type AccountingIdentity,
+    type CorrectionFact,
+} from '../src/domain/accounting-trip.js';
+import { isPublicDemoPin } from '../src/domain/demo-driver.js';
 import { canAddFuelEntryToAssignment, type FuelEntryAssignmentContext } from '../src/domain/fuel-entry-assignment.js';
+import { decideSessionRenewal, sessionLifetimeMs } from '../src/domain/session-lifetime.js';
 import {
     AUGUST_2026_EXCEL_BACKFILL_ID,
     AUGUST_2026_EXCEL_BACKFILL_V2_ID,
@@ -257,6 +273,22 @@ export const DEFAULT_DRIVER_COMPENSATION: DriverCompensationRates = {
   type: 'variable',
   ...DEFAULT_COMPENSATION_RATES,
 };
+
+export type AdminCorrection = {
+  id: string;
+  actorId: string;
+  actorName: string;
+  at: string;
+  months: string[];
+  workDate: string;
+  targetType: 'assignment' | 'vehicle-day';
+  targetId: string;
+  field: string;
+  before: string;
+  after: string;
+};
+
+type AdminActor = { id: string; displayName: string };
 
 export type RouteAssignment = {
   id: string;
@@ -540,7 +572,6 @@ type StoredUser = EmployeeProfile & {
 };
 
 const PIN_ITERATIONS = 210_000;
-const SESSION_DAYS = 30;
 
 export class EmployeeAuthStore {
   private readonly db = new Firestore();
@@ -556,6 +587,7 @@ export class EmployeeAuthStore {
   private readonly vehicleDayReadings = this.db.collection('tsp_vehicle_day_readings');
   private readonly settings = this.db.collection('tsp_settings');
   private readonly clients = this.db.collection('tsp_clients');
+  private readonly adminCorrections = this.db.collection('tsp_admin_corrections');
 
   async hasUsers(): Promise<boolean> {
     return !(await this.users.limit(1).get()).empty;
@@ -587,7 +619,7 @@ export class EmployeeAuthStore {
     const fromUsername = normalizeUsername(input.fromUsername);
     const username = validateUsername(input.username);
     const displayName = validateDisplayName(input.displayName);
-    validateNewPin(input.pin);
+    validateRealAccountPin(input.pin);
     if (fromUsername === username) return;
 
     let migratedUserId: string | null = null;
@@ -628,7 +660,7 @@ export class EmployeeAuthStore {
   async bootstrapAdmin(input: { username: string; displayName: string; pin: string }): Promise<EmployeeProfile> {
     const username = validateUsername(input.username);
     const displayName = validateDisplayName(input.displayName);
-    validateNewPin(input.pin);
+    validateRealAccountPin(input.pin);
     const stored = createStoredUser({ username, displayName, role: 'admin', pin: input.pin });
     await this.db.runTransaction(async (transaction) => {
       const existing = await transaction.get(this.users.limit(1));
@@ -640,6 +672,9 @@ export class EmployeeAuthStore {
   }
 
   async login(usernameInput: string, pin: string): Promise<{ token: string; profile: EmployeeProfile; expiresAt: string }> {
+    if (isPublicDemoPin(pin)) {
+      throw new EmployeeApiError('INVALID_CREDENTIALS', 'Neteisingas prisijungimo vardas arba PIN.', 401);
+    }
     const username = normalizeUsername(usernameInput);
     const mapping = await this.usernames.doc(username).get();
     const userId = mapping.data()?.userId;
@@ -650,7 +685,7 @@ export class EmployeeAuthStore {
     }
     const token = randomBytes(32).toString('base64url');
     const now = new Date();
-    const expiresAt = new Date(now.getTime() + SESSION_DAYS * 86_400_000).toISOString();
+    const expiresAt = new Date(now.getTime() + sessionLifetimeMs(user.role)).toISOString();
     await this.sessions.doc(hashToken(token)).set({
       userId: user.id,
       createdAt: now.toISOString(),
@@ -661,21 +696,40 @@ export class EmployeeAuthStore {
   }
 
   async authenticate(token: string): Promise<EmployeeProfile> {
+    return (await this.resolveSession(token)).profile;
+  }
+
+  async resolveSession(token: string): Promise<{ profile: EmployeeProfile; expiresAt: string; refreshCookie: boolean }> {
     const sessionRef = this.sessions.doc(hashToken(token));
     const sessionDoc = await sessionRef.get();
     const session = sessionDoc.data();
     if (!session || typeof session.userId !== 'string' || typeof session.expiresAt !== 'string') {
       throw new EmployeeApiError('SESSION_INVALID', 'Prisijungimo sesija negalioja.', 401);
     }
-    if (Date.parse(session.expiresAt) <= Date.now()) {
-      await sessionRef.delete();
-      throw new EmployeeApiError('SESSION_EXPIRED', 'Prisijungimo sesija pasibaigė.', 401);
-    }
     const userDoc = await this.users.doc(session.userId).get();
     const user = userDoc.data() as StoredUser | undefined;
     if (!user || user.disabled) throw new EmployeeApiError('ACCOUNT_DISABLED', 'Darbuotojo paskyra išjungta.', 403);
-    void sessionRef.update({ lastSeenAt: new Date().toISOString() }).catch(() => undefined);
-    return publicProfile(user);
+    const nowMs = Date.now();
+    const expiresAtMs = Date.parse(session.expiresAt);
+    const hasActiveRoute = user.role === 'driver' && expiresAtMs <= nowMs
+      ? await this.driverHasInProgressRoute(user.id)
+      : false;
+    const decision = decideSessionRenewal({ role: user.role, expiresAtMs, nowMs, hasActiveRoute });
+    if (decision.action === 'expire') {
+      await sessionRef.delete();
+      throw new EmployeeApiError('SESSION_EXPIRED', 'Prisijungimo sesija pasibaigė.', 401);
+    }
+    if (decision.action === 'renew') {
+      await sessionRef.update({ expiresAt: decision.expiresAt, lastSeenAt: new Date(nowMs).toISOString() });
+      return { profile: publicProfile(user), expiresAt: decision.expiresAt, refreshCookie: true };
+    }
+    void sessionRef.update({ lastSeenAt: new Date(nowMs).toISOString() }).catch(() => undefined);
+    return { profile: publicProfile(user), expiresAt: session.expiresAt, refreshCookie: user.role === 'driver' };
+  }
+
+  private async driverHasInProgressRoute(driverId: string): Promise<boolean> {
+    const snapshot = await this.assignments.where('status', '==', 'in_progress').get();
+    return snapshot.docs.some((document) => (document.data() as { driverId?: string }).driverId === driverId);
   }
 
   async logout(token: string): Promise<void> {
@@ -1432,7 +1486,7 @@ export class EmployeeAuthStore {
   async createUser(input: { username: string; displayName: string; pin: string; role: EmployeeRole; email?: string; phone?: string }): Promise<EmployeeProfile> {
     const username = validateUsername(input.username);
     const displayName = validateDisplayName(input.displayName);
-    validateNewPin(input.pin);
+    validateRealAccountPin(input.pin);
     if (!EMPLOYEE_ROLES.includes(input.role)) throw new EmployeeApiError('INVALID_ROLE', 'Neleistina darbuotojo rolė.', 400);
     const stored = createStoredUser({
       username,
@@ -1476,7 +1530,7 @@ export class EmployeeAuthStore {
     if (input.phone !== undefined) patch.phone = validatePhone(input.phone);
     if (input.compensation !== undefined) patch.compensation = validateCompensationInput(input.compensation);
     if (input.pin !== undefined) {
-      validateNewPin(input.pin);
+      validateRealAccountPin(input.pin);
       const credentials = pinCredentials(nextUsername, input.pin);
       Object.assign(patch, credentials);
     }
@@ -1663,7 +1717,325 @@ export class EmployeeAuthStore {
     return assignment;
   }
 
-  async updateAssignmentSchedule(assignmentId: string, dateInput: string): Promise<RouteAssignment> {
+  /**
+   * A completed accounting row with no delivery stops. It stays out of the
+   * driver's route queue.
+   */
+  async createAccountingTrip(profile: EmployeeProfile, input: {
+    date: string;
+    driverId: string;
+    vehicleId: string;
+    routeLabel: string;
+    totalStops: number;
+    totalWeightKg: number;
+    startOdometer: number | null;
+    endOdometer: number | null;
+    startedClock: string;
+    completedClock: string;
+  }): Promise<{ assignment: RouteAssignment; dayReadingWritten: boolean; dayReadingSkipped: boolean }> {
+    const date = validateRouteDate(input.date);
+    const metrics = validateAccountingMetrics(input.totalStops, input.totalWeightKg);
+    if (!metrics.ok) throw new EmployeeApiError('INVALID_ACCOUNTING_METRICS', metrics.message, 400);
+    const odometers = validateAccountingOdometers(input.startOdometer, input.endOdometer);
+    if (!odometers.ok) throw new EmployeeApiError('INVALID_ODOMETER', odometers.message, 400);
+    const nowIso = new Date().toISOString();
+    const clocks = resolveAccountingClocks({
+      date,
+      startedClock: input.startedClock,
+      completedClock: input.completedClock,
+      nowIso,
+    });
+    if (!clocks.ok) throw new EmployeeApiError('INVALID_ACCOUNTING_CLOCK', clocks.message, 400);
+    const routeLabel = input.routeLabel.trim().replace(/\s+/g, ' ');
+    if (routeLabel.length > 80) throw new EmployeeApiError('INVALID_ROUTE_LABEL', 'Maršruto pavadinimas turi būti iki 80 simbolių.', 400);
+    const driver = (await this.users.doc(safeId(input.driverId)).get()).data() as StoredUser | undefined;
+    if (!driver || driver.disabled || (driver.role !== 'driver' && driver.role !== 'admin')) {
+      throw new EmployeeApiError('DRIVER_NOT_FOUND', 'Toks vairuotojas nerastas.', 404);
+    }
+    const storedVehicle = (await this.vehicles.doc(validateVehicleId(input.vehicleId)).get()).data() as FleetVehicle | undefined;
+    const vehicle = storedVehicle ? normalizeVehicle(storedVehicle) : undefined;
+    if (!vehicle) throw new EmployeeApiError('VEHICLE_NOT_FOUND', 'Automobilis nerastas.', 404);
+    const id = randomUUID();
+    const built = buildCompletedAccountingAssignment({
+      id,
+      routeId: `accounting-${id}`,
+      date,
+      driverId: driver.id,
+      driverName: driver.displayName,
+      vehicle: vehicleSnapshot(vehicle),
+      routeLabel,
+      totalStops: metrics.totalStops,
+      totalWeightKg: metrics.totalWeightKg,
+      startOdometer: odometers.start,
+      endOdometer: odometers.end,
+      distanceKm: odometers.distanceKm,
+      startedAt: clocks.startedAt,
+      completedAt: clocks.completedAt,
+      createdBy: profile.id,
+      nowIso,
+    });
+    const assignment: RouteAssignment = {
+      id: built.id,
+      routeId: built.routeId,
+      driverId: built.driverId,
+      driverName: built.driverName,
+      status: built.status,
+      routeSnapshot: {
+        route: built.routeSnapshot.route,
+        stops: [],
+        shipmentLines: built.routeSnapshot.shipmentLines.map((line) => ({ route_code: line.route_code })),
+      },
+      progress: built.progress,
+      createdBy: built.createdBy,
+      assignedAt: built.assignedAt,
+      updatedAt: built.updatedAt,
+      vehicle: built.vehicle,
+    };
+    const existing = (await this.assignments.get()).docs.map((document) => document.data() as RouteAssignment);
+    this.assertNoAccountingDuplicate(assignment, assignment, existing);
+    await this.assignments.doc(assignment.id).create(assignment);
+    let dayReadingWritten = false;
+    let dayReadingSkipped = false;
+    if (odometers.start !== null && odometers.end !== null) {
+      const readingId = vehicleDayReadingDocId(vehicle.id, date);
+      const existingReading = (await this.vehicleDayReadings.doc(readingId).get()).data() as VehicleDayReading | undefined;
+      const shared = existing.some((item) => item.status !== 'cancelled' && item.vehicle?.id === vehicle.id && tripSheetWorkDate(item) === date);
+      if (existingReading || shared) {
+        dayReadingSkipped = true;
+      } else {
+        const reading: VehicleDayReading = {
+          id: readingId,
+          vehicleId: vehicle.id,
+          registrationNumber: vehicle.registrationNumber,
+          date,
+          startOdometer: odometers.start,
+          endOdometer: odometers.end,
+          distanceKm: odometers.distanceKm ?? odometerDistanceKm(odometers.start, odometers.end),
+          driverId: driver.id,
+          driverName: driver.displayName,
+          createdAt: nowIso,
+          updatedAt: nowIso,
+          createdBy: profile.id,
+        };
+        await this.vehicleDayReadings.doc(readingId).set(reading);
+        dayReadingWritten = true;
+      }
+    }
+    await this.writeAdminCorrections({
+      actor: { id: profile.id, displayName: profile.displayName },
+      targetType: 'assignment',
+      targetId: assignment.id,
+      workDate: tripSheetWorkDate(assignment),
+      changes: correctionChanges(emptyCorrectionFact(), assignmentCorrectionFact(assignment)),
+    });
+    return { assignment, dayReadingWritten, dayReadingSkipped };
+  }
+
+  async correctAssignmentWorkDate(
+    assignmentId: string,
+    dateInput: string,
+    actor?: AdminActor,
+  ): Promise<{ assignment: RouteAssignment; readingMoved: boolean; readingLeftInPlace: boolean }> {
+    const reference = this.assignments.doc(safeId(assignmentId));
+    const document = await reference.get();
+    const assignment = document.data() as RouteAssignment | undefined;
+    if (!assignment) throw new EmployeeApiError('ASSIGNMENT_NOT_FOUND', 'Maršruto priskyrimas nerastas.', 404);
+    const date = validateRouteDate(dateInput);
+    if (assignment.status === 'cancelled') {
+      throw new EmployeeApiError('ASSIGNMENT_CANCELLED', 'Atšaukto maršruto datos keisti negalima.', 409);
+    }
+    if (assignment.status === 'in_progress') {
+      throw new EmployeeApiError('ASSIGNMENT_ALREADY_STARTED', 'Vykdomo maršruto datos keisti negalima.', 409);
+    }
+    const existing = (await this.assignments.get()).docs.map((item) => item.data() as RouteAssignment);
+    const oldWorkDate = tripSheetWorkDate(assignment);
+    if (assignment.status !== 'completed') {
+      const preview: RouteAssignment = {
+        ...assignment,
+        routeSnapshot: {
+          ...assignment.routeSnapshot,
+          route: { ...assignment.routeSnapshot.route, date },
+        },
+      };
+      this.assertNoAccountingDuplicate(assignment, preview, existing);
+      const updated = await this.updateAssignmentSchedule(assignment.id, date, actor);
+      return { assignment: updated, readingMoved: false, readingLeftInPlace: false };
+    }
+    const updatedAt = new Date().toISOString();
+    const updated = applyCompletedAssignmentRouteDateAlignment(assignment, date, updatedAt, {
+      shiftWorkClocksFromDate: oldWorkDate,
+    });
+    this.assertNoAccountingDuplicate(assignment, updated, existing);
+    await reference.set(updated);
+    let readingMoved = false;
+    let readingLeftInPlace = false;
+    const vehicleId = assignment.vehicle?.id ?? null;
+    if (vehicleId && oldWorkDate !== tripSheetWorkDate(updated)) {
+      const sourceId = vehicleDayReadingDocId(vehicleId, oldWorkDate);
+      const destinationId = vehicleDayReadingDocId(vehicleId, tripSheetWorkDate(updated));
+      const source = (await this.vehicleDayReadings.doc(sourceId).get()).data() as VehicleDayReading | undefined;
+      if (source && sourceId !== destinationId) {
+        const shared = existing.some((item) => item.id !== assignment.id
+          && item.status !== 'cancelled'
+          && item.vehicle?.id === vehicleId
+          && tripSheetWorkDate(item) === oldWorkDate);
+        const destination = (await this.vehicleDayReadings.doc(destinationId).get()).data() as VehicleDayReading | undefined;
+        if (shared || destination) {
+          readingLeftInPlace = true;
+        } else {
+          const moved: VehicleDayReading = { ...source, id: destinationId, date: tripSheetWorkDate(updated), updatedAt };
+          await this.vehicleDayReadings.doc(destinationId).set(moved);
+          await this.vehicleDayReadings.doc(sourceId).delete();
+          readingMoved = true;
+          if (actor) {
+            await this.writeAdminCorrections({
+              actor,
+              targetType: 'vehicle-day',
+              targetId: destinationId,
+              workDate: moved.date,
+              alsoDates: [oldWorkDate],
+              changes: correctionChanges(readingCorrectionFact(source), readingCorrectionFact(moved)),
+            });
+          }
+        }
+      }
+    }
+    if (actor) {
+      await this.writeAdminCorrections({
+        actor,
+        targetType: 'assignment',
+        targetId: assignment.id,
+        workDate: tripSheetWorkDate(updated),
+        alsoDates: [oldWorkDate],
+        changes: correctionChanges(assignmentCorrectionFact(assignment), assignmentCorrectionFact(updated)),
+      });
+    }
+    return { assignment: updated, readingMoved, readingLeftInPlace };
+  }
+
+  async relocateVehicleDayReading(profile: EmployeeProfile, input: {
+    fromVehicleId: string;
+    fromDate: string;
+    toVehicleId: string;
+    toDate: string;
+    startOdometer: number;
+    endOdometer: number;
+    driverId: string | null;
+  }): Promise<VehicleDayReading> {
+    const fromDate = validateRouteDate(input.fromDate);
+    const toDate = validateRouteDate(input.toDate);
+    const fromVehicleId = validateVehicleId(input.fromVehicleId);
+    const toVehicleId = validateVehicleId(input.toVehicleId);
+    const startOdometer = validateDayOdometer(input.startOdometer);
+    const endOdometer = validateDayOdometer(input.endOdometer);
+    if (endOdometer < startOdometer) {
+      throw new EmployeeApiError('INVALID_ODOMETER', 'Odometro pabaiga negali būti mažesnė už pradžią.', 400);
+    }
+    const fromId = vehicleDayReadingDocId(fromVehicleId, fromDate);
+    const toId = vehicleDayReadingDocId(toVehicleId, toDate);
+    if (fromId === toId) {
+      return this.upsertVehicleDayReading(profile, {
+        vehicleId: toVehicleId,
+        date: toDate,
+        startOdometer,
+        endOdometer,
+        driverId: input.driverId,
+        recordAudit: true,
+      });
+    }
+    const source = (await this.vehicleDayReadings.doc(fromId).get()).data() as VehicleDayReading | undefined;
+    if (!source) throw new EmployeeApiError('DAY_READING_NOT_FOUND', 'Odometro diena nerasta.', 404);
+    const destinationVehicleDocument = await this.vehicles.doc(toVehicleId).get();
+    const stored = destinationVehicleDocument.data() as FleetVehicle | undefined;
+    const vehicle = stored ? normalizeVehicle(stored) : undefined;
+    if (!vehicle) throw new EmployeeApiError('VEHICLE_NOT_FOUND', 'Automobilis nerastas.', 404);
+    const destination = (await this.vehicleDayReadings.doc(toId).get()).data() as VehicleDayReading | undefined;
+    if (destination) {
+      throw new EmployeeApiError('DAY_READING_EXISTS', 'Šiai automobilio dienai odometro įrašas jau yra. Dublis nebus kuriamas.', 409);
+    }
+    const assignments = (await this.assignments.get()).docs.map((document) => document.data() as RouteAssignment);
+    const clash = assignments.some((item) => item.status !== 'cancelled' && item.vehicle?.id === vehicle.id && tripSheetWorkDate(item) === toDate);
+    if (clash) {
+      throw new EmployeeApiError('DAY_READING_CLASH', 'Šią dieną automobilis jau turi reisą. Odometro diena ten neperkeliama.', 409);
+    }
+    const driver = await this.resolveReadingDriver(vehicle, input.driverId);
+    assertCanEditTripReadings(profile, vehicle, driver.id);
+    const now = new Date().toISOString();
+    const moved: VehicleDayReading = {
+      ...source,
+      id: toId,
+      vehicleId: vehicle.id,
+      registrationNumber: vehicle.registrationNumber,
+      date: toDate,
+      startOdometer,
+      endOdometer,
+      distanceKm: odometerDistanceKm(startOdometer, endOdometer),
+      driverId: driver.id,
+      driverName: driver.name,
+      updatedAt: now,
+    };
+    await this.vehicleDayReadings.doc(toId).set(moved);
+    await this.vehicleDayReadings.doc(fromId).delete();
+    await this.writeAdminCorrections({
+      actor: { id: profile.id, displayName: profile.displayName },
+      targetType: 'vehicle-day',
+      targetId: toId,
+      workDate: toDate,
+      alsoDates: [fromDate],
+      changes: correctionChanges(readingCorrectionFact(source), readingCorrectionFact(moved)),
+    });
+    return moved;
+  }
+
+  async listAdminCorrections(monthKey: string): Promise<AdminCorrection[]> {
+    if (!/^\d{4}-\d{2}$/.test(monthKey)) {
+      throw new EmployeeApiError('INVALID_MONTH', 'Mėnuo turi būti YYYY-MM formato.', 400);
+    }
+    const snapshot = await this.adminCorrections.where('months', 'array-contains', monthKey).get();
+    return snapshot.docs
+      .map((document) => document.data() as AdminCorrection)
+      .sort((left, right) => right.at.localeCompare(left.at));
+  }
+
+  private assertNoAccountingDuplicate(self: RouteAssignment, preview: RouteAssignment, existing: readonly RouteAssignment[]): void {
+    const others = existing.filter((item) => item.id !== self.id).map(accountingIdentityOf);
+    const duplicate = findAccountingDuplicate(others, accountingIdentityOf(preview));
+    if (duplicate) {
+      throw new EmployeeApiError('ACCOUNTING_TRIP_DUPLICATE', `Toks reisas jau yra ${duplicate.date}. Dublis nebus kuriamas.`, 409);
+    }
+  }
+
+  private async writeAdminCorrections(input: {
+    actor: AdminActor;
+    targetType: AdminCorrection['targetType'];
+    targetId: string;
+    workDate: string;
+    alsoDates?: string[];
+    changes: { field: string; before: string; after: string }[];
+  }): Promise<void> {
+    const changes = input.changes.filter((change) => change.before !== change.after);
+    if (changes.length === 0) return;
+    const at = new Date().toISOString();
+    const months = correctionMonths([input.workDate, ...(input.alsoDates ?? [])]);
+    await Promise.all(changes.map((change) => {
+      const row: AdminCorrection = {
+        id: randomUUID(),
+        actorId: input.actor.id,
+        actorName: input.actor.displayName,
+        at,
+        months,
+        workDate: input.workDate,
+        targetType: input.targetType,
+        targetId: input.targetId,
+        field: change.field,
+        before: change.before.slice(0, 500),
+        after: change.after.slice(0, 500),
+      };
+      return this.adminCorrections.doc(row.id).set(row);
+    }));
+  }
+
+  async updateAssignmentSchedule(assignmentId: string, dateInput: string, actor?: AdminActor): Promise<RouteAssignment> {
     const reference = this.assignments.doc(safeId(assignmentId));
     const document = await reference.get();
     const assignment = document.data() as RouteAssignment | undefined;
@@ -1688,6 +2060,16 @@ export class EmployeeAuthStore {
     };
     const updated = { ...assignment, routeSnapshot, updatedAt };
     await reference.set(updated);
+    if (actor) {
+      await this.writeAdminCorrections({
+        actor,
+        targetType: 'assignment',
+        targetId: assignment.id,
+        workDate: date,
+        alsoDates: [tripSheetWorkDate(assignment)],
+        changes: correctionChanges(assignmentCorrectionFact(assignment), assignmentCorrectionFact(updated)),
+      });
+    }
     return updated;
   }
 
@@ -1697,7 +2079,7 @@ export class EmployeeAuthStore {
    * new driver; the previous driver's device drops its copy on the next sync
    * (reconcileAssignedRouteCopies), because /api/assignments no longer lists it.
    */
-  async reassignAssignment(assignmentId: string, input: { driverId?: string; vehicleId?: string }): Promise<RouteAssignment> {
+  async reassignAssignment(assignmentId: string, input: { driverId?: string; vehicleId?: string }, actor?: AdminActor): Promise<RouteAssignment> {
     const reference = this.assignments.doc(safeId(assignmentId));
     const document = await reference.get();
     const assignment = document.data() as RouteAssignment | undefined;
@@ -1723,6 +2105,15 @@ export class EmployeeAuthStore {
     const updatedAt = new Date().toISOString();
     const updated: RouteAssignment = { ...assignment, driverId, driverName, vehicle, updatedAt };
     await reference.set(updated);
+    if (actor) {
+      await this.writeAdminCorrections({
+        actor,
+        targetType: 'assignment',
+        targetId: assignment.id,
+        workDate: tripSheetWorkDate(updated),
+        changes: correctionChanges(assignmentCorrectionFact(assignment), assignmentCorrectionFact(updated)),
+      });
+    }
     return updated;
   }
 
@@ -1736,6 +2127,7 @@ export class EmployeeAuthStore {
   async updateAssignmentManualMetrics(
     assignmentId: string,
     input: { totalStops?: number; totalWeightKg?: number },
+    actor?: AdminActor,
   ): Promise<RouteAssignment> {
     const reference = this.assignments.doc(safeId(assignmentId));
     const document = await reference.get();
@@ -1753,6 +2145,15 @@ export class EmployeeAuthStore {
     };
     const updated: RouteAssignment = { ...assignment, routeSnapshot, updatedAt };
     await reference.set(updated);
+    if (actor) {
+      await this.writeAdminCorrections({
+        actor,
+        targetType: 'assignment',
+        targetId: assignment.id,
+        workDate: tripSheetWorkDate(updated),
+        changes: correctionChanges(assignmentCorrectionFact(assignment), assignmentCorrectionFact(updated)),
+      });
+    }
     return updated;
   }
 
@@ -1868,6 +2269,8 @@ export class EmployeeAuthStore {
     driverId?: string | null;
     /** Non-route kilometres for that day (commute etc.) — fuel only, never wage. */
     extraDistanceKm?: number | null;
+    /** When set, the office correction is written to tsp_admin_corrections. Migrations omit it. */
+    recordAudit?: boolean;
   }): Promise<VehicleDayReading> {
     const date = validateRouteDate(input.date);
     const startOdometer = validateDayOdometer(input.startOdometer);
@@ -1912,6 +2315,16 @@ export class EmployeeAuthStore {
       createdBy: existing?.createdBy ?? profile.id,
     };
     await this.vehicleDayReadings.doc(id).set(reading);
+    if (input.recordAudit) {
+      await this.writeAdminCorrections({
+        actor: { id: profile.id, displayName: profile.displayName },
+        targetType: 'vehicle-day',
+        targetId: id,
+        workDate: date,
+        alsoDates: existing ? [existing.date] : [],
+        changes: correctionChanges(readingCorrectionFact(existing), readingCorrectionFact(reading)),
+      });
+    }
     return reading;
   }
 
@@ -4736,7 +5149,7 @@ export class EmployeeAuthStore {
     endOdometer?: number | null;
     driverId?: string;
     vehicleId?: string;
-  }): Promise<ServerTripSheet> {
+  }, actor?: AdminActor): Promise<ServerTripSheet> {
     const reference = this.assignments.doc(safeId(assignmentIdInput));
     const document = await reference.get();
     const assignment = document.data() as RouteAssignment | undefined;
@@ -4842,6 +5255,15 @@ export class EmployeeAuthStore {
     }
     const priceSettings = await this.getRoutePriceSettings();
     const sheet = buildServerTripSheet(updated, sheetVehicle);
+    if (actor) {
+      await this.writeAdminCorrections({
+        actor,
+        targetType: 'assignment',
+        targetId: assignment.id,
+        workDate: tripSheetWorkDate(updated),
+        changes: correctionChanges(assignmentCorrectionFact(assignment), assignmentCorrectionFact(updated)),
+      });
+    }
     return { ...sheet, fuelNormLitersPer100Km: tripSheetFuelNorm(sheet.vehicle, priceSettings) };
   }
 
@@ -5116,6 +5538,13 @@ function validateDisplayName(value: string): string {
 
 function validateNewPin(pin: string): void {
   if (!/^\d{6,8}$/.test(pin)) throw new EmployeeApiError('INVALID_PIN', 'Naujas PIN turi būti 6–8 skaitmenų.', 400);
+}
+
+function validateRealAccountPin(pin: string): void {
+  validateNewPin(pin);
+  if (isPublicDemoPin(pin)) {
+    throw new EmployeeApiError('INVALID_PIN', 'Šis PIN rezervuotas demonstracinei paskyrai ir negali būti naudojamas tikroje paskyroje.', 400);
+  }
 }
 
 function validateEmail(value: string | null | undefined): string | null {
@@ -5914,6 +6343,43 @@ export function tripSheetWorkDate(assignment: RouteAssignment): string {
   const actualReference = optionalText(route.started_at) ?? optionalText(route.completed_at);
   const actualDate = actualReference ? lithuanianDateKey(actualReference) : null;
   return actualDate ?? optionalText(route.date) ?? assignment.assignedAt.slice(0, 10);
+}
+
+export function accountingIdentityOf(assignment: RouteAssignment): AccountingIdentity {
+  const route = assignment.routeSnapshot.route;
+  const label = accountingRouteLabel({
+    shipmentLines: assignment.routeSnapshot.shipmentLines,
+    accountingRouteLabel: route.accounting_route_label,
+  });
+  return {
+    id: assignment.id,
+    status: assignment.status,
+    driverId: assignment.driverId,
+    vehicleId: assignment.vehicle?.id ?? null,
+    date: tripSheetWorkDate(assignment),
+    routeLabel: displayAccountingRouteLabel(label, assignment.routeId),
+  };
+}
+
+function readingCorrectionFact(reading: Pick<VehicleDayReading, 'driverName' | 'registrationNumber' | 'date' | 'startOdometer' | 'endOdometer'> | undefined): CorrectionFact {
+  if (!reading) return emptyCorrectionFact();
+  return {
+    ...emptyCorrectionFact(),
+    driver: reading.driverName ?? '',
+    vehicle: reading.registrationNumber,
+    date: reading.date,
+    startOdometer: String(reading.startOdometer),
+    endOdometer: String(reading.endOdometer),
+  };
+}
+
+function correctionMonths(dates: readonly string[]): string[] {
+  const months = new Set<string>();
+  for (const value of dates) {
+    const match = /^(\d{4}-\d{2})/.exec(value.trim());
+    if (match?.[1]) months.add(match[1]);
+  }
+  return [...months];
 }
 
 function nullableNumber(value: unknown): number | null {

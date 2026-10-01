@@ -2,16 +2,33 @@ import { StyleSheet, Text, View } from 'react-native';
 import type { RouteCandidate, RouteOptimizationRequest } from '@/domain/routing/models';
 import { clockLabel, durationLabel } from '@/ui/route-eta-labels';
 import { useTheme } from '@/ui/theme';
-import { spacing, type } from '@/ui/tokens';
+import { radius, spacing, type } from '@/ui/tokens';
 
 export function RouteVariantSummary({ candidate, count, title }: {
   candidate: RouteCandidate; count: number; title: string;
 }) {
   const { colors } = useTheme();
   return (
-    <View style={styles.section} testID="selected-route-summary">
-      <Text style={[styles.title, { color: colors.text }]}>Pasirinktas variantas: {title}</Text>
-      <Text style={[type.sectionTitle, { color: colors.info }]}>Variantų: {count} · {candidate.totalDistanceKm.toFixed(1)} km · {durationLabel(candidate.totalWorkMinutes)} · Sustojimų: {candidate.stopSequence.length}</Text>
+    <View style={[styles.summary, { borderColor: colors.border, backgroundColor: colors.surface }]} testID="selected-route-summary">
+      <View style={styles.summaryLead}>
+        <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>PASIRINKTAS VARIANTAS</Text>
+        <Text style={[styles.summaryTitle, { color: colors.text }]}>{title}</Text>
+      </View>
+      <View style={styles.summaryMetrics}>
+        <SummaryMetric label="ATSTUMAS" value={`${candidate.totalDistanceKm.toFixed(1)} km`} color={colors.info} muted={colors.textMuted} />
+        <SummaryMetric label="TRUKMĖ" value={durationLabel(candidate.totalWorkMinutes)} color={colors.text} muted={colors.textMuted} />
+        <SummaryMetric label="SUSTOJIMAI" value={String(candidate.stopSequence.length)} color={colors.text} muted={colors.textMuted} />
+        <SummaryMetric label="VARIANTAI" value={String(count)} color={colors.text} muted={colors.textMuted} />
+      </View>
+    </View>
+  );
+}
+
+function SummaryMetric({ label, value, color, muted }: { label: string; value: string; color: string; muted: string }) {
+  return (
+    <View style={styles.summaryMetric}>
+      <Text style={[styles.summaryValue, { color }]}>{value}</Text>
+      <Text style={[styles.summaryLabel, { color: muted }]}>{label}</Text>
     </View>
   );
 }
@@ -46,4 +63,11 @@ const styles = StyleSheet.create({
   section: { gap: spacing.sm },
   title: { ...type.cardTitle, flexShrink: 1 },
   stop: { paddingVertical: spacing.md, borderBottomWidth: 1, gap: spacing.xs },
+  summary: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md, padding: spacing.md, borderWidth: 1, borderRadius: radius.lg },
+  summaryLead: { minWidth: 210, flex: 1, gap: 2 },
+  summaryTitle: { ...type.sectionTitle },
+  summaryMetrics: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.lg },
+  summaryMetric: { minWidth: 86, gap: 1 },
+  summaryValue: { ...type.bodyStrong },
+  summaryLabel: { ...type.label },
 });

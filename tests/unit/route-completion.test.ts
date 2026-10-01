@@ -220,7 +220,8 @@ describe('route completion form', () => {
     expect(completeAt).toBeGreaterThan(-1);
     expect(voidPushAt).toBeGreaterThan(completeAt);
     expect(navigateAt).toBeGreaterThan(voidPushAt);
-    expect(finishOnce).not.toContain('await pushRouteAssignmentProgress');
+    expect(finishOnce.indexOf('await pushRouteAssignmentProgress')).toBeGreaterThan(-1);
+    expect(finishOnce.indexOf('await pushRouteAssignmentProgress')).toBeLessThan(finishOnce.indexOf('persistRouteCompletionFuel'));
     expect(finishOnce).toContain('void requestSync(\'mutation\')');
   });
 
@@ -275,8 +276,10 @@ describe('route fuel assignment integrity', () => {
     expect(canAddFuelEntryToAssignment('in_progress', 'active_route')).toBe(true);
     expect(canAddFuelEntryToAssignment('in_progress', 'trip_sheet')).toBe(false);
     expect(canAddFuelEntryToAssignment('completed', 'trip_sheet')).toBe(true);
-    expect(canAddFuelEntryToAssignment('assigned', 'active_route')).toBe(false);
-    expect(canAddFuelEntryToAssignment('downloaded', 'active_route')).toBe(false);
+    expect(canAddFuelEntryToAssignment('assigned', 'active_route')).toBe(true);
+    expect(canAddFuelEntryToAssignment('assigned', 'trip_sheet')).toBe(false);
+    expect(canAddFuelEntryToAssignment('downloaded', 'active_route')).toBe(true);
+    expect(canAddFuelEntryToAssignment('downloaded', 'trip_sheet')).toBe(false);
     expect(canAddFuelEntryToAssignment('cancelled', 'active_route')).toBe(false);
   });
 
@@ -297,11 +300,13 @@ describe('route fuel assignment integrity', () => {
     expect(selected).toMatchObject({ id: 'closed', routeId: 'route-1', vehicleId: 'VAN-1' });
   });
 
-  it('ignores cancelled and pre-start assignments when resolving route fuel', () => {
+  it('ignores cancelled assignments and keeps a not-yet-published assignment as a fuel safety net', () => {
     expect(selectRouteFuelAssignment([
       { id: 'cancelled', routeId: 'route-1', status: 'cancelled' as const, vehicleId: 'VAN-1' },
-      { id: 'assigned', routeId: 'route-1', status: 'assigned' as const, vehicleId: 'VAN-1' },
     ], 'route-1')).toBeUndefined();
+    expect(selectRouteFuelAssignment([
+      { id: 'assigned', routeId: 'route-1', status: 'assigned' as const, vehicleId: 'VAN-1' },
+    ], 'route-1')).toMatchObject({ id: 'assigned' });
   });
 
   it('reproduces the old active-assignment rejection and stores the route fill after the scoped fix', async () => {

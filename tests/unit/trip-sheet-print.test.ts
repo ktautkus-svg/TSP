@@ -6,6 +6,7 @@ import { TRIP_SHEET_GRID_COLUMNS, TRIP_SHEET_PRINT_COLUMNS, tripSheetColumnLegen
 import { buildTripSheetPrintDocument } from '../../src/application/trip-sheet/print-document';
 
 const tripSheetSource = readFileSync(resolve(import.meta.dirname, '../../src/app/trip-sheet.tsx'), 'utf8');
+const printFrameSource = readFileSync(resolve(import.meta.dirname, '../../src/application/trip-sheet/print-frame.ts'), 'utf8');
 const htmlSource = readFileSync(resolve(import.meta.dirname, '../../src/app/+html.tsx'), 'utf8');
 
 const sampleDocument = () => buildTripSheetPrintDocument({
@@ -41,9 +42,10 @@ describe('trip sheet print document', () => {
     expect(tripSheetSource).not.toContain('toDataURL');
     expect(tripSheetSource).toContain('buildTripSheetPrintDocument');
     expect(tripSheetSource).toContain('printHtmlDocument');
-    expect(tripSheetSource).toContain('iframe');
+    expect(printFrameSource).toContain('iframe');
     expect(tripSheetSource).not.toContain('setPrintMode(true)');
     expect(tripSheetSource).not.toContain('window.print()');
+    expect(printFrameSource).not.toContain('window.print()');
 
     const html = sampleDocument();
     expect(html).toContain('data-testid="trip-sheet-print-root"');
@@ -71,7 +73,7 @@ describe('trip sheet print document', () => {
     expect(html).not.toMatch(/https?:\/\//);
     expect(html).not.toContain('localhost');
     // The iframe is fed via srcdoc (about:srcdoc) so no parent URL prints.
-    expect(tripSheetSource).toContain('iframe.srcdoc = html');
+    expect(printFrameSource).toContain('iframe.srcdoc = html');
     expect(tripSheetSource).not.toContain('frameDocument.write(html)');
     expect(html).toContain('@page { size: A4 landscape; margin: 10mm; }');
   });
@@ -101,24 +103,25 @@ describe('trip sheet print document', () => {
     expect(html).toContain('Laikotarpis: 2026-09-04 – 2026-09-05');
   });
 
-  it('uses abbreviated column headers with a legend of the full Lithuanian names', () => {
+  it('uses the shared column order and keeps the fuel summary labels', () => {
     const html = sampleDocument();
-    expect(html).toContain('>L. d.d.p.<');
-    expect(html).toContain('>Od. pr.<');
-    expect(html).toContain('>Od. pab.<');
-    expect(html).toContain('>Įp., l<');
-    expect(html).toContain('>Sąn. n., l<');
-    expect(html).toContain('title="Likutis dienos pradžioje"');
+    const headers = [...html.matchAll(/<th\b[^>]*>([\s\S]*?)<\/th>/g)].map((match) => match[1]);
+    expect(headers).toEqual(TRIP_SHEET_PRINT_COLUMNS.map((column) => column.short));
+    expect(headers).toEqual(['Eil. nr.', 'Data', 'Maršrutas', 'Km', 'Kuras pradžioje', 'Įpilta', 'Čekio nr.', 'Sunaudotas kuro kiekis', 'Kuro likutis', 'Odo prad.', 'Odo pab.']);
     expect(html).toContain('title="Odometras pradžioje"');
-    expect(html).toContain('L. d.d.p. — Likutis dienos pradžioje');
-    expect(html).not.toMatch(/<th[^>]*>Odometras pradžioje<\/th>/);
-    expect(html).not.toMatch(/<th[^>]*>Kuras dienos pradžioje/);
-    expect(html).not.toMatch(/<th[^>]*>Degalų sąnaudos pagal normą/);
+    expect(html).toContain('Odo prad. — Odometras pradžioje');
+    expect(html).toContain('L. d.d.p.:');
+    expect(html).toContain('L. d.d.pb.:');
+    expect(html).not.toMatch(/<th[^>]*>Vair\.<\/th>/);
+    expect(html).toContain('thead { display: table-header-group; }');
+    expect(html).toContain('break-inside: avoid');
+    expect(html).toContain('counter(page)');
+    expect(TRIP_SHEET_GRID_COLUMNS).toBe(TRIP_SHEET_PRINT_COLUMNS);
 
     expect(tripSheetSource).toContain('TRIP_SHEET_GRID_COLUMNS');
     expect(tripSheetSource).toContain('trip-sheet-column-legend');
-    expect(tripSheetColumnLegend(TRIP_SHEET_GRID_COLUMNS)).toContain('L. d.d.p. — Likutis dienos pradžioje');
-    expect(TRIP_SHEET_PRINT_COLUMNS.some((column) => column.short === 'L. d.d.p.')).toBe(true);
+    expect(tripSheetSource).toContain('ScrollView horizontal');
+    expect(tripSheetColumnLegend(TRIP_SHEET_GRID_COLUMNS)).toContain('Kuras pradžioje — Kuras pradžioje, l');
   });
 
   it('hides nav, filters, metric cards and action buttons from a browser print of the screen', () => {

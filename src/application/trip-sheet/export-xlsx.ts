@@ -1,6 +1,7 @@
 import { strToU8, zipSync } from 'fflate';
 
-import { TRIP_SHEET_PRINT_COLUMNS, tripSheetColumnLegend } from './columns';
+import { distinctDriverCount, TRIP_SHEET_PRINT_COLUMNS, tripSheetCells, tripSheetColumnIsNumeric, tripSheetColumnLegend, type TripSheetCell } from './columns';
+import { closingFuelLiters, openingFuelLiters } from './fuel-balance';
 
 export type TripSheetExportRow = {
   date: string;
@@ -48,7 +49,7 @@ export { MIME_XLSX };
 
 const SUMMARY_SHEET_NAME = 'Suvestinė';
 const PRINT_HEADERS = TRIP_SHEET_PRINT_COLUMNS.map((column) => column.short);
-const PRINT_COL_WIDTHS = [12, 16, 28, 12, 12, 10, 12, 10, 16, 12, 12];
+const PRINT_COL_WIDTHS = [8, 12, 28, 10, 16, 10, 14, 18, 14, 12, 12];
 const SUMMARY_HEADERS = [
   'Transporto priemonė',
   'Modelis',
@@ -117,6 +118,168 @@ export function packedBytes(bytes: Uint8Array): Uint8Array {
   return new Uint8Array(bytes);
 }
 
+export type WorkbookCell = string | number | null;
+
+export type TableColumnFormat = 'text' | 'integer' | 'km' | 'kg' | 'eur' | 'decimal';
+
+const DATA_FORMAT_STYLE: Record<TableColumnFormat, number> = {
+  text: 5,
+  integer: 9,
+  km: 10,
+  kg: 11,
+  eur: 12,
+  decimal: 6,
+};
+
+const TOTAL_FORMAT_STYLE: Record<TableColumnFormat, number> = {
+  text: 7,
+  integer: 13,
+  km: 14,
+  kg: 15,
+  eur: 16,
+  decimal: 8,
+};
+
+/**
+ * One worksheet of text and real Excel numbers. Decimal cells use an OOXML
+ * number format, so a Lithuanian Excel shows a comma while the stored value
+ * stays numeric. Inline strings keep Lithuanian letters without a shared-string table.
+ */
+export function buildTableWorkbook(input: {
+  sheetName: string;
+  title: string;
+  subtitle: string;
+  headers: readonly string[];
+  rows: readonly (readonly WorkbookCell[])[];
+  columnWidths: readonly number[];
+}): Uint8Array {
+  const width = Math.max(input.headers.length, 1);
+  const lastColumn = columnName(width);
+  const lastRow = Math.max(4, 4 + input.rows.length);
+  const headerCells = input.headers.map((value, index) => textCell(`${columnName(index + 1)}4`, value, 4));
+  const dataRows = input.rows.map((row, index) => {
+    const rowNumber = 5 + index;
+    return rowXml(rowNumber, Array.from({ length: width }, (_, column) => tableCell(columnName(column + 1), rowNumber, row[column] ?? null)));
+  });
+  const widths = [...input.columnWidths].slice(0, width);
+  while (widths.length < width) widths.push(14);
+  const sheet = worksheetXml([
+    rowXml(1, [textCell('A1', input.title, 1)]),
+    rowXml(2, [textCell('A2', input.subtitle, 2)]),
+    rowXml(4, headerCells),
+    ...dataRows,
+  ].join(''), `A1:${lastColumn}${lastRow}`, widths, true);
+  const name = sanitizeSheetName(input.sheetName);
+  const now = officeOpenXmlTimestamp();
+  const files: Record<string, Uint8Array> = {
+    '[Content_Types].xml': xml(contentTypesXml(1)),
+    '_rels/.rels': xml(rootRelsXml()),
+    'docProps/app.xml': xml(appXml([name])),
+    'docProps/core.xml': xml(coreXml(now)),
+    'xl/workbook.xml': xml(workbookXml([name])),
+    'xl/_rels/workbook.xml.rels': xml(workbookRelsXml(1)),
+    'xl/styles.xml': xml(stylesXml()),
+    'xl/worksheets/sheet1.xml': xml(sheet),
+  };
+  return packedBytes(zipSync(files, { level: 6 }));
+}
+
+/**
+ * Same workbook shell as `buildTableWorkbook`, with per-column integer, km,
+ * kg and euro formats appended after the trip-sheet styles so those indexes
+ * do not move. Values stay numeric `<v>` cells.
+ */
+export function buildFormattedTableWorkbook(input: {
+  sheetName: string;
+  title: string;
+  subtitle: string;
+  headers: readonly string[];
+  rows: readonly (readonly WorkbookCell[])[];
+  columnFormats: readonly TableColumnFormat[];
+  columnWidths: readonly number[];
+  totalRow?: readonly WorkbookCell[] | null;
+  notes?: readonly { label: string; value: number; format: TableColumnFormat }[];
+}): Uint8Array {
+  const width = Math.max(input.headers.length, 1);
+  const lastColumn = columnName(width);
+  const headerCells = input.headers.map((value, index) => textCell(`${columnName(index + 1)}4`, value, 4));
+  const dataRows = input.rows.map((row, index) => {
+    const rowNumber = 5 + index;
+    return rowXml(rowNumber, Array.from({ length: width }, (_, column) => formattedCell(
+      columnName(column + 1),
+      rowNumber,
+      row[column] ?? null,
+      input.columnFormats[column] ?? 'text',
+      false,
+    )));
+  });
+  const totalNumber = 5 + input.rows.length;
+  const totalXml = input.totalRow
+    ? [rowXml(totalNumber, Array.from({ length: width }, (_, column) => formattedCell(
+      columnName(column + 1),
+      totalNumber,
+      input.totalRow?.[column] ?? null,
+      input.columnFormats[column] ?? 'text',
+      true,
+    )))]
+    : [];
+  const noteStart = (input.totalRow ? totalNumber : 4 + input.rows.length) + 2;
+  const noteXml = (input.notes ?? []).map((note, index) => {
+    const rowNumber = noteStart + index;
+    return rowXml(rowNumber, [
+      textCell(`A${rowNumber}`, note.label, 3),
+      formattedCell('B', rowNumber, note.value, note.format, true),
+    ]);
+  });
+  const lastRow = Math.max(4, noteStart + (input.notes?.length ?? 0));
+  const sheet = worksheetXml([
+    rowXml(1, [textCell('A1', input.title, 1)]),
+    rowXml(2, [textCell('A2', input.subtitle, 2)]),
+    rowXml(4, headerCells),
+    ...dataRows,
+    ...totalXml,
+    ...noteXml,
+  ].join(''), `A1:${lastColumn}${lastRow}`, paddedWidths(input.columnWidths, width), true);
+  const name = sanitizeSheetName(input.sheetName);
+  const now = officeOpenXmlTimestamp();
+  const files: Record<string, Uint8Array> = {
+    '[Content_Types].xml': xml(contentTypesXml(1)),
+    '_rels/.rels': xml(rootRelsXml()),
+    'docProps/app.xml': xml(appXml([name])),
+    'docProps/core.xml': xml(coreXml(now)),
+    'xl/workbook.xml': xml(workbookXml([name])),
+    'xl/_rels/workbook.xml.rels': xml(workbookRelsXml(1)),
+    'xl/styles.xml': xml(stylesXml()),
+    'xl/worksheets/sheet1.xml': xml(sheet),
+  };
+  return packedBytes(zipSync(files, { level: 6 }));
+}
+
+function paddedWidths(widths: readonly number[], width: number): number[] {
+  const result = [...widths].slice(0, width);
+  while (result.length < width) result.push(14);
+  return result;
+}
+
+function formattedCell(column: string, rowNumber: number, value: WorkbookCell, format: TableColumnFormat, total: boolean): string {
+  const ref = `${column}${rowNumber}`;
+  const style = (total ? TOTAL_FORMAT_STYLE : DATA_FORMAT_STYLE)[format];
+  if (format === 'text') return textCell(ref, typeof value === 'string' ? value : '', style);
+  return numberCell(ref, typeof value === 'number' ? value : null, style);
+}
+
+function tableCell(column: string, rowNumber: number, value: WorkbookCell): string {
+  const ref = `${column}${rowNumber}`;
+  if (typeof value === 'number' && Number.isFinite(value)) return numberCell(ref, value, 6);
+  if (typeof value === 'string' && value.trim()) return textCell(ref, value, 5);
+  return `<c r="${ref}" s="5"/>`;
+}
+
+function sanitizeSheetName(value: string): string {
+  const cleaned = value.replace(/[\\/*?:[\]]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 31);
+  return cleaned || 'Suvestine';
+}
+
 function summaryWorksheetXml(input: TripSheetWorkbookInput): string {
   const firstDataRow = 5;
   const lastDataRow = firstDataRow + input.groups.length - 1;
@@ -172,24 +335,42 @@ function vehicleWorksheetXml(group: TripSheetExportGroup, input: TripSheetWorkbo
   const company = [input.companyName, input.companyAddress].filter(Boolean).join(', ') || 'FiRo';
   const period = group.periodLabel?.trim() || input.periodLabel?.trim() || monthPeriod(group.month);
   const title = group.sheetNumber == null ? 'Kelionės lapas' : `Kelionės lapas Nr. ${group.sheetNumber}`;
+  const drivers = distinctDriverCount(group.rows.map((item) => item.driverName));
   const dataRows = group.rows.length === 0
     ? [rowXml(firstDataRow, [textCell(`A${firstDataRow}`, 'Nėra dienų šiame laikotarpyje.', 5)])]
     : group.rows.map((item, index) => {
       const rowNumber = firstDataRow + index;
-      return rowXml(rowNumber, [
-        textCell(`A${rowNumber}`, item.date, 5),
-        textCell(`B${rowNumber}`, item.driverName, 5),
-        textCell(`C${rowNumber}`, item.route, 5),
-        numberCell(`D${rowNumber}`, item.startOdometer, 6),
-        numberCell(`E${rowNumber}`, item.endOdometer, 6),
-        numberCell(`F${rowNumber}`, item.distanceKm, 6),
-        numberCell(`G${rowNumber}`, item.fuelStartLiters, 6),
-        numberCell(`H${rowNumber}`, item.fuelAddedLiters, 6),
-        textCell(`I${rowNumber}`, item.receiptNumbers.filter(Boolean).join(' / '), 5),
-        numberCell(`J${rowNumber}`, item.fuelConsumedLiters, 6),
-        numberCell(`K${rowNumber}`, item.fuelEndLiters, 6),
-      ]);
+      return rowXml(rowNumber, tripSheetCells({
+        lineNumber: index + 1,
+        date: item.date,
+        route: item.route,
+        driverName: item.driverName,
+        distinctDriverCount: drivers,
+        distanceKm: item.distanceKm,
+        fuelStart: item.fuelStartLiters,
+        fuelAdded: item.fuelAddedLiters,
+        receiptNumbers: item.receiptNumbers,
+        fuelConsumed: item.fuelConsumedLiters,
+        fuelEnd: item.fuelEndLiters,
+        startOdometer: item.startOdometer,
+        endOdometer: item.endOdometer,
+      }).map((cell, cellIndex) => sheetLineCell(columnName(cellIndex + 1), rowNumber, cell, false)));
     });
+  const totalCells = tripSheetCells({
+    lineNumber: null,
+    date: '',
+    route: 'Iš viso',
+    driverName: '',
+    distinctDriverCount: 1,
+    distanceKm: totals.distanceKm,
+    fuelStart: openingFuelLiters(group.rows.map((item) => item.fuelStartLiters)),
+    fuelAdded: totals.fuelAddedLiters,
+    receiptNumbers: [],
+    fuelConsumed: totals.fuelConsumedLiters,
+    fuelEnd: totals.fuelEndLiters,
+    startOdometer: totals.startOdometer,
+    endOdometer: totals.endOdometer,
+  });
   const rows = [
     rowXml(1, [textCell('A1', title, 1)]),
     rowXml(2, [textCell('A2', company, 2)]),
@@ -211,19 +392,7 @@ function vehicleWorksheetXml(group: TripSheetExportGroup, input: TripSheetWorkbo
     ]),
     rowXml(headerRow, PRINT_HEADERS.map((value, index) => textCell(`${columnName(index + 1)}${headerRow}`, value, 4))),
     ...dataRows,
-    rowXml(totalRow, [
-      textCell(`A${totalRow}`, '', 7),
-      textCell(`B${totalRow}`, '', 7),
-      textCell(`C${totalRow}`, 'Iš viso', 7),
-      numberCell(`D${totalRow}`, totals.startOdometer, 8),
-      numberCell(`E${totalRow}`, totals.endOdometer, 8),
-      numberCell(`F${totalRow}`, totals.distanceKm, 8),
-      textCell(`G${totalRow}`, '', 7),
-      numberCell(`H${totalRow}`, totals.fuelAddedLiters, 8),
-      textCell(`I${totalRow}`, '', 7),
-      numberCell(`J${totalRow}`, totals.fuelConsumedLiters, 8),
-      numberCell(`K${totalRow}`, totals.fuelEndLiters, 8),
-    ]),
+    rowXml(totalRow, totalCells.map((cell, cellIndex) => sheetLineCell(columnName(cellIndex + 1), totalRow, cell, true))),
     rowXml(legendRow, [textCell(`A${legendRow}`, tripSheetColumnLegend(TRIP_SHEET_PRINT_COLUMNS), 5)]),
     ...SIGNATURE_LINES.map((line, index) => rowXml(firstSignatureRow + index, [
       textCell(`A${firstSignatureRow + index}`, line, 3),
@@ -245,12 +414,19 @@ function worksheetXml(sheetData: string, dimension: string, widths: number[], se
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><dimension ref="${dimension}"/><sheetViews><sheetView${selectedAttr} workbookViewId="0"><selection activeCell="A1" sqref="A1"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/><cols>${cols}</cols><sheetData>${sheetData}</sheetData><pageMargins left="0.25" right="0.25" top="0.45" bottom="0.45" header="0.3" footer="0.3"/></worksheet>`;
 }
 
+function sheetLineCell(column: string, rowNumber: number, cell: TripSheetCell, total: boolean): string {
+  const ref = `${column}${rowNumber}`;
+  if (cell.key === 'line') return numberCell(ref, typeof cell.value === 'number' ? cell.value : null, total ? 13 : 9);
+  if (tripSheetColumnIsNumeric(cell.key)) return numberCell(ref, typeof cell.value === 'number' ? cell.value : null, total ? 8 : 6);
+  return textCell(ref, typeof cell.value === 'string' ? cell.value : '', total ? 7 : 5);
+}
+
 function groupTotals(group: TripSheetExportGroup) {
   return {
     distanceKm: sum(group.rows.map((row) => row.distanceKm)),
     fuelAddedLiters: sum(group.rows.map((row) => row.fuelAddedLiters)),
     fuelConsumedLiters: sum(group.rows.map((row) => row.fuelConsumedLiters)),
-    fuelEndLiters: [...group.rows].reverse().find((row) => row.fuelEndLiters !== null)?.fuelEndLiters ?? null,
+    fuelEndLiters: closingFuelLiters(group.rows.map((row) => row.fuelEndLiters)),
     startOdometer: group.rows.find((row) => row.startOdometer !== null)?.startOdometer ?? null,
     endOdometer: [...group.rows].reverse().find((row) => row.endOdometer !== null)?.endOdometer ?? null,
   };
@@ -395,5 +571,7 @@ function coreXml(now: string): string {
 }
 
 function stylesXml(): string {
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="#,##0.0"/></numFmts><fonts count="3"><font><sz val="10"/><name val="Arial"/></font><font><b/><sz val="16"/><name val="Arial"/></font><font><b/><sz val="10"/><name val="Arial"/></font></fonts><fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFD9E2F3"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE7E6E6"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FF000000"/></left><right style="thin"><color rgb="FF000000"/></right><top style="thin"><color rgb="FF000000"/></top><bottom style="thin"><color rgb="FF000000"/></bottom><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="9"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment horizontal="left"/></xf><xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment horizontal="left"/></xf><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf><xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1"/><xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0"/><xf numFmtId="164" fontId="2" fillId="3" borderId="1" xfId="0" applyNumberFormat="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
+  // Indexes 0–8 stay the trip-sheet styles. 9–16 are extra integer / km / kg / euro
+  // formats appended for the wage workbook; inserting them earlier would shift style 6.
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="5"><numFmt numFmtId="164" formatCode="#,##0.0"/><numFmt numFmtId="165" formatCode="0"/><numFmt numFmtId="166" formatCode="#,##0.0 &quot;km&quot;"/><numFmt numFmtId="167" formatCode="#,##0.0 &quot;kg&quot;"/><numFmt numFmtId="168" formatCode="#,##0.00 &quot;€&quot;"/></numFmts><fonts count="3"><font><sz val="10"/><name val="Arial"/></font><font><b/><sz val="16"/><name val="Arial"/></font><font><b/><sz val="10"/><name val="Arial"/></font></fonts><fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFD9E2F3"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE7E6E6"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FF000000"/></left><right style="thin"><color rgb="FF000000"/></right><top style="thin"><color rgb="FF000000"/></top><bottom style="thin"><color rgb="FF000000"/></bottom><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="17"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment horizontal="left"/></xf><xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment horizontal="left"/></xf><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf><xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1"/><xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0"/><xf numFmtId="164" fontId="2" fillId="3" borderId="1" xfId="0" applyNumberFormat="1"/><xf numFmtId="165" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1"/><xf numFmtId="166" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1"/><xf numFmtId="167" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1"/><xf numFmtId="168" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1"/><xf numFmtId="165" fontId="2" fillId="3" borderId="1" xfId="0" applyNumberFormat="1"/><xf numFmtId="166" fontId="2" fillId="3" borderId="1" xfId="0" applyNumberFormat="1"/><xf numFmtId="167" fontId="2" fillId="3" borderId="1" xfId="0" applyNumberFormat="1"/><xf numFmtId="168" fontId="2" fillId="3" borderId="1" xfId="0" applyNumberFormat="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
 }

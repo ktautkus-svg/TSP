@@ -1,4 +1,7 @@
 import type { PlanningMode } from '@/domain/route';
+import { evaluateCandidate } from '@/domain/routing/evaluation/candidate-evaluator';
+import { repairHardOrdering } from '@/domain/routing/heuristics/generators';
+import { normalizeAndScoreCandidates } from '@/domain/routing/scoring/scoring';
 import type {
   ExplanationEvidence,
   RouteCandidate,
@@ -7,10 +10,10 @@ import type {
   RouteOptimizer,
 } from '@/domain/routing/models';
 
-// The engine's own pick, followed by a real 2x2: each objective (fastest /
-// shortest) is offered both with the delivery windows honoured and with them
-// ignored, so the driver compares like with like instead of picks that can
-// collapse onto the same sequence.
+// The engine's own pick is followed by its explicit reverse and a real 2x2:
+// each objective (fastest / shortest) is offered both with the delivery windows
+// honoured and with them ignored. The reverse is deliberately kept as its own
+// choice instead of hoping a mirror seed survives local search and ranking.
 //
 // `balanced` leads because the four objective picks are deliberate extremes —
 // each one is an argmin on a single number. Without it nothing on the screen
@@ -18,6 +21,7 @@ import type {
 // the engine spends its whole search budget on.
 export const ROUTE_ALTERNATIVE_MODES = [
   'balanced',
+  'reversed_balanced',
   'free_fastest',
   'free_shortest',
   'timed_fastest',
@@ -35,6 +39,12 @@ export const ROUTE_ALTERNATIVE_LABELS: Record<
     group: 'Rekomenduojama',
     objective: 'balanced',
     comment: 'Įvertinti kilometrai, laikas, kryptis, krovinio svoris ir prioritetiniai taškai.',
+  },
+  reversed_balanced: {
+    title: 'Apverstas',
+    group: 'Kita važiavimo kryptis',
+    objective: 'reverse',
+    comment: 'Subalansuoto maršruto sustojimai apversti; privalomos eiliškumo taisyklės išlaikomos.',
   },
   free_fastest: {
     title: 'Greičiausias',
@@ -136,8 +146,9 @@ const byShortest = (left: RouteCandidate, right: RouteCandidate) =>
 export function selectRouteAlternatives(
   timed: RouteOptimizationResult,
   geo: RouteOptimizationResult,
-  planningMode: PlanningMode,
+  request: RouteOptimizationRequest,
 ): LabeledRouteAlternative[] {
+  const planningMode = request.planningMode;
   const timedFallback =
     timed.recommended ?? timed.diagnosticCandidate ?? firstFeasible(timed.candidates) ?? timed.candidates[0];
   const geoFallback =
@@ -166,6 +177,17 @@ export function selectRouteAlternatives(
   const balanced =
     balancedRun.recommended
     ?? (planningMode === 'with_time_windows' ? timedFallback : geoFallback);
+  const reversedRequest = requestForPlanningMode(request, planningMode);
+  const stopById = new Map(reversedRequest.stops.map((stop) => [stop.id, stop]));
+  const reversedSequence = repairHardOrdering([...balanced.stopSequence].reverse(), stopById);
+  const reversed = normalizeAndScoreCandidates([
+    evaluateCandidate({
+      stopSequence: reversedSequence,
+      generatedBy: ['explicit_reverse', `reverse_of:${balanced.id}`],
+      request: reversedRequest,
+      matrix: balancedRun.matrix,
+    }),
+  ], reversedRequest.scoring)[0]!;
 
   const picks: {
     mode: RouteAlternativeMode;
@@ -174,6 +196,7 @@ export function selectRouteAlternatives(
     alternateShown: boolean;
   }[] = [
     { mode: 'balanced', candidate: balanced, duplicateWinner: false, alternateShown: false },
+    { mode: 'reversed_balanced', candidate: reversed, duplicateWinner: false, alternateShown: false },
     { mode: 'free_fastest', candidate: freeFastest, duplicateWinner: false, alternateShown: false },
     {
       mode: 'free_shortest',
@@ -225,8 +248,7 @@ export async function buildRouteAlternatives(
     engine.optimize(timedRequest),
     engine.optimize(geoRequest),
   ]);
-  const planningMode = request.planningMode;
-  const labeled = selectRouteAlternatives(timed, geo, planningMode);
+  const labeled = selectRouteAlternatives(timed, geo, request);
   const candidates = labeled.map((item) => item.candidate);
   // The balanced pick is what the driver gets unless he deliberately reaches for
   // an extreme, so it is also what the screen preselects.
@@ -303,10 +325,11 @@ function stampMode(candidate: RouteCandidate, mode: RouteAlternativeMode, commen
   }
   const honoursWindows = mode.startsWith('timed_');
   const isShortest = label.objective === 'shortest';
+  const isReverse = mode === 'reversed_balanced';
   const explanation: ExplanationEvidence = {
-    code: honoursWindows ? 'REQUIRED_WINDOW' : isShortest ? 'LOWER_TONNE_KM' : 'LONGER_BUT_FASTER',
+    code: isReverse ? 'MIRROR_ROUTE' : honoursWindows ? 'REQUIRED_WINDOW' : isShortest ? 'LOWER_TONNE_KM' : 'LONGER_BUT_FASTER',
     text: comment,
-    criterion: isShortest ? 'distance' : 'drivingTime',
+    criterion: isReverse ? 'directionality' : isShortest ? 'distance' : 'drivingTime',
     baselineValue: null,
     selectedValue: `${label.group} · ${label.title}`,
     difference: null,

@@ -158,6 +158,12 @@ export function parseDeliveryTimeWindow(value: ExcelCellValue): {
 } {
   if (value === null || String(value).trim() === '') return { from: null, to: null, issue: null };
   const text = String(value).trim().replace(/[–—]/g, '-');
+  // Some dispatch exports use midnight-to-midnight as an empty placeholder.
+  // Delivery time is optional, so this sentinel must not turn into a blocking
+  // validation error or be interpreted as a zero-length required window.
+  if (/^0{1,2}:00\s*-\s*0{1,2}:00$/.test(text)) {
+    return { from: null, to: null, issue: null };
+  }
   const match = text.match(/^(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})$/);
   if (!match) return { from: null, to: null, issue: 'INVALID_TIME_WINDOW' };
   const from = `${match[1]!.padStart(2, '0')}:${match[2]}`;
@@ -168,6 +174,20 @@ export function parseDeliveryTimeWindow(value: ExcelCellValue): {
   });
   if (!valid || timeMinutes(from) >= timeMinutes(to)) return { from: null, to: null, issue: 'INVALID_TIME_WINDOW' };
   return { from, to, issue: null };
+}
+
+export function normalizeOptionalTimeWindowRows(rows: ExcelSourceRow[]): ExcelSourceRow[] {
+  return rows.map((row) => {
+    if (!row.issueCodes.includes('INVALID_TIME_WINDOW')) return row;
+    const parsed = parseDeliveryTimeWindow(row.deliveryTimeRaw);
+    if (parsed.issue) return row;
+    return {
+      ...row,
+      deliveryTimeFrom: parsed.from,
+      deliveryTimeTo: parsed.to,
+      issueCodes: row.issueCodes.filter((code) => code !== 'INVALID_TIME_WINDOW'),
+    };
+  });
 }
 
 export function stripSupplierPrefix(

@@ -16,7 +16,12 @@ import {
     View,
 } from 'react-native';
 
-import { resolveDeliveryAddresses, type AddressLookupProvider } from '@/application/import/address-resolver';
+import {
+    hasSafelyConfirmedDeliveryAddress,
+    isAddressCandidateSafeForAutomaticSelection,
+    resolveDeliveryAddresses,
+    type AddressLookupProvider,
+} from '@/application/import/address-resolver';
 import {
     excelPreviewToDraftStops,
     excelPreviewToImportResult,
@@ -26,6 +31,8 @@ import { ImportEngine } from '@/application/import/import-engine';
 import {
     filterExcelPreviewByRouteCodes,
     groupExcelRows,
+    normalizeOptionalTimeWindowRows,
+    parseDeliveryTimeWindow,
     parseLogisticsExcelWorkbook,
     summarizeExcelRows,
 } from '@/application/import/logistics-excel-v1';
@@ -43,6 +50,7 @@ import {
 import { resolveRoute } from '@/application/routes/route-navigation';
 import { GetDefaultLocations, KRETINGA_WAREHOUSE_ADDRESS, PlanningModePreference, SaveDefaultLocation } from '@/application/routes/saved-locations';
 import { CameraIcon, ChevronDownIcon, ChevronRightIcon, ClipboardIcon, ExcelIcon, GalleryIcon, PdfIcon, PencilIcon, RegionIcon, WindowIcon } from '@/components/app-icons';
+import { GmailExcelPicker } from '@/components/gmail-excel-picker';
 import { DateInput } from '@/components/date-input';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { ExcelImportRepository, type ExcelSheetSession } from '@/database/repositories/excel-import-repository';
@@ -58,7 +66,7 @@ import {
 import type { ImportDocument, ImportField, ImportResult, ParsedDelivery } from '@/domain/import/models';
 import { smelynes25UnloadLabel } from '@/domain/import/smelynes-25-unloads';
 import type { PlanningMode, RouteEndpoint } from '@/domain/route';
-import { readPickedExcelAsset } from '@/infrastructure/import/excel-file-adapter';
+import { hashExcelBytes, readPickedExcelAsset } from '@/infrastructure/import/excel-file-adapter';
 import { ExpoImageTransformAdapter } from '@/infrastructure/import/expo-image-transform-adapter';
 import { GatewayAddressResolver } from '@/infrastructure/import/gateway-address-resolver';
 import { RememberingAddressResolver } from '@/infrastructure/import/remembering-address-resolver';
@@ -79,7 +87,7 @@ type ManualRowResolution = {
 };
 
 export default function ImportScreen() {
-  const { profile } = useLocalAccess();
+  const { profile, demo } = useLocalAccess();
   const { requestSync } = useRouteCloudSync();
   const router = useRouter();
   const db = useSQLiteContext();
@@ -172,7 +180,10 @@ export default function ImportScreen() {
       const recover = async (saved: typeof warehouse, kind: 'warehouse' | 'home') => {
         if (!saved || hasRouteCoordinates(saved.endpoint)) return saved?.endpoint ?? null;
         const candidates = await addressResolver.resolve(saved.endpoint.originalAddress).catch(() => []);
-        const candidate = candidates.length === 1 ? candidates[0] : null;
+        const candidate = candidates.length === 1
+          && isAddressCandidateSafeForAutomaticSelection(saved.endpoint.originalAddress, candidates[0]!)
+          ? candidates[0]!
+          : null;
         if (!candidate) return saved.endpoint;
         const endpoint: RouteEndpoint = {
           originalAddress: saved.endpoint.originalAddress,
@@ -292,47 +303,34 @@ export default function ImportScreen() {
     setMessage('PDF paruoštas Google Vision OCR. Sinchroniškai apdorojami pirmi 5 puslapiai.');
   };
 
-  const pickExcel = async () => {
-    setShowPhotoSources(false);
-    setShowPasteField(false);
-    const selected = await DocumentPicker.getDocumentAsync({
-      type: [
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'application/vnd.ms-excel.sheet.macroEnabled.12',
-        'application/vnd.ms-excel',
-      ],
-      copyToCacheDirectory: true,
-      multiple: true,
-    });
-    if (selected.canceled) return;
+  const storeExcelFiles = async (files: { name: string; bytes: Uint8Array; sha256: string }[]) => {
     setBusy(true);
     setMessage('Skaitomi Excel langeliai…');
     try {
       const hashes = new Set(excelBatchHashes);
-      for (const asset of selected.assets) {
-        const read = await readPickedExcelAsset(asset);
-        hashes.add(read.sha256);
-        excelBatchAssets.current.set(read.sha256, { name: asset.name, bytes: read.bytes });
-        excelBytes.current = read.bytes;
-        excelAsset.current = { name: asset.name, hash: read.sha256 };
-        const preview = parseLogisticsExcelWorkbook(read.bytes, {
+      for (const file of files) {
+        hashes.add(file.sha256);
+        excelBatchAssets.current.set(file.sha256, { name: file.name, bytes: file.bytes });
+        excelBytes.current = file.bytes;
+        excelAsset.current = { name: file.name, hash: file.sha256 };
+        const preview = parseLogisticsExcelWorkbook(file.bytes, {
           importId: `excel-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-          fileName: asset.name,
-          fileHash: read.sha256,
+          fileName: file.name,
+          fileHash: file.sha256,
         });
         setColumnMapping(preview.mapping);
         // Save every eligible route sheet before opening any one of them. This
         // makes the workbook itself the first planning screen and keeps the
         // remaining work available after the first route has been created.
         for (const [index, sheet] of preview.sheets.entries()) {
-          const existing = await excelRepository.findLatestByFingerprint(read.sha256, sheet.name);
+          const existing = await excelRepository.findLatestByFingerprint(file.sha256, sheet.name);
           if (existing) continue;
           const sheetPreview = sheet.name === preview.selectedSheetName
             ? preview
-            : parseLogisticsExcelWorkbook(read.bytes, {
+            : parseLogisticsExcelWorkbook(file.bytes, {
               importId: `excel-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}`,
-              fileName: asset.name,
-              fileHash: read.sha256,
+              fileName: file.name,
+              fileHash: file.sha256,
               sheetName: sheet.name,
             });
           await excelRepository.savePreview(sheetPreview);
@@ -354,6 +352,31 @@ export default function ImportScreen() {
     }
   };
 
+  const ingestExcelBytes = async (name: string, bytes: Uint8Array) => {
+    await storeExcelFiles([{ name, bytes, sha256: await hashExcelBytes(bytes) }]);
+  };
+
+  const pickExcel = async () => {
+    setShowPhotoSources(false);
+    setShowPasteField(false);
+    const selected = await DocumentPicker.getDocumentAsync({
+      type: [
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.ms-excel.sheet.macroEnabled.12',
+        'application/vnd.ms-excel',
+      ],
+      copyToCacheDirectory: true,
+      multiple: true,
+    });
+    if (selected.canceled) return;
+    const files = [];
+    for (const asset of selected.assets) {
+      const read = await readPickedExcelAsset(asset);
+      files.push({ name: asset.name, bytes: read.bytes, sha256: read.sha256 });
+    }
+    await storeExcelFiles(files);
+  };
+
   const applySuggestedPlanningTime = (_windows: { from: string | null | undefined }[]) => {
     // Import create-flow defaults to 04:00 unless the driver already changed it.
     if (planningTimeTouched.current) return;
@@ -364,9 +387,10 @@ export default function ImportScreen() {
     if (!rememberedExcel) return;
     setBusy(true);
     try {
-      const restoredResult = rememberedExcel.result ?? excelPreviewToImportResult(rememberedExcel.preview);
+      const normalizedPreview = normalizeExcelPreviewOptionalTimes(rememberedExcel.preview);
+      const restoredResult = rememberedExcel.result ?? excelPreviewToImportResult(normalizedPreview);
       const unresolved = restoredResult.deliveries.filter((delivery) =>
-        !delivery.selectedAddress || delivery.validationState !== 'valid',
+        !hasSafelyConfirmedDeliveryAddress(delivery),
       );
       let recoveredResult = restoredResult;
       if (unresolved.length > 0) {
@@ -377,12 +401,13 @@ export default function ImportScreen() {
           deliveries: restoredResult.deliveries.map((delivery) => resolvedById.get(delivery.id) ?? delivery),
         };
         recoveredResult.requiresReview = recoveredResult.deliveries.some((delivery) =>
-          !delivery.selectedAddress || delivery.validationState !== 'valid',
+          !hasSafelyConfirmedDeliveryAddress(delivery),
         );
-        await excelRepository.saveReviewResult(rememberedExcel.preview.id, recoveredResult);
+        await excelRepository.saveReviewResult(normalizedPreview.id, recoveredResult);
       }
-      setColumnMapping(rememberedExcel.preview.mapping);
-      setExcelPreview(rememberedExcel.preview);
+      await excelRepository.savePreview(normalizedPreview);
+      setColumnMapping(normalizedPreview.mapping);
+      setExcelPreview(normalizedPreview);
       setExcelDuplicate(null);
       setRememberedExcel(null);
       setResult(recoveredResult);
@@ -392,7 +417,7 @@ export default function ImportScreen() {
       setExcelProblemIndex(0);
       setShowExcelOptions(false);
       setShowExcelContent(recoveredResult.requiresReview);
-      setMessage(`Atkurtas failas: ${rememberedExcel.preview.fileName}`);
+      setMessage(`Atkurtas failas: ${normalizedPreview.fileName}`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Prisiminto Excel atkurti nepavyko.');
     } finally {
@@ -401,32 +426,33 @@ export default function ImportScreen() {
   };
 
   const openExcelPreview = async (preview: ExcelImportPreview, restoredResult?: ImportResult | null) => {
-    await excelRepository.savePreview(preview);
-    const base = restoredResult ?? excelPreviewToImportResult(preview);
-    const pending = base.deliveries.filter((delivery) => delivery.validationState !== 'valid' || !delivery.selectedAddress);
+    const normalizedPreview = normalizeExcelPreviewOptionalTimes(preview);
+    await excelRepository.savePreview(normalizedPreview);
+    const base = restoredResult ?? excelPreviewToImportResult(normalizedPreview);
+    const pending = base.deliveries.filter((delivery) => !hasSafelyConfirmedDeliveryAddress(delivery));
     const resolvedPending = pending.length > 0 ? await resolveDeliveryAddresses(pending, addressResolver) : [];
     const resolvedById = new Map(resolvedPending.map((delivery) => [delivery.id, delivery]));
     const deliveries = base.deliveries.map((delivery) => resolvedById.get(delivery.id) ?? delivery);
     const imported: ImportResult = {
       ...base,
       deliveries,
-      requiresReview: !preview.mappingRecognized
-        || preview.rows.some((row) => !row.excluded && !row.normalizedAddress)
-        || deliveries.some((delivery) => delivery.validationState !== 'valid' || !delivery.selectedAddress)
+      requiresReview: !normalizedPreview.mappingRecognized
+        || normalizedPreview.rows.some((row) => !row.excluded && !row.normalizedAddress)
+        || deliveries.some((delivery) => !hasSafelyConfirmedDeliveryAddress(delivery))
         || base.duplicates.length > 0,
     };
-    await excelRepository.saveReviewResult(preview.id, imported);
-    setExcelPreview(preview);
+    await excelRepository.saveReviewResult(normalizedPreview.id, imported);
+    setExcelPreview(normalizedPreview);
     setExcelDuplicate(null);
     setResult(imported);
-    applySuggestedPlanningTime(preview.groups.map((group) => ({ from: group.deliveryTimeFrom })));
+    applySuggestedPlanningTime(normalizedPreview.groups.map((group) => ({ from: group.deliveryTimeFrom })));
     setDocument(null);
     setExpandedExcelGroups([]);
     setShowOnlyExcelProblems(true);
     setExcelProblemIndex(0);
     setShowExcelOptions(false);
     setShowExcelContent(imported.requiresReview || !preview.mappingRecognized);
-    setMessage(preview.mappingRecognized
+    setMessage(normalizedPreview.mappingRecognized
       ? null
       : 'Stulpelių struktūra neatpažinta. Patikrinkite stulpelių susiejimą.');
   };
@@ -559,6 +585,31 @@ export default function ImportScreen() {
     );
   };
 
+  const excludeExcelGroup = (groupId: string) => {
+    if (!excelPreview) return;
+    const group = excelPreview.groups.find((item) => item.id === groupId);
+    if (!group) return;
+    Alert.alert(
+      'Neįtraukti šio taško?',
+      `${group.normalizedAddress}\n\nTaškas liks Excel faile, tačiau į kuriamą maršrutą nebus įtrauktas.`,
+      [
+        { text: 'Atšaukti', style: 'cancel' },
+        {
+          text: 'Neįtraukti',
+          onPress: () => { void (async () => {
+            const rowIds = new Set(group.lineIds);
+            await updateExcelRows(
+              excelPreview.rows.map((row) => rowIds.has(row.id) ? { ...row, excluded: true } : row),
+              { targetType: 'group', targetId: group.id, field: 'excluded', previous: false, next: true },
+            );
+            setExpandedExcelGroups((current) => current.filter((id) => id !== group.id));
+            setMessage('Taškas nebus įtrauktas į maršrutą.');
+          })(); },
+        },
+      ],
+    );
+  };
+
   const useText = () => {
     if (!pastedText.trim()) return setMessage('Pirmiausia įklijuokite tekstą.');
     setDocument({
@@ -656,7 +707,7 @@ export default function ImportScreen() {
         ...result,
         deliveries,
         requiresReview:
-          deliveries.some((item) => item.validationState !== 'valid' || !item.selectedAddress)
+          deliveries.some((item) => !hasSafelyConfirmedDeliveryAddress(item))
           || result.duplicates.length > 0,
       };
       setResult(next);
@@ -686,6 +737,11 @@ export default function ImportScreen() {
       deliveries: current.deliveries.map((delivery) => delivery.id === deliveryId
         ? {
             ...delivery,
+            address: {
+              ...delivery.address,
+              manuallyCorrected: true,
+              evidence: 'Vartotojas patvirtino geokodavimo rezultatą',
+            },
             selectedAddress: delivery.addressCandidates[candidateIndex] ?? null,
             addressConfidence: delivery.addressCandidates[candidateIndex]?.confidence ?? 0,
             validationState: delivery.addressCandidates[candidateIndex] ? 'valid' as const : 'invalid' as const,
@@ -958,6 +1014,7 @@ export default function ImportScreen() {
       title="Importuoti maršrutą"
       description="Pasirinkite vieną duomenų šaltinį. Kitame žingsnyje galėsite patikrinti turinį.">
       <View style={styles.content}>
+        {!result ? <GmailExcelPicker busy={busy} demo={demo} onImported={ingestExcelBytes} /> : null}
         {!result ? (excelSheetBatch.length > 0 ? (
           <View style={styles.sheetQueue} testID="excel-sheet-queue">
             <View style={styles.sheetQueueHeader}>
@@ -1351,7 +1408,7 @@ export default function ImportScreen() {
               </View>
             ) : null}
 
-            {(excelProblemCount > 0 || !showOnlyExcelProblems) ? <Pressable
+            <Pressable
               testID="excel-problems-filter"
               style={styles.secondaryButton}
               onPress={() => {
@@ -1360,9 +1417,13 @@ export default function ImportScreen() {
                 setExcelProblemIndex(0);
               }}>
               <Text style={styles.secondaryText}>
-                {showOnlyExcelProblems ? `Peržiūrėti visus taškus (${excelPreview.groups.length})` : `Grįžti prie taisytinų (${excelProblemCount})`}
+                {showOnlyExcelProblems
+                  ? `Peržiūrėti visus taškus (${excelPreview.groups.length})`
+                  : excelProblemCount > 0
+                    ? `Grįžti prie taisytinų (${excelProblemCount})`
+                    : 'Uždaryti taškų sąrašą'}
               </Text>
-            </Pressable> : null}
+            </Pressable>
 
             {showOnlyExcelProblems && excelProblemCount > 0 ? (
               <View style={styles.problemNavigator} testID="excel-problem-navigator">
@@ -1393,9 +1454,18 @@ export default function ImportScreen() {
                   <Text style={styles.cardTitle}>{group.normalizedAddress}</Text>
                   <Text style={styles.importantMeta}>{formatWeight(group.totalWeightGrams)} · {formatGroupTime(rows)}{unloadLabel ? ` · ${unloadLabel}` : ''}</Text>
                   {needsAction ? <Text style={styles.issueText}>{excelProblemText(group, delivery)}</Text> : null}
-                  <Pressable style={styles.compactButton} onPress={() => setExpandedExcelGroups((current) => expanded ? current.filter((id) => id !== group.id) : [...current, group.id])}>
-                    <Text style={styles.secondaryText}>{expanded ? 'Uždaryti taisymą' : needsAction ? 'Taisyti šį adresą' : 'Peržiūrėti'}</Text>
-                  </Pressable>
+                  <View style={styles.compactActions}>
+                    <Pressable style={styles.compactButton} onPress={() => setExpandedExcelGroups((current) => expanded ? current.filter((id) => id !== group.id) : [...current, group.id])}>
+                      <Text style={styles.secondaryText}>{expanded ? 'Uždaryti taisymą' : needsAction ? 'Taisyti šį tašką' : 'Peržiūrėti'}</Text>
+                    </Pressable>
+                    <Pressable
+                      accessibilityRole="button"
+                      testID={`exclude-excel-group-${group.id}`}
+                      style={styles.excludeStopButton}
+                      onPress={() => excludeExcelGroup(group.id)}>
+                      <Text style={styles.excludeStopText}>Neįtraukti į maršrutą</Text>
+                    </Pressable>
+                  </View>
                   {expanded && delivery ? (
                     <DeliveryEditor
                       styles={styles}
@@ -1408,6 +1478,7 @@ export default function ImportScreen() {
                       onRevalidateAddress={() => void revalidateDelivery(delivery.id)}
                       checkingAddress={busy}
                       compact
+                      initiallyShowCompactDetails={group.issueCodes.includes('INVALID_TIME_WINDOW') || group.issueCodes.includes('TIME_WINDOW_CONFLICT')}
                     />
                   ) : null}
                   {expanded && showExcelOptions ? rows.map((row) => (
@@ -1491,10 +1562,11 @@ function DeliveryEditor(props: {
   onRevalidateAddress?: () => void;
   checkingAddress?: boolean;
   compact?: boolean;
+  initiallyShowCompactDetails?: boolean;
 }) {
   const { styles, colors } = props;
   const [expandedOptionalFields, setExpandedOptionalFields] = useState<EditableField[]>([]);
-  const [showCompactDetails, setShowCompactDetails] = useState(false);
+  const [showCompactDetails, setShowCompactDetails] = useState(Boolean(props.initiallyShowCompactDetails));
   const fields: { key: EditableField; label: string; field: ImportField<string | number> }[] = [
     { key: 'address', label: 'Adresas', field: props.delivery.address },
     { key: 'weightKg', label: 'Svoris, kg', field: props.delivery.weightKg },
@@ -1585,9 +1657,13 @@ function DeliveryEditor(props: {
           </Text>
         </Pressable>
       ) : null}
-      {props.delivery.addressCandidates.length > 1 ? (
+      {props.delivery.addressCandidates.length > 0 && props.delivery.validationState !== 'valid' ? (
         <View style={styles.candidates}>
-          <Text style={styles.label}>Pasirinkite adresą</Text>
+          <Text style={styles.label}>
+            {props.delivery.addressCandidates.length === 1
+              ? 'Rastas adresas kitoje gyvenvietėje. Patvirtinkite tik jei jis tikrai teisingas'
+              : 'Pasirinkite adresą'}
+          </Text>
           {props.delivery.addressCandidates.map((candidate, index) => (
             <Pressable key={`${candidate.placeId}-${index}`} style={styles.candidateButton} onPress={() => props.onChooseAddress(props.delivery.id, index)}>
               <Text style={styles.candidateText}>{candidate.normalizedAddress}</Text>
@@ -1667,7 +1743,10 @@ function UnresolvedRowFixer({
         setError('Adreso rasti nepavyko. Įveskite koordinates rankiniu būdu arba pridėkite be geokodavimo.');
         return;
       }
-      if (candidates.length === 1) {
+      if (
+        candidates.length === 1
+        && isAddressCandidateSafeForAutomaticSelection(address.trim(), best)
+      ) {
         onResolved(row.id, {
           address: best.normalizedAddress,
           latitude: best.latitude,
@@ -1681,7 +1760,9 @@ function UnresolvedRowFixer({
           longitude: best.longitude,
           addressValidationState: 'unconfirmed',
         });
-        setError('Adresas neaiškus (keli variantai) — patikrinkite jį planavimo ekrane prieš skaičiuojant maršrutą.');
+        setError(candidates.length === 1
+          ? 'Rastas adresas neatitinka įvestos gyvenvietės — patikrinkite jį planavimo ekrane prieš skaičiuojant maršrutą.'
+          : 'Adresas neaiškus (keli variantai) — patikrinkite jį planavimo ekrane prieš skaičiuojant maršrutą.');
       }
     } catch (reason) {
       setError(sessionErrorMessage(reason) ?? (reason instanceof Error ? reason.message : 'Geokodavimas nepavyko.'));
@@ -1866,17 +1947,28 @@ function excelGroupNeedsAction(
     'NEGATIVE_WEIGHT',
     'COLUMN_MAPPING_REQUIRED',
   ]);
+  const timeWasCorrected = Boolean(delivery?.deliveryTime.manuallyCorrected)
+    && parseDeliveryTimeWindow(delivery?.deliveryTime.value ?? null).issue === null;
   return group.issueCodes.some((code) => blockingIssueCodes.has(code))
     || (planningMode === 'with_time_windows' && (
       group.issueCodes.includes('TIME_WINDOW_CONFLICT') ||
       group.issueCodes.includes('INVALID_TIME_WINDOW')
-    ))
+    ) && !timeWasCorrected)
     || !delivery?.selectedAddress
     || delivery.validationState !== 'valid';
 }
 
+function normalizeExcelPreviewOptionalTimes(preview: ExcelImportPreview): ExcelImportPreview {
+  const rows = normalizeOptionalTimeWindowRows(preview.rows);
+  if (rows.every((row, index) => row === preview.rows[index])) return preview;
+  const groups = groupExcelRows(rows);
+  return { ...preview, rows, groups, summary: summarizeExcelRows(rows, groups) };
+}
+
 function excelProblemText(group: ExcelImportPreview['groups'][number], delivery?: ParsedDelivery): string {
-  if (delivery?.validationState === 'ambiguous') return 'Adresas turi kelis galimus variantus.';
+  if (delivery?.validationState === 'ambiguous') return delivery.addressCandidates.length === 1
+    ? 'Rastas adresas neatitinka įvestos gyvenvietės. Patvirtinkite jį rankiniu būdu arba pataisykite adresą.'
+    : 'Adresas turi kelis galimus variantus.';
   if (delivery?.validationState === 'invalid' || group.issueCodes.includes('ADDRESS_MISSING')) return 'Adreso patvirtinti nepavyko.';
   if (group.issueCodes.includes('ADDRESS_SOURCE_CONFLICT')) return 'Excel adreso šaltiniai nesutampa.';
   if (group.issueCodes.includes('TIME_WINDOW_CONFLICT')) return 'Skiriasi šio sustojimo pristatymo laikai.';
@@ -2067,6 +2159,9 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   compactMeta: { ...type.secondary, color: colors.textMuted },
   importantMeta: { ...type.bodyStrong, color: colors.text },
   compactButton: { minHeight: 44, alignSelf: 'flex-start', justifyContent: 'center', paddingHorizontal: spacing.xs },
+  compactActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: spacing.xs },
+  excludeStopButton: { minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.xs },
+  excludeStopText: { ...type.button, color: colors.textMuted },
   compactEditor: { gap: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm },
   addressCheckActions: { gap: spacing.xs },
   endpointText: { ...type.bodyStrong, color: colors.text, paddingVertical: spacing.xs },

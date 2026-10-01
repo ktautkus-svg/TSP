@@ -17,6 +17,7 @@ describe('route alternatives', () => {
   it('leads with the balanced pick, then a fastest/shortest x with/without-windows 2x2', () => {
     expect(ROUTE_ALTERNATIVE_MODES).toEqual([
       'balanced',
+      'reversed_balanced',
       'free_fastest',
       'free_shortest',
       'timed_fastest',
@@ -24,6 +25,7 @@ describe('route alternatives', () => {
     ]);
     expect(ROUTE_ALTERNATIVE_LABELS.balanced.title).toBe('Subalansuotas');
     expect(ROUTE_ALTERNATIVE_LABELS.balanced.group).toBe('Rekomenduojama');
+    expect(ROUTE_ALTERNATIVE_LABELS.reversed_balanced.title).toBe('Apverstas');
     expect(ROUTE_ALTERNATIVE_LABELS.free_fastest.title).toBe('Greičiausias');
     expect(ROUTE_ALTERNATIVE_LABELS.free_shortest.title).toBe('Trumpiausias');
     expect(ROUTE_ALTERNATIVE_LABELS.timed_fastest.title).toBe('Greičiausias');
@@ -86,15 +88,20 @@ describe('route alternatives', () => {
     const engine = new RoutingEngine(new SyntheticTravelCostProvider('asymmetric'));
     const four = await buildRouteAlternatives(engine, request);
 
-    expect(four.labeled).toHaveLength(5);
+    expect(four.labeled).toHaveLength(6);
     expect(four.labeled.map((item) => item.mode)).toEqual([...ROUTE_ALTERNATIVE_MODES]);
     expect(four.labeled[0].title).toBe('Subalansuotas');
-    expect(four.labeled[1].title).toBe('Greičiausias');
-    expect(['Trumpiausias', 'Kitas trumpiausias', 'Trumpiausias = greičiausias']).toContain(four.labeled[2].title);
-    expect(four.labeled[3].title).toBe('Greičiausias');
-    expect(['Trumpiausias', 'Kitas trumpiausias', 'Trumpiausias = greičiausias']).toContain(four.labeled[4].title);
+    expect(four.labeled[1].title).toBe('Apverstas');
+    expect(four.labeled[1].candidate.stopSequence).toEqual(
+      [...four.labeled[0].candidate.stopSequence].reverse(),
+    );
+    expect(four.labeled[2].title).toBe('Greičiausias');
+    expect(['Trumpiausias', 'Kitas trumpiausias', 'Trumpiausias = greičiausias']).toContain(four.labeled[3].title);
+    expect(four.labeled[4].title).toBe('Greičiausias');
+    expect(['Trumpiausias', 'Kitas trumpiausias', 'Trumpiausias = greičiausias']).toContain(four.labeled[5].title);
     expect(four.labeled.map((item) => item.group)).toEqual([
       'Rekomenduojama',
+      'Kita važiavimo kryptis',
       'Nepaisant pristatymo laikų',
       'Nepaisant pristatymo laikų',
       'Pagal pristatymo laikus',
@@ -127,7 +134,7 @@ describe('route alternatives', () => {
       expect(shortest.title).toBe('Trumpiausias = greičiausias');
       expect(shortest.candidate.stopSequence).toEqual(fastest.candidate.stopSequence);
     }
-    expect(four.result.candidates).toHaveLength(5);
+    expect(four.result.candidates).toHaveLength(6);
     // The balanced pick is preselected; the four extremes are there to compare against.
     expect(four.result.recommended?.id).toContain(':balanced');
   });
@@ -137,7 +144,7 @@ describe('route alternatives', () => {
     const engine = new RoutingEngine(new SyntheticTravelCostProvider('city_traffic'));
     const timed = await engine.optimize(requestForPlanningMode(request, 'with_time_windows'));
     const geo = await engine.optimize(requestForPlanningMode(request, 'ignore_time_windows'));
-    const labeled = selectRouteAlternatives(timed, geo, request.planningMode);
+    const labeled = selectRouteAlternatives(timed, geo, request);
     const fastest = labeled.find((item) => item.mode === 'free_fastest')!;
     const shortest = labeled.find((item) => item.mode === 'free_shortest')!;
     const geoFeasible = geo.candidates.filter((candidate) => candidate.feasible);

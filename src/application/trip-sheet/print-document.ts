@@ -1,4 +1,7 @@
-import { TRIP_SHEET_PRINT_COLUMNS, tripSheetColumnLegend } from '@/application/trip-sheet/columns';
+import { distinctDriverCount, TRIP_SHEET_PRINT_COLUMNS, tripSheetCells, tripSheetColumnLegend, type TripSheetCell } from '@/application/trip-sheet/columns';
+import { FUEL_OVER_CAPACITY_NOTE, closingFuelLiters, fuelRemainderExceedsTank, openingFuelLiters } from '@/application/trip-sheet/fuel-balance';
+
+const PRINT_COL_PERCENTS = [6, 10, 16, 7, 10, 8, 9, 12, 8, 7, 7];
 
 export type TripSheetPrintRow = {
   date: string;
@@ -20,6 +23,8 @@ export type TripSheetPrintGroup = {
   vehicleModel: string;
   driverNames: string;
   fuelNorm: number | null;
+  /** Stated tank size. Used only to mark a remainder that is above it. */
+  tankCapacityLiters?: number | null;
   rows: TripSheetPrintRow[];
   /** Set on a numbered per-driver sheet ("Kelionės lapas Nr. N"); null on the continuous month sheet. */
   sheetNumber?: number | null;
@@ -48,6 +53,9 @@ export function buildTripSheetPrintDocument(input: TripSheetPrintDocumentInput):
   <title> </title>
   <style>
     @page { size: A4 landscape; margin: 10mm; }
+    thead { display: table-header-group; }
+    tr { break-inside: avoid; page-break-inside: avoid; }
+    @page { @bottom-center { content: counter(page) " / " counter(pages); font-size: 8pt; font-family: Arial, Helvetica, sans-serif; } }
     html, body { margin: 0; padding: 0; background: #fff; color: #000; }
     body { font: 11pt Arial, Helvetica, sans-serif; }
     #trip-sheet-print-root { padding: 0; }
@@ -82,26 +90,48 @@ function renderGroup(group: TripSheetPrintGroup, input: TripSheetPrintDocumentIn
   const company = [input.companyName, input.companyAddress].filter((part) => part.trim()).join(', ') || ' ';
   const firstOdometer = group.rows.find((row) => row.startOdometer !== null)?.startOdometer ?? null;
   const lastOdometer = [...group.rows].reverse().find((row) => row.endOdometer !== null)?.endOdometer ?? null;
-  const firstFuel = group.rows.find((row) => row.fuelStart !== null)?.fuelStart ?? null;
-  const lastFuel = [...group.rows].reverse().find((row) => row.fuelEnd !== null)?.fuelEnd ?? null;
+  const tankCapacityLiters = group.tankCapacityLiters ?? null;
+  const firstFuel = openingFuelLiters(group.rows.map((row) => row.fuelStart));
+  const lastFuel = closingFuelLiters(group.rows.map((row) => row.fuelEnd));
+  const overCapacity = group.rows.some((row) =>
+    fuelRemainderExceedsTank(row.fuelStart, tankCapacityLiters) || fuelRemainderExceedsTank(row.fuelEnd, tankCapacityLiters));
   const totalDistance = group.rows.reduce((sum, row) => sum + (row.distanceKm ?? 0), 0);
   const totalFuel = group.rows.reduce((sum, row) => sum + (row.fuelConsumed ?? 0), 0);
   const totalFuelAdded = group.rows.reduce((sum, row) => sum + (row.fuelAdded ?? 0), 0);
   const headers = TRIP_SHEET_PRINT_COLUMNS.map((column) =>
     `<th title="${escapeHtml(column.full)}">${escapeHtml(column.short)}</th>`).join('');
-  const body = group.rows.map((row) => `<tr>
-      <td>${escapeHtml(row.date)}</td>
-      <td>${escapeHtml(row.driverName)}</td>
-      <td>${escapeHtml(row.route)}</td>
-      <td class="num">${formatNumber(row.startOdometer)}</td>
-      <td class="num">${formatNumber(row.endOdometer)}</td>
-      <td class="num">${formatNumber(row.distanceKm)}</td>
-      <td class="num">${row.fuelStart === null ? '—' : formatNumber(row.fuelStart)}</td>
-      <td class="num">${formatNumber(row.fuelAdded)}</td>
-      <td>${escapeHtml(row.receiptNumbers.filter(Boolean).join(' / ') || '—')}</td>
-      <td class="num">${row.fuelConsumed === null ? '0,00' : formatNumber(row.fuelConsumed)}</td>
-      <td class="num">${row.fuelEnd === null ? '—' : formatNumber(row.fuelEnd)}</td>
-    </tr>`).join('');
+  const columns = PRINT_COL_PERCENTS.map((width) => `<col style="width:${width}%" />`).join('');
+  const drivers = distinctDriverCount(group.rows.map((row) => row.driverName));
+  const body = group.rows.map((row, index) => `<tr>${tripSheetCells({
+    lineNumber: index + 1,
+    date: row.date,
+    route: row.route,
+    driverName: row.driverName,
+    distinctDriverCount: drivers,
+    distanceKm: row.distanceKm,
+    fuelStart: row.fuelStart,
+    fuelAdded: row.fuelAdded,
+    receiptNumbers: row.receiptNumbers,
+    fuelConsumed: row.fuelConsumed,
+    fuelEnd: row.fuelEnd,
+    startOdometer: row.startOdometer,
+    endOdometer: row.endOdometer,
+  }).map((cell) => printCell(cell, tankCapacityLiters, '—')).join('')}</tr>`).join('');
+  const totalCells = tripSheetCells({
+    lineNumber: null,
+    date: '',
+    route: 'Iš viso',
+    driverName: '',
+    distinctDriverCount: 1,
+    distanceKm: totalDistance,
+    fuelStart: firstFuel,
+    fuelAdded: totalFuelAdded,
+    receiptNumbers: [],
+    fuelConsumed: totalFuel,
+    fuelEnd: lastFuel,
+    startOdometer: firstOdometer,
+    endOdometer: lastOdometer,
+  });
   const heading = group.sheetNumber == null ? 'Kelionės lapas' : `Kelionės lapas Nr. ${group.sheetNumber}`;
   const period = group.periodLabel?.trim() || input.periodLabel;
   return `<section class="sheet">
@@ -116,20 +146,10 @@ function renderGroup(group: TripSheetPrintGroup, input: TripSheetPrintDocumentIn
       <span>Mėnuo: ${escapeHtml(group.monthLabel)}</span>
     </div>
     <table>
+      <colgroup>${columns}</colgroup>
       <thead><tr>${headers}</tr></thead>
       <tbody>${body}</tbody>
-      <tfoot><tr>
-        <td></td><td></td>
-        <td>Iš viso</td>
-        <td class="num">${formatNumber(firstOdometer)}</td>
-        <td class="num">${formatNumber(lastOdometer)}</td>
-        <td class="num">${formatNumber(totalDistance)}</td>
-        <td></td>
-        <td class="num">${formatNumber(totalFuelAdded)}</td>
-        <td></td>
-        <td class="num">${formatNumber(totalFuel)}</td>
-        <td class="num">${lastFuel === null ? '—' : formatNumber(lastFuel)}</td>
-      </tr></tfoot>
+      <tfoot><tr>${totalCells.map((cell) => printCell(cell, tankCapacityLiters, '')).join('')}</tr></tfoot>
     </table>
     <p class="legend">${escapeHtml(tripSheetColumnLegend(TRIP_SHEET_PRINT_COLUMNS))}</p>
     <div class="signatures">
@@ -153,7 +173,28 @@ function renderGroup(group: TripSheetPrintGroup, input: TripSheetPrintDocumentIn
         <span>Norma: ${escapeHtml(formatFuelNorm(group.fuelNorm))}</span>
       </div>
     </div>
+    ${overCapacity ? `<p class="legend">${escapeHtml(FUEL_OVER_CAPACITY_NOTE)}</p>` : ''}
   </section>`;
+}
+
+function printCell(cell: TripSheetCell, tankCapacityLiters: number | null, emptyText: string): string {
+  if (cell.key === 'fuelStart' || cell.key === 'fuelEnd') {
+    return fuelNumberCell(typeof cell.value === 'number' ? cell.value : null, tankCapacityLiters);
+  }
+  if (cell.key === 'consumed') {
+    const shown = typeof cell.value === 'number' ? formatNumber(cell.value) : (emptyText === '' ? '' : '0,00');
+    return `<td class="num">${shown}</td>`;
+  }
+  if (cell.key === 'line') return `<td class="num">${typeof cell.value === 'number' ? String(cell.value) : ''}</td>`;
+  if (typeof cell.value === 'number') return `<td class="num">${formatNumber(cell.value)}</td>`;
+  const text = cell.value === null || cell.value === '' ? emptyText : cell.value;
+  return `<td>${escapeHtml(text)}</td>`;
+}
+
+function fuelNumberCell(value: number | null, tankCapacityLiters: number | null): string {
+  if (value === null) return '<td class="num">—</td>';
+  if (!fuelRemainderExceedsTank(value, tankCapacityLiters)) return `<td class="num">${formatNumber(value)}</td>`;
+  return `<td class="num" title="${escapeHtml(FUEL_OVER_CAPACITY_NOTE)}">${formatNumber(value)}</td>`;
 }
 
 function formatNumber(value: number | null): string {

@@ -10,7 +10,52 @@ export type FuelLedgerInputDay = {
   fuelNormLPer100Km: number | null;
   /** Everything filled that day, in litres. */
   addedLiters: number;
+  /**
+   * A "Kuro pylimas" row: fuel was filled and the vehicle did not travel.
+   * Consumption that day is 0 l, so the running balance continues.
+   */
+  fuelOnly?: boolean;
 };
+
+/** Shown beside a remainder that is above the stated tank size. The number itself stays. */
+export const FUEL_OVER_CAPACITY_NOTE = 'Apskaičiuotas kuro likutis viršija nurodytą bako talpą';
+
+/**
+ * A synthetic fill row has no odometer on purpose. That is 0 km of travel,
+ * so the fuel ledger keeps going. A normal day with a missing odometer is
+ * not this case — its consumption is still unknown.
+ */
+export function fuelFillContinuesLedger(day: {
+  startAddress: string;
+  endAddress: string;
+  distanceKm: number | null;
+}): boolean {
+  return day.startAddress === 'Kuro pylimas' && day.endAddress === 'Kuro pylimas' && day.distanceKm === null;
+}
+
+/** True only when a calculated remainder is strictly above the stated tank. Equality is inside the tank. */
+export function fuelRemainderExceedsTank(liters: number | null, tankCapacityLiters: number | null): boolean {
+  if (liters === null || tankCapacityLiters === null) return false;
+  if (!Number.isFinite(liters) || !Number.isFinite(tankCapacityLiters) || tankCapacityLiters <= 0) return false;
+  return liters > tankCapacityLiters;
+}
+
+/** First calculated day-start remainder in chronological order. */
+export function openingFuelLiters(values: readonly (number | null)[]): number | null {
+  return values.find((value) => value !== null) ?? null;
+}
+
+/**
+ * Last calculated day-end remainder in chronological order.
+ * A later unknown day is skipped; an over-capacity number is kept.
+ */
+export function closingFuelLiters(values: readonly (number | null)[]): number | null {
+  for (let index = values.length - 1; index >= 0; index -= 1) {
+    const value = values[index];
+    if (value !== null) return value;
+  }
+  return null;
+}
 
 export type FuelLedgerDay = FuelLedgerInputDay & {
   startLiters: number | null;
@@ -41,10 +86,15 @@ export type FuelLedgerDay = FuelLedgerInputDay & {
  * wrong odometer reading, or a norm that is too high — and hiding that behind a
  * 0 would leave the driver trusting a figure that is already wrong.
  *
- * A day without odometer readings or without a norm breaks the chain: its
- * consumption is unknowable, so every later day stays unknown too until a new
- * opening balance is entered. That is on purpose — guessing one day's usage
+ * A normal day without odometer readings or without a norm breaks the chain:
+ * its consumption is unknowable, so every later day stays unknown too until a
+ * new opening balance is entered. That is on purpose — guessing one day's usage
  * would silently corrupt the rest of the month.
+ *
+ * A "Kuro pylimas" row is the exception. It has no kilometres because the
+ * vehicle did not travel, so consumption is 0 l and the balance carries on.
+ * The result is never clipped to the tank: a remainder above the stated
+ * capacity stays as the calculated number.
  */
 export function buildFuelLedger(
   days: FuelLedgerInputDay[],
@@ -53,9 +103,11 @@ export function buildFuelLedger(
   let carried = openingLiters;
   return days.map((day) => {
     const startLiters = carried;
-    const consumedLiters = day.distanceKm === null || day.fuelNormLPer100Km === null
-      ? null
-      : round((day.distanceKm * day.fuelNormLPer100Km) / 100);
+    const consumedLiters = day.fuelOnly
+      ? 0
+      : day.distanceKm === null || day.fuelNormLPer100Km === null
+        ? null
+        : round((day.distanceKm * day.fuelNormLPer100Km) / 100);
     const endLiters = startLiters === null || consumedLiters === null
       ? null
       : round(startLiters + day.addedLiters - consumedLiters);
@@ -71,6 +123,7 @@ export function buildFuelLedger(
 }
 
 function missingReason(startLiters: number | null, day: FuelLedgerInputDay): FuelLedgerDay['missing'] {
+  if (day.fuelOnly) return startLiters === null ? 'no_opening' : null;
   if (day.distanceKm === null) return 'no_odometer';
   if (day.fuelNormLPer100Km === null) return 'no_norm';
   if (startLiters === null) return 'no_opening';
