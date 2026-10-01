@@ -557,12 +557,11 @@ function shownDecimal(value: number | null): string {
 }
 
 function kmText(row: MonthSummaryRow): string {
-  if (row.source === 'empty' || row.distanceKm === null) return 'Nėra';
+  if (row.source === 'empty' || row.distanceKm === null) return '—';
   const value = decimal.format(row.distanceKm);
-  if (row.distanceSource === 'planned') return `${value} · Planas`;
-  if (row.distanceSource === 'odometer') return `${value} · Odometras`;
-  if (row.distanceSource === 'actual') return `${value} · Faktas`;
-  return 'Nėra';
+  // Planned km are not counted in the total, so only they keep a marker.
+  if (row.distanceSource === 'planned') return `${value} (planas)`;
+  return value;
 }
 
 function isSevere(row: MonthSummaryRow): boolean {
