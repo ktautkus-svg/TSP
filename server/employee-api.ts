@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { selectRouteFuelAssignment } from '../src/domain/fuel-entry-assignment.js';
 import { sessionMaxAgeSeconds } from '../src/domain/session-lifetime.js';
+import { parseVehicleDayAssignmentId } from '../src/domain/nll182-odometer-log.js';
 
 import { GatewayNonceRegistry, verifyGatewaySignature } from '../gateway/security.js';
 import {
@@ -564,6 +565,17 @@ export async function handleEmployeeApi(
       const body = parseObject(await readBody(request, 32_000));
       const assignmentId = decodeURIComponent(adminAssignmentMatch[1]);
       const actor = { id: profile.id, displayName: profile.displayName };
+      const vehicleDay = parseVehicleDayAssignmentId(assignmentId);
+      if (vehicleDay && (body.totalStops !== undefined || body.totalWeightKg !== undefined)) {
+        requireRole(profile, ['admin']);
+        const converted = await store.convertVehicleDayToAccountingTrip(profile, {
+          vehicleId: vehicleDay.vehicleId,
+          date: vehicleDay.date,
+          totalStops: body.totalStops === undefined ? 0 : numberField(body, 'totalStops'),
+          totalWeightKg: body.totalWeightKg === undefined ? 0 : numberField(body, 'totalWeightKg'),
+        });
+        return send(response, 200, { assignment: converted }, requestId);
+      }
       let assignment = body.date === undefined
         ? (await store.listAssignments(profile)).find((item) => item.id === assignmentId)!
         : await store.updateAssignmentSchedule(assignmentId, stringField(body, 'date'), actor);

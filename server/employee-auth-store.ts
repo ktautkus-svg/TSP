@@ -1722,6 +1722,38 @@ export class EmployeeAuthStore {
    * A completed accounting row with no delivery stops. It stays out of the
    * driver's route queue.
    */
+  /**
+   * An odometer-only day has no route assignment, so stops/weight could not be
+   * saved on it ("Maršruto priskyrimas nerastas"). Entering them turns the day
+   * into an ordinary accounting trip with the same driver and odometer.
+   */
+  async convertVehicleDayToAccountingTrip(profile: EmployeeProfile, input: {
+    vehicleId: string;
+    date: string;
+    totalStops: number;
+    totalWeightKg: number;
+  }): Promise<RouteAssignment> {
+    const readingId = vehicleDayReadingDocId(input.vehicleId, input.date);
+    const reading = (await this.vehicleDayReadings.doc(readingId).get()).data() as VehicleDayReading | undefined;
+    if (!reading) throw new EmployeeApiError('DAY_READING_NOT_FOUND', 'Odometro diena nerasta.', 404);
+    if (!reading.driverId) {
+      throw new EmployeeApiError('DRIVER_REQUIRED', 'Šiai dienai pirmiausia priskirkite vairuotoją.', 400);
+    }
+    const created = await this.createAccountingTrip(profile, {
+      date: reading.date,
+      driverId: reading.driverId,
+      vehicleId: reading.vehicleId,
+      routeLabel: '',
+      totalStops: input.totalStops,
+      totalWeightKg: input.totalWeightKg,
+      startOdometer: reading.startOdometer,
+      endOdometer: reading.endOdometer,
+      startedClock: '',
+      completedClock: '',
+    });
+    return created.assignment;
+  }
+
   async createAccountingTrip(profile: EmployeeProfile, input: {
     date: string;
     driverId: string;
