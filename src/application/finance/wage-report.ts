@@ -1,6 +1,6 @@
 import type { ServerTripSheet } from '@/infrastructure/auth/employee-session';
 
-export type WageColumnKey = 'date' | 'driver' | 'km' | 'kmEur' | 'kg' | 'kgEur' | 'stops' | 'stopsEur' | 'baseEur' | 'totalEur';
+export type WageColumnKey = 'date' | 'driver' | 'km' | 'kmEur' | 'kg' | 'kgEur' | 'stops' | 'stopsEur' | 'baseEur' | 'extraEur' | 'totalEur' | 'comment';
 export type WageColumnFormat = 'text' | 'integer' | 'km' | 'kg' | 'eur';
 
 export type WageColumn = {
@@ -17,7 +17,9 @@ const WAGE_VALUE_COLUMNS: readonly WageColumn[] = [
   { key: 'stops', header: 'Taškai', format: 'integer' },
   { key: 'stopsEur', header: 'Taškai €', format: 'eur' },
   { key: 'baseEur', header: 'Bazė €', format: 'eur' },
+  { key: 'extraEur', header: 'Papildomai €', format: 'eur' },
   { key: 'totalEur', header: 'Dienos suma €', format: 'eur' },
+  { key: 'comment', header: 'Komentaras', format: 'text' },
 ];
 
 export function wageTableColumns(showDriver: boolean): WageColumn[] {
@@ -41,6 +43,20 @@ export type WageDayFigures = {
   routeCount: number;
   fuelLiters: number;
   fuelCostEur: number;
+  /** Manual bonus for the day ("Papildomai"), already included in `payEur`. */
+  extraEur: number;
+  comment: string;
+  /** Calculated wage plus the manual extra; null only when neither exists. */
+  payEur: number | null;
+};
+
+/** Manual per-driver, per-day bonus and note kept next to the calculated wage. */
+export type WageAdjustment = {
+  driverId: string;
+  driverName: string;
+  date: string;
+  amountEur: number;
+  comment: string;
 };
 
 export type WageDayRow = {
@@ -67,6 +83,9 @@ export type WagePeriodTotals = {
   weightAmountEur: number;
   stopsAmountEur: number;
   fixedAmountEur: number;
+  extraEur: number;
+  /** Calculated wage plus manual extras. */
+  payEur: number;
   /** Fuel cost plus wage. Wage alone is `wageEur`. */
   totalEur: number;
 };
@@ -89,6 +108,9 @@ function emptyFigures(): WageDayFigures {
     routeCount: 0,
     fuelLiters: 0,
     fuelCostEur: 0,
+    extraEur: 0,
+    comment: '',
+    payEur: null,
   };
 }
 
@@ -121,7 +143,7 @@ function measured(sheets: readonly ServerTripSheet[]) {
  * breakdown; they are not added again for each route.
  * Days are ordered by the ISO date, oldest first.
  */
-export function aggregateWageDays(sheets: readonly ServerTripSheet[]): WageDayRow[] {
+export function aggregateWageDays(sheets: readonly ServerTripSheet[], adjustments: readonly WageAdjustment[] = []): WageDayRow[] {
   const days = new Map<string, WageDayRow>();
   for (const sheet of sheets) {
     const key = `${sheet.driverId}:${sheet.date}`;
@@ -172,7 +194,33 @@ export function aggregateWageDays(sheets: readonly ServerTripSheet[]): WageDayRo
       routeCount: day.sheets.length,
       fuelLiters,
       fuelCostEur,
+      extraEur: 0,
+      comment: '',
+      payEur: compensation ? compensation.totalNetEur : null,
     };
+  }
+  // A bonus can exist on a day without any trip (e.g. an extra Saturday job),
+  // so such a day gets its own row.
+  for (const adjustment of adjustments) {
+    const key = `${adjustment.driverId}:${adjustment.date}`;
+    let day = days.get(key);
+    if (!day) {
+      day = {
+        key,
+        date: adjustment.date,
+        driverId: adjustment.driverId,
+        driverName: adjustment.driverName,
+        wageEur: 0,
+        preliminary: false,
+        sheets: [],
+        figures: emptyFigures(),
+      };
+      days.set(key, day);
+    }
+    const extra = round2(adjustment.amountEur);
+    day.figures.extraEur = extra;
+    day.figures.comment = adjustment.comment;
+    if (extra !== 0 || day.figures.wageEur !== null) day.figures.payEur = round2((day.figures.wageEur ?? 0) + extra);
   }
   return [...days.values()].sort((left, right) =>
     left.date.localeCompare(right.date) || left.driverName.localeCompare(right.driverName, 'lt'));
@@ -191,6 +239,7 @@ export function summarizeWageDays(days: readonly WageDayRow[]): WagePeriodTotals
     weightAmountEur: 0,
     stopsAmountEur: 0,
     fixedAmountEur: 0,
+    extraEur: 0,
   };
   for (const day of days) {
     const figures = day.figures;
@@ -200,6 +249,7 @@ export function summarizeWageDays(days: readonly WageDayRow[]): WagePeriodTotals
     totals.stops += figures.stops;
     totals.fuelLiters += figures.fuelLiters;
     totals.fuelCostEur += figures.fuelCostEur;
+    totals.extraEur += figures.extraEur;
     if (figures.wageEur !== null) {
       totals.wageEur += figures.wageEur;
       totals.distanceAmountEur += figures.distanceAmountEur ?? 0;
@@ -220,7 +270,9 @@ export function summarizeWageDays(days: readonly WageDayRow[]): WagePeriodTotals
     weightAmountEur: round2(totals.weightAmountEur),
     stopsAmountEur: round2(totals.stopsAmountEur),
     fixedAmountEur: round2(totals.fixedAmountEur),
-    totalEur: round2(round2(totals.fuelCostEur) + round2(totals.wageEur)),
+    extraEur: round2(totals.extraEur),
+    payEur: round2(round2(totals.wageEur) + round2(totals.extraEur)),
+    totalEur: round2(round2(totals.fuelCostEur) + round2(totals.wageEur) + round2(totals.extraEur)),
   };
 }
 
@@ -236,7 +288,9 @@ export function wageDayCell(day: WageDayRow, key: WageColumnKey): string | numbe
     case 'stops': return figures.stops;
     case 'stopsEur': return figures.stopsAmountEur;
     case 'baseEur': return figures.fixedAmountEur;
-    case 'totalEur': return figures.wageEur;
+    case 'extraEur': return figures.extraEur === 0 ? null : figures.extraEur;
+    case 'totalEur': return figures.payEur;
+    case 'comment': return figures.comment;
     default: return null;
   }
 }
@@ -252,7 +306,9 @@ export function wageTotalCell(totals: WagePeriodTotals, key: WageColumnKey): str
     case 'stops': return totals.stops;
     case 'stopsEur': return totals.stopsAmountEur;
     case 'baseEur': return totals.fixedAmountEur;
-    case 'totalEur': return totals.wageEur;
+    case 'extraEur': return totals.extraEur;
+    case 'totalEur': return totals.payEur;
+    case 'comment': return '';
     default: return null;
   }
 }

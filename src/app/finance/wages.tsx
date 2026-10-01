@@ -7,7 +7,7 @@ import { ChevronDownIcon } from '@/components/app-icons';
 import { normalizeEmployeePermissions } from '@/application/auth/employee-permissions';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { buildWagePrintDocument } from '@/application/finance/wage-document';
-import { aggregateWageDays, summarizeWageDays, wageDayCell, wageTableColumns, wageTotalCell, type WageColumnKey, type WageDayRow } from '@/application/finance/wage-report';
+import { aggregateWageDays, summarizeWageDays, wageDayCell, wageTableColumns, wageTotalCell, type WageAdjustment, type WageColumnKey, type WageDayRow } from '@/application/finance/wage-report';
 import { buildWageWorkbook } from '@/application/finance/wage-workbook';
 import { roleHomePath } from '@/application/navigation/role-home';
 import {
@@ -17,6 +17,7 @@ import {
 import { CompanyProfileSettings } from '@/application/settings/company-profile';
 import { printHtmlDocument } from '@/application/trip-sheet/print-frame';
 import { MIME_XLSX } from '@/application/trip-sheet/export-xlsx';
+import { DateInput } from '@/components/date-input';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { MenuArtwork } from '@/components/menu-artwork';
 import { PeriodCalendarPicker } from '@/components/period-calendar-picker';
@@ -60,6 +61,7 @@ export default function FinanceScreen() {
   const allowed = profile.role === 'admin' || (profile.role === 'dispatcher' && permissions.canManageFinancials);
 
   const [tripSheets, setTripSheets] = useState<ServerTripSheet[]>([]);
+  const [adjustments, setAdjustments] = useState<WageAdjustment[]>([]);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [cleaningUp, setCleaningUp] = useState(false);
@@ -83,6 +85,12 @@ export default function FinanceScreen() {
     try {
       const response = await employeeApi<{ tripSheets: ServerTripSheet[] }>('/api/trip-sheets');
       setTripSheets(response.tripSheets);
+      // Bonuses are optional: an older server without the endpoint must not
+      // break the whole wage report.
+      try {
+        const extra = await employeeApi<{ adjustments: WageAdjustment[] }>('/api/admin/wage-adjustments?from=2000-01-01&to=2100-12-31');
+        setAdjustments(extra.adjustments);
+      } catch { setAdjustments([]); }
       setError(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Kelionės lapų gauti nepavyko.');
@@ -101,12 +109,17 @@ export default function FinanceScreen() {
     () => tripSheets.filter((sheet) => sheet.date >= period.from && sheet.date <= period.to),
     [tripSheets, period],
   );
+  const adjustmentsInPeriod = useMemo(
+    () => adjustments.filter((item) => item.date >= period.from && item.date <= period.to),
+    [adjustments, period],
+  );
   const drivers = useMemo(() => {
     const seen = new Map<string, string>();
     for (const sheet of inPeriod) if (!seen.has(sheet.driverId)) seen.set(sheet.driverId, sheet.driverName);
+    for (const item of adjustmentsInPeriod) if (!seen.has(item.driverId)) seen.set(item.driverId, item.driverName);
     return [...seen].map(([driverId, driverName]) => ({ driverId, driverName }))
       .sort((left, right) => left.driverName.localeCompare(right.driverName, 'lt'));
-  }, [inPeriod]);
+  }, [inPeriod, adjustmentsInPeriod]);
   // A driver filter chosen for one period may not exist in another — fall back
   // to "all" rather than showing an empty report.
   const activeDriver = driverFilter !== ALL_DRIVERS && drivers.some((driver) => driver.driverId === driverFilter)
@@ -117,7 +130,11 @@ export default function FinanceScreen() {
     [inPeriod, activeDriver],
   );
   const rows = useMemo(() => aggregateByDriver(visible), [visible]);
-  const wageDays = useMemo(() => aggregateWageDays(visible), [visible]);
+  const visibleAdjustments = useMemo(
+    () => adjustmentsInPeriod.filter((item) => activeDriver === ALL_DRIVERS || item.driverId === activeDriver),
+    [adjustmentsInPeriod, activeDriver],
+  );
+  const wageDays = useMemo(() => aggregateWageDays(visible, visibleAdjustments), [visible, visibleAdjustments]);
   const showDriverNames = useMemo(() => new Set(wageDays.map((day) => day.driverId)).size > 1, [wageDays]);
   const unassignedRow = useMemo(() => rows.find((row) => row.driverId === UNASSIGNED_DRIVER_ID) ?? null, [rows]);
   const wageTotals = useMemo(() => summarizeWageDays(wageDays), [wageDays]);
@@ -265,13 +282,13 @@ export default function FinanceScreen() {
         {error ? <Text accessibilityRole="alert" style={styles.warning}>{error}</Text> : null}
         {busy ? <ActivityIndicator color={colors.info} size="large" /> : null}
 
-        {!busy && rows.length === 0 ? <View style={styles.empty}><Text style={styles.emptyTitle}>Pasirinktu laikotarpiu duomenų nėra</Text><Text style={styles.meta}>Pakeiskite laikotarpį arba patikrinkite, ar kelionės lapai užpildyti.</Text></View> : null}
+        {!busy && rows.length === 0 && wageDays.length === 0 ? <View style={styles.empty}><Text style={styles.emptyTitle}>Pasirinktu laikotarpiu duomenų nėra</Text><Text style={styles.meta}>Pakeiskite laikotarpį arba patikrinkite, ar kelionės lapai užpildyti.</Text></View> : null}
 
-        {!busy && rows.length > 0 ? <View style={styles.totalsRow} testID="finance-totals">
+        {!busy && (rows.length > 0 || wageDays.length > 0) ? <View style={styles.totalsRow} testID="finance-totals">
           <Metric label="Reisų" value={String(wageTotals.routes)} styles={styles} />
           <Metric label="Km" value={qtyFormatter.format(wageTotals.km)} styles={styles} />
           <Metric label="Kuras" value={eur2Formatter.format(wageTotals.fuelCostEur)} styles={styles} />
-          <Metric label="Atlygis" value={eur2Formatter.format(wageTotals.wageEur)} styles={styles} />
+          <Metric label="Atlygis" value={eur2Formatter.format(wageTotals.payEur)} styles={styles} />
           <Metric label="Iš viso" value={eur2Formatter.format(wageTotals.totalEur)} emphasis styles={styles} />
         </View> : null}
 
@@ -281,6 +298,13 @@ export default function FinanceScreen() {
           <Pressable onPress={() => openWagePrint('print')} style={styles.exportButton} testID="finance-wage-print"><Text style={styles.exportButtonText}>Spausdinti</Text></Pressable>
         </View> : null}
         {exportNote ? <Text style={styles.meta}>{exportNote}</Text> : null}
+        {!busy && profile.role === 'admin' && activeDriver !== ALL_DRIVERS ? <AddAdjustmentForm
+          driverId={activeDriver}
+          defaultDate={periodFrom}
+          online={online}
+          onSaved={load}
+          styles={styles}
+        /> : null}
 
         {!busy && wageDays.length > 0 ? <View style={styles.wageList} testID="finance-wage-days">
           <View style={styles.wageListHeading}>
@@ -311,7 +335,7 @@ export default function FinanceScreen() {
                   {showDriverNames ? <Text style={styles.wageDayDriver}>{day.driverName}</Text> : null}
                   {day.preliminary ? <Text style={styles.wageDayStatus}>Preliminaru</Text> : null}
                 </View>
-                <Text style={styles.wageDayAmount}>{formatWageAmount(day.figures.wageEur)}</Text>
+                <Text style={styles.wageDayAmount}>{formatWageAmount(day.figures.payEur)}</Text>
                 <Text style={styles.wageDayChevron}>{expanded ? '⌃' : '⌄'}</Text>
               </Pressable>
               {expanded ? <WageDayDetail canEdit={profile.role === 'admin'} day={day} online={online} onSaved={load} styles={styles} /> : null}
@@ -325,7 +349,7 @@ export default function FinanceScreen() {
           </View> : null}
         </View> : null}
 
-        <Text style={styles.disclaimer}>Atlygis yra rodomų dienų sumų suma. Iš viso prideda kuro pylimų kainą. Kuro suma skaičiuojama iš pylimų, kuriuose nurodyta kaina — jei kaina nenurodyta, litrai matomi, bet į € sumą neįskaičiuojami. Bazinis dienos atlygis skaičiuojamas vieną kartą. Papildomo priedo lauko FiRo nesaugo. Draudimas ir kelių mokestis į šią sumą neįtraukti.</Text>
+        <Text style={styles.disclaimer}>Atlygis yra rodomų dienų sumų suma. Iš viso prideda kuro pylimų kainą. Kuro suma skaičiuojama iš pylimų, kuriuose nurodyta kaina — jei kaina nenurodyta, litrai matomi, bet į € sumą neįskaičiuojami. Bazinis dienos atlygis skaičiuojamas vieną kartą. „Papildomai“ – ranka įrašytas dienos priedas, jis įtrauktas į dienos sumą. Draudimas ir kelių mokestis į šią sumą neįtraukti.</Text>
 
         <Pressable
           accessibilityRole="button"
@@ -493,6 +517,159 @@ function RouteMetricsRow({ sheet, canEdit, online, onSaved, styles }: {
   </View>;
 }
 
+/** A bonus for a day that has no trip at all (e.g. an extra Saturday job). */
+function AddAdjustmentForm({ driverId, defaultDate, online, onSaved, styles }: {
+  driverId: string;
+  defaultDate: string;
+  online: boolean;
+  onSaved: () => void;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  const { colors } = useTheme();
+  const [open, setOpen] = useState(false);
+  const [date, setDate] = useState(defaultDate);
+  const [amount, setAmount] = useState('');
+  const [comment, setComment] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const save = async () => {
+    const value = amount.trim() ? Number(amount.trim().replace(',', '.')) : 0;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { setError('Įveskite datą YYYY-MM-DD.'); return; }
+    if (!Number.isFinite(value) || (value === 0 && !comment.trim())) { setError('Įveskite sumą arba komentarą.'); return; }
+    setBusy(true);
+    setError(null);
+    try {
+      await employeeApi('/api/admin/wage-adjustments', { method: 'PUT', body: JSON.stringify({ driverId, date, amountEur: value, comment }) });
+      setOpen(false); setAmount(''); setComment('');
+      onSaved();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Nepavyko išsaugoti.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (!open) {
+    return <Pressable onPress={() => setOpen(true)} style={({ pressed }) => [styles.metricsEditLink, pressed && styles.driverChipPressed]} testID="finance-add-adjustment">
+      <Text style={styles.metricsEditLinkText}>+ Papildoma suma dienai be reiso</Text>
+    </Pressable>;
+  }
+  return <View style={styles.metricsEditor} testID="finance-add-adjustment-form">
+    <View style={styles.metricsFieldRow}>
+      <View style={styles.metricsField}>
+        <Text style={styles.metricsFieldLabel}>Data</Text>
+        <DateInput accessibilityLabel="Papildomos sumos data" value={date} onChangeText={setDate} style={styles.metricsInput} placeholderTextColor={colors.textMuted} />
+      </View>
+      <View style={styles.metricsField}>
+        <Text style={styles.metricsFieldLabel}>Papildomai, €</Text>
+        <TextInput keyboardType="decimal-pad" onChangeText={(value) => setAmount(value.replace(/[^\d.,-]/g, '').slice(0, 10))} style={styles.metricsInput} value={amount} />
+      </View>
+    </View>
+    <View style={styles.metricsField}>
+      <Text style={styles.metricsFieldLabel}>Komentaras</Text>
+      <TextInput onChangeText={(value) => setComment(value.slice(0, 300))} style={styles.metricsInput} value={comment} />
+    </View>
+    {error ? <Text style={styles.metricsError}>{error}</Text> : null}
+    <View style={styles.metricsActions}>
+      <Pressable disabled={busy || !online} onPress={() => { void save(); }} style={({ pressed }) => [styles.metricsSave, (busy || !online) && styles.disabled, pressed && styles.driverChipPressed]}>
+        <Text style={styles.metricsSaveText}>{busy ? 'Saugoma…' : 'Išsaugoti'}</Text>
+      </Pressable>
+      <Pressable disabled={busy} onPress={() => setOpen(false)} style={({ pressed }) => [styles.metricsCancel, pressed && styles.driverChipPressed]}>
+        <Text style={styles.metricsCancelText}>Atšaukti</Text>
+      </Pressable>
+    </View>
+  </View>;
+}
+
+function WageAdjustmentEditor({ day, canEdit, online, onSaved, styles }: {
+  day: WageDayRow;
+  canEdit: boolean;
+  online: boolean;
+  onSaved: () => void;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [amount, setAmount] = useState('');
+  const [comment, setComment] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const figures = day.figures;
+
+  const open = () => {
+    setAmount(figures.extraEur ? String(figures.extraEur).replace('.', ',') : '');
+    setComment(figures.comment);
+    setError(null);
+    setEditing(true);
+  };
+
+  const save = async () => {
+    const value = amount.trim() ? Number(amount.trim().replace(',', '.')) : 0;
+    if (!Number.isFinite(value)) { setError('Neteisinga suma.'); return; }
+    setBusy(true);
+    setError(null);
+    try {
+      await employeeApi('/api/admin/wage-adjustments', {
+        method: 'PUT',
+        body: JSON.stringify({ driverId: day.driverId, date: day.date, amountEur: value, comment }),
+      });
+      setEditing(false);
+      onSaved();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Nepavyko išsaugoti.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return <View style={styles.detailSection} testID={`finance-wage-adjustment-${day.key}`}>
+    <Text style={styles.detailSectionTitle}>Papildomai ir komentaras</Text>
+    {!editing ? <>
+      <DetailLine label={figures.comment || 'Komentaro nėra'} value={figures.extraEur ? eur2Formatter.format(figures.extraEur) : '—'} styles={styles} />
+      {canEdit ? <Pressable
+        onPress={open}
+        style={({ pressed }) => [styles.metricsEditLink, pressed && styles.driverChipPressed]}
+        testID={`finance-edit-adjustment-${day.key}`}>
+        <Text style={styles.metricsEditLinkText}>Taisyti papildomą sumą ir komentarą</Text>
+      </Pressable> : null}
+    </> : <View style={styles.metricsEditor}>
+      <View style={styles.metricsFieldRow}>
+        <View style={styles.metricsField}>
+          <Text style={styles.metricsFieldLabel}>Papildomai, €</Text>
+          <TextInput
+            keyboardType="decimal-pad"
+            onChangeText={(value) => setAmount(value.replace(/[^\d.,-]/g, '').slice(0, 10))}
+            style={styles.metricsInput}
+            testID={`finance-adjustment-amount-${day.key}`}
+            value={amount}
+          />
+        </View>
+        <View style={styles.metricsField}>
+          <Text style={styles.metricsFieldLabel}>Komentaras</Text>
+          <TextInput
+            onChangeText={(value) => setComment(value.slice(0, 300))}
+            style={styles.metricsInput}
+            testID={`finance-adjustment-comment-${day.key}`}
+            value={comment}
+          />
+        </View>
+      </View>
+      {error ? <Text style={styles.metricsError}>{error}</Text> : null}
+      {!online ? <Text style={styles.meta}>Reikia ryšio su serveriu.</Text> : null}
+      <View style={styles.metricsActions}>
+        <Pressable
+          disabled={busy || !online}
+          onPress={() => { void save(); }}
+          style={({ pressed }) => [styles.metricsSave, (busy || !online) && styles.disabled, pressed && styles.driverChipPressed]}
+          testID={`finance-adjustment-save-${day.key}`}>
+          <Text style={styles.metricsSaveText}>{busy ? 'Saugoma…' : 'Išsaugoti'}</Text>
+        </Pressable>
+        <Pressable disabled={busy} onPress={() => { setEditing(false); setError(null); }} style={({ pressed }) => [styles.metricsCancel, pressed && styles.driverChipPressed]}>
+          <Text style={styles.metricsCancelText}>Atšaukti</Text>
+        </Pressable>
+      </View>
+    </View>}
+  </View>;
+}
+
 function DetailLine({ label, value, emphasis, styles }: { label: string; value: string; emphasis?: boolean; styles: ReturnType<typeof createStyles> }) {
   return <View style={styles.detailLine}>
     <Text style={styles.detailLineLabel}>{label}</Text>
@@ -582,10 +759,13 @@ function WageDayDetail({ day, canEdit, online, onSaved, styles }: {
   return <View style={styles.wageDayDetail} testID={`finance-wage-day-detail-${day.key}`}>
     <View style={styles.detailSection}>
       <Text style={styles.detailSectionTitle}>{day.sheets.length > 1 ? `Reisai (${day.sheets.length})` : 'Reisas'}</Text>
+      {day.sheets.length === 0 ? <Text style={styles.meta}>Šią dieną reiso nėra – tik papildoma suma.</Text> : null}
       {day.sheets.map((sheet) => (
         <RouteMetricsRow key={sheet.id} canEdit={canEdit} onSaved={onSaved} online={online} sheet={sheet} styles={styles} />
       ))}
     </View>
+
+    <WageAdjustmentEditor canEdit={canEdit} day={day} online={online} onSaved={onSaved} styles={styles} />
 
     {figures.hasCompensation ? <View style={styles.detailSection}>
       <Text style={styles.detailSectionTitle}>Atlygio sudėtis{day.preliminary ? ' · preliminaru' : ''}</Text>

@@ -291,6 +291,17 @@ export type AdminCorrection = {
 
 type AdminActor = { id: string; displayName: string };
 
+export type WageAdjustment = {
+  id: string;
+  driverId: string;
+  driverName: string;
+  date: string;
+  amountEur: number;
+  comment: string;
+  updatedAt: string;
+  updatedBy: string;
+};
+
 export type RouteAssignment = {
   id: string;
   routeId: string;
@@ -589,6 +600,7 @@ export class EmployeeAuthStore {
   private readonly settings = this.db.collection('tsp_settings');
   private readonly clients = this.db.collection('tsp_clients');
   private readonly adminCorrections = this.db.collection('tsp_admin_corrections');
+  private readonly wageAdjustments = this.db.collection('tsp_wage_adjustments');
 
   async hasUsers(): Promise<boolean> {
     return !(await this.users.limit(1).get()).empty;
@@ -2018,6 +2030,49 @@ export class EmployeeAuthStore {
       changes: correctionChanges(readingCorrectionFact(source), readingCorrectionFact(moved)),
     });
     return moved;
+  }
+
+  /** Manual "Papildomai €" and comment per driver and day (bonuses, notes). */
+  async listWageAdjustments(from: string, to: string): Promise<WageAdjustment[]> {
+    const start = validateRouteDate(from);
+    const end = validateRouteDate(to);
+    const snapshot = await this.wageAdjustments.where('date', '>=', start).where('date', '<=', end).get();
+    return snapshot.docs.map((document) => document.data() as WageAdjustment)
+      .sort((left, right) => left.date.localeCompare(right.date) || left.driverId.localeCompare(right.driverId));
+  }
+
+  async upsertWageAdjustment(profile: EmployeeProfile, input: {
+    driverId: string;
+    date: string;
+    amountEur: number;
+    comment: string;
+  }): Promise<WageAdjustment | null> {
+    const date = validateRouteDate(input.date);
+    if (!Number.isFinite(input.amountEur) || Math.abs(input.amountEur) > 100_000) {
+      throw new EmployeeApiError('INVALID_AMOUNT', 'Papildoma suma turi būti skaičius.', 400);
+    }
+    const comment = input.comment.trim().replace(/\s+/g, ' ');
+    if (comment.length > 300) throw new EmployeeApiError('INVALID_COMMENT', 'Komentaras turi būti iki 300 simbolių.', 400);
+    const driver = (await this.users.doc(safeId(input.driverId)).get()).data() as StoredUser | undefined;
+    if (!driver) throw new EmployeeApiError('DRIVER_NOT_FOUND', 'Toks vairuotojas nerastas.', 404);
+    const id = `${driver.id}:${date}`;
+    const amountEur = Math.round(input.amountEur * 100) / 100;
+    if (amountEur === 0 && !comment) {
+      await this.wageAdjustments.doc(id).delete();
+      return null;
+    }
+    const adjustment: WageAdjustment = {
+      id,
+      driverId: driver.id,
+      driverName: driver.displayName,
+      date,
+      amountEur,
+      comment,
+      updatedAt: new Date().toISOString(),
+      updatedBy: profile.id,
+    };
+    await this.wageAdjustments.doc(id).set(adjustment);
+    return adjustment;
   }
 
   async listAdminCorrections(monthKey: string): Promise<AdminCorrection[]> {

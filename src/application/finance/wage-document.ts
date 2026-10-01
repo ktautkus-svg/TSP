@@ -59,7 +59,7 @@ export function buildWagePrintDocument(input: WagePrintInput): string {
     <span>Reisų: ${totals.routes}</span>
     <span>Km: ${escapeHtml(qtyFormatter.format(totals.km))}</span>
     <span>Kuras: ${escapeHtml(eurFormatter.format(totals.fuelCostEur))}</span>
-    <span>Atlygis: ${escapeHtml(eurFormatter.format(totals.wageEur))}</span>
+    <span>Atlygis: ${escapeHtml(eurFormatter.format(totals.payEur))}</span>
     <span>Iš viso: ${escapeHtml(eurFormatter.format(totals.totalEur))}</span>
   </div>
   <p class="note">Atlygis yra dienų sumų suma. Iš viso prideda kuro pylimų kainą. Bazinis dienos atlygis skaičiuojamas vieną kartą.</p>

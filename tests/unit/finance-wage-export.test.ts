@@ -47,8 +47,8 @@ describe('wage export', () => {
     expect(sheetXml).toContain(periodLabel);
     expect(sheetXml).not.toContain('Kitas Vairuotojas');
     expect(sheetXml.indexOf('2026-08-02')).toBeLessThan(sheetXml.indexOf('2026-08-20'));
-    expect(sheetXml).toMatch(/<c r="I5"[^>]*><v>25.9<\/v><\/c>/);
-    expect(sheetXml).not.toMatch(/<c r="I5"[^>]*t="inlineStr"/);
+    expect(sheetXml).toMatch(/<c r="J5"[^>]*><v>25.9<\/v><\/c>/);
+    expect(sheetXml).not.toMatch(/<c r="J5"[^>]*t="inlineStr"/);
     expect(sheetXml).toContain(`<v>${totals.wageEur}</v>`);
     expect(sheetXml).toContain(`<v>${totals.totalEur}</v>`);
     expect(styles).toContain('formatCode="#,##0.00 &quot;€&quot;"');
