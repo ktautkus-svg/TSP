@@ -171,6 +171,13 @@ export function ensureNll182September2026Migrated(): Promise<void> {
       process.stdout.write(`${JSON.stringify({ event: 'nll182_september_2026_backfill_v2', ...v2 })}\n`);
       const v3 = await store.applySeptember2026Nll182BackfillV3();
       process.stdout.write(`${JSON.stringify({ event: 'nll182_september_2026_backfill_v3', ...v3 })}\n`);
+      // Data sync must never stop the server from starting.
+      try {
+        const paper = await store.applyKarolisSeptember2026PaperSync();
+        process.stdout.write(`${JSON.stringify({ event: 'karolis_september_2026_paper_sync', ...paper })}\n`);
+      } catch (error) {
+        process.stderr.write(`${JSON.stringify({ event: 'karolis_september_2026_paper_sync_failed', error: error instanceof Error ? error.message : String(error) })}\n`);
+      }
     })().catch((error) => {
       nll182September2026Backfill = null;
       throw error;

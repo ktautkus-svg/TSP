@@ -2075,6 +2075,128 @@ export class EmployeeAuthStore {
     return adjustment;
   }
 
+  /**
+   * One-shot sync of Karolis Tautkus' September 2026 with his own paper wage
+   * sheet (2026-10-01). Every change is guarded: a value is only overwritten
+   * when FIRO still holds exactly what was there when the sheet was compared,
+   * so a later manual correction is never clobbered.
+   */
+  async applyKarolisSeptember2026PaperSync(): Promise<{ applied: boolean; changes: string[]; skipped: string[] }> {
+    const flagRef = this.settings.doc('karolis-september-2026-paper-sync-v1');
+    if ((await flagRef.get()).data()?.status === 'applied') return { applied: false, changes: [], skipped: [] };
+    const changes: string[] = [];
+    const skipped: string[] = [];
+    const driverId = 'a7bce619-ad14-4dda-9780-f130a79ab998';
+    const pavelId = '6740d80d-d70b-4181-b198-7f7c1d8e8777';
+    const profile: EmployeeProfile = {
+      id: 'migration-karolis-september-2026-paper',
+      username: 'migration-karolis-september-2026-paper',
+      displayName: 'Rugsėjo suderinimas su lapu',
+      role: 'admin',
+      disabled: false,
+      permissions: { ...DEFAULT_DRIVER_PERMISSIONS, ...DEFAULT_MANAGEMENT_PERMISSIONS },
+      email: null,
+      phone: null,
+      compensation: null,
+    };
+
+    // 1. Stops / weight that differ from the paper.
+    const metrics: { id: string; date: string; from: { stops: number; kg: number }; to: { stops?: number; kg?: number } }[] = [
+      { id: '0a7d2d5e-bd46-47c9-bdd4-dd9c3dab0680', date: '09-03', from: { stops: 1, kg: 4500 }, to: { kg: 3213 } },
+      { id: '913face9-6bbc-4669-898d-2e3e13f2e5cd', date: '09-04', from: { stops: 16, kg: 1183.636 }, to: { stops: 17 } },
+      { id: '451bc921-cc57-46be-a988-805d94e08f45', date: '09-07', from: { stops: 8, kg: 1564.649 }, to: { stops: 9 } },
+      { id: '7f888e36-0d3d-4880-9c23-6a1e58f7ebed', date: '09-14', from: { stops: 4, kg: 1535.478 }, to: { stops: 5 } },
+      { id: '75726bcf-65e1-4712-890d-095f11f5caac', date: '09-19', from: { stops: 6, kg: 419.6 }, to: { stops: 11, kg: 1553 } },
+      { id: '16c83130-168c-4196-ac3c-75a0c3f76831', date: '09-21', from: { stops: 15, kg: 957.585 }, to: { stops: 16, kg: 999 } },
+      { id: '9ee10149-3879-4709-b096-2a9e8a1f3259', date: '09-23', from: { stops: 18, kg: 1248.425 }, to: { stops: 21 } },
+      { id: '1f299b38-7e48-4e55-8f4e-dc45d4e1da2d', date: '09-25', from: { stops: 19, kg: 1631.713 }, to: { stops: 20 } },
+      { id: '27cdf4bb-f606-47c7-bd7d-7faafd49f4a0', date: '09-28', from: { stops: 14, kg: 737.662 }, to: { kg: 790 } },
+      { id: '7de085ed-34db-4124-bb3f-36e91bb9b016', date: '09-29', from: { stops: 5, kg: 1076.289 }, to: { stops: 7, kg: 1168 } },
+    ];
+    const actor = { id: profile.id, displayName: profile.displayName };
+    for (const item of metrics) {
+      const current = (await this.assignments.doc(item.id).get()).data() as RouteAssignment | undefined;
+      const route = current?.routeSnapshot.route;
+      const sameStops = Number(route?.total_stops ?? -1) === item.from.stops;
+      const sameKg = Math.abs(Number(route?.total_weight_kg ?? -1) - item.from.kg) < 0.01;
+      if (!current || !sameStops || !sameKg) { skipped.push(`metrics ${item.date}`); continue; }
+      try {
+        await this.updateAssignmentManualMetrics(item.id, { totalStops: item.to.stops, totalWeightKg: item.to.kg }, actor);
+        changes.push(`metrics ${item.date}`);
+      } catch { skipped.push(`metrics ${item.date} (klaida)`); }
+    }
+
+    // 2. 09-01 drove two vans; the MET630 day carries the paper's route, stops and weight.
+    const allAssignments = (await this.assignments.get()).docs.map((document) => document.data() as RouteAssignment);
+    const hasSep01 = allAssignments.some((item) => item.driverId === driverId && item.status !== 'cancelled' && tripSheetWorkDate(item) === '2026-09-01');
+    const met0901 = (await this.vehicleDayReadings.doc(vehicleDayReadingDocId('MET630', '2026-09-01')).get()).data() as VehicleDayReading | undefined;
+    if (!hasSep01 && met0901 && met0901.startOdometer === 680012 && met0901.endOdometer === 680434) {
+      try {
+        await this.createAccountingTrip(profile, {
+          date: '2026-09-01', driverId, vehicleId: 'MET630', routeLabel: 'R70;R09;R99',
+          totalStops: 6, totalWeightKg: 1214, startOdometer: 680012, endOdometer: 680434,
+          startedClock: '', completedClock: '',
+        });
+        changes.push('accounting trip 09-01');
+      } catch { skipped.push('accounting trip 09-01 (klaida)'); }
+    } else skipped.push('accounting trip 09-01');
+
+    // 3. Odometer corrections.
+    const readingFixes: { vehicleId: string; date: string; from: [number, number]; to: [number, number]; driver: string; extra?: number }[] = [
+      // Pavel's two days were started from the month-end odometer.
+      { vehicleId: 'NLL182', date: '2026-09-08', from: [289122, 289910], to: [284749, 285537], driver: pavelId },
+      { vehicleId: 'NLL182', date: '2026-09-10', from: [289910, 290540], to: [285537, 286167], driver: pavelId },
+      // 23 km were stored twice (odometer span and empty km).
+      { vehicleId: 'NLL182', date: '2026-09-24', from: [287073, 287096], to: [287073, 287096], driver: driverId, extra: 0 },
+    ];
+    for (const fix of readingFixes) {
+      const current = (await this.vehicleDayReadings.doc(vehicleDayReadingDocId(fix.vehicleId, fix.date)).get()).data() as VehicleDayReading | undefined;
+      if (!current || current.startOdometer !== fix.from[0] || current.endOdometer !== fix.from[1]) { skipped.push(`reading ${fix.date}`); continue; }
+      try {
+        await this.upsertVehicleDayReading(profile, {
+          vehicleId: fix.vehicleId, date: fix.date, startOdometer: fix.to[0], endOdometer: fix.to[1],
+          driverId: current.driverId ?? fix.driver, ...(fix.extra !== undefined ? { extraDistanceKm: fix.extra } : {}),
+          recordAudit: true,
+        });
+        changes.push(`reading ${fix.date}`);
+      } catch { skipped.push(`reading ${fix.date} (klaida)`); }
+    }
+
+    // 4. MET630 09-07 fill 226/1204 (40 l) was entered twice.
+    const duplicateId = '81b02295-833a-41b1-854a-b341d834091d';
+    const keepId = '6e2e1867-197f-447e-beef-8625db3d9cd5';
+    const duplicate = (await this.fuelEntries.doc(duplicateId).get()).data() as ServerFuelEntry | undefined;
+    const keep = (await this.fuelEntries.doc(keepId).get()).data() as ServerFuelEntry | undefined;
+    if (duplicate && keep && duplicate.receiptNumber === keep.receiptNumber && duplicate.liters === keep.liters) {
+      await this.fuelEntries.doc(duplicateId).delete();
+      changes.push('fuel duplicate 09-07');
+    } else skipped.push('fuel duplicate 09-07');
+
+    // 5. "Papildomai" and comments from the paper sheet.
+    const extras: { date: string; amountEur: number; comment: string }[] = [
+      { date: '2026-09-01', amountEur: 0, comment: 'Su dviem mašinom (MET630 + NLL182)' },
+      { date: '2026-09-02', amountEur: 30, comment: 'Priedas už taškus ir svorį su maža mašina' },
+      { date: '2026-09-12', amountEur: 100, comment: 'R80 · NOE543 · Klaipėda–Palanga šeštadienį' },
+      { date: '2026-09-15', amountEur: 0, comment: 'Sirgau (R25;R26;R32 nevežta)' },
+      { date: '2026-09-19', amountEur: 20, comment: 'Penktadienį (09-18) nebuvo mašinos, vežta papildomai šeštadienį' },
+      { date: '2026-09-23', amountEur: 0, comment: 'Priedas už taškus žadėtas' },
+      { date: '2026-09-25', amountEur: 0, comment: 'Priedas už taškus žadėtas' },
+      { date: '2026-09-29', amountEur: 23, comment: 'Alterego paėmimas' },
+      { date: '2026-09-30', amountEur: 50, comment: 'Rugsėjo mašinų pervarinėjimas į servisus ir TA (savom išlaidom)' },
+    ];
+    for (const extra of extras) {
+      const existing = (await this.wageAdjustments.doc(`${driverId}:${extra.date}`).get()).data();
+      if (existing) { skipped.push(`extra ${extra.date}`); continue; }
+      try {
+        await this.upsertWageAdjustment(profile, { driverId, ...extra });
+        changes.push(`extra ${extra.date}`);
+      } catch { skipped.push(`extra ${extra.date} (klaida)`); }
+    }
+
+    await flagRef.set({ status: 'applied', appliedAt: new Date().toISOString(), changes, skipped });
+    return { applied: true, changes, skipped };
+  }
+
   async listAdminCorrections(monthKey: string): Promise<AdminCorrection[]> {
     if (!/^\d{4}-\d{2}$/.test(monthKey)) {
       throw new EmployeeApiError('INVALID_MONTH', 'Mėnuo turi būti YYYY-MM formato.', 400);
