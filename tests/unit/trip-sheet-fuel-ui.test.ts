@@ -6,6 +6,7 @@ import { calculateTripFuelEnd } from '../../src/application/trip-sheet/fuel-bala
 
 const source = readFileSync(resolve(import.meta.dirname, '../../src/app/trip-sheet.tsx'), 'utf8');
 const vehicleSource = readFileSync(resolve(import.meta.dirname, '../../src/app/vehicle.tsx'), 'utf8');
+const dayRowsSource = readFileSync(resolve(import.meta.dirname, '../../src/application/trip-sheet/day-rows.ts'), 'utf8');
 
 describe('trip sheet fuel workflow', () => {
   it('calculates the remaining fuel from start, real refills and normative consumption', () => {
@@ -40,7 +41,7 @@ describe('trip sheet fuel workflow', () => {
     expect(source).not.toContain('payload.buffer');
     expect(source).not.toContain('bytes.buffer');
     expect(source).toContain("typeof document === 'undefined'");
-    expect(source).toContain('vehicleDayFuelDistanceKm');
+    expect(dayRowsSource).toContain('vehicleDayFuelDistanceKm');
     expect(source).not.toContain('Sustojimo trukmė');
     expect(source).not.toContain('Stovėjimo laikas');
     expect(source).not.toContain('Kaina už litrą');
@@ -150,8 +151,9 @@ describe('trip sheet fuel workflow', () => {
     // 08-27 NLL once reported 166,8 L of "Įpilta" because a leftover
     // assignment re-stapled onto the day carried the same fuel entry a
     // second time.
-    expect(source).toContain('dedupeFuelEntries(daySheets.flatMap((sheet) => sheet.fuelEntries))');
-    expect(source).toContain('const key = entry.id ||');
+    expect(source).toContain('assembleDailyTripRows(sheets)');
+    expect(dayRowsSource).toContain('function dedupeFuelEntries');
+    expect(dayRowsSource).toContain('const key = entry.id ||');
   });
 
   it('wires admin-only vehicle changes for completed trip sheets and driver changes for fuel', () => {
