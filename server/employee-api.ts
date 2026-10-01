@@ -489,6 +489,22 @@ export async function handleEmployeeApi(
       });
       return send(response, 201, created, requestId);
     }
+    if (pathname === '/api/admin/wage-adjustments' && request.method === 'GET') {
+      requireManagementPermission(profile, 'canManageFinancials');
+      const params = new URL(request.url ?? '', 'http://localhost').searchParams;
+      return send(response, 200, { adjustments: await store.listWageAdjustments(params.get('from') ?? '', params.get('to') ?? '') }, requestId);
+    }
+    if (pathname === '/api/admin/wage-adjustments' && request.method === 'PUT') {
+      requireManagementPermission(profile, 'canManageFinancials');
+      const body = parseObject(await readBody(request, 8_000));
+      const adjustment = await store.upsertWageAdjustment(profile, {
+        driverId: stringField(body, 'driverId'),
+        date: stringField(body, 'date'),
+        amountEur: numberField(body, 'amountEur'),
+        comment: optionalString(body, 'comment') ?? '',
+      });
+      return send(response, 200, { adjustment }, requestId);
+    }
     if (pathname === '/api/admin/accounting-corrections' && request.method === 'GET') {
       requireManagementPermission(profile, 'canManageFinancials');
       const month = new URL(request.url ?? '', 'http://localhost').searchParams.get('month') ?? '';

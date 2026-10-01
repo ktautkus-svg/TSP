@@ -28,7 +28,7 @@ export function buildWageWorkbook(input: WageWorkbookInput): Uint8Array {
     rows: input.days.map((day) => columns.map((column) => wageDayCell(day, column.key))),
     totalRow: columns.map((column) => wageTotalCell(totals, column.key)),
     columnFormats: columns.map((column) => column.format as TableColumnFormat),
-    columnWidths: columns.map((column) => (column.key === 'driver' ? 24 : column.key === 'date' ? 14 : 14)),
+    columnWidths: columns.map((column) => (column.key === 'comment' ? 40 : column.key === 'driver' ? 24 : 14)),
     notes: [
       { label: 'Kuras, €', value: totals.fuelCostEur, format: 'eur' },
       { label: 'Iš viso (kuras + atlygis), €', value: totals.totalEur, format: 'eur' },

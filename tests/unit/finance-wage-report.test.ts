@@ -97,12 +97,23 @@ describe('finance wage report', () => {
     expect(missing!.figures.weightKg).toBe(40);
   });
 
-  it('lists the real wage parts and no bonus column', () => {
+  it('lists the wage parts plus a manual extra and comment, like the paper sheet', () => {
     expect(wageTableColumns(false).map((column) => column.header)).toEqual([
-      'Data', 'Km', 'Km €', 'Svoris, kg', 'Svoris €', 'Taškai', 'Taškai €', 'Bazė €', 'Dienos suma €',
+      'Data', 'Km', 'Km €', 'Svoris, kg', 'Svoris €', 'Taškai', 'Taškai €', 'Bazė €', 'Papildomai €', 'Dienos suma €', 'Komentaras',
     ]);
     expect(wageTableColumns(true).map((column) => column.header)).toContain('Vairuotojas');
-    expect(wageTableColumns(true).some((column) => /pried|bonus/i.test(column.header))).toBe(false);
+  });
+
+  it('adds a manual extra to the day total and creates a row for a bonus-only day', () => {
+    const days = aggregateWageDays([], [
+      { driverId: 'k', driverName: 'Karolis', date: '2026-09-12', amountEur: 100, comment: 'Klaipėda Palanga' },
+    ]);
+    expect(days).toHaveLength(1);
+    expect(days[0].figures.payEur).toBe(100);
+    expect(days[0].figures.comment).toBe('Klaipėda Palanga');
+    const totals = summarizeWageDays(days);
+    expect(totals.extraEur).toBe(100);
+    expect(totals.payEur).toBe(100);
   });
 
   it('shows each day with its wage parts, oldest first, on a shared table', () => {
