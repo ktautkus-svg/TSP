@@ -70,3 +70,7 @@ example
 # generated native folders
 /ios
 /android
+
+# Local copies/worktrees made by agents are never part of the app or the image.
+firo-*/
+*.worktrees/

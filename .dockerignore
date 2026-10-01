@@ -26,3 +26,7 @@ ios
 android
 tsp-*/
 npm-debug.log*
+
+# Local copies/worktrees made by agents are never part of the app or the image.
+firo-*/
+*.worktrees/
