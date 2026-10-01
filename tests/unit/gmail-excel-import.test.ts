@@ -191,6 +191,19 @@ describe('gmail excel import', () => {
     expect(result?.html).not.toContain('meta http-equiv="refresh"');
     expect(await repository.getConnection('driver-a')).not.toBeNull();
   });
+  it('accepts a real long Gmail attachment id and keeps the picker feedback visible', () => {
+    const mailbox = readFileSync(resolve(import.meta.dirname, '../../server/gmail-mailbox.ts'), 'utf8');
+    // Real attachment ids are long base64url blobs; the 200-character message-id
+    // limit rejected every genuine attachment and the click looked dead.
+    expect(mailbox).toContain('assertGmailAttachmentId(attachmentId)');
+    expect(mailbox).toMatch(/assertGmailAttachmentId[\s\S]*\{1,4000\}/);
+    const picker = readFileSync(resolve(import.meta.dirname, '../../src/components/gmail-excel-picker.tsx'), 'utf8');
+    // The failure notice sits above the attachment list, not below the fold.
+    expect(picker.indexOf('testID="gmail-notice"')).toBeLessThan(picker.indexOf('gmail-attachment-'));
+    expect(picker).toContain("accessibilityRole=\"button\"");
+    expect(picker).toContain("'Imama…'");
+  });
+
 });
 
 function jsonResponse(body: unknown): Response {
