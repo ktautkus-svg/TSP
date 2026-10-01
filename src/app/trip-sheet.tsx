@@ -7,11 +7,12 @@ import { useLocalAccess } from '@/application/auth/local-access-context';
 import { pushCompletedRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
 import { CompanyProfileSettings, type CompanyProfile } from '@/application/settings/company-profile';
 import { TRIP_SHEET_GRID_COLUMNS, tripSheetCells, tripSheetColumnLegend, type TripSheetCell } from '@/application/trip-sheet/columns';
-import { dailyFuelEntries, dailyRouteNumbers } from '@/application/trip-sheet/daily-route-merge';
+import { dailyRouteNumbers } from '@/application/trip-sheet/daily-route-merge';
 import { printHtmlDocument } from '@/application/trip-sheet/print-frame';
 import { driverSheetRunPeriod, splitDriverSheetRuns, type DriverSheetRun } from '@/application/trip-sheet/driver-sheets';
 import { buildTripSheetWorkbook, MIME_XLSX } from '@/application/trip-sheet/export-xlsx';
-import { buildFuelLedger, closingFuelLiters, FUEL_OVER_CAPACITY_NOTE, fuelFillContinuesLedger, fuelRemainderExceedsTank, openingFuelLiters, vehicleDayFuelDistanceKm, type FuelLedgerDay } from '@/application/trip-sheet/fuel-balance';
+import { assembleDailyTripRows, presentedDistanceKm, tripSheetRouteLabel, type TripDayFuelEntry } from '@/application/trip-sheet/day-rows';
+import { buildFuelLedger, closingFuelLiters, FUEL_OVER_CAPACITY_NOTE, fuelFillContinuesLedger, fuelRemainderExceedsTank, openingFuelLiters, type FuelLedgerDay } from '@/application/trip-sheet/fuel-balance';
 import { buildTripSheetPrintDocument } from '@/application/trip-sheet/print-document';
 import { FiroSelect } from '@/components/firo-select';
 import { FoundationScreen } from '@/components/foundation-screen';
@@ -63,7 +64,7 @@ type DailyTripRow = {
   tripSheetId: string;
   vehicleId: string | null;
   source: DisplayTripSheet['source'];
-  fuelEntries: TripFuelEntry[];
+  fuelEntries: TripDayFuelEntry[];
 };
 type MonthlyTripGroup = {
   key: string;
@@ -251,7 +252,7 @@ export default function TripSheetScreen() {
   const canEditFuel = profile.role === 'admin';
   const [fuelEditor, setFuelEditor] = useState<FuelEditorState | null>(null);
   const [fuelBusy, setFuelBusy] = useState(false);
-  const openFuelEditor = (mode: FuelEditorState['mode'], row: DailyTripRow, entry?: TripFuelEntry) => {
+  const openFuelEditor = (mode: FuelEditorState['mode'], row: DailyTripRow, entry?: TripDayFuelEntry) => {
     setFuelEditor({
       mode,
       assignmentId: row.assignmentId,
@@ -552,7 +553,7 @@ function PrintableTripSheet({ sheet, selectable, selected, onToggle, canEditFuel
   selected: boolean;
   onToggle: () => void;
   canEditFuel: boolean;
-  onFuelAction: (mode: FuelEditorState['mode'], row: DailyTripRow, entry?: TripFuelEntry) => void;
+  onFuelAction: (mode: FuelEditorState['mode'], row: DailyTripRow, entry?: TripDayFuelEntry) => void;
   styles: ReturnType<typeof createStyles>;
 }) {
   const rows = sheet.rows;
@@ -812,6 +813,9 @@ function buildDailyRows(sheets: DisplayTripSheet[], ledgerSheets: DisplayTripShe
     const ledgerDay = ledgerByDate.get(day.date);
     return {
       ...day,
+      // A fuel-only day has no trip. Show 0 km after the ledger has already
+      // treated the null distance as zero consumption.
+      distanceKm: presentedDistanceKm(day),
       fuelConsumed: ledgerDay?.fuelConsumed ?? null,
       fuelStart: ledgerDay?.fuelStart ?? null,
       fuelEnd: ledgerDay?.fuelEnd ?? null,
@@ -821,54 +825,10 @@ function buildDailyRows(sheets: DisplayTripSheet[], ledgerSheets: DisplayTripShe
 }
 
 function buildDailyRowsWithoutLedger(sheets: DisplayTripSheet[]): Omit<DailyTripRow, 'fuelConsumed' | 'fuelStart' | 'fuelEnd' | 'fuelMissing'>[] {
-  const byDate = new Map<string, DisplayTripSheet[]>();
-  for (const sheet of sheets) byDate.set(sheet.date, [...(byDate.get(sheet.date) ?? []), sheet]);
-  return [...byDate.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([date, daySheets]) => {
-    const startOdometer = minimum(daySheets.map((sheet) => sheet.startOdometer));
-    const endOdometer = maximum(daySheets.map((sheet) => sheet.endOdometer));
-    // The odometer is the truth once both readings are in; the planned figure
-    // only stands in until the driver closes the day.
-    const odometerKm = startOdometer !== null && endOdometer !== null && endOdometer >= startOdometer
-      ? endOdometer - startOdometer
-      : null;
-    const plannedValues = daySheets
-      .map((sheet) => sheet.actualDistanceKm ?? sheet.plannedDistanceKm)
-      .filter((value): value is number => value !== null);
-    const plannedKm = plannedValues.length > 0 ? plannedValues.reduce((sum, value) => sum + value, 0) : null;
-    const extraKm = daySheets.reduce((sum, sheet) => sum + (sheet.extraDistanceKm ?? 0), 0);
-    const distanceKm = vehicleDayFuelDistanceKm(odometerKm ?? plannedKm, extraKm);
-    const fuelNorm = daySheets.find((sheet) => sheet.fuelNormLitersPer100Km !== null)?.fuelNormLitersPer100Km ?? null;
-    // Leftover / re-stapled assignments (e.g. R88;R86 pinned onto another
-    // day) can carry another day's fills, or the same fill twice. Keep
-    // distinct fills whose Lithuania date is this row (08-27 NLL once showed
-    // 166,8 L of "Įpilta" that never happened).
-    const fuelEntries = dailyFuelEntries(daySheets.flatMap((sheet) => sheet.fuelEntries), date);
-    const compensation = daySheets.find((sheet) => sheet.compensation)?.compensation ?? null;
-    const targetSheet = daySheets[daySheets.length - 1]!;
-    return {
-      date,
-      driverId: targetSheet.driverId,
-      driverName: targetSheet.driverName,
-      // Only sheets that actually moved contribute route numbers. A leftover
-      // 0 km sheet sharing this date must not be concatenated onto the day.
-      routeNumbers: dailyRouteNumbers(daySheets),
-      startAddress: daySheets[0]?.startAddress ?? 'Pradžia nenurodyta',
-      endAddress: daySheets[daySheets.length - 1]?.endAddress ?? 'Pabaiga nenurodyta',
-      startOdometer,
-      endOdometer,
-      distanceKm,
-      distanceSource: odometerKm !== null ? ('odometer' as const) : plannedKm !== null ? ('planned' as const) : null,
-      fuelNorm,
-      fuelAdded: fuelEntries.reduce((sum, entry) => sum + entry.liters, 0),
-      compensationEur: compensation?.totalNetEur ?? null,
-      compensationPreliminary: compensation?.preliminary ?? true,
-      assignmentId: targetSheet.assignmentId,
-      tripSheetId: targetSheet.id,
-      vehicleId: targetSheet.vehicle?.id ?? null,
-      source: targetSheet.source,
-      fuelEntries,
-    };
-  });
+  return assembleDailyTripRows(sheets).map((day) => ({
+    ...day,
+    routeNumbers: dailyRouteNumbers(sheets.filter((sheet) => sheet.date === day.date)),
+  }));
 }
 
 function applyFuelLedger(
@@ -881,9 +841,19 @@ function applyFuelLedger(
   // administrator's correction, or the driver's confirmed reading. Only when no
   // anchor exists that early does it fall back to the vehicle's current
   // remaining litres, which is right for the running month but not for an old one.
-  const firstAnchor = days[0]
-    ? sheets.filter((sheet) => sheet.date === days[0]!.date).map((sheet) => sheet.fuelAnchor).find(Boolean) ?? null
+  const firstDate = days[0]?.date;
+  const firstDaySheets = firstDate ? sheets.filter((sheet) => sheet.date === firstDate) : [];
+  const anchorOnFirstDay = firstDaySheets.map((sheet) => sheet.fuelAnchor).find(Boolean) ?? null;
+  // A fuel fill with no trip of its own has no sheet yet. Use an already
+  // confirmed balance from this vehicle only when that balance is dated on
+  // or before the fill. A later correction must not leak backwards.
+  const carriedAnchor = !anchorOnFirstDay && firstDaySheets.length === 0 && firstDate
+    ? sheets
+      .map((sheet) => sheet.fuelAnchor)
+      .filter((anchor): anchor is { liters: number; effectiveAt: string } => !!anchor && anchor.effectiveAt <= firstDate)
+      .sort((left, right) => right.effectiveAt.localeCompare(left.effectiveAt))[0] ?? null
     : null;
+  const firstAnchor = anchorOnFirstDay ?? carriedAnchor;
   const openingLiters = firstAnchor?.liters
     ?? sheets
       .map((sheet) => sheet.vehicle?.fuelRemainingLiters)
@@ -911,9 +881,6 @@ function applyFuelLedger(
     fuelMissing: ledger[index]!.missing,
   }));
 }
-
-function minimum(values: (number | null)[]): number | null { const present = values.filter((value): value is number => value !== null); return present.length > 0 ? Math.min(...present) : null; }
-function maximum(values: (number | null)[]): number | null { const present = values.filter((value): value is number => value !== null); return present.length > 0 ? Math.max(...present) : null; }
 
 function HeaderCell({ column, style }: { column: (typeof TRIP_SHEET_GRID_COLUMNS)[number]; style: StyleProp<TextStyle> }) {
   return <Text accessibilityLabel={column.full} style={style}>{column.short}</Text>;
@@ -967,9 +934,7 @@ function localSheet(sheet: TripSheetWithRoutes, fuelEntries: TripFuelEntry[] = [
 }
 
 function tripRouteLabel(row: DailyTripRow): string {
-  if (row.routeNumbers.length > 0) return row.routeNumbers.join(' · ');
-  if (row.startAddress === row.endAddress) return row.startAddress;
-  return `${row.startAddress} - ${row.endAddress}`;
+  return tripSheetRouteLabel(row);
 }
 function formatMonth(value: string): string { const date = new Date(`${value}-15T12:00:00`); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('lt-LT', { year: 'numeric', month: 'long' }).format(date); }
 function FuelLiterCell({ value, tankCapacityLiters, styles, total = false, cellStyle }: {

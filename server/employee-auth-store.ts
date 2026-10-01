@@ -49,6 +49,7 @@ import {
     shouldRestoreMet630August31AssignedDistance,
     uncoveredFuelDayKeys,
 } from '../src/domain/excel-fuel-log.js';
+import { fuelEntriesOnDate, indexFuelByVehicleFillDate } from '../src/application/trip-sheet/day-rows.js';
 import {
     bodyKindFromPalletCapacity,
     fleetCargoSpec,
@@ -2196,12 +2197,9 @@ export class EmployeeAuthStore {
     const visibleAssignmentIds = new Set(assignments.map((assignment) => assignment.id));
     const allEntries = fuelSnapshot.docs.map((document) => document.data() as ServerFuelEntry);
     const entriesByAssignment = new Map<string, ServerFuelEntry[]>();
-    const entriesByVehicleDate = new Map<string, ServerFuelEntry[]>();
+    // Date is the fill's own calendar day, never the trip the fill was saved against.
+    const entriesByVehicleDate = indexFuelByVehicleFillDate(allEntries);
     for (const entry of allEntries) {
-      const vehicleDay = parseVehicleDayAssignmentId(entry.assignmentId);
-      const date = vehicleDay?.date ?? entry.filledAt.slice(0, 10);
-      const vehicleDateKey = `${entry.vehicleId}:${date}`;
-      entriesByVehicleDate.set(vehicleDateKey, [...(entriesByVehicleDate.get(vehicleDateKey) ?? []), entry]);
       if (visibleAssignmentIds.has(entry.assignmentId) || parseVehicleDayAssignmentId(entry.assignmentId)) {
         entriesByAssignment.set(entry.assignmentId, [...(entriesByAssignment.get(entry.assignmentId) ?? []), entry]);
       }
@@ -6070,14 +6068,10 @@ function fuelEntriesForSheet(
   const fromVehicle = sheet.vehicle
     ? byVehicleDate.get(`${sheet.vehicle.id}:${sheet.date}`) ?? []
     : [];
-  const seen = new Set<string>();
-  return [...fromAssignment, ...fromVehicle]
-    .filter((entry) => {
-      if (seen.has(entry.id)) return false;
-      seen.add(entry.id);
-      return true;
-    })
-    .sort((left, right) => left.filledAt.localeCompare(right.filledAt));
+  // A fill recorded against this assignment but dated another day belongs to
+  // that other day. Matching only the assignment id is what stuck 09-08's
+  // litres onto the next driving day.
+  return fuelEntriesOnDate([...fromAssignment, ...fromVehicle], sheet.date);
 }
 
 function isOwnedByDriver(

@@ -7,6 +7,7 @@ import { calculateTripFuelEnd } from '../../src/application/trip-sheet/fuel-bala
 const source = readFileSync(resolve(import.meta.dirname, '../../src/app/trip-sheet.tsx'), 'utf8');
 const dailyMergeSource = readFileSync(resolve(import.meta.dirname, '../../src/application/trip-sheet/daily-route-merge.ts'), 'utf8');
 const vehicleSource = readFileSync(resolve(import.meta.dirname, '../../src/app/vehicle.tsx'), 'utf8');
+const dayRowsSource = readFileSync(resolve(import.meta.dirname, '../../src/application/trip-sheet/day-rows.ts'), 'utf8');
 
 describe('trip sheet fuel workflow', () => {
   it('calculates the remaining fuel from start, real refills and normative consumption', () => {
@@ -41,7 +42,7 @@ describe('trip sheet fuel workflow', () => {
     expect(source).not.toContain('payload.buffer');
     expect(source).not.toContain('bytes.buffer');
     expect(source).toContain("typeof document === 'undefined'");
-    expect(source).toContain('vehicleDayFuelDistanceKm');
+    expect(dayRowsSource).toContain('vehicleDayFuelDistanceKm');
     expect(source).not.toContain('Sustojimo trukmė');
     expect(source).not.toContain('Stovėjimo laikas');
     expect(source).not.toContain('Kaina už litrą');
@@ -148,11 +149,11 @@ describe('trip sheet fuel workflow', () => {
   });
 
   it('de-duplicates a fill that shows up under two sheets on the same date so Įpilta is not doubled', () => {
-    // 08-27 NLL once reported 166,8 L of "Įpilta": a leftover sheet re-stapled
-    // onto the day carried another day's fill and could repeat the same entry.
-    expect(source).toContain('dailyFuelEntries(daySheets.flatMap((sheet) => sheet.fuelEntries), date)');
-    expect(source).toContain('dailyRouteNumbers(daySheets)');
-    expect(dailyMergeSource).toContain('const key = entry.id ||');
+    expect(source).toContain('assembleDailyTripRows(sheets)');
+    expect(dayRowsSource).toContain('function dedupeFuelEntries');
+    expect(dayRowsSource).toContain('const key = entry.id ||');
+    expect(source).toContain('dailyRouteNumbers(sheets.filter((sheet) => sheet.date === day.date))');
+    expect(dailyMergeSource).toContain('const driven = daySheets.filter(sheetHasDistance)');
     expect(dailyMergeSource).toContain('lithuanianDateKey(entry.filledAt)');
   });
 
