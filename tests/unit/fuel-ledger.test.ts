@@ -176,7 +176,7 @@ describe('kuro likučio grandinė', () => {
     expect(closingFuelLiters(ends)).not.toBe(91.3);
     expect(ends.every((value) => value !== null)).toBe(true);
 
-    const formatted = new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(174.3);
+    const formatted = new Intl.NumberFormat('lt-LT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(174.3);
     const html = buildTripSheetPrintDocument({
       companyName: 'FiRo',
       companyAddress: 'Vilnius',
@@ -212,8 +212,8 @@ describe('kuro likučio grandinė', () => {
       }],
     });
     expect(html).toContain(`>${formatted}<`);
-    expect(html).toContain('L. d.d.pb.: 160,4');
-    expect(html).toContain('L. d.d.p.: 91,3');
+    expect(html).toContain('L. d.d.pb.: 160,40');
+    expect(html).toContain('L. d.d.p.: 91,30');
     expect(html).toContain(FUEL_OVER_CAPACITY_NOTE);
     expect(html).toContain(`title="${FUEL_OVER_CAPACITY_NOTE}"`);
 

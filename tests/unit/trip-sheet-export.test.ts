@@ -139,7 +139,7 @@ describe('trip sheet Excel export', () => {
     expect(sheet).not.toContain('<f>');
     expect(sheet).not.toContain('Sustojimo trukmė');
     expect(sheet).not.toContain('Stovėjimo laikas');
-    expect(styles).toContain('formatCode="#,##0.0"');
+    expect(styles).toContain('formatCode="#,##0.00"');
     for (const column of TRIP_SHEET_PRINT_COLUMNS) {
       expect(sheet).toContain(`>${column.short}<`);
     }
