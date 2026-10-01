@@ -166,10 +166,10 @@ function renderGroup(group: TripSheetPrintGroup, input: TripSheetPrintDocumentIn
       </div>
       <div class="summary-row">
         <span class="summary-label">Degalai</span>
-        <span>L. d.d.p.: ${firstFuel === null ? '—' : formatNumber(firstFuel)}</span>
-        <span>L. d.d.pb.: ${lastFuel === null ? '—' : formatNumber(lastFuel)}</span>
-        <span>Įpilta: ${formatNumber(totalFuelAdded)}</span>
-        <span>Sunaudota: ${formatNumber(totalFuel)}</span>
+        <span>L. d.d.p.: ${firstFuel === null ? '—' : formatLiters(firstFuel)}</span>
+        <span>L. d.d.pb.: ${lastFuel === null ? '—' : formatLiters(lastFuel)}</span>
+        <span>Įpilta: ${formatLiters(totalFuelAdded)}</span>
+        <span>Sunaudota: ${formatLiters(totalFuel)}</span>
         <span>Norma: ${escapeHtml(formatFuelNorm(group.fuelNorm))}</span>
       </div>
     </div>
@@ -182,23 +182,28 @@ function printCell(cell: TripSheetCell, tankCapacityLiters: number | null, empty
     return fuelNumberCell(typeof cell.value === 'number' ? cell.value : null, tankCapacityLiters);
   }
   if (cell.key === 'consumed') {
-    const shown = typeof cell.value === 'number' ? formatNumber(cell.value) : (emptyText === '' ? '' : '0,00');
+    const shown = typeof cell.value === 'number' ? formatLiters(cell.value) : (emptyText === '' ? '' : '0,00');
     return `<td class="num">${shown}</td>`;
   }
   if (cell.key === 'line') return `<td class="num">${typeof cell.value === 'number' ? String(cell.value) : ''}</td>`;
-  if (typeof cell.value === 'number') return `<td class="num">${formatNumber(cell.value)}</td>`;
+  if (typeof cell.value === 'number') return `<td class="num">${cell.key === 'added' ? formatLiters(cell.value) : formatNumber(cell.value)}</td>`;
   const text = cell.value === null || cell.value === '' ? emptyText : cell.value;
   return `<td>${escapeHtml(text)}</td>`;
 }
 
 function fuelNumberCell(value: number | null, tankCapacityLiters: number | null): string {
   if (value === null) return '<td class="num">—</td>';
-  if (!fuelRemainderExceedsTank(value, tankCapacityLiters)) return `<td class="num">${formatNumber(value)}</td>`;
-  return `<td class="num" title="${escapeHtml(FUEL_OVER_CAPACITY_NOTE)}">${formatNumber(value)}</td>`;
+  if (!fuelRemainderExceedsTank(value, tankCapacityLiters)) return `<td class="num">${formatLiters(value)}</td>`;
+  return `<td class="num" title="${escapeHtml(FUEL_OVER_CAPACITY_NOTE)}">${formatLiters(value)}</td>`;
 }
 
 function formatNumber(value: number | null): string {
-  return value === null ? '—' : new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(value);
+  return value === null ? '—' : new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 2 }).format(value);
+}
+
+/** Fuel litres always show two decimals. */
+function formatLiters(value: number | null): string {
+  return value === null ? '—' : new Intl.NumberFormat('lt-LT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
 }
 
 function formatFuelNorm(value: number | null): string {

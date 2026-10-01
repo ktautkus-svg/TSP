@@ -671,9 +671,11 @@ function finalizeRow(row: Omit<MonthSummaryRow, 'issueText' | 'canEditDriver' | 
   const unstarted = row.status === 'assigned' || row.status === 'downloaded';
   const done = row.status === 'completed';
   const assignment = row.source === 'assignment';
-  const canEditDriver = assignment && (unstarted || done);
+  // An odometer day can be moved to another date or vehicle (server: move-reading).
+  const odometerDay = row.source === 'odometer-day';
+  const canEditDriver = (assignment && (unstarted || done)) || odometerDay;
   const canEditVehicle = canEditDriver;
-  const canEditDate = assignment && (unstarted || done);
+  const canEditDate = (assignment && (unstarted || done)) || odometerDay;
   const canEditMetrics = assignment && row.status !== 'cancelled';
   const canEditOdometer = (assignment && done && Boolean(row.vehicleId)) || row.source === 'odometer-day';
   const lockNotes: string[] = [];
@@ -682,7 +684,7 @@ function finalizeRow(row: Omit<MonthSummaryRow, 'issueText' | 'canEditDriver' | 
   if (row.source === 'fuel-day') lockNotes.push('Kuro įrašas nėra reisas. Trūkstamą reisą pridėkite atskiru įrašu.');
   if (row.source === 'sheet-only') lockNotes.push('Šis kelionės lapas nesusietas su maršrutu. Jį galima tik peržiūrėti.');
   if (done && assignment) lockNotes.push('Užbaigtų pristatymų būsenos nekeičiamos. Vairuotojo, automobilio, taškų, svorio ar kilometrų pataisa pakeičia atlygio priskyrimą.');
-  if (row.source === 'odometer-day') lockNotes.push('Tai odometro diena, ne pristatymų maršrutas. Keičiamas vairuotojas ir rodmenys.');
+  if (row.source === 'odometer-day') lockNotes.push('Tai odometro diena, ne pristatymų maršrutas. Galima pakeisti datą, automobilį, vairuotoją ir rodmenis.');
   return {
     ...row,
     issueText: row.issues.map((issue) => MONTH_SUMMARY_ISSUE_LABELS[issue]).join('; '),

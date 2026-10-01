@@ -597,10 +597,10 @@ function PrintableTripSheet({ sheet, selectable, selected, onToggle, canEditFuel
 
     <View style={styles.metrics} testID="trip-sheet-metrics">
       <Metric label="PASKUTINIS ODOMETRAS" value={lastOdometer === null ? '—' : `${formatNumber(lastOdometer)} km`} styles={styles} />
-      <Metric label="KURO LIKUTIS PRADŽIOJE" value={firstFuel === null ? '—' : `${formatNumber(firstFuel)} l`} styles={styles} />
-      <Metric label="ĮPILTA" value={`${formatNumber(totalFuelAdded)} l`} styles={styles} />
-      <Metric label="SUNAUDOTA PAGAL NORMĄ" value={`${formatNumber(totalFuel)} l`} styles={styles} />
-      <Metric label="DABARTINIS LIKUTIS" value={lastFuel === null ? '—' : `${formatNumber(lastFuel)} l`} styles={styles} />
+      <Metric label="KURO LIKUTIS PRADŽIOJE" value={firstFuel === null ? '—' : `${formatLiters(firstFuel)} l`} styles={styles} />
+      <Metric label="ĮPILTA" value={`${formatLiters(totalFuelAdded)} l`} styles={styles} />
+      <Metric label="SUNAUDOTA PAGAL NORMĄ" value={`${formatLiters(totalFuel)} l`} styles={styles} />
+      <Metric label="DABARTINIS LIKUTIS" value={lastFuel === null ? '—' : `${formatLiters(lastFuel)} l`} styles={styles} />
     </View>
     <ScrollView horizontal showsHorizontalScrollIndicator contentContainerStyle={styles.reportTableScroll}>
     <View style={styles.reportTable} testID="trip-sheet-report-table">
@@ -660,7 +660,7 @@ function PrintableTripSheet({ sheet, selectable, selected, onToggle, canEditFuel
             <View style={styles.fuelAdminList}>
               {row.fuelEntries.length === 0 ? <Text style={styles.meta}>Pylimų nėra</Text> : row.fuelEntries.map((entry) => (
                 <View key={entry.id} style={styles.fuelAdminEntry}>
-                  <Text style={styles.fuelAdminEntryText}>{formatNumber(entry.liters)} l{entry.receiptNumber ? ` · Ček. ${entry.receiptNumber}` : ''}</Text>
+                  <Text style={styles.fuelAdminEntryText}>{formatLiters(entry.liters)} l{entry.receiptNumber ? ` · Ček. ${entry.receiptNumber}` : ''}</Text>
                   <Pressable onPress={() => onFuelAction('edit', row, entry)} style={styles.smallButton} testID={`fuel-edit-${entry.id}`}><Text style={styles.smallButtonText}>Taisyti</Text></Pressable>
                   <Pressable onPress={() => onFuelAction('delete', row, entry)} style={styles.deleteFuelButton} testID={`fuel-delete-${entry.id}`}><Text style={styles.deleteFuelText}>Trinti</Text></Pressable>
                 </View>
@@ -673,7 +673,7 @@ function PrintableTripSheet({ sheet, selectable, selected, onToggle, canEditFuel
     ) : null}
     <View style={styles.monthTotal} testID="trip-sheet-month-total">
       <Text style={styles.monthTotalTitle}>VISO PASIRINKTU LAIKOTARPIU</Text>
-      <Text style={styles.monthTotalText}>Nuvaziuota: {formatNumber(totalDistance)} km · Įpilta: {formatNumber(totalFuelAdded)} l · Sunaudota: {formatNumber(totalFuel)} l</Text>
+      <Text style={styles.monthTotalText}>Nuvaziuota: {formatNumber(totalDistance)} km · Įpilta: {formatLiters(totalFuelAdded)} l · Sunaudota: {formatLiters(totalFuel)} l</Text>
     </View>
     </View>
   </View>;
@@ -908,7 +908,7 @@ function ReportCell({ cell, total, tankCapacityLiters, styles }: {
   }
   const text = cell.value === null || cell.value === ''
     ? (total ? '' : '—')
-    : typeof cell.value === 'number' ? formatNumber(cell.value) : cell.value;
+    : typeof cell.value === 'number' ? ((cell.key === 'added' || cell.key === 'consumed') ? formatLiters(cell.value) : formatNumber(cell.value)) : cell.value;
   return <Text style={style}>{text}</Text>;
 }
 
@@ -945,10 +945,12 @@ function FuelLiterCell({ value, tankCapacityLiters, styles, total = false, cellS
   cellStyle: StyleProp<TextStyle>;
 }) {
   const over = fuelRemainderExceedsTank(value, tankCapacityLiters);
-  return <Text accessibilityLabel={over ? `${formatNumber(value)}. ${FUEL_OVER_CAPACITY_NOTE}` : undefined} style={[styles.reportTableCell, cellStyle, total ? styles.reportTotalText : null, over ? styles.fuelOverCapacity : null]}>{formatNumber(value)}</Text>;
+  return <Text accessibilityLabel={over ? `${formatLiters(value)}. ${FUEL_OVER_CAPACITY_NOTE}` : undefined} style={[styles.reportTableCell, cellStyle, total ? styles.reportTotalText : null, over ? styles.fuelOverCapacity : null]}>{formatLiters(value)}</Text>;
 }
 
-function formatNumber(value: number | null): string { return value === null ? '—' : new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 1 }).format(value); }
+function formatNumber(value: number | null): string { return value === null ? '—' : new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 2 }).format(value); }
+/** Fuel litres always show two decimals so columns line up and sums match. */
+function formatLiters(value: number | null): string { return value === null ? '—' : new Intl.NumberFormat('lt-LT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value); }
 const createStyles = (colors: ColorPalette) => StyleSheet.create({
   headerAction: { minWidth: 120, minHeight: 48, justifyContent: 'center' }, headerText: { ...type.button, color: colors.brandNavy },
   toolbar: { gap: spacing.md, marginBottom: spacing.lg },
