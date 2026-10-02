@@ -220,6 +220,8 @@ describe('employee server session', () => {
     expect(historicalCompleteSource).toContain("if (punctuality === 'late') lateStops += 1");
     expect(historicalCompleteSource).toContain('completionPunctuality');
     expect(employeeStoreSource).toContain("from '../src/domain/lithuanian-time.js'");
+    expect(employeeStoreSource).toContain("from '../src/application/trip-sheet/sheet-movement.js'");
+    expect(employeeStoreSource).not.toContain('daily-route-merge.js');
     expect(employeeStoreSource).toContain("from '../src/domain/historical-assignment-complete.js'");
   });
 

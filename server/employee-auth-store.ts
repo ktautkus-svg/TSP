@@ -1,7 +1,7 @@
 import { Firestore } from '@google-cloud/firestore';
 import { createHash, pbkdf2Sync, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { calculateCompositeRouteProgress } from '../src/application/routes/composite-route-progress.js';
-import { sheetMovementKm } from '../src/application/trip-sheet/daily-route-merge.js';
+import { sheetMovementKm } from '../src/application/trip-sheet/sheet-movement.js';
 import {
     DEFAULT_ROUTE_PRICE_SETTINGS,
     normalizeRoutePriceSettings,

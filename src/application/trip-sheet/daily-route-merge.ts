@@ -1,4 +1,7 @@
-import { lithuanianDateKey } from '../../domain/lithuanian-time.js';
+import { lithuanianDateKey } from '@/domain/lithuanian-time';
+import { sheetMovementKm } from './sheet-movement';
+
+export { sheetMovementKm };
 
 export type DailyMergeSheet = {
   routeNumbers: string[];
@@ -15,20 +18,6 @@ export type DailyMergeSheet = {
    */
   ownDistanceKm?: number | null;
 };
-
-/**
- * Movement this sheet recorded on its own. Odometer delta wins, then the
- * recorded actual distance, then the planned figure. A zero result is a
- * leftover or a day the vehicle did not move.
- */
-export function sheetMovementKm(
-  sheet: Pick<DailyMergeSheet, 'startOdometer' | 'endOdometer' | 'actualDistanceKm' | 'plannedDistanceKm'>,
-): number {
-  const odometerKm = sheet.startOdometer !== null && sheet.endOdometer !== null && sheet.endOdometer >= sheet.startOdometer
-    ? sheet.endOdometer - sheet.startOdometer
-    : null;
-  return odometerKm ?? sheet.actualDistanceKm ?? sheet.plannedDistanceKm ?? 0;
-}
 
 /**
  * A vehicle-day can carry more than one trip sheet — the day actually driven
