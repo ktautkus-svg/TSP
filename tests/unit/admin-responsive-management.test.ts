@@ -49,11 +49,18 @@ describe('responsive administration workspace', () => {
     expect(storeSource).toContain("'VEHICLE_IN_USE'");
   });
 
-  it('updates an assigned route date through the shared employee API', () => {
+  it('updates an assigned route date, driver and vehicle through the shared employee API', () => {
     expect(apiSource).toContain("adminAssignmentMatch && request.method === 'PATCH'");
     expect(apiSource).toContain('store.updateAssignmentSchedule');
+    expect(apiSource).toContain('store.reassignAssignment(assignmentId, {');
     expect(storeSource).toContain('async updateAssignmentSchedule');
+    expect(storeSource).toContain('async reassignAssignment(assignmentId: string, input: { driverId?: string; vehicleId?: string })');
     expect(storeSource).toContain("'ASSIGNMENT_ALREADY_STARTED'");
+    // Reassign is blocked once the route has started, just like the date.
+    const reassign = storeSource.slice(storeSource.indexOf('async reassignAssignment'), storeSource.indexOf('async reassignAssignment') + 2400);
+    expect(reassign).toContain("['in_progress', 'completed', 'cancelled'].includes(assignment.status)");
+    expect(reassign).toContain('vehicleSnapshot(normalizeVehicle(stored))');
+    expect(reassign).toContain('driverName = driver.displayName');
     expect(storeSource).toContain('function validateRouteDate');
   });
 

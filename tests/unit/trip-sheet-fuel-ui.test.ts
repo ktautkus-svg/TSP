@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { calculateTripFuelEnd } from '../../src/application/trip-sheet/fuel-balance';
 
 const source = readFileSync(resolve(import.meta.dirname, '../../src/app/trip-sheet.tsx'), 'utf8');
+const dailyMergeSource = readFileSync(resolve(import.meta.dirname, '../../src/application/trip-sheet/daily-route-merge.ts'), 'utf8');
 const vehicleSource = readFileSync(resolve(import.meta.dirname, '../../src/app/vehicle.tsx'), 'utf8');
 
 describe('trip sheet fuel workflow', () => {
@@ -25,9 +26,8 @@ describe('trip sheet fuel workflow', () => {
     expect(source).not.toContain('+ Įvesti kurą');
     expect(source).not.toContain('+ Kuro papildymas');
     expect(source).not.toContain('fuel-entry-form-');
-    expect(source).not.toContain('/fuel-entries');
-    // Odometer and fuel editing belongs beside the selected vehicle, while
-    // this screen remains a read-only report for the dispatcher.
+    // Odometer editing still belongs beside the selected vehicle. Fuel
+    // editing (P0.5) is now admin-only here as well, in an in-app modal.
     expect(source).not.toContain('trip-sheet-odometer-entry');
     expect(source).not.toContain('/api/trip-sheets/day-readings');
     expect(source).not.toContain('ATLYGIS');
@@ -84,7 +84,11 @@ describe('trip sheet fuel workflow', () => {
     // from start + km, and the start field itself defaults to the last
     // known odometer so nothing has to be looked up by hand.
     expect(vehicleSource).toContain('const applyKmToEnd = (startText: string, kmText: string, setEnd: (value: string) => void)');
-    expect(vehicleSource).toContain("if (next && !newReadingStart && latestOdometer != null) setNewReadingStart(String(latestOdometer))");
+    // The start field is prefilled with the highest known end odometer every
+    // time the form opens, and the user confirms or corrects it.
+    expect(vehicleSource).toContain('if (next && latestOdometer != null) setNewReadingStart(String(latestOdometer))');
+    expect(vehicleSource).toContain('reading.endOdometer ?? reading.startOdometer ?? null');
+    expect(vehicleSource).toContain('Pradžia užpildyta paskutiniu įvestu odometru');
     expect(vehicleSource).toContain('testID="new-vehicle-odometer-km"');
     expect(vehicleSource).toContain('setNewReadingKm(text); applyKmToEnd(newReadingStart, text, setNewReadingEnd)');
     expect(vehicleSource).toContain('setEditingReadingKm(text); applyKmToEnd(editingReadingStart, text, setEditingReadingEnd)');
@@ -93,11 +97,63 @@ describe('trip sheet fuel workflow', () => {
     expect(vehicleSource).toContain('km per dieną');
   });
 
+  it('lets a day carry non-route "empty" km that count for fuel but not wage distance', () => {
+    expect(vehicleSource).toContain('testID="new-vehicle-extra-km"');
+    expect(vehicleSource).toContain('[newReadingExtraKm, setNewReadingExtraKm]');
+    // An empty-km-only day needs no odometer span.
+    expect(vehicleSource).toContain("const end = newReadingEnd.trim() ? Number(newReadingEnd.replace(',', '.')) : start");
+    expect(vehicleSource).toContain('extraDistanceKm: extraKm > 0 ? extraKm : undefined');
+    const apiSource = readFileSync(resolve(import.meta.dirname, '../../server/employee-api.ts'), 'utf8');
+    expect(apiSource).toContain('extraDistanceKm: body.extraDistanceKm === undefined');
+  });
+
   it('keeps one-driver report fuel continuity on the vehicle month instead of resetting to opening fuel', () => {
-    expect(source).toContain('buildMonthlyGroups(visible, sheets)');
+    // When a driver is picked the whole vehicle-month is still grouped so the
+    // ledger runs across every driver's days; the driver filter is applied to
+    // the numbered runs, not the rows.
+    expect(source).toContain('const groupSource = driverFilterActive ? sheets.filter(inFilterWindow) : visible');
+    expect(source).toContain('buildMonthlyGroups(groupSource, sheets)');
     expect(source).toContain('function buildDailyRows(sheets: DisplayTripSheet[], ledgerSheets: DisplayTripSheet[] = sheets)');
     expect(source).toContain('const ledgerRows = buildDailyRowsWithoutLedger(ledgerSheets)');
     expect(source).toContain('const ledgerByDate = new Map(applyFuelLedger(ledgerRows, ledgerSheets).map((row) => [row.date, row]))');
+  });
+
+  it('lets an administrator edit, delete and add fuel entries on the kelionės lapas via an in-app modal', () => {
+    // The screen used to be read-only for fuel; P0.5 makes it admin-editable.
+    expect(source).toContain("const canEditFuel = profile.role === 'admin'");
+    expect(source).toContain('trip-sheet-fuel-modal');
+    expect(source).toContain('+ Pridėti pylimą');
+    expect(source).toContain('fuel-edit-${entry.id}');
+    expect(source).toContain('fuel-delete-${entry.id}');
+    // Admin session, real endpoints — not rewritten.
+    expect(source).toContain("`/api/fuel-entries/${encodeURIComponent(fuelEditor.entryId!)}`, { method: 'DELETE' }");
+    expect(source).toContain("method: 'PATCH'");
+    expect(source).toContain('/fuel-entries');
+    expect(source).toContain("await load();");
+    // Web confirm() / Alert.alert are unreliable — delete goes through the modal.
+    expect(source).not.toContain('Alert.alert');
+    expect(source).not.toContain('window.confirm');
+    // Offline is surfaced, never a silent no-op.
+    expect(source).toContain('Nėra ryšio su serveriu — kuro įrašo pakeisti negalima');
+  });
+
+  it('splits a picked driver into numbered per-driver sheets and offers per-sheet selection', () => {
+    expect(source).toContain('splitDriverSheetRuns');
+    expect(source).toContain('Kelionės lapas Nr. ${sheet.sheetNumber}');
+    expect(source).toContain('trip-sheet-select-all');
+    expect(source).toContain('Pažymėti visus');
+    // Nothing ticked prints/exports every visible sheet, not an empty file.
+    expect(source).toMatch(/selectedSheetKeys\.size === 0\s*\?\s*printableSheets/);
+    expect(source).toContain('groups: targetSheets.map((sheet) => (');
+  });
+
+  it('de-duplicates a fill that shows up under two sheets on the same date so Įpilta is not doubled', () => {
+    // 08-27 NLL once reported 166,8 L of "Įpilta": a leftover sheet re-stapled
+    // onto the day carried another day's fill and could repeat the same entry.
+    expect(source).toContain('dailyFuelEntries(daySheets.flatMap((sheet) => sheet.fuelEntries), date)');
+    expect(source).toContain('dailyRouteNumbers(daySheets)');
+    expect(dailyMergeSource).toContain('const key = entry.id ||');
+    expect(dailyMergeSource).toContain('lithuanianDateKey(entry.filledAt)');
   });
 
   it('wires admin-only vehicle changes for completed trip sheets and driver changes for fuel', () => {

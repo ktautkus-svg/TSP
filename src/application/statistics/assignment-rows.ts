@@ -1,8 +1,22 @@
-import { assessDeliveryTiming } from '@/domain/lithuanian-time';
+import { assessDeliveryTiming, lithuanianDateKey } from '@/domain/lithuanian-time';
 import { uniqueRegionCodes } from '@/domain/route-code';
 import type { FailureReasonCount, StatsLateDelivery, StatsRouteRow } from '@/domain/statistics';
 import type { RouteCompletionSummary } from '@/domain/route';
 import type { ServerRouteAssignment } from '@/infrastructure/auth/employee-session';
+
+/**
+ * Statistics day for a completed assignment: the day it was actually driven
+ * (`started_at`, else completion) in Europe/Vilnius, since the planning `date`
+ * on older routes often sat a day off. Falls back to the stored `date`, then
+ * to the assignment day.
+ */
+function drivenDate(route: Record<string, unknown>, assignedAt: string): string {
+  const startedAt = typeof route.started_at === 'string' ? route.started_at : '';
+  const completedAt = typeof route.completed_at === 'string' ? route.completed_at : '';
+  return lithuanianDateKey(startedAt)
+    ?? lithuanianDateKey(completedAt)
+    ?? String(route.date ?? assignedAt.slice(0, 10));
+}
 
 function nullableMetric(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null;
@@ -53,7 +67,7 @@ export function assignmentsToStatsRows(
       vehicleRegistration: assignment.vehicle?.registrationNumber ?? null,
       startAddress: snapshotLocationAddress(route.start_location_json) ?? firstStopAddress(assignment.routeSnapshot.stops),
       endAddress: snapshotLocationAddress(route.end_location_json) ?? lastStopAddress(assignment.routeSnapshot.stops),
-      date: String(route.date ?? assignment.assignedAt.slice(0, 10)),
+      date: drivenDate(route, assignment.assignedAt),
       status,
       estimatedDistanceKm: nullableMetric(route.estimated_distance_km),
       actualDistanceKm: nullableMetric(route.actual_distance_km),
@@ -81,7 +95,7 @@ export function assignmentsToStatsRows(
       if (!deliveredAt || timing.state !== 'late' || timing.differenceMinutes === null || !timing.referenceAt) continue;
       lateDeliveries.push({
         routeId: assignment.routeId,
-        date: String(route.date ?? assignment.assignedAt.slice(0, 10)),
+        date: drivenDate(route, assignment.assignedAt),
         routeLabel,
         driverId: assignment.driverId,
         driverName: assignment.driverName,

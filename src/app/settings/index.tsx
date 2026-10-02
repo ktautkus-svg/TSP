@@ -77,6 +77,8 @@ export default function SettingsScreen() {
   const [companyName, setCompanyName] = useState('');
   const [companyAddress, setCompanyAddress] = useState('');
   const [companySaved, setCompanySaved] = useState(false);
+  const [companyBusy, setCompanyBusy] = useState(false);
+  const [companyStatus, setCompanyStatus] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
   const [gatewayConnected, setGatewayConnected] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -126,9 +128,26 @@ export default function SettingsScreen() {
   }, [companyProfileSettings, navigationPreference, refreshDiagnostics]);
 
   async function saveCompanyProfile() {
-    await companyProfileSettings.save({ name: companyName, address: companyAddress });
-    setCompanySaved(true);
-    setMessage('Įmonės duomenys išsaugoti.');
+    if (companyBusy) return;
+    setCompanyBusy(true);
+    setCompanyStatus(null);
+    try {
+      await companyProfileSettings.save({ name: companyName, address: companyAddress });
+      const stored = await companyProfileSettings.get();
+      if (stored.name !== companyName.trim() || stored.address !== companyAddress.trim()) {
+        throw new Error('Įrašas neišsisaugojo įrenginyje. Patikrinkite naršyklės saugyklos leidimus.');
+      }
+      setCompanySaved(true);
+      setCompanyStatus({ tone: 'ok', text: 'Įmonės duomenys išsaugoti.' });
+      setMessage('Įmonės duomenys išsaugoti.');
+    } catch (error) {
+      setCompanySaved(false);
+      const text = error instanceof Error ? error.message : 'Įmonės duomenų išsaugoti nepavyko.';
+      setCompanyStatus({ tone: 'error', text });
+      setMessage(text);
+    } finally {
+      setCompanyBusy(false);
+    }
   }
 
   async function changeDefaultNavigation(value: NavigationProvider) {
@@ -291,23 +310,13 @@ export default function SettingsScreen() {
           <View style={styles.managementSection}>
           <View style={styles.managementGrid}>
             <Pressable
-              accessibilityLabel="Redaguoti vairuotojus ir darbuotojus"
+              accessibilityLabel="Naudotojų paskyros"
               accessibilityRole="button"
               onPress={() => router.push({ pathname: '/admin', params: { section: 'employees', returnTo: 'settings' } } as Href)}
               style={styles.managementCard}
               testID="open-employee-management">
-              <View style={styles.managementIcon}><MenuArtwork kind="drivers" size={56} /></View>
-              <View style={styles.flex}><Text style={styles.title}>Vairuotojai</Text><Text style={styles.meta}>Duomenys, PIN ir leidimai</Text></View>
-              <Text style={styles.chevron}>›</Text>
-            </Pressable>
-            <Pressable
-              accessibilityLabel="Redaguoti automobilius"
-              accessibilityRole="button"
-              onPress={() => router.push({ pathname: '/admin', params: { section: 'fleet', returnTo: 'settings' } } as Href)}
-              style={styles.managementCard}
-              testID="open-vehicle-management">
-              <View style={styles.managementIcon}><MenuArtwork kind="vehicles" size={56} /></View>
-              <View style={styles.flex}><Text style={styles.title}>Automobiliai</Text><Text style={styles.meta}>Numeriai, modeliai ir keliamoji galia</Text></View>
+              <View style={styles.managementIcon}><MenuArtwork kind="account" size={56} /></View>
+              <View style={styles.flex}><Text style={styles.title}>Vartotojai</Text><Text style={styles.meta}>Prisijungimai, PIN ir leidimai — vairuotojai ir administracija</Text></View>
               <Text style={styles.chevron}>›</Text>
             </Pressable>
           </View>
@@ -349,11 +358,16 @@ export default function SettingsScreen() {
               {openSection === 'company' ? (
                 <View style={styles.expandedContent} testID="company-profile-content">
                   <Text style={styles.meta}>Rodoma spausdinamos kelionės lapų ataskaitos antraštėje.</Text>
-                  <TextInput onChangeText={(value) => { setCompanyName(value); setCompanySaved(false); }} placeholder="Įmonės pavadinimas (pvz. UAB Pavyzdys)" style={styles.input} testID="company-name-input" value={companyName} />
-                  <TextInput onChangeText={(value) => { setCompanyAddress(value); setCompanySaved(false); }} placeholder="Adresas" style={styles.input} testID="company-address-input" value={companyAddress} />
-                  <Pressable onPress={() => { void saveCompanyProfile(); }} style={styles.secondaryButton} testID="save-company-profile">
-                    <Text style={styles.secondaryText}>{companySaved ? 'Išsaugota' : 'Išsaugoti'}</Text>
+                  <TextInput onChangeText={(value) => { setCompanyName(value); setCompanySaved(false); setCompanyStatus(null); }} placeholder="Įmonės pavadinimas (pvz. UAB Pavyzdys)" style={styles.input} testID="company-name-input" value={companyName} />
+                  <TextInput onChangeText={(value) => { setCompanyAddress(value); setCompanySaved(false); setCompanyStatus(null); }} placeholder="Adresas" style={styles.input} testID="company-address-input" value={companyAddress} />
+                  <Pressable disabled={companyBusy} onPress={() => { void saveCompanyProfile(); }} style={({ pressed }) => [styles.secondaryButton, companyBusy && styles.rowPressed, pressed && styles.rowPressed]} testID="save-company-profile">
+                    <Text style={styles.secondaryText}>{companyBusy ? 'Saugoma…' : companySaved ? 'Išsaugota ✓' : 'Išsaugoti'}</Text>
                   </Pressable>
+                  {companyStatus ? (
+                    <Text style={companyStatus.tone === 'ok' ? styles.companyOk : styles.companyError} testID="company-profile-status">
+                      {companyStatus.text}
+                    </Text>
+                  ) : null}
                 </View>
               ) : null}
             </View>
@@ -511,6 +525,9 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   primaryText: { ...type.button, color: colors.textInverse, textAlign: 'center' },
   secondaryButton: { minHeight: 50, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
   secondaryText: { ...type.button, color: colors.textSecondary, textAlign: 'center' },
+  rowPressed: { opacity: 0.82, transform: [{ scale: 0.97 }] },
+  companyOk: { ...type.secondaryStrong, color: colors.success },
+  companyError: { ...type.secondaryStrong, color: colors.danger },
   logoutButton: { minHeight: 50, borderRadius: radius.md, borderWidth: 1, borderColor: colors.danger, backgroundColor: colors.dangerSoft, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
   logoutText: { ...type.button, color: colors.danger, textAlign: 'center' },
   disabled: { opacity: 0.45 },

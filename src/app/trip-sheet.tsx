@@ -1,13 +1,14 @@
 import { Stack, useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View, type StyleProp, type TextStyle } from 'react-native';
+import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type StyleProp, type TextStyle } from 'react-native';
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { pushCompletedRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
 import { CompanyProfileSettings, type CompanyProfile } from '@/application/settings/company-profile';
 import { TRIP_SHEET_GRID_COLUMNS, tripSheetColumnLegend } from '@/application/trip-sheet/columns';
 import { dailyFuelEntries, dailyRouteNumbers } from '@/application/trip-sheet/daily-route-merge';
+import { driverSheetRunPeriod, splitDriverSheetRuns, type DriverSheetRun } from '@/application/trip-sheet/driver-sheets';
 import { buildTripSheetWorkbook, MIME_XLSX } from '@/application/trip-sheet/export-xlsx';
 import { buildFuelLedger, vehicleDayFuelDistanceKm, type FuelLedgerDay } from '@/application/trip-sheet/fuel-balance';
 import { buildTripSheetPrintDocument } from '@/application/trip-sheet/print-document';
@@ -37,6 +38,7 @@ type TripFuelEntry = Pick<ServerFuelEntry, 'id' | 'filledAt' | 'odometer' | 'lit
 type DisplayTripSheet = Omit<ServerTripSheet, 'fuelEntries'> & { source: 'server' | 'local'; fuelEntries: TripFuelEntry[] };
 type DailyTripRow = {
   date: string;
+  driverId: string;
   driverName: string;
   routeNumbers: string[];
   startAddress: string;
@@ -66,6 +68,67 @@ type MonthlyTripGroup = {
   vehicle: ServerTripSheet['vehicle'];
   rows: DailyTripRow[];
 };
+/**
+ * One printable / exportable kelionės lapas. `sheetNumber` null is the
+ * continuous "all drivers" month sheet; a number is a per-driver run.
+ */
+type PrintableSheet = {
+  key: string;
+  sheetNumber: number | null;
+  month: string;
+  monthLabel: string;
+  periodLabel: string;
+  registrationNumber: string;
+  vehicleModel: string;
+  vehicle: ServerTripSheet['vehicle'];
+  driverNames: string;
+  fuelNorm: number | null;
+  rows: DailyTripRow[];
+};
+
+type FuelEditorState = {
+  mode: 'add' | 'edit' | 'delete';
+  assignmentId: string;
+  entryId: string | null;
+  liters: string;
+  receiptNumber: string;
+  date: string;
+  vehicleId: string;
+  driverId: string;
+  error: string | null;
+};
+
+function groupPrintableSheet(group: MonthlyTripGroup): PrintableSheet {
+  return {
+    key: group.key,
+    sheetNumber: null,
+    month: group.month,
+    monthLabel: formatMonth(group.month),
+    periodLabel: formatMonth(group.month),
+    registrationNumber: group.vehicle?.registrationNumber ?? 'be-numerio',
+    vehicleModel: group.vehicle?.model ?? 'Automobilis nepriskirtas',
+    vehicle: group.vehicle,
+    driverNames: [...new Set(group.rows.map((row) => row.driverName))].join(', '),
+    fuelNorm: group.rows[0]?.fuelNorm ?? null,
+    rows: group.rows,
+  };
+}
+
+function runPrintableSheet(run: DriverSheetRun<DailyTripRow>, group: MonthlyTripGroup): PrintableSheet {
+  return {
+    key: `${group.key}:${run.driverKey}:${run.sheetNumber}`,
+    sheetNumber: run.sheetNumber,
+    month: group.month,
+    monthLabel: formatMonth(group.month),
+    periodLabel: driverSheetRunPeriod(run),
+    registrationNumber: group.vehicle?.registrationNumber ?? 'be-numerio',
+    vehicleModel: group.vehicle?.model ?? 'Automobilis nepriskirtas',
+    vehicle: group.vehicle,
+    driverNames: run.driverName,
+    fuelNorm: run.days.find((day) => day.fuelNorm !== null)?.fuelNorm ?? group.rows[0]?.fuelNorm ?? null,
+    rows: run.days,
+  };
+}
 
 export default function TripSheetScreen() {
   const db = useSQLiteContext();
@@ -131,14 +194,123 @@ export default function TripSheetScreen() {
     sheets.filter((sheet) => sheet.vehicle).map((sheet) => [sheet.vehicle!.id, sheet.vehicle!.registrationNumber]),
   ).entries()], [sheets]);
   const months = useMemo(() => [...new Set(sheets.map((sheet) => sheet.date.slice(0, 7)))].sort().reverse(), [sheets]);
-  const visible = sheets.filter((sheet) =>
-    (profile.role === 'driver' || selectedDriverId === 'all' || sheet.driverId === selectedDriverId)
-    && (selectedVehicleId === 'all' || sheet.vehicle?.id === selectedVehicleId)
+  const driverFilterActive = profile.role !== 'driver' && selectedDriverId !== 'all';
+  const inFilterWindow = (sheet: DisplayTripSheet) =>
+    (selectedVehicleId === 'all' || sheet.vehicle?.id === selectedVehicleId)
     && (selectedMonth === 'all' || sheet.date.startsWith(selectedMonth))
     && (!dateFrom || sheet.date >= dateFrom)
-    && (!dateTo || sheet.date <= dateTo));
-  const monthlyGroups = useMemo(() => buildMonthlyGroups(visible, sheets), [visible, sheets]);
+    && (!dateTo || sheet.date <= dateTo);
+  const visible = sheets.filter((sheet) => inFilterWindow(sheet)
+    && (profile.role === 'driver' || selectedDriverId === 'all' || sheet.driverId === selectedDriverId));
+  // When one driver is picked, still group the whole vehicle-month (every
+  // driver) so the numbered-sheet split can see who else used the vehicle and
+  // the fuel ledger runs across the full month; the driver filter is then
+  // applied to the runs, not the rows.
+  const groupSource = driverFilterActive ? sheets.filter(inFilterWindow) : visible;
+  const monthlyGroups = useMemo(() => buildMonthlyGroups(groupSource, sheets), [groupSource, sheets]);
+  const driverRuns = useMemo<{ run: DriverSheetRun<DailyTripRow>; group: MonthlyTripGroup }[]>(() => {
+    if (!driverFilterActive) return [];
+    return monthlyGroups.flatMap((group) =>
+      splitDriverSheetRuns(group.rows.map((row) => ({
+        date: row.date,
+        driverKey: row.driverId,
+        driverName: row.driverName,
+        active: (row.distanceKm ?? 0) > 0 || (row.fuelAdded ?? 0) > 0,
+        row,
+      })))
+        .filter((run) => run.driverKey === selectedDriverId)
+        .map((run) => ({ run, group })));
+  }, [driverFilterActive, monthlyGroups, selectedDriverId]);
+  const printableSheets = useMemo<PrintableSheet[]>(() => (
+    driverFilterActive
+      ? driverRuns.map(({ run, group }) => runPrintableSheet(run, group))
+      : monthlyGroups.map(groupPrintableSheet)
+  ), [driverFilterActive, driverRuns, monthlyGroups]);
+  const sheetKeySignature = printableSheets.map((sheet) => sheet.key).join('|');
+  const [selectedSheetKeys, setSelectedSheetKeys] = useState<Set<string>>(new Set());
+  useEffect(() => { setSelectedSheetKeys(new Set()); }, [sheetKeySignature]);
+  const toggleSheet = (key: string) => setSelectedSheetKeys((prev) => {
+    const next = new Set(prev);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
+  const allSheetsSelected = printableSheets.length > 0 && selectedSheetKeys.size === printableSheets.length;
+  const toggleAllSheets = () => setSelectedSheetKeys(allSheetsSelected ? new Set() : new Set(printableSheets.map((sheet) => sheet.key)));
+  // Nothing ticked = act on every visible sheet, not an empty file.
+  const targetSheets = selectedSheetKeys.size === 0
+    ? printableSheets
+    : printableSheets.filter((sheet) => selectedSheetKeys.has(sheet.key));
   const periodLabel = dateFrom || dateTo ? `${dateFrom || '...'} - ${dateTo || '...'}` : selectedMonth === 'all' ? 'Visas laikotarpis' : formatMonth(selectedMonth);
+
+  // P0.5 — an administrator edits fuel right here on the kelionės lapas
+  // (the vehicle.tsx editor stays too). Web dialogs are unreliable, so the
+  // delete confirmation is an in-app modal.
+  const canEditFuel = profile.role === 'admin';
+  const [fuelEditor, setFuelEditor] = useState<FuelEditorState | null>(null);
+  const [fuelBusy, setFuelBusy] = useState(false);
+  const openFuelEditor = (mode: FuelEditorState['mode'], row: DailyTripRow, entry?: TripFuelEntry) => {
+    setFuelEditor({
+      mode,
+      assignmentId: row.assignmentId,
+      entryId: entry?.id ?? null,
+      liters: entry ? String(entry.liters) : '',
+      receiptNumber: entry?.receiptNumber ?? '',
+      date: (entry?.filledAt ?? `${row.date}T12:00:00.000Z`).slice(0, 10),
+      vehicleId: row.vehicleId ?? selectedVehicleId,
+      driverId: entry ? '' : row.driverId,
+      error: null,
+    });
+  };
+  const submitFuelEditor = async () => {
+    if (!fuelEditor) return;
+    setFuelBusy(true);
+    setFuelEditor((prev) => (prev ? { ...prev, error: null } : prev));
+    try {
+      if (fuelEditor.mode === 'delete') {
+        await employeeApi(`/api/fuel-entries/${encodeURIComponent(fuelEditor.entryId!)}`, { method: 'DELETE' });
+      } else if (fuelEditor.mode === 'edit') {
+        const patch: Record<string, unknown> = {
+          filledAt: `${fuelEditor.date}T12:00:00.000Z`,
+          liters: Number(fuelEditor.liters.replace(',', '.')),
+          receiptNumber: fuelEditor.receiptNumber.trim() || null,
+        };
+        if (fuelEditor.vehicleId && fuelEditor.vehicleId !== 'all') patch.vehicleId = fuelEditor.vehicleId;
+        if (fuelEditor.driverId) patch.driverId = fuelEditor.driverId;
+        await employeeApi(`/api/fuel-entries/${encodeURIComponent(fuelEditor.entryId!)}`, { method: 'PATCH', body: JSON.stringify(patch) });
+      } else {
+        const created = await employeeApi<{ entry: { id: string } }>(
+          `/api/trip-sheets/${encodeURIComponent(fuelEditor.assignmentId)}/fuel-entries`,
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              filledAt: `${fuelEditor.date}T12:00:00.000Z`,
+              liters: Number(fuelEditor.liters.replace(',', '.')),
+              receiptNumber: fuelEditor.receiptNumber.trim() || undefined,
+            }),
+          },
+        );
+        // POST derives vehicle/driver from the assignment; move it only if the
+        // admin picked something else.
+        const move: Record<string, unknown> = {};
+        if (fuelEditor.vehicleId && fuelEditor.vehicleId !== 'all') move.vehicleId = fuelEditor.vehicleId;
+        if (fuelEditor.driverId) move.driverId = fuelEditor.driverId;
+        if (Object.keys(move).length > 0 && created?.entry?.id) {
+          await employeeApi(`/api/fuel-entries/${encodeURIComponent(created.entry.id)}`, { method: 'PATCH', body: JSON.stringify(move) });
+        }
+      }
+      setFuelEditor(null);
+      await load();
+      setMessage('Kuro įrašas atnaujintas.');
+    } catch (error) {
+      const text = error instanceof Error ? error.message : 'Kuro įrašo išsaugoti nepavyko.';
+      setFuelEditor((prev) => (prev ? {
+        ...prev,
+        error: online ? text : 'Nėra ryšio su serveriu — kuro įrašo pakeisti negalima. Bandykite prisijungę.',
+      } : prev));
+    } finally {
+      setFuelBusy(false);
+    }
+  };
   const selectFilter = (apply: () => void) => { apply(); };
   const setDateRange = (from: string, to: string) => { setDateFrom(from); setDateTo(to); };
   const print = () => {
@@ -146,7 +318,7 @@ export default function TripSheetScreen() {
       setMessage('PDF arba spausdinimą atidarykite interneto naršyklėje.');
       return;
     }
-    if (monthlyGroups.length === 0) {
+    if (targetSheets.length === 0) {
       setMessage('Nėra kelionės lapų spausdinimui.');
       return;
     }
@@ -155,13 +327,15 @@ export default function TripSheetScreen() {
       companyAddress: companyProfile.address,
       periodLabel,
       fuelType: FUEL_TYPE_LABELS[vehicleFuelType],
-      groups: monthlyGroups.map((group) => ({
-        monthLabel: formatMonth(group.month),
-        registrationNumber: group.vehicle?.registrationNumber ?? 'be-numerio',
-        vehicleModel: group.vehicle?.model ?? 'Automobilis nepriskirtas',
-        driverNames: [...new Set(group.rows.map((row) => row.driverName))].join(', '),
-        fuelNorm: group.rows[0]?.fuelNorm ?? null,
-        rows: group.rows.map((row) => ({
+      groups: targetSheets.map((sheet) => ({
+        monthLabel: sheet.monthLabel,
+        sheetNumber: sheet.sheetNumber,
+        periodLabel: sheet.periodLabel,
+        registrationNumber: sheet.registrationNumber,
+        vehicleModel: sheet.vehicleModel,
+        driverNames: sheet.driverNames,
+        fuelNorm: sheet.fuelNorm,
+        rows: sheet.rows.map((row) => ({
           date: row.date,
           driverName: row.driverName,
           route: tripRouteLabel(row),
@@ -183,7 +357,7 @@ export default function TripSheetScreen() {
       setMessage('Excel eksportą atidarykite interneto naršyklėje.');
       return;
     }
-    if (monthlyGroups.length === 0) {
+    if (targetSheets.length === 0) {
       setMessage('Nėra kelionės lapų, kuriuos būtų galima eksportuoti. Pakeiskite automobilį, vairuotoją arba laikotarpį.');
       return;
     }
@@ -191,14 +365,22 @@ export default function TripSheetScreen() {
       const bytes = buildTripSheetWorkbook({
         companyName: companyProfile.name,
         companyAddress: companyProfile.address,
-        groups: monthlyGroups.map((group) => ({
-          month: group.month,
-          driverName: [...new Set(group.rows.map((row) => row.driverName))].join(', '),
-          registrationNumber: group.vehicle?.registrationNumber ?? 'be-numerio',
-          vehicleModel: group.vehicle?.model ?? 'Automobilis nepriskirtas',
-          fuelNormLitersPer100Km: group.rows[0]?.fuelNorm ?? null,
+        periodLabel,
+        // Suvestinė only earns its place across several sheets or the
+        // all-drivers view — never as the sole/first tab of one run.
+        includeSummary: targetSheets.length > 1 || !driverFilterActive,
+        groups: targetSheets.map((sheet) => ({
+          month: sheet.month,
+          driverName: sheet.driverNames,
+          registrationNumber: sheet.registrationNumber,
+          vehicleModel: sheet.vehicleModel,
+          sheetLabel: sheet.sheetNumber == null
+            ? undefined
+            : `${sheet.registrationNumber} ${sheet.driverNames} Nr.${sheet.sheetNumber}`,
+          periodLabel: sheet.periodLabel,
+          fuelNormLitersPer100Km: sheet.fuelNorm,
           fuelType: FUEL_TYPE_LABELS[vehicleFuelType],
-          rows: group.rows.map((row) => ({
+          rows: sheet.rows.map((row) => ({
             date: row.date,
             driverName: row.driverName,
             route: tripRouteLabel(row),
@@ -234,7 +416,7 @@ export default function TripSheetScreen() {
         link.remove();
         URL.revokeObjectURL(url);
       }, 60_000);
-      setMessage(`Excel ataskaita paruošta: ${monthlyGroups.length} lap.`);
+      setMessage(`Excel ataskaita paruošta: ${targetSheets.length} lap.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Excel ataskaitos sukurti nepavyko.');
     }
@@ -281,25 +463,71 @@ export default function TripSheetScreen() {
           </View> : null}
           {message ? <Text accessibilityRole="alert" style={styles.message}>{message}</Text> : null}
         </View>
-        {!busy && showGroups && monthlyGroups.length === 0 ? <View style={styles.empty}><Text style={styles.cardTitle}>Kelionės lapų nerasta</Text><Text style={styles.meta}>Lapas atsiranda užbaigus maršrutą. Pakeiskite automobilį, vairuotoją arba laikotarpį.</Text></View> : null}
-        {showGroups ? monthlyGroups.map((group) => <MonthlyTripSheet group={group} key={group.key} styles={styles} />) : null}
+        {!busy && showGroups && printableSheets.length === 0 ? <View style={styles.empty}><Text style={styles.cardTitle}>Kelionės lapų nerasta</Text><Text style={styles.meta}>Lapas atsiranda užbaigus maršrutą. Pakeiskite automobilį, vairuotoją arba laikotarpį.</Text></View> : null}
+        {showGroups && printableSheets.length > 1 ? (
+          <View style={styles.selectAllRow} testID="trip-sheet-select-all">
+            <Pressable
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: allSheetsSelected }}
+              onPress={toggleAllSheets}
+              style={styles.checkboxRow}
+              testID="trip-sheet-select-all-toggle"
+            >
+              <View style={[styles.checkbox, allSheetsSelected && styles.checkboxChecked]}><Text style={styles.checkboxMark}>{allSheetsSelected ? '✓' : ''}</Text></View>
+              <Text style={styles.checkboxLabel}>Pažymėti visus ({printableSheets.length})</Text>
+            </Pressable>
+            <Text style={styles.meta}>{selectedSheetKeys.size === 0 ? 'Nepažymėjus — visi matomi lapai' : `Pažymėta: ${selectedSheetKeys.size}`}</Text>
+          </View>
+        ) : null}
+        {showGroups ? printableSheets.map((sheet) => (
+          <PrintableTripSheet
+            canEditFuel={canEditFuel}
+            key={sheet.key}
+            onFuelAction={openFuelEditor}
+            onToggle={() => toggleSheet(sheet.key)}
+            selectable={printableSheets.length > 1}
+            selected={selectedSheetKeys.has(sheet.key)}
+            sheet={sheet}
+            styles={styles}
+          />
+        )) : null}
+        {fuelEditor ? (
+          <FuelEditorModal
+            busy={fuelBusy}
+            drivers={drivers}
+            offline={!online}
+            onCancel={() => setFuelEditor(null)}
+            onChange={(patch) => setFuelEditor((prev) => (prev ? { ...prev, ...patch } : prev))}
+            onSubmit={() => { void submitFuelEditor(); }}
+            state={fuelEditor}
+            styles={styles}
+            vehicles={vehicles}
+          />
+        ) : null}
       </FoundationScreen>
     </>
   );
 }
 
-function MonthlyTripSheet({ group, styles }: {
-  group: MonthlyTripGroup;
+function PrintableTripSheet({ sheet, selectable, selected, onToggle, canEditFuel, onFuelAction, styles }: {
+  sheet: PrintableSheet;
+  selectable: boolean;
+  selected: boolean;
+  onToggle: () => void;
+  canEditFuel: boolean;
+  onFuelAction: (mode: FuelEditorState['mode'], row: DailyTripRow, entry?: TripFuelEntry) => void;
   styles: ReturnType<typeof createStyles>;
 }) {
-  const totalDistance = group.rows.reduce((sum, row) => sum + (row.distanceKm ?? 0), 0);
-  const totalFuel = group.rows.reduce((sum, row) => sum + (row.fuelConsumed ?? 0), 0);
-  const totalFuelAdded = group.rows.reduce((sum, row) => sum + (row.fuelAdded ?? 0), 0);
-  const firstOdometer = group.rows.find((row) => row.startOdometer !== null)?.startOdometer ?? null;
-  const lastOdometer = [...group.rows].reverse().find((row) => row.endOdometer !== null)?.endOdometer ?? null;
-  const firstFuel = group.rows.find((row) => row.fuelStart !== null)?.fuelStart ?? null;
-  const lastFuel = [...group.rows].reverse().find((row) => row.fuelEnd !== null)?.fuelEnd ?? null;
-  const driverNames = [...new Set(group.rows.map((row) => row.driverName))].join(', ');
+  const rows = sheet.rows;
+  const totalDistance = rows.reduce((sum, row) => sum + (row.distanceKm ?? 0), 0);
+  const totalFuel = rows.reduce((sum, row) => sum + (row.fuelConsumed ?? 0), 0);
+  const totalFuelAdded = rows.reduce((sum, row) => sum + (row.fuelAdded ?? 0), 0);
+  const firstOdometer = rows.find((row) => row.startOdometer !== null)?.startOdometer ?? null;
+  const lastOdometer = [...rows].reverse().find((row) => row.endOdometer !== null)?.endOdometer ?? null;
+  const firstFuel = rows.find((row) => row.fuelStart !== null)?.fuelStart ?? null;
+  const lastFuel = [...rows].reverse().find((row) => row.fuelEnd !== null)?.fuelEnd ?? null;
+  const heading = sheet.sheetNumber == null ? sheet.monthLabel : `Kelionės lapas Nr. ${sheet.sheetNumber}`;
+  const subheading = sheet.sheetNumber == null ? sheet.driverNames : `${sheet.driverNames} · ${sheet.periodLabel}`;
   const cellStyle = {
     date: styles.reportDateCell,
     driver: styles.reportDriverCell,
@@ -312,16 +540,28 @@ function MonthlyTripSheet({ group, styles }: {
     fuelStart: styles.reportNumberCell,
     fuelEnd: styles.reportNumberCell,
   } as const;
-  return <View style={styles.sheet} testID={`monthly-trip-sheet-${group.key}`}>
+  return <View style={styles.sheet} testID={`monthly-trip-sheet-${sheet.key}`}>
+    {selectable ? (
+      <Pressable
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: selected }}
+        onPress={onToggle}
+        style={styles.checkboxRow}
+        testID={`trip-sheet-select-${sheet.key}`}
+      >
+        <View style={[styles.checkbox, selected && styles.checkboxChecked]}><Text style={styles.checkboxMark}>{selected ? '✓' : ''}</Text></View>
+        <Text style={styles.checkboxLabel}>{heading}{sheet.sheetNumber == null ? '' : ` — ${sheet.driverNames}`}</Text>
+      </Pressable>
+    ) : null}
     <View style={styles.screenView} testID="trip-sheet-screen-view">
     <View style={styles.sheetHeader}>
       <View style={styles.flex}>
-        <Text style={styles.date}>{formatMonth(group.month)}</Text>
-        <Text style={styles.driver}>{driverNames}</Text>
+        <Text style={styles.date}>{heading}</Text>
+        <Text style={styles.driver}>{subheading}</Text>
       </View>
       <View style={styles.vehicleIdentity}>
-        <Text style={styles.vehicleNumber}>{group.vehicle?.registrationNumber ?? 'Automobilis nepriskirtas'}</Text>
-        {group.vehicle ? <Text style={styles.meta}>{group.vehicle.model}</Text> : null}
+        <Text style={styles.vehicleNumber}>{sheet.registrationNumber}</Text>
+        {sheet.vehicle ? <Text style={styles.meta}>{sheet.vehicle.model}</Text> : null}
       </View>
     </View>
 
@@ -339,7 +579,7 @@ function MonthlyTripSheet({ group, styles }: {
           <HeaderCell key={column.key} column={column} style={[styles.reportTableCell, cellStyle[column.key]]} />
         ))}
       </View>
-      {group.rows.map((row) => <View key={row.date} style={styles.reportTableRow}>
+      {rows.map((row) => <View key={row.date} style={styles.reportTableRow}>
         <Text style={[styles.reportTableCell, styles.reportDateCell]}>{row.date}</Text>
         <Text style={[styles.reportTableCell, styles.reportDriverCell]}>{row.driverName}</Text>
         <Text style={[styles.reportTableCell, styles.reportRouteCell]}>{tripRouteLabel(row)}</Text>
@@ -366,12 +606,131 @@ function MonthlyTripSheet({ group, styles }: {
     </View>
     </ScrollView>
     <Text style={styles.columnLegend} testID="trip-sheet-column-legend">{tripSheetColumnLegend(TRIP_SHEET_GRID_COLUMNS)}</Text>
+    {canEditFuel ? (
+      <View style={styles.fuelAdmin} testID={`trip-sheet-fuel-admin-${sheet.key}`}>
+        <Text style={styles.fuelEntriesTitle}>Kuro įrašai — redagavimas</Text>
+        {rows.map((row) => (
+          <View key={row.date} style={styles.fuelAdminDay}>
+            <Text style={styles.fuelAdminDate}>{row.date}</Text>
+            <View style={styles.fuelAdminList}>
+              {row.fuelEntries.length === 0 ? <Text style={styles.meta}>Pylimų nėra</Text> : row.fuelEntries.map((entry) => (
+                <View key={entry.id} style={styles.fuelAdminEntry}>
+                  <Text style={styles.fuelAdminEntryText}>{formatNumber(entry.liters)} l{entry.receiptNumber ? ` · Ček. ${entry.receiptNumber}` : ''}</Text>
+                  <Pressable onPress={() => onFuelAction('edit', row, entry)} style={styles.smallButton} testID={`fuel-edit-${entry.id}`}><Text style={styles.smallButtonText}>Taisyti</Text></Pressable>
+                  <Pressable onPress={() => onFuelAction('delete', row, entry)} style={styles.deleteFuelButton} testID={`fuel-delete-${entry.id}`}><Text style={styles.deleteFuelText}>Trinti</Text></Pressable>
+                </View>
+              ))}
+              <Pressable onPress={() => onFuelAction('add', row)} style={styles.addFuelButton} testID={`fuel-add-${sheet.key}-${row.date}`}><Text style={styles.addFuelButtonText}>+ Pridėti pylimą</Text></Pressable>
+            </View>
+          </View>
+        ))}
+      </View>
+    ) : null}
     <View style={styles.monthTotal} testID="trip-sheet-month-total">
       <Text style={styles.monthTotalTitle}>VISO PASIRINKTU LAIKOTARPIU</Text>
       <Text style={styles.monthTotalText}>Nuvaziuota: {formatNumber(totalDistance)} km · Įpilta: {formatNumber(totalFuelAdded)} l · Sunaudota: {formatNumber(totalFuel)} l</Text>
     </View>
     </View>
   </View>;
+}
+
+function FuelEditorModal({ state, styles, busy, offline, vehicles, drivers, onChange, onCancel, onSubmit }: {
+  state: FuelEditorState;
+  styles: ReturnType<typeof createStyles>;
+  busy: boolean;
+  offline: boolean;
+  vehicles: [string, string][];
+  drivers: [string, string][];
+  onChange: (patch: Partial<FuelEditorState>) => void;
+  onCancel: () => void;
+  onSubmit: () => void;
+}) {
+  const title = state.mode === 'add' ? 'Pridėti pylimą' : state.mode === 'edit' ? 'Taisyti pylimą' : 'Ištrinti pylimą?';
+  const litersValid = state.mode === 'delete' || Number(state.liters.replace(',', '.')) > 0;
+  return (
+    <Modal animationType="fade" onRequestClose={onCancel} transparent visible>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.modalCard} testID="trip-sheet-fuel-modal">
+          <Text style={styles.modalTitle}>{title}</Text>
+          {state.mode === 'delete' ? (
+            <Text style={styles.body}>Įrašas bus pašalintas, o kuro likutis perskaičiuotas.</Text>
+          ) : (
+            <View style={styles.formGrid}>
+              <View style={styles.field}>
+                <Text style={styles.fieldLabel}>Litrai</Text>
+                <TextInput
+                  keyboardType="decimal-pad"
+                  onChangeText={(text) => onChange({ liters: text })}
+                  placeholder="0"
+                  style={styles.input}
+                  testID="fuel-modal-liters"
+                  value={state.liters}
+                />
+              </View>
+              <View style={styles.field}>
+                <Text style={styles.fieldLabel}>Kasos čekio Nr.</Text>
+                <TextInput
+                  onChangeText={(text) => onChange({ receiptNumber: text })}
+                  placeholder="—"
+                  style={styles.input}
+                  testID="fuel-modal-receipt"
+                  value={state.receiptNumber}
+                />
+              </View>
+              <View style={styles.field}>
+                <Text style={styles.fieldLabel}>Data</Text>
+                <TextInput
+                  autoCapitalize="none"
+                  onChangeText={(text) => onChange({ date: text })}
+                  placeholder="YYYY-MM-DD"
+                  style={styles.input}
+                  testID="fuel-modal-date"
+                  value={state.date}
+                />
+              </View>
+              {vehicles.length > 0 ? (
+                <View style={styles.field}>
+                  <Text style={styles.fieldLabel}>Automobilis</Text>
+                  <View style={styles.chipRow}>
+                    {vehicles.map(([id, plate]) => (
+                      <Pressable key={id} onPress={() => onChange({ vehicleId: id })} style={[styles.chip, state.vehicleId === id && styles.chipActive]}>
+                        <Text style={[styles.chipText, state.vehicleId === id && styles.chipTextActive]}>{plate}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+              ) : null}
+              {drivers.length > 0 ? (
+                <View style={styles.field}>
+                  <Text style={styles.fieldLabel}>Kas pylė</Text>
+                  <View style={styles.chipRow}>
+                    {drivers.map(([id, name]) => (
+                      <Pressable key={id} onPress={() => onChange({ driverId: state.driverId === id ? '' : id })} style={[styles.chip, state.driverId === id && styles.chipActive]}>
+                        <Text style={[styles.chipText, state.driverId === id && styles.chipTextActive]}>{name}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+              ) : null}
+            </View>
+          )}
+          {offline ? <Text style={styles.formError} testID="fuel-modal-offline">Įrenginys gali būti neprisijungęs — jei nepavyks, bandykite dar kartą prisijungę.</Text> : null}
+          {state.error ? <Text style={styles.formError} testID="fuel-modal-error">{state.error}</Text> : null}
+          <View style={styles.formActions}>
+            <Pressable onPress={onCancel} style={styles.cancelFuelButton} testID="fuel-modal-cancel"><Text style={styles.secondaryText}>Atšaukti</Text></Pressable>
+            <Pressable
+              disabled={busy || !litersValid}
+              onPress={onSubmit}
+              style={[state.mode === 'delete' ? styles.deleteFuelConfirm : styles.saveFuelButton, (busy || !litersValid) && styles.disabled]}
+              testID="fuel-modal-submit"
+            >
+              {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>{state.mode === 'delete' ? 'Ištrinti' : 'Išsaugoti'}</Text>}
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
 }
 
 function buildMonthlyGroups(sheets: DisplayTripSheet[], ledgerSourceSheets: DisplayTripSheet[] = sheets): MonthlyTripGroup[] {
@@ -437,19 +796,19 @@ function buildDailyRowsWithoutLedger(sheets: DisplayTripSheet[]): Omit<DailyTrip
     const extraKm = daySheets.reduce((sum, sheet) => sum + (sheet.extraDistanceKm ?? 0), 0);
     const distanceKm = vehicleDayFuelDistanceKm(odometerKm ?? plannedKm, extraKm);
     const fuelNorm = daySheets.find((sheet) => sheet.fuelNormLitersPer100Km !== null)?.fuelNormLitersPer100Km ?? null;
-    // Fuel added for this calendar day is deduped/filtered to fills actually
-    // dated this day — a leftover sheet sharing this date field but carrying
-    // fuel from a different day must not inflate the total (see
-    // dailyFuelEntries for the reasoning).
+    // Leftover / re-stapled assignments (e.g. R88;R86 pinned onto another
+    // day) can carry another day's fills, or the same fill twice. Keep
+    // distinct fills whose Lithuania date is this row (08-27 NLL once showed
+    // 166,8 L of "Įpilta" that never happened).
     const fuelEntries = dailyFuelEntries(daySheets.flatMap((sheet) => sheet.fuelEntries), date);
     const compensation = daySheets.find((sheet) => sheet.compensation)?.compensation ?? null;
     const targetSheet = daySheets[daySheets.length - 1]!;
     return {
       date,
+      driverId: targetSheet.driverId,
       driverName: targetSheet.driverName,
-      // Only sheets that actually moved the vehicle contribute route numbers
-      // to the label — a leftover/0-km/unrelated-route sheet sharing this
-      // date must not get concatenated onto the driven day's route.
+      // Only sheets that actually moved contribute route numbers. A leftover
+      // 0 km sheet sharing this date must not be concatenated onto the day.
       routeNumbers: dailyRouteNumbers(daySheets),
       startAddress: daySheets[0]?.startAddress ?? 'Pradžia nenurodyta',
       endAddress: daySheets[daySheets.length - 1]?.endAddress ?? 'Pabaiga nenurodyta',
@@ -528,24 +887,24 @@ function printHtmlDocument(html: string) {
   iframe.style.width = '0';
   iframe.style.height = '0';
   iframe.style.border = '0';
-  document.body.appendChild(iframe);
-  const frameWindow = iframe.contentWindow;
-  const frameDocument = iframe.contentDocument;
-  if (!frameWindow || !frameDocument) {
-    iframe.remove();
-    return;
-  }
-  frameDocument.open();
-  frameDocument.write(html);
-  frameDocument.close();
+  // srcdoc keeps the frame document on about:srcdoc, so Chrome's print
+  // footer has no app URL to stamp on the page. (document.write would
+  // inherit the parent's URL.)
+  iframe.srcdoc = html;
   const cleanup = () => {
     iframe.remove();
-    frameWindow.removeEventListener('afterprint', cleanup);
+    iframe.contentWindow?.removeEventListener('afterprint', cleanup);
   };
-  frameWindow.addEventListener('afterprint', cleanup);
-  const trigger = () => frameWindow.print();
-  if (frameDocument.readyState === 'complete') requestAnimationFrame(trigger);
-  else iframe.onload = trigger;
+  iframe.onload = () => {
+    const frameWindow = iframe.contentWindow;
+    if (!frameWindow) {
+      iframe.remove();
+      return;
+    }
+    frameWindow.addEventListener('afterprint', cleanup);
+    requestAnimationFrame(() => frameWindow.print());
+  };
+  document.body.appendChild(iframe);
   window.setTimeout(cleanup, 60_000);
 }
 
@@ -657,4 +1016,26 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   saveFuelButton: { flex: 1, minHeight: 48, backgroundColor: colors.success, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
   disabled: { opacity: 0.55 },
   calculationNote: { ...type.meta, color: colors.textMuted, padding: spacing.sm, borderRadius: radius.sm, backgroundColor: colors.surfaceSubtle }, monthTotal: { marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.infoSoft, borderWidth: 1, borderColor: colors.info, gap: spacing.xs }, monthTotalTitle: { ...type.label, color: colors.info }, monthTotalText: { ...type.bodyStrong, color: colors.text },
+  selectAllRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, marginBottom: spacing.sm },
+  checkboxRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 44, paddingRight: spacing.sm },
+  checkbox: { width: 24, height: 24, borderRadius: radius.sm, borderWidth: 2, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface },
+  checkboxChecked: { backgroundColor: colors.actionPrimary, borderColor: colors.actionPrimary },
+  checkboxMark: { ...type.secondaryStrong, color: colors.textInverse, lineHeight: 20 },
+  checkboxLabel: { ...type.secondaryStrong, color: colors.text, flexShrink: 1 },
+  body: { ...type.body, color: colors.text },
+  fuelAdmin: { marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderSubtle, backgroundColor: colors.surfaceSubtle, gap: spacing.sm },
+  fuelAdminDay: { gap: spacing.xs, borderTopWidth: 1, borderTopColor: colors.borderSubtle, paddingTop: spacing.xs },
+  fuelAdminDate: { ...type.label, color: colors.textMuted },
+  fuelAdminList: { gap: spacing.xs },
+  fuelAdminEntry: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm, minHeight: 44 },
+  fuelAdminEntryText: { ...type.secondaryStrong, color: colors.text, flexGrow: 1, minWidth: 120 },
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center', padding: spacing.lg },
+  modalCard: { width: '100%', maxWidth: 520, borderRadius: radius.lg, backgroundColor: colors.surface, padding: spacing.lg, gap: spacing.md },
+  modalTitle: { ...type.sectionTitle, color: colors.text },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
+  chip: { minHeight: 40, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.md, justifyContent: 'center' },
+  chipActive: { backgroundColor: colors.info, borderColor: colors.info },
+  chipText: { ...type.secondaryStrong, color: colors.text },
+  chipTextActive: { color: colors.textInverse },
+  deleteFuelConfirm: { flex: 1, minHeight: 48, backgroundColor: colors.danger, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
 });

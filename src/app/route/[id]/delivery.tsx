@@ -32,6 +32,7 @@ import {
     MarkStopDelivered,
     MarkStopFailed,
     parseOdometer,
+    RevertStopToPending,
     SaveCompletionOdometerDraft,
     SaveStartOdometer,
     SetNextPendingStop,
@@ -56,7 +57,7 @@ import { SwipeActionCard } from '@/components/swipe-action-card';
 import { TimeInput } from '@/components/time-input';
 import { OperationalContactRepository } from '@/database/repositories/operational-contact-repository';
 import { RouteRepository } from '@/database/repositories/route-repository';
-import { DELIVERY_FAILURE_REASONS, deliveryMatchesFilter, type DeliveryFailureReason } from '@/domain/delivery-failure';
+import { DELIVERY_FAILURE_REASONS, deliveryMatchesFilter, isDeliveryReturnReason, type DeliveryFailureReason } from '@/domain/delivery-failure';
 import { isUsablePhone } from '@/domain/phone';
 import type { DeliveryFilter, DeliveryStop, Route, RouteEndpoint } from '@/domain/route';
 import type { GpsSample } from '@/domain/location-park-memory';
@@ -111,6 +112,7 @@ export default function DeliveryScreen() {
   const [undo, setUndo] = useState<UndoableAction | null>(null);
   const [failedStopId, setFailedStopId] = useState<string | null>(null);
   const [failureReason, setFailureReason] = useState<DeliveryFailureReason>('Nedirba');
+  const [failMode, setFailMode] = useState<'fail' | 'return'>('fail');
   const [failureComment, setFailureComment] = useState('');
   const [showFinish, setShowFinish] = useState(false);
   const [recalculation, setRecalculation] = useState<RouteRecalculationProposal | null>(null);
@@ -121,6 +123,7 @@ export default function DeliveryScreen() {
   const [fuelLiters, setFuelLiters] = useState('');
   const [fuelReceiptNumber, setFuelReceiptNumber] = useState('');
   const [fuelEntrySaved, setFuelEntrySaved] = useState(false);
+  const [fuelQuickOpen, setFuelQuickOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [expandedStopId, setExpandedStopId] = useState<string | null>(null);
@@ -318,8 +321,55 @@ export default function DeliveryScreen() {
 
   const beginFailed = (stopId: string) => {
     setFailedStopId(stopId);
+    setFailMode('fail');
     setFailureReason('Nedirba');
     setFailureComment('');
+  };
+
+  const revertStop = async (stop: DeliveryStop) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await new RevertStopToPending(db).execute(routeId, stop.id);
+      setExpandedStopId(null);
+      await load();
+      void requestSync('mutation');
+      void publishProgress();
+    } catch (reason) {
+      Alert.alert('Nepavyko grąžinti', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const confirmRevertStop = (stop: DeliveryStop) => {
+    Alert.alert(
+      'Grąžinti tašką į maršrutą?',
+      `„${stop.recipient || stop.address}“ vėl taps neįvykdytu tašku ir grįš į likusių sąrašą.`,
+      [
+        { text: 'Atšaukti', style: 'cancel' },
+        { text: 'Grąžinti', onPress: () => { void revertStop(stop); } },
+      ],
+    );
+  };
+
+  const savePartialReturn = async () => {
+    if (!failedStopId || busy) return;
+    const note = failureComment.trim();
+    if (!note) { Alert.alert('Grąžinimas', 'Aprašykite, kas grąžinta arba ko trūko.'); return; }
+    setBusy(true);
+    try {
+      await new MarkStopDelivered(db).execute(routeId, failedStopId, { partialReturn: { note } });
+      setFailedStopId(null);
+      setExpandedStopId(null);
+      await load();
+      void requestSync('mutation');
+      void publishProgress();
+      Alert.alert('Pažymėta', 'Taškas pristatytas, grąžinimas / trūkumas užfiksuotas.');
+    } catch (reason) {
+      Alert.alert('Nepavyko pažymėti', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   const markAllRemainingDelivered = () => {
@@ -712,13 +762,15 @@ export default function DeliveryScreen() {
   const nextStopWindow = arrivalWindowStatus(nextStop, route?.date);
   const wideLayout = viewportWidth >= 720;
   const compactDashboard = !wideLayout && viewportHeight < 900;
-  // Gauges are the product "nails" — keep them large and obvious inside the
-  // steering-rim frame (larger than a real car cluster). Actions stay ~48px.
+  // Gauges are the product "nails" — big and readable, but they must fit two
+  // across plus the centre stat block inside the narrowest phone without
+  // pushing the page a few px wide. Budget: viewport − centre(76) − gaps(16).
+  const gaugeBudget = (Math.min(viewportWidth, 412) - 76 - 16) / 2;
   const gaugeSize = wideLayout
-    ? 156
+    ? 160
     : compactDashboard
-      ? Math.min(132, Math.max(118, (Math.min(viewportWidth, 430) - 96) / 2))
-      : Math.min(140, Math.max(124, (Math.min(viewportWidth, 430) - 100) / 2));
+      ? Math.min(132, Math.max(108, gaugeBudget))
+      : Math.min(140, Math.max(116, gaugeBudget));
   const compositeProgress = progress ? calculateCompositeRouteProgress({
     completedStops: progress.totalStops - progress.remainingStops,
     totalStops: progress.totalStops,
@@ -867,7 +919,7 @@ export default function DeliveryScreen() {
                         accessibilityLabel="Naviguoti į kitą stotelę"
                         accessibilityRole="button"
                         onPress={() => { void navigate(nextStop); }}
-                        style={[styles.dashboardActionButton, styles.stopInfoActionButton, styles.dashboardNavigateButton]}>
+                        style={({ pressed }) => [styles.dashboardActionButton, styles.stopInfoActionButton, styles.dashboardNavigateButton, pressed && styles.pressedFeedback]}>
                         <NavigateIcon size={compactDashboard ? 16 : 18} />
                         <Text numberOfLines={1} style={[styles.dashboardActionText, styles.dashboardPrimaryActionText]}>NAVIGUOTI</Text>
                       </Pressable>
@@ -876,7 +928,7 @@ export default function DeliveryScreen() {
                         accessibilityState={{ disabled: !isUsablePhone(nextStop.phone) }}
                         disabled={!isUsablePhone(nextStop.phone)}
                         onPress={() => callStop(nextStop)}
-                        style={[styles.dashboardActionButton, styles.stopInfoActionButton, styles.callButton, !isUsablePhone(nextStop.phone) && styles.callButtonDisabled]}
+                        style={({ pressed }) => [styles.dashboardActionButton, styles.stopInfoActionButton, styles.callButton, !isUsablePhone(nextStop.phone) && styles.callButtonDisabled, pressed && styles.pressedFeedback]}
                         testID="call-next-stop">
                         <Text style={[styles.callButtonText, !isUsablePhone(nextStop.phone) && styles.callButtonTextDisabled]}>SKAMBINTI</Text>
                       </Pressable>
@@ -887,7 +939,7 @@ export default function DeliveryScreen() {
                       <Pressable
                         disabled={busy}
                         onPress={() => { void delivered(nextStop.id); }}
-                        style={[styles.dashboardActionButton, styles.dashboardOutcomeButton, styles.dashboardDeliveredButton, busy && styles.disabled]}
+                        style={({ pressed }) => [styles.dashboardActionButton, styles.dashboardOutcomeButton, styles.dashboardDeliveredButton, busy && styles.disabled, pressed && styles.pressedFeedback]}
                         testID="dashboard-delivered-button">
                         <DeliveredIcon size={compactDashboard ? 16 : 18} />
                         <Text numberOfLines={1} style={styles.dashboardActionText}>ATLIKTA</Text>
@@ -895,7 +947,7 @@ export default function DeliveryScreen() {
                       <Pressable
                         disabled={busy}
                         onPress={() => beginFailed(nextStop.id)}
-                        style={[styles.dashboardActionButton, styles.dashboardOutcomeButton, styles.dashboardFailedButton, busy && styles.disabled]}
+                        style={({ pressed }) => [styles.dashboardActionButton, styles.dashboardOutcomeButton, styles.dashboardFailedButton, busy && styles.disabled, pressed && styles.pressedFeedback]}
                         testID="dashboard-failed-button">
                         <FailedIcon color={colors.danger} size={compactDashboard ? 16 : 18} />
                         <Text numberOfLines={1} style={styles.dashboardFailedActionText}>NEATLIKTA</Text>
@@ -1010,7 +1062,7 @@ export default function DeliveryScreen() {
                   <Text style={styles.meta}>Laiko skirtumas: {signed(recalculation.timeDeltaMinutes, 'min')}</Text>
                   <Text style={styles.meta}>Esama: {recalculation.orderBefore.map(stopLabel).join(' → ')}</Text>
                   <Text style={styles.meta}>Nauja: {recalculation.orderAfter.map(stopLabel).join(' → ')}</Text>
-                  <Pressable style={styles.finishButton} onPress={() => { void resolveRecalculation(true); }}><Text style={styles.buttonText}>Patvirtinti naują seką</Text></Pressable>
+                  <Pressable style={({ pressed }) => [styles.finishButton, pressed && styles.pressedFeedback]} onPress={() => { void resolveRecalculation(true); }}><Text style={styles.buttonText}>Patvirtinti naują seką</Text></Pressable>
                   <Pressable style={styles.cancelButton} onPress={() => { void resolveRecalculation(false); }}><Text style={styles.secondaryText}>Palikti esamą seką</Text></Pressable>
                 </View>
               ) : null}
@@ -1056,12 +1108,26 @@ export default function DeliveryScreen() {
                 {userVisibleStopNote(stop.notes) ? <Text style={styles.meta}>Pastabos: {userVisibleStopNote(stop.notes)}</Text> : null}
                 <Text style={styles.meta}>Telefonas: {isUsablePhone(stop.phone) ? stop.phone : 'nesuvestas'}</Text>
                 {isUsablePhone(stop.phone) ? (
-                  <Pressable accessibilityLabel="Skambinti klientui" onPress={() => callStop(stop)} style={styles.callButton} testID={`call-stop-${stop.id}`}>
+                  <Pressable accessibilityLabel="Skambinti klientui" onPress={() => callStop(stop)} style={({ pressed }) => [styles.callButton, pressed && styles.pressedFeedback]} testID={`call-stop-${stop.id}`}>
                     <Text style={styles.callButtonText}>SKAMBINTI KLIENTUI</Text>
                   </Pressable>
                 ) : null}
                 {stop.deliveryStatus === 'failed' ? (
                   <Text style={styles.failure}>{failedDeliveryLabel(stop.failureReason, stop.failureComment)}</Text>
+                ) : null}
+                {stop.deliveryStatus === 'delivered' && isDeliveryReturnReason(stop.failureReason) ? (
+                  <Text style={styles.returnBadge} testID={`stop-return-${stop.id}`}>Grąžinimas / trūkumas: {stop.failureComment || '—'}</Text>
+                ) : null}
+                {stop.deliveryStatus !== 'pending' && route?.status === 'in_progress' ? (
+                  <Pressable
+                    accessibilityLabel="Grąžinti tašką į maršrutą"
+                    accessibilityRole="button"
+                    disabled={busy}
+                    onPress={() => confirmRevertStop(stop)}
+                    style={({ pressed }) => [styles.revertButton, busy && styles.disabled, pressed && styles.pressedFeedback]}
+                    testID={`revert-stop-${stop.id}`}>
+                    <Text style={styles.revertButtonText}>↩ Grąžinti į maršrutą (atšaukti {stop.deliveryStatus === 'failed' ? '„Neatlikta“' : '„Atlikta“'})</Text>
+                  </Pressable>
                 ) : null}
                 {stop.deliveryStatus === 'pending' && nextStop?.id !== stop.id ? (
                   <Pressable
@@ -1076,9 +1142,9 @@ export default function DeliveryScreen() {
                   </Pressable>
                 ) : null}
                 <View style={styles.actions}>
-                  <Pressable accessibilityLabel="Naviguoti į stotelę" accessibilityRole="button" style={styles.navigateButton} onPress={() => { void navigate(stop); }}><Text style={styles.buttonText}>NAVIGUOTI</Text></Pressable>
-                  <Pressable accessibilityLabel="Pažymėti atlikta" accessibilityRole="button" style={styles.deliverButton} onPress={() => { void delivered(stop.id); }}><Text style={styles.buttonText}>ATLIKTA</Text></Pressable>
-                  <Pressable accessibilityLabel="Pažymėti neatlikta" accessibilityRole="button" style={styles.failButton} onPress={() => beginFailed(stop.id)}><Text style={styles.buttonText}>NEATLIKTA</Text></Pressable>
+                  <Pressable accessibilityLabel="Naviguoti į stotelę" accessibilityRole="button" style={({ pressed }) => [styles.navigateButton, pressed && styles.pressedFeedback]} onPress={() => { void navigate(stop); }}><Text style={styles.buttonText}>NAVIGUOTI</Text></Pressable>
+                  <Pressable accessibilityLabel="Pažymėti atlikta" accessibilityRole="button" style={({ pressed }) => [styles.deliverButton, pressed && styles.pressedFeedback]} onPress={() => { void delivered(stop.id); }}><Text style={styles.buttonText}>ATLIKTA</Text></Pressable>
+                  <Pressable accessibilityLabel="Pažymėti neatlikta" accessibilityRole="button" style={({ pressed }) => [styles.failButton, pressed && styles.pressedFeedback]} onPress={() => beginFailed(stop.id)}><Text style={styles.buttonText}>NEATLIKTA</Text></Pressable>
                 </View>
               </View>
             ) : null}
@@ -1191,6 +1257,15 @@ export default function DeliveryScreen() {
               {profile.role !== 'driver' || profile.permissions?.canCancelRoute ? <Pressable disabled={busy} testID="stop-route-button" style={[styles.menuSubitem, busy && styles.disabled]} onPress={() => { setMenuOpen(false); setActiveMenuExpanded(false); stopRoute(); }}><Text style={styles.menuDangerText}>Nutraukti maršrutą</Text></Pressable> : null}
             </View> : null}
           </GroupedMenuSection>
+          <GroupedMenuSection label="KURAS">
+            <GroupedMenuRow
+              description="Ką tik užsipylėte? Įrašykite iškart, nelaukdami maršruto pabaigos."
+              icon={<MenuArtwork kind="dispatch" />}
+              onPress={() => { setMenuOpen(false); setActiveMenuExpanded(false); setFuelEntrySaved(false); setFuelQuickOpen(true); }}
+              testID="menu-quick-fuel"
+              title="Įrašyti kuro pylimą"
+            />
+          </GroupedMenuSection>
           <GroupedMenuSection label="NAVIGACIJA">
             <GroupedMenuRow icon={<MenuArtwork kind="history" />} onPress={() => { setMenuOpen(false); router.replace('/history' as Href); }} title="Maršrutai" />
             <GroupedMenuRow icon={<MenuArtwork kind="statistics" />} onPress={() => { setMenuOpen(false); router.push('/statistics' as Href); }} title="Statistika" />
@@ -1199,6 +1274,25 @@ export default function DeliveryScreen() {
           <Pressable style={styles.menuClose} onPress={() => setMenuOpen(false)}><Text style={styles.secondaryText}>Uždaryti</Text></Pressable>
         </View>
       </Pressable>
+    </Modal>
+    <Modal animationType="fade" onRequestClose={() => setFuelQuickOpen(false)} statusBarTranslucent transparent visible={fuelQuickOpen}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalKeyboard}>
+        <View style={styles.centeredBackdrop} testID="quick-fuel-form">
+          <View style={styles.addStopDialog}>
+            <Text style={styles.heading}>Kuro pylimas</Text>
+            <Text style={styles.meta}>Įrašomas iškart. Vėliau matysite jį šio reiso ir automobilio kuro suvestinėje.</Text>
+            <TextInput value={fuelLiters} onChangeText={(value) => setFuelLiters(value.replace(/[^\d.,]/g, '').slice(0, 7))} keyboardType="decimal-pad" placeholder="Įpilta, l" style={styles.input} testID="quick-fuel-liters" />
+            <TextInput value={fuelReceiptNumber} onChangeText={setFuelReceiptNumber} placeholder="Čekio Nr. (nebūtina)" style={styles.input} testID="quick-fuel-receipt" />
+            {!online ? <Text style={styles.activeReason}>Nėra ryšio — pylimą įrašysite prisijungę.</Text> : null}
+            <View style={styles.stopInfoActions}>
+              <Pressable style={styles.secondaryButton} onPress={() => setFuelQuickOpen(false)}><Text style={styles.secondaryText}>Atšaukti</Text></Pressable>
+              <Pressable disabled={busy || !online || !fuelLiters.trim()} onPress={() => { void saveRouteFuel().then(() => { if (fuelLiters.trim() === '') setFuelQuickOpen(false); }); }} style={[styles.deliverButton, (busy || !online || !fuelLiters.trim()) && styles.disabled]} testID="quick-fuel-save">
+                <Text style={styles.buttonText}>Išsaugoti</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
     </Modal>
     <Modal
       animationType="fade"
@@ -1253,28 +1347,53 @@ export default function DeliveryScreen() {
         <View style={styles.modalBackdrop} testID="failure-modal">
           <View style={[styles.failureSheet, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
             <View style={styles.sheetHandle} />
-            <Text style={styles.heading}>Kodėl pristatymas nepavyko?</Text>
-            <View style={styles.reasonGrid}>
-              {DELIVERY_FAILURE_REASONS.map((reason) => (
-                <Pressable key={reason} onPress={() => setFailureReason(reason)}>
-                  <Text style={failureReason === reason ? styles.activeReason : styles.reason}>{reason}</Text>
-                </Pressable>
-              ))}
+            <View style={styles.failModeRow}>
+              <Pressable onPress={() => setFailMode('fail')} style={[styles.failModeTab, failMode === 'fail' && styles.failModeTabActive]} testID="fail-mode-fail">
+                <Text style={[styles.failModeText, failMode === 'fail' && styles.failModeTextActive]}>Nepavyko</Text>
+              </Pressable>
+              <Pressable onPress={() => setFailMode('return')} style={[styles.failModeTab, failMode === 'return' && styles.failModeTabActive]} testID="fail-mode-return">
+                <Text style={[styles.failModeText, failMode === 'return' && styles.failModeTextActive]}>Pristatyta su grąžinimu / trūkumu</Text>
+              </Pressable>
             </View>
+            {failMode === 'fail' ? <>
+              <Text style={styles.heading}>Kodėl pristatymas nepavyko?</Text>
+              <View style={styles.reasonGrid}>
+                {DELIVERY_FAILURE_REASONS.map((reason) => (
+                  <Pressable key={reason} onPress={() => setFailureReason(reason)}>
+                    <Text style={failureReason === reason ? styles.activeReason : styles.reason}>{reason}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </> : (
+              <Text style={styles.heading}>Taškas pristatytas. Kas grąžinta arba ko trūko?</Text>
+            )}
             <TextInput
               value={failureComment}
               onChangeText={setFailureComment}
               multiline
-              placeholder={failureReason === 'Kita' ? 'Komentaras privalomas' : 'Papildomas komentaras (neprivaloma)'}
+              placeholder={failMode === 'return'
+                ? 'Pvz. „grąžino 2 dėžes pieno“ arba „trūko 1 vnt konservų“'
+                : failureReason === 'Kita' ? 'Komentaras privalomas' : 'Papildomas komentaras (neprivaloma)'}
               style={styles.textArea}
+              testID="fail-comment"
             />
             <View style={styles.modalActions}>
-              <Pressable
-                disabled={busy || (failureReason === 'Kita' && !failureComment.trim())}
-                style={[styles.failConfirm, (busy || (failureReason === 'Kita' && !failureComment.trim())) && styles.disabled]}
-                onPress={() => { void saveFailed(); }}>
-                <Text style={styles.buttonText}>Išsaugoti</Text>
-              </Pressable>
+              {failMode === 'return' ? (
+                <Pressable
+                  disabled={busy || !failureComment.trim()}
+                  style={[styles.deliverButton, (busy || !failureComment.trim()) && styles.disabled]}
+                  testID="save-partial-return"
+                  onPress={() => { void savePartialReturn(); }}>
+                  <Text style={styles.buttonText}>Pažymėti pristatyta su grąžinimu</Text>
+                </Pressable>
+              ) : (
+                <Pressable
+                  disabled={busy || (failureReason === 'Kita' && !failureComment.trim())}
+                  style={[styles.failConfirm, (busy || (failureReason === 'Kita' && !failureComment.trim())) && styles.disabled]}
+                  onPress={() => { void saveFailed(); }}>
+                  <Text style={styles.buttonText}>Išsaugoti</Text>
+                </Pressable>
+              )}
               <Pressable disabled={busy} style={styles.cancelButton} onPress={() => setFailedStopId(null)}>
                 <Text style={styles.secondaryText}>Atšaukti</Text>
               </Pressable>
@@ -1374,14 +1493,15 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   gaugePanelCompact: { paddingTop: 0, paddingHorizontal: 2, paddingBottom: 0 },
   gaugeRow: {
     width: '100%',
+    maxWidth: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 10,
+    gap: 8,
   },
   gaugeRowCompact: { gap: 6 },
   gaugeCenterStats: {
-    width: 92,
+    width: 76,
     flexShrink: 0,
     minHeight: 108,
     alignSelf: 'center',
@@ -1607,6 +1727,16 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   centeredBackdrop: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg, backgroundColor: 'rgba(0, 10, 2, 0.5)' },
   addStopDialog: { width: '100%', maxWidth: 420, padding: spacing.lg, borderWidth: 1, borderRadius: radius.lg, borderColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm },
   failureSheet: { maxHeight: '92%', paddingTop: spacing.sm, paddingHorizontal: spacing.lg, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, backgroundColor: colors.surface, gap: spacing.md },
+  failModeRow: { flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs },
+  failModeTab: { flex: 1, minHeight: 44, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.sm },
+  failModeTabActive: { backgroundColor: colors.actionPrimary, borderColor: colors.actionPrimary },
+  failModeText: { ...type.secondaryStrong, color: colors.textSecondary, textAlign: 'center' },
+  failModeTextActive: { color: colors.textInverse },
+  returnBadge: { color: colors.warning, fontFamily: fonts.headingSemiBold },
+  // Shared "this really got pressed" feedback for the raw action buttons.
+  pressedFeedback: { transform: [{ translateY: 1 }, { scale: 0.97 }], opacity: 0.82 },
+  revertButton: { minHeight: 44, borderRadius: radius.md, borderWidth: 1, borderColor: colors.actionRoute, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md, marginTop: spacing.xs },
+  revertButtonText: { ...type.secondaryStrong, color: colors.actionRoute, textAlign: 'center' },
   finishSheet: { maxHeight: '92%', paddingTop: spacing.sm, paddingHorizontal: spacing.lg, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, backgroundColor: colors.surface, gap: spacing.sm },
   finishSheetScroll: { flexGrow: 1, flexShrink: 1 },
   sheetHandle: { alignSelf: 'center', width: 44, height: 5, borderRadius: radius.pill, backgroundColor: colors.borderStrong },

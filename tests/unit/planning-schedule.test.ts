@@ -8,12 +8,14 @@ import {
 } from '@/application/routes/planning-schedule';
 
 describe('planning schedule', () => {
-  it('defaults Friday planning to Monday', () => {
-    expect(defaultPlanningDate(new Date(2026, 7, 7, 12))).toBe('2026-08-10');
+  it('defaults planning to the creation day itself on a weekday', () => {
+    expect(defaultPlanningDate(new Date(2026, 7, 7, 12))).toBe('2026-08-07'); // Friday
+    expect(defaultPlanningDate(new Date(2026, 7, 5, 12))).toBe('2026-08-05'); // Wednesday
   });
 
-  it('defaults a normal weekday to the next day', () => {
-    expect(defaultPlanningDate(new Date(2026, 7, 5, 12))).toBe('2026-08-06');
+  it('rolls a weekend creation forward to Monday', () => {
+    expect(defaultPlanningDate(new Date(2026, 7, 8, 12))).toBe('2026-08-10'); // Saturday
+    expect(defaultPlanningDate(new Date(2026, 7, 9, 12))).toBe('2026-08-10'); // Sunday
   });
 
   it('defaults route departure to 04:00 when no windows are known', () => {

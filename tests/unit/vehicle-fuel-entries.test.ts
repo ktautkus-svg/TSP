@@ -56,9 +56,27 @@ describe('chronologicalVehicleFuelEntries', () => {
       source.indexOf('testID="vehicle-fuel-editor"'),
       source.indexOf('testID="vehicle-opening-fuel-balance"'),
     );
-    expect(fuelEditor).toContain('vehicleFuelEntries.map');
+    // The list is now filtered (month/driver) and shown newest-first, but the
+    // filter only narrows a full chronological list — there is no fixed cap,
+    // and the "Rodoma N iš M" count is always against the real total.
+    expect(fuelEditor).toContain('visibleFuelEntries.map');
+    expect(fuelEditor).toContain('totalCount={vehicleFuelEntries.length}');
     expect(fuelEditor).not.toContain('slice(0, 8)');
     expect(fuelEditor).toContain('Redaguoti kuro pylimą');
     expect(fuelEditor).toContain('Ištrinti kuro pylimą');
+  });
+
+  it('filters both vehicle logs by month and driver and shows the newest entry first', () => {
+    const source = readFileSync(resolve(import.meta.dirname, '../../src/app/vehicle.tsx'), 'utf8');
+    // Newest-first is a display-only reverse; the state stays ascending so the
+    // wage odometer chain is untouched.
+    expect(source).toContain('a.date.localeCompare(b.date)');
+    expect(source).toMatch(/\.slice\(\)\s*\.reverse\(\)/);
+    expect(source).toContain('const visibleReadings = useMemo');
+    expect(source).toContain('const visibleFuelEntries = useMemo');
+    expect(source).toContain('testID="vehicle-odometer-filters"');
+    expect(source).toContain('testID="vehicle-fuel-filters"');
+    // Filter chips only appear once there is more than one month/driver.
+    expect(source).toContain('if (months.length <= 1 && drivers.length <= 1) return null;');
   });
 });

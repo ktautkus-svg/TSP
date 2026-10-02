@@ -21,4 +21,22 @@ describe('web route map page scrolling', () => {
     expect(source).toContain('key={`${index}-${stop.id}`}');
     expect(source).toContain('key={orderedStops.map((stop) => stop.id).join(\'|\')}');
   });
+
+  // CARTO now watermarks keyless tiles. Default to the documented OSM endpoint,
+  // keep a normal Referer and allow a self-hosted compatible URL via config.
+  it('loads a configurable, correctly identified OSM basemap without the CARTO watermark', () => {
+    expect(source).toContain('process.env.EXPO_PUBLIC_OSM_TILE_URL?.trim()');
+    expect(source).toContain("'https://tile.openstreetmap.org/{z}/{x}/{y}.png'");
+    expect(source).toContain('url={MAP_TILE_URL}');
+    expect(source).toContain('MAP_TILE_ATTRIBUTION');
+    expect(source).toContain('OpenStreetMap contributors');
+    expect(source).toContain('referrerPolicy="strict-origin-when-cross-origin"');
+    expect(source).not.toMatch(/basemaps\.cartocdn\.com/);
+  });
+
+  // Always-visible map must not claim the driving line is missing before the driver requests it.
+  it('gates the idle polyline pending hint behind expectPolyline', () => {
+    expect(source).toContain('expectPolyline = true');
+    expect(source).toContain('expectPolyline && !encodedPolyline && !allowStraightLineFallback');
+  });
 });

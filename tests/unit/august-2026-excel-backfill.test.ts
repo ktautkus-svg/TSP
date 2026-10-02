@@ -154,7 +154,7 @@ describe('August 2026 Excel trip-sheet backfill catalog', () => {
 
   it('loads per-day Excel files and ignores legacy combined dumps', () => {
     const directory = resolveAugustBackfillDirectory();
-    expect(directory).toContain('scripts/august-2026-backfill');
+    expect(directory.replace(/\\/g, '/')).toContain('scripts/august-2026-backfill');
     const catalog = loadAugust2026ExcelBackfillCatalog(directory);
     expect(catalog.days.filter((day) => day.kind === 'excel')).toHaveLength(AUGUST_2026_EXCEL_DAY_FILES.length);
     expect(catalog.days.filter((day) => day.kind === 'stub')).toHaveLength(3);

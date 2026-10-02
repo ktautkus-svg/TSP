@@ -1,6 +1,8 @@
 export type DeliveryWindowTiming = 'early' | 'on_time' | 'late' | 'unknown';
 
 const MINUTES_PER_DAY = 24 * 60;
+/** Delivered within this many minutes past the window still counts as on time. */
+export const WINDOW_LATE_GRACE_MINUTES = 15;
 
 export function classifyDeliveryWindow(
   arrivalAt: string | null,
@@ -18,11 +20,13 @@ export function classifyDeliveryWindow(
 
     const minutesBeforeStart = from - arrival;
     const minutesAfterEnd = arrival - to;
+    if (minutesAfterEnd <= WINDOW_LATE_GRACE_MINUTES && minutesAfterEnd <= minutesBeforeStart) return 'on_time';
     return minutesBeforeStart <= minutesAfterEnd ? 'early' : 'late';
   }
 
   if (from !== null && arrival < from) return 'early';
-  if (to !== null && arrival > to) return 'late';
+  // 08:00–10:00 → delivered 10:15 is still on time; 10:16+ is late.
+  if (to !== null && arrival > to + WINDOW_LATE_GRACE_MINUTES) return 'late';
   return 'on_time';
 }
 

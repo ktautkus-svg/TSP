@@ -17,6 +17,7 @@ export default function ClientsScreen() {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [clients, setClients] = useState<ServerClientDirectoryEntry[]>([]);
   const [filter, setFilter] = useState<Filter>('missing');
+  const [query, setQuery] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [contactPerson, setContactPerson] = useState('');
   const [phone, setPhone] = useState('');
@@ -34,8 +35,13 @@ export default function ClientsScreen() {
   }, [load]));
 
   const missingCount = clients.filter((client) => !client.phone && !client.email).length;
-  const visible = clients.filter((client) => filter === 'all'
-    || (filter === 'missing' ? !client.phone && !client.email : Boolean(client.phone || client.email)));
+  const q = query.trim().toLocaleLowerCase('lt');
+  const visible = clients
+    .filter((client) => filter === 'all'
+      || (filter === 'missing' ? !client.phone && !client.email : Boolean(client.phone || client.email)))
+    .filter((client) => q.length === 0
+      || [client.name, client.address, client.contactPerson, client.phone, client.email]
+        .some((part) => (part ?? '').toLocaleLowerCase('lt').includes(q)));
 
   const beginEdit = (client: ServerClientDirectoryEntry) => {
     setEditingId(client.id);
@@ -72,6 +78,15 @@ export default function ClientsScreen() {
       <View><Text style={styles.summaryValue}>{clients.length}</Text><Text style={styles.summaryLabel}>KLIENTŲ</Text></View>
       <View><Text style={[styles.summaryValue, missingCount > 0 && styles.warningValue]}>{missingCount}</Text><Text style={styles.summaryLabel}>TRŪKSTA KONTAKTŲ</Text></View>
     </View>
+    <TextInput
+      accessibilityLabel="Ieškoti kliento"
+      onChangeText={setQuery}
+      placeholder="Ieškoti pagal pavadinimą, adresą, asmenį ar numerį…"
+      placeholderTextColor={colors.textMuted}
+      style={styles.search}
+      testID="clients-search"
+      value={query}
+    />
     <View style={styles.filters}>
       {([
         ['missing', `Trūksta (${missingCount})`],
@@ -120,6 +135,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   summaryValue: { ...type.readout, color: colors.textInverse, fontSize: 28 },
   warningValue: { color: '#FFD37A' },
   summaryLabel: { ...type.label, color: colors.borderStrong },
+  search: { minHeight: 48, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, color: colors.text, paddingHorizontal: spacing.md, ...type.body },
   filters: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   filter: { minHeight: 44, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface },
   filterActive: { backgroundColor: colors.info, borderColor: colors.info },

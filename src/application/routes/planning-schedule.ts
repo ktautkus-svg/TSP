@@ -4,10 +4,14 @@ const FALLBACK_START_TIME = '04:00';
 /** Leave this many minutes before the earliest door opens, so the first stop is reachable without a long kerbside wait. */
 const DEPARTURE_LEAD_MINUTES = 30;
 
+/**
+ * The day the route is created is the default delivery date — it can still be
+ * changed before assigning. Only a weekend creation rolls forward to Monday,
+ * since a route made on Saturday is almost never for that same day.
+ */
 export function defaultPlanningDate(now = new Date()): string {
   const candidate = new Date(now);
   candidate.setHours(12, 0, 0, 0);
-  candidate.setDate(candidate.getDate() + 1);
   while (candidate.getDay() === 0 || candidate.getDay() === 6) {
     candidate.setDate(candidate.getDate() + 1);
   }

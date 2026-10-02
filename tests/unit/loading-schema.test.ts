@@ -261,7 +261,7 @@ describe('van loading schema', () => {
 });
 
 describe('loading schema UI wiring', () => {
-  it('hides the van diagram from drivers; only admin can open the preview or see it on a route', () => {
+  it('does not render the van / cargo diagram anywhere — disabled for every role', () => {
     const loading = readFileSync('src/app/route/[id]/loading.tsx', 'utf8');
     const preview = readFileSync('src/app/loading-schema-preview.tsx', 'utf8');
     const layout = readFileSync('src/app/_layout.tsx', 'utf8');
@@ -276,13 +276,16 @@ describe('loading schema UI wiring', () => {
     expect(plannedBlock).not.toContain('<LoadingSchemaCard');
     expect(plannedBlock).not.toContain('<CargoLayoutSvg');
     expect(loadingBlock).not.toContain('<LoadingSchemaCard');
-    expect(loading).toContain("const showCargoScheme = profile.role === 'admin'");
+    // The cargo scheme is switched off for everyone. The SVG render guard
+    // stays in place but can never be true, and the admin entry point is gone.
+    expect(loading).toContain('const showCargoScheme = false');
+    expect(loading).not.toContain("showCargoScheme = profile.role === 'admin'");
     expect(loadingBlock).toContain('showCargoScheme && progress && stops.length > 0 && palletLayout');
     expect(preview).toContain("const allowed = profile.role === 'admin'");
     expect(preview).not.toContain('dispatcher');
     expect(layout).toContain("loadingSchemePreview && profile.role !== 'admin'");
-    expect(admin).toContain("profile.role === 'admin'");
-    expect(admin).toContain('open-loading-schema-preview');
+    expect(admin).not.toContain('open-loading-schema-preview');
+    expect(admin).not.toContain('/loading-schema-preview');
     expect(card).toContain('testID="loading-schema-card"');
     expect(card).toContain('testID="loading-schema-vehicle"');
     expect(card).toContain('testID="loading-schema-van"');

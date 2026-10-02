@@ -60,6 +60,47 @@ describe('trip sheet print document', () => {
     expect(html).not.toContain('html2canvas');
   });
 
+  it('prints a clean A4 sheet: blank <title>, no app URL, one h1 per sheet', () => {
+    const html = sampleDocument();
+    // Chrome stamps the document <title> in the top page margin — keep it blank.
+    expect(html).not.toContain('<title>Kelionės lapas</title>');
+    expect(html).toContain('<title> </title>');
+    // Exactly one <h1>Kelionės lapas</h1> for a single sheet, no app chrome/URL.
+    expect(html.match(/<h1>/g) ?? []).toHaveLength(1);
+    expect(html).toMatch(/<h1>Kelionės lapas<\/h1>/);
+    expect(html).not.toMatch(/https?:\/\//);
+    expect(html).not.toContain('localhost');
+    // The iframe is fed via srcdoc (about:srcdoc) so no parent URL prints.
+    expect(tripSheetSource).toContain('iframe.srcdoc = html');
+    expect(tripSheetSource).not.toContain('frameDocument.write(html)');
+    expect(html).toContain('@page { size: A4 landscape; margin: 10mm; }');
+  });
+
+  it('numbers a per-driver run sheet in the h1 and shows its own period', () => {
+    const html = buildTripSheetPrintDocument({
+      companyName: 'FiRo',
+      companyAddress: 'Vilnius',
+      periodLabel: '2026-09',
+      fuelType: 'Dyzelinas',
+      groups: [{
+        monthLabel: '2026 m. rugsėjis',
+        registrationNumber: 'NLL182',
+        vehicleModel: 'Renault Master',
+        driverNames: 'Karolis Tautkus',
+        fuelNorm: 13.9,
+        sheetNumber: 2,
+        periodLabel: '2026-09-04 – 2026-09-05',
+        rows: [{
+          date: '2026-09-04', driverName: 'Karolis Tautkus', route: 'R11',
+          startOdometer: 1, endOdometer: 2, distanceKm: 1, fuelStart: 10, fuelAdded: 0,
+          fuelConsumed: 0.1, fuelEnd: 9.9, receiptNumbers: [],
+        }],
+      }],
+    });
+    expect(html).toContain('<h1>Kelionės lapas Nr. 2</h1>');
+    expect(html).toContain('Laikotarpis: 2026-09-04 – 2026-09-05');
+  });
+
   it('uses abbreviated column headers with a legend of the full Lithuanian names', () => {
     const html = sampleDocument();
     expect(html).toContain('>L. d.d.p.<');

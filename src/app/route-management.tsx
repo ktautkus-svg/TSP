@@ -67,6 +67,10 @@ export default function RouteManagementScreen() {
   } | null>(null);
   const [editingAssignment, setEditingAssignment] = useState<ServerRouteAssignment | null>(null);
   const [editingAssignmentDate, setEditingAssignmentDate] = useState('');
+  const [editingAssignmentDriverId, setEditingAssignmentDriverId] = useState('');
+  const [editingAssignmentVehicleId, setEditingAssignmentVehicleId] = useState('');
+  // Editable right in the assign step — no separate screen, no disabled field.
+  const [assignDate, setAssignDate] = useState('');
   const [completingRoute, setCompletingRoute] = useState<LocalRoute | null>(null);
   const [completionOdometer, setCompletionOdometer] = useState('');
   const [activeSegment, setActiveSegment] = useState<'routes' | 'active'>('routes');
@@ -188,6 +192,8 @@ export default function RouteManagementScreen() {
     setSelectedVehicleId(routeId && vehicles.length === 1 ? vehicles[0].id : null);
     setOpenPicker(null);
     setAssignmentCompleted(null);
+    const picked = routeId ? routes.find((route) => route.id === routeId) : null;
+    setAssignDate(picked?.date ?? '');
   };
   const assign = async () => {
     if (busy || !selectedRoute || !selectedDriver || !selectedVehicle) return;
@@ -199,11 +205,31 @@ export default function RouteManagementScreen() {
     setMessage(null);
     try {
       const confirmation = {
-        routeLabel: `${formatDate(selectedRoute.date)} · ${selectedRoute.total_stops} taškų`,
+        routeLabel: `${formatDate(assignDate || selectedRoute.date)} · ${selectedRoute.total_stops} taškų`,
         driverName: selectedDriver.displayName,
         vehicleNumber: selectedVehicle.registrationNumber,
       };
-      await assignRouteToDriver(db, selectedRoute.id, selectedDriver.id, selectedVehicle.id);
+      const assignment = await assignRouteToDriver(db, selectedRoute.id, selectedDriver.id, selectedVehicle.id);
+      // Date picked inline in this same step — apply it straight away, before
+      // the route starts, no second screen.
+      if (assignDate && assignDate !== selectedRoute.date) {
+        await employeeApi(`/api/admin/assignments/${encodeURIComponent(assignment.id)}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ date: assignDate }),
+        }).catch(() => undefined);
+        const now = new Date().toISOString();
+        await db.runAsync(
+          `UPDATE routes
+           SET date = ?,
+               planned_departure_at = CASE
+                 WHEN planned_departure_at LIKE '____-__-__T%' THEN ? || substr(planned_departure_at, 11)
+                 ELSE planned_departure_at
+               END,
+               updated_at = ?
+           WHERE id = ?`,
+          assignDate, assignDate, now, selectedRoute.id,
+        );
+      }
       await load();
       setSelectedRouteId(null);
       setSelectedDriverId(null);
@@ -474,6 +500,8 @@ export default function RouteManagementScreen() {
   const openAssignmentEditor = (assignment: ServerRouteAssignment) => {
     setEditingAssignment(assignment);
     setEditingAssignmentDate(String(assignment.routeSnapshot.route.date ?? assignment.assignedAt.slice(0, 10)));
+    setEditingAssignmentDriverId(assignment.driverId);
+    setEditingAssignmentVehicleId(assignment.vehicle?.id ?? '');
   };
 
   const saveAssignmentDate = async () => {
@@ -481,9 +509,12 @@ export default function RouteManagementScreen() {
     setBusy(true);
     setMessage(null);
     try {
+      const body: Record<string, unknown> = { date: editingAssignmentDate };
+      if (editingAssignmentDriverId && editingAssignmentDriverId !== editingAssignment.driverId) body.driverId = editingAssignmentDriverId;
+      if (editingAssignmentVehicleId && editingAssignmentVehicleId !== (editingAssignment.vehicle?.id ?? '')) body.vehicleId = editingAssignmentVehicleId;
       await employeeApi(`/api/admin/assignments/${encodeURIComponent(editingAssignment.id)}`, {
         method: 'PATCH',
-        body: JSON.stringify({ date: editingAssignmentDate }),
+        body: JSON.stringify(body),
       });
       const now = new Date().toISOString();
       await db.runAsync(
@@ -501,10 +532,10 @@ export default function RouteManagementScreen() {
         editingAssignment.routeId,
       );
       setEditingAssignment(null);
-      setMessage('Maršruto data pakeista. Vairuotojo įrenginys ją gaus sinchronizacijos metu.');
+      setMessage('Maršrutas atnaujintas. Vairuotojo įrenginys pakeitimus gaus sinchronizacijos metu.');
       await load();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Maršruto datos pakeisti nepavyko.');
+      setMessage(error instanceof Error ? error.message : 'Maršruto pakeisti nepavyko.');
     } finally {
       setBusy(false);
     }
@@ -746,7 +777,11 @@ export default function RouteManagementScreen() {
               label="1. Vairuotojas"
               placeholder={drivers.length > 0 ? 'Pasirinkite vairuotoją' : 'Vairuotojų nėra'}
               primary={selectedDriver?.displayName}
-              secondary={selectedDriver ? `@${selectedDriver.username}` : undefined}
+              secondary={selectedDriver
+                ? (activeAssignments.filter((item) => item.driverId === selectedDriver.id).length > 0
+                  ? `${activeAssignments.filter((item) => item.driverId === selectedDriver.id).length} suplanuota`
+                  : 'Laisvas')
+                : undefined}
               open={openPicker === 'driver'}
               onToggle={() => setOpenPicker((current) => current === 'driver' ? null : 'driver')}
               wide={desktop}
@@ -761,7 +796,7 @@ export default function RouteManagementScreen() {
                   <View style={styles.avatar}><Text style={styles.avatarText}>{initials(driver.displayName)}</Text></View>
                   <View style={styles.dropdownOptionContent}>
                     <Text style={styles.dropdownOptionTitle}>{driver.displayName}</Text>
-                    <Text style={styles.dropdownOptionMeta}>@{driver.username} · {driverAssignments.length > 0 ? `${driverAssignments.length} suplanuota` : 'laisvas'}</Text>
+                    <Text style={styles.dropdownOptionMeta}>{driverAssignments.length > 0 ? `${driverAssignments.length} suplanuota` : 'Laisvas'}</Text>
                   </View>
                   {selectedDriverId === driver.id ? <Text style={styles.selectedMark}>✓</Text> : null}
                 </Pressable>;
@@ -800,9 +835,14 @@ export default function RouteManagementScreen() {
             </SelectionDropdown>
           </View>
 
+          <View style={styles.assignDateRow} testID="assign-date-inline">
+            <Text style={styles.selectorLabel}>3. Maršruto data</Text>
+            <DateInput onChangeText={setAssignDate} style={styles.assignDateInput} testID="assign-date-inline-input" value={assignDate} />
+          </View>
+
           {selectedDriver && selectedVehicle ? <View style={styles.confirmationArea}>
             <View style={styles.confirmationSummary}>
-              <Summary label="Bus priskirta" value={`${formatDate(selectedRoute.date)} · ${selectedRoute.total_stops} taškų → ${selectedDriver.displayName} · ${selectedVehicle.registrationNumber}`} styles={styles} />
+              <Summary label="Bus priskirta" value={`${formatDate(assignDate || selectedRoute.date)} · ${selectedRoute.total_stops} taškų → ${selectedDriver.displayName} · ${selectedVehicle.registrationNumber}`} styles={styles} />
               {selectedLoad ? <Summary label="Apkrova" value={`${selectedLoad.percentLabel} · ${selectedLoad.ratioLabel}`} styles={styles} testID="vehicle-load-percent" warning={selectedLoad.overCapacity} /> : null}
               {selectedPrice
                 ? <PreliminaryPriceCard price={selectedPrice} styles={styles} />
@@ -834,10 +874,30 @@ export default function RouteManagementScreen() {
               <Text style={styles.selectorLabel}>Maršruto data</Text>
               <DateInput value={editingAssignmentDate} onChangeText={setEditingAssignmentDate} style={styles.modalInput} testID="assignment-date-input" />
             </View>
-            <Text style={styles.panelHint}>Datą galima keisti, kol vairuotojas maršruto dar nepradėjo.</Text>
+            <View style={styles.modalField}>
+              <Text style={styles.selectorLabel}>Vairuotojas</Text>
+              <View style={styles.chipRow}>
+                {drivers.map((driver) => (
+                  <Pressable key={driver.id} onPress={() => setEditingAssignmentDriverId(driver.id)} style={[styles.chip, editingAssignmentDriverId === driver.id && styles.chipActive]} testID={`assignment-edit-driver-${driver.id}`}>
+                    <Text style={[styles.chipText, editingAssignmentDriverId === driver.id && styles.chipTextActive]}>{driver.displayName}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+            <View style={styles.modalField}>
+              <Text style={styles.selectorLabel}>Automobilis</Text>
+              <View style={styles.chipRow}>
+                {vehicles.map((vehicle) => (
+                  <Pressable key={vehicle.id} onPress={() => setEditingAssignmentVehicleId(vehicle.id)} style={[styles.chip, editingAssignmentVehicleId === vehicle.id && styles.chipActive]} testID={`assignment-edit-vehicle-${vehicle.id}`}>
+                    <Text style={[styles.chipText, editingAssignmentVehicleId === vehicle.id && styles.chipTextActive]}>{vehicle.registrationNumber} · {vehicle.model}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+            <Text style={styles.panelHint}>Datą, vairuotoją ir automobilį galima keisti, kol vairuotojas maršruto dar nepradėjo. Taškus, jų eiliškumą ir svorius redaguokite atsidarę maršrutą planavime.</Text>
             <View style={styles.modalActions}>
               <Pressable disabled={busy} onPress={() => setEditingAssignment(null)} style={styles.secondaryButton}><Text style={styles.secondaryText}>Atšaukti</Text></Pressable>
-              <Pressable disabled={busy || !editingAssignmentDate} onPress={() => { void saveAssignmentDate(); }} style={[styles.primaryButton, (busy || !editingAssignmentDate) && styles.disabled]} testID="save-assignment-date">{busy ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.primaryText}>Išsaugoti datą</Text>}</Pressable>
+              <Pressable disabled={busy || !editingAssignmentDate} onPress={() => { void saveAssignmentDate(); }} style={[styles.primaryButton, (busy || !editingAssignmentDate) && styles.disabled]} testID="save-assignment-date">{busy ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.primaryText}>Išsaugoti</Text>}</Pressable>
             </View>
           </View>
         </View>
@@ -971,6 +1031,11 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   modalClose: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border },
   modalCloseText: { fontSize: 26, lineHeight: 28, color: colors.textMuted },
   modalField: { gap: spacing.xs },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
+  chip: { minHeight: 40, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.md, justifyContent: 'center' },
+  chipActive: { backgroundColor: colors.info, borderColor: colors.info },
+  chipText: { ...type.secondaryStrong, color: colors.text },
+  chipTextActive: { color: colors.textInverse },
   completionNotice: { padding: spacing.md, borderRadius: radius.md, borderLeftWidth: 4, borderLeftColor: colors.info, backgroundColor: colors.infoSoft, gap: 2 },
   completionNoticeTitle: { ...type.bodyStrong, color: colors.info },
   modalInput: { minHeight: 50, paddingHorizontal: spacing.md, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surfaceSubtle, color: colors.text, ...type.bodyStrong },
@@ -1054,6 +1119,8 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   selector: { flexGrow: 0, minWidth: 0, gap: spacing.xs },
   selectorDesktop: { flexGrow: 1, flexBasis: 0 },
   selectorLabel: { ...type.label, color: colors.textSecondary, textTransform: 'uppercase' },
+  assignDateRow: { gap: spacing.xs, marginTop: spacing.sm },
+  assignDateInput: { minHeight: 46, paddingHorizontal: spacing.md, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, color: colors.text, ...type.bodyStrong },
   selectorButton: { minHeight: 66, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   selectorButtonOpen: { borderColor: colors.info, backgroundColor: colors.infoSoft },
   selectorValue: { flex: 1, minWidth: 0, gap: 2 },

@@ -21,6 +21,10 @@ export type TripSheetPrintGroup = {
   driverNames: string;
   fuelNorm: number | null;
   rows: TripSheetPrintRow[];
+  /** Set on a numbered per-driver sheet ("Kelionės lapas Nr. N"); null on the continuous month sheet. */
+  sheetNumber?: number | null;
+  /** Period range for this sheet ("2026-09-02 – 2026-09-03"); falls back to the document period. */
+  periodLabel?: string;
 };
 
 export type TripSheetPrintDocumentInput = {
@@ -33,11 +37,15 @@ export type TripSheetPrintDocumentInput = {
 
 export function buildTripSheetPrintDocument(input: TripSheetPrintDocumentInput): string {
   const sheets = input.groups.map((group) => renderGroup(group, input)).join('');
+  // Deliberately blank <title>: Chrome prints the document title in the top
+  // page margin, and the app URL in the bottom one. The iframe is fed via
+  // srcdoc (about:srcdoc) so there is no app URL to print, and a single space
+  // title keeps that corner empty too.
   return `<!DOCTYPE html>
 <html lang="lt">
 <head>
   <meta charset="utf-8" />
-  <title>Kelionės lapas</title>
+  <title> </title>
   <style>
     @page { size: A4 landscape; margin: 10mm; }
     html, body { margin: 0; padding: 0; background: #fff; color: #000; }
@@ -94,15 +102,17 @@ function renderGroup(group: TripSheetPrintGroup, input: TripSheetPrintDocumentIn
       <td class="num">${row.fuelConsumed === null ? '0,00' : formatNumber(row.fuelConsumed)}</td>
       <td class="num">${row.fuelEnd === null ? '—' : formatNumber(row.fuelEnd)}</td>
     </tr>`).join('');
+  const heading = group.sheetNumber == null ? 'Kelionės lapas' : `Kelionės lapas Nr. ${group.sheetNumber}`;
+  const period = group.periodLabel?.trim() || input.periodLabel;
   return `<section class="sheet">
-    <h1>Kelionės lapas</h1>
+    <h1>${escapeHtml(heading)}</h1>
     <p class="company">${escapeHtml(company)}</p>
     <div class="meta">
       <span>Transporto priemonė: ${escapeHtml(group.vehicleModel)} · ${escapeHtml(group.registrationNumber)}</span>
       <span>Degalų norma: ${escapeHtml(formatFuelNorm(group.fuelNorm))}</span>
       <span>Kuro tipas: ${escapeHtml(input.fuelType)}</span>
       <span>Vairuotojas(-ai): ${escapeHtml(group.driverNames)}</span>
-      <span>Laikotarpis: ${escapeHtml(input.periodLabel)}</span>
+      <span>Laikotarpis: ${escapeHtml(period)}</span>
       <span>Mėnuo: ${escapeHtml(group.monthLabel)}</span>
     </div>
     <table>

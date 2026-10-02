@@ -70,6 +70,56 @@ const ODOMETER_CORRECTION_2026_08 = `2026-08-04,671444,672107
 2026-08-30,678895,678895
 2026-08-31,678895,678895`;
 
+/** Distinct drivers present in a log, keyed by id ('none' for unassigned rows). */
+function distinctDrivers(rows: readonly { driverId?: string | null; driverName?: string | null }[]): { id: string; name: string }[] {
+  const seen = new Map<string, string>();
+  for (const row of rows) {
+    const id = row.driverId || 'none';
+    if (!seen.has(id)) seen.set(id, row.driverName || 'Nepriskirtas');
+  }
+  return [...seen].map(([id, name]) => ({ id, name }));
+}
+
+/**
+ * Month + driver chips above a vehicle log. Renders nothing until there is
+ * more than one month or driver to choose between, so a short log stays clean.
+ */
+function LogFilters({ styles, months, drivers, month, driverId, onMonth, onDriver, shownCount, totalCount, testID }: {
+  styles: ReturnType<typeof createStyles>;
+  months: readonly string[];
+  drivers: readonly { id: string; name: string }[];
+  month: string;
+  driverId: string;
+  onMonth: (value: string) => void;
+  onDriver: (value: string) => void;
+  shownCount: number;
+  totalCount: number;
+  testID: string;
+}) {
+  if (months.length <= 1 && drivers.length <= 1) return null;
+  return (
+    <View style={styles.filterPanel} testID={testID}>
+      {months.length > 1 ? <View style={styles.filterGroup}>
+        <Text style={styles.hint}>Mėnuo</Text>
+        <View style={styles.options}>
+          {['all', ...months].map((value) => <Pressable key={value} onPress={() => onMonth(value)} style={[styles.option, month === value && styles.optionSelected]}>
+            <Text style={[styles.optionText, month === value && styles.optionTextSelected]}>{value === 'all' ? 'Visi' : value}</Text>
+          </Pressable>)}
+        </View>
+      </View> : null}
+      {drivers.length > 1 ? <View style={styles.filterGroup}>
+        <Text style={styles.hint}>Vairuotojas</Text>
+        <View style={styles.options}>
+          {[{ id: 'all', name: 'Visi' }, ...drivers].map((driver) => <Pressable key={driver.id} onPress={() => onDriver(driver.id)} style={[styles.option, driverId === driver.id && styles.optionSelected]}>
+            <Text style={[styles.optionText, driverId === driver.id && styles.optionTextSelected]}>{driver.name}</Text>
+          </Pressable>)}
+        </View>
+      </View> : null}
+      {shownCount !== totalCount ? <Text style={styles.hint}>Rodoma {shownCount} iš {totalCount}</Text> : null}
+    </View>
+  );
+}
+
 export default function VehicleScreen() {
   const db = useSQLiteContext();
   const { profile, online } = useLocalAccess();
@@ -110,6 +160,7 @@ export default function VehicleScreen() {
   const [newReadingStart, setNewReadingStart] = useState('');
   const [newReadingEnd, setNewReadingEnd] = useState('');
   const [newReadingKm, setNewReadingKm] = useState('');
+  const [newReadingExtraKm, setNewReadingExtraKm] = useState('');
   const [newReadingDriverId, setNewReadingDriverId] = useState('');
   const [fuelDate, setFuelDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [fuelLiters, setFuelLiters] = useState('');
@@ -119,6 +170,10 @@ export default function VehicleScreen() {
   const [openingBalanceDate, setOpeningBalanceDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [openingBalanceLiters, setOpeningBalanceLiters] = useState('');
   const [openingBalanceNote, setOpeningBalanceNote] = useState('');
+  const [odometerMonth, setOdometerMonth] = useState('all');
+  const [odometerFilterDriverId, setOdometerFilterDriverId] = useState('all');
+  const [fuelMonth, setFuelMonth] = useState('all');
+  const [fuelFilterDriverId, setFuelFilterDriverId] = useState('all');
   const canApprove = canApproveExpiredDeparture(profile);
 
   const applyVehicle = useCallback(async (vehicleId: string) => {
@@ -231,9 +286,14 @@ export default function VehicleScreen() {
   const saveNewReading = async () => {
     if (busy) return;
     const start = Number(newReadingStart.replace(',', '.'));
-    const end = Number(newReadingEnd.replace(',', '.'));
+    const extraKm = newReadingExtraKm.trim() ? Number(newReadingExtraKm.replace(',', '.')) : 0;
+    // An empty-km-only day (commute etc.) can be logged with no odometer span —
+    // start doubles as end so nothing disturbs the wage odometer chain.
+    const end = newReadingEnd.trim() ? Number(newReadingEnd.replace(',', '.')) : start;
     if (!selectedVehicleId || !/^\d{4}-\d{2}-\d{2}$/.test(newReadingDate)) { setMessage('Įveskite naujos dienos datą YYYY-MM-DD.'); return; }
     if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) { setMessage('Patikrinkite naujos dienos odometro pradžią ir pabaigą.'); return; }
+    if (!Number.isFinite(extraKm) || extraKm < 0) { setMessage('Tušči kilometrai turi būti teigiamas skaičius.'); return; }
+    if (end === start && extraKm === 0) { setMessage('Įveskite arba nuvažiuotus km, arba tuščius (ne maršruto) km.'); return; }
     setBusy(true);
     try {
       // Echo back exactly what the server actually recorded (registration +
@@ -242,9 +302,9 @@ export default function VehicleScreen() {
       // goes looking for the entry and can't find it.
       const { reading } = await employeeApi<{ reading: { vehicleId: string; date: string } }>(
         '/api/trip-sheets/day-readings',
-        { method: 'POST', body: JSON.stringify({ vehicleId: selectedVehicleId, date: newReadingDate, startOdometer: start, endOdometer: end, driverId: newReadingDriverId || undefined }) },
+        { method: 'POST', body: JSON.stringify({ vehicleId: selectedVehicleId, date: newReadingDate, startOdometer: start, endOdometer: end, driverId: newReadingDriverId || undefined, extraDistanceKm: extraKm > 0 ? extraKm : undefined }) },
       );
-      setAddingReading(false); setNewReadingStart(''); setNewReadingEnd(''); setNewReadingKm(''); setNewReadingDriverId('');
+      setAddingReading(false); setNewReadingStart(''); setNewReadingEnd(''); setNewReadingKm(''); setNewReadingExtraKm(''); setNewReadingDriverId('');
       setMessage(`Išsaugota: ${registrationNumber} · ${reading.date}.`);
       await applyVehicle(selectedVehicleId);
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Naujos dienos išsaugoti nepavyko.'); }
@@ -299,8 +359,55 @@ export default function VehicleScreen() {
 
   // vehicleReadings is sorted ascending by date, so the most recent known
   // odometer reading is the last entry that actually has one.
-  const latestOdometer = [...vehicleReadings].reverse().find((reading) => reading.endOdometer != null)?.endOdometer ?? null;
-  const vehicleFuelEntries = chronologicalVehicleFuelEntries(vehicleReadings, selectedVehicleId);
+  // The odometer only ever climbs, so the suggestion for a new day is the
+  // highest end reading on record (a wrongly-dated later row can't drag it
+  // down). Falls back to the highest start when no day has an end yet.
+  const latestOdometer = vehicleReadings.reduce<number | null>((max, reading) => {
+    const value = reading.endOdometer ?? reading.startOdometer ?? null;
+    return value != null && (max == null || value > max) ? value : max;
+  }, null);
+  const vehicleFuelEntries = useMemo(
+    () => chronologicalVehicleFuelEntries(vehicleReadings, selectedVehicleId),
+    [vehicleReadings, selectedVehicleId],
+  );
+
+  // Both logs otherwise pile every month and every driver into one endless
+  // scroll. These derive the month/driver choices actually present, then show
+  // the list filtered and newest-first. The `vehicleReadings` state itself
+  // stays ascending — the wage odometer chain depends on that order — so the
+  // reversal happens only here, for display. "all" means no filter.
+  const odometerMonths = useMemo(
+    () => [...new Set(vehicleReadings.map((reading) => reading.date.slice(0, 7)))].sort().reverse(),
+    [vehicleReadings],
+  );
+  const odometerDrivers = useMemo(() => distinctDrivers(vehicleReadings), [vehicleReadings]);
+  const visibleReadings = useMemo(() => {
+    const month = odometerMonths.includes(odometerMonth) ? odometerMonth : 'all';
+    const driver = odometerDrivers.some((entry) => entry.id === odometerFilterDriverId) ? odometerFilterDriverId : 'all';
+    return vehicleReadings
+      .filter((reading) =>
+        (month === 'all' || reading.date.slice(0, 7) === month) &&
+        (driver === 'all' || (reading.driverId || 'none') === driver))
+      .slice()
+      .reverse();
+  }, [vehicleReadings, odometerMonths, odometerDrivers, odometerMonth, odometerFilterDriverId]);
+
+  const fuelMonths = useMemo(
+    () => [...new Set(vehicleFuelEntries.map((entry) => entry.filledAt.slice(0, 7)))].sort().reverse(),
+    [vehicleFuelEntries],
+  );
+  const fuelDrivers = useMemo(() => distinctDrivers(vehicleFuelEntries), [vehicleFuelEntries]);
+  const visibleFuelEntries = useMemo(() => {
+    const month = fuelMonths.includes(fuelMonth) ? fuelMonth : 'all';
+    const driver = fuelDrivers.some((entry) => entry.id === fuelFilterDriverId) ? fuelFilterDriverId : 'all';
+    return vehicleFuelEntries
+      .filter((entry) =>
+        (month === 'all' || entry.filledAt.slice(0, 7) === month) &&
+        (driver === 'all' || (entry.driverId || 'none') === driver))
+      .slice()
+      .reverse();
+  }, [vehicleFuelEntries, fuelMonths, fuelDrivers, fuelMonth, fuelFilterDriverId]);
+
   const saveFuel = async () => {
     if (busy) return;
     const liters = Number(fuelLiters.replace(',', '.'));
@@ -532,7 +639,9 @@ export default function VehicleScreen() {
             onPress={() => {
               setAddingReading((current) => {
                 const next = !current;
-                if (next && !newReadingStart && latestOdometer != null) setNewReadingStart(String(latestOdometer));
+                // Prefill the start with the last known end odometer every time
+                // the form opens — the user confirms it or corrects it by hand.
+                if (next && latestOdometer != null) setNewReadingStart(String(latestOdometer));
                 return next;
               });
             }}
@@ -551,6 +660,16 @@ export default function VehicleScreen() {
               placeholderTextColor={colors.textMuted}
               testID="new-vehicle-odometer-km"
             />
+            <TextInput
+              value={newReadingExtraKm}
+              onChangeText={setNewReadingExtraKm}
+              keyboardType="decimal-pad"
+              style={styles.input}
+              placeholder="Tušči km (ne maršruto, pvz. namai–darbas)"
+              placeholderTextColor={colors.textMuted}
+              testID="new-vehicle-extra-km"
+            />
+            <Text style={styles.hint}>Tušči km skaičiuojami tik automobilio kuro sąnaudoms — jie neįeina į maršruto ar atlygio kilometrus. Galima įrašyti dieną vien su tuščiais km, be maršruto.</Text>
             <View style={styles.inlineInputs}>
               <TextInput
                 value={newReadingStart}
@@ -562,7 +681,9 @@ export default function VehicleScreen() {
               />
               <TextInput value={newReadingEnd} onChangeText={setNewReadingEnd} keyboardType="decimal-pad" style={[styles.input, styles.inlineInput]} placeholder="Pabaiga" placeholderTextColor={colors.textMuted} />
             </View>
-            <Text style={styles.hint}>Pradžia užsipildo automatiškai pagal paskutinį žinomą odometrą — įveskite tik nuvažiuotus km, pabaiga susiskaičiuos pati. Prireikus pabaigą galite įvesti ir tiesiogiai.</Text>
+            <Text style={styles.hint}>{latestOdometer != null
+              ? `Pradžia užpildyta paskutiniu įvestu odometru (${latestOdometer}). Patvirtinkite arba pataisykite ranka. Įvedę nuvažiuotus km, pabaiga susiskaičiuos pati.`
+              : 'Įveskite tik nuvažiuotus km — pabaiga susiskaičiuos pati. Prireikus pabaigą galite įvesti ir tiesiogiai.'}</Text>
             <View style={styles.options}>{drivers.map((driver) => <Pressable key={driver.id} onPress={() => setNewReadingDriverId(driver.id)} style={[styles.option, newReadingDriverId === driver.id && styles.optionSelected]}><Text style={[styles.optionText, newReadingDriverId === driver.id && styles.optionTextSelected]}>{driver.displayName}</Text></Pressable>)}</View>
             <Pressable disabled={busy || !online} onPress={() => { void saveNewReading(); }} style={[styles.button, (busy || !online) && styles.disabled]}><Text style={styles.buttonText}>Išsaugoti naują dieną</Text></Pressable>
           </View> : null}
@@ -594,7 +715,19 @@ export default function VehicleScreen() {
               <Text style={styles.buttonText}>{bulkImporting ? 'Importuojama…' : 'Importuoti visas eilutes'}</Text>
             </Pressable>
           </View> : null}
-          {vehicleReadings.map((reading) => {
+          <LogFilters
+            styles={styles}
+            months={odometerMonths}
+            drivers={odometerDrivers}
+            month={odometerMonth}
+            driverId={odometerFilterDriverId}
+            onMonth={setOdometerMonth}
+            onDriver={setOdometerFilterDriverId}
+            shownCount={visibleReadings.length}
+            totalCount={vehicleReadings.length}
+            testID="vehicle-odometer-filters"
+          />
+          {visibleReadings.map((reading) => {
             const editing = editingReadingId === reading.assignmentId;
             return <View key={reading.assignmentId} style={styles.readingCard}>
               <View style={styles.readingDisplayRow}><View style={styles.readingHeader}><View style={styles.readingMain}><Text style={styles.readingTitle}>{reading.date}</Text><Text style={styles.hint}>{reading.startOdometer ?? '—'} → {reading.endOdometer ?? '—'} km{reading.startOdometer != null && reading.endOdometer != null ? ` · ${odometerDistanceKm(reading.startOdometer, reading.endOdometer)} km per dieną` : ''}</Text></View><Text style={styles.hint}>{reading.driverName || 'Nepriskirtas'}</Text></View>
@@ -637,7 +770,19 @@ export default function VehicleScreen() {
           </View>
           {profile.role === 'admin' ? <View style={styles.options}>{drivers.map((driver) => <Pressable key={driver.id} onPress={() => setFuelDriverId(driver.id)} style={[styles.option, fuelDriverId === driver.id && styles.optionSelected]}><Text style={[styles.optionText, fuelDriverId === driver.id && styles.optionTextSelected]}>{driver.displayName}</Text></Pressable>)}</View> : null}
           <Pressable disabled={busy || !online} onPress={() => { void saveFuel(); }} style={[styles.button, (busy || !online) && styles.disabled]}><Text style={styles.buttonText}>{editingFuelId ? 'Išsaugoti kuro pakeitimą' : 'Įrašyti papildymą'}</Text></Pressable>
-          {vehicleFuelEntries.map((entry) => <View key={entry.id} style={styles.fuelReadingRow}><View style={styles.fuelReadingMain}><Text style={styles.readingTitle}>{new Date(entry.filledAt).toLocaleDateString('lt-LT')}</Text><Text style={styles.hint}>{entry.liters} l{entry.receiptNumber ? ` · čekis ${entry.receiptNumber}` : ''}{entry.driverName ? ` · ${entry.driverName}` : ''}</Text></View><View style={styles.readingActions}><Pressable accessibilityLabel={`Redaguoti kuro pylimą ${entry.id}`} onPress={() => { setEditingFuelId(entry.id); setFuelDate(entry.filledAt.slice(0, 10)); setFuelLiters(String(entry.liters)); setFuelReceipt(entry.receiptNumber ?? ''); setFuelDriverId(entry.driverId); }} style={styles.iconButton}><PencilIcon size={18} color={colors.warning} /></Pressable><Pressable accessibilityLabel={`Ištrinti kuro pylimą ${entry.id}`} disabled={busy} onPress={() => confirmDeleteFuel(entry)} style={styles.iconButton}><TrashIcon size={18} color={colors.danger} /></Pressable></View></View>)}
+          <LogFilters
+            styles={styles}
+            months={fuelMonths}
+            drivers={fuelDrivers}
+            month={fuelMonth}
+            driverId={fuelFilterDriverId}
+            onMonth={setFuelMonth}
+            onDriver={setFuelFilterDriverId}
+            shownCount={visibleFuelEntries.length}
+            totalCount={vehicleFuelEntries.length}
+            testID="vehicle-fuel-filters"
+          />
+          {visibleFuelEntries.map((entry) => <View key={entry.id} style={styles.fuelReadingRow}><View style={styles.fuelReadingMain}><Text style={styles.readingTitle}>{new Date(entry.filledAt).toLocaleDateString('lt-LT')}</Text><Text style={styles.hint}>{entry.liters} l{entry.receiptNumber ? ` · čekis ${entry.receiptNumber}` : ''}{entry.driverName ? ` · ${entry.driverName}` : ''}</Text></View><View style={styles.readingActions}><Pressable accessibilityLabel={`Redaguoti kuro pylimą ${entry.id}`} onPress={() => { setEditingFuelId(entry.id); setFuelDate(entry.filledAt.slice(0, 10)); setFuelLiters(String(entry.liters)); setFuelReceipt(entry.receiptNumber ?? ''); setFuelDriverId(entry.driverId); }} style={styles.iconButton}><PencilIcon size={18} color={colors.warning} /></Pressable><Pressable accessibilityLabel={`Ištrinti kuro pylimą ${entry.id}`} disabled={busy} onPress={() => confirmDeleteFuel(entry)} style={styles.iconButton}><TrashIcon size={18} color={colors.danger} /></Pressable></View></View>)}
           {profile.role === 'admin' ? <View style={styles.newDayForm} testID="vehicle-opening-fuel-balance">
             <Text style={styles.sectionTitle}>Pradinis kuro likutis</Text>
             <Text style={styles.hint}>Nurodykite, kiek litrų bake buvo nuo pasirinktos dienos. Naudokite, kai pradedate skaičiuoti nuo tam tikros datos.</Text>
@@ -732,6 +877,8 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   addDayButton: { minHeight: 44, borderRadius: radius.md, borderWidth: 1, borderColor: colors.info, backgroundColor: colors.infoSoft, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
   addDayButtonText: { ...type.button, color: colors.info },
   newDayForm: { padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.surfaceMuted, gap: spacing.sm },
+  filterPanel: { padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.surfaceMuted, gap: spacing.sm },
+  filterGroup: { gap: spacing.xs },
   bulkImportInput: { minHeight: 220, textAlignVertical: 'top' },
   bulkPanel: { marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceMuted, borderWidth: 1, borderColor: colors.borderStrong, gap: spacing.sm },
   inlineInputs: { flexDirection: 'row', gap: spacing.sm },

@@ -31,6 +31,9 @@ describe('FiRo visual identity across employee modules', () => {
     expect(header).toContain('styles.brandCenter');
     expect(header).toContain('styles.sideSlot');
     expect(header).toContain('accessibilityLabel="Atgal"');
+    expect(header).not.toContain('brand-header-home');
+    expect(header).toContain('brand-header-logo');
+    expect(header).toContain('profileInitials');
   });
 
   it('keeps the approved wide FR badge source in the brand pipeline', () => {

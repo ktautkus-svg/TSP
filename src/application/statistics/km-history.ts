@@ -21,12 +21,22 @@ export type KmHistoryDay = {
 /** Turns raw statistics rows into the driver-facing answer to “where were these kilometres driven?”. */
 export function buildKmHistory(rows: readonly StatsRouteRow[], period: StatsPeriod): KmHistoryDay[] {
   const days = new Map<string, KmHistoryDay>();
+  const seenPerDay = new Map<string, Set<string>>();
   rows
     .filter((row) => row.date >= period.fromKey && row.date <= period.toKey)
     .forEach((row, index) => {
       const actual = row.actualDistanceKm !== null;
       const km = actual ? row.actualDistanceKm : row.estimatedDistanceKm;
       if (km === null) return;
+      // Collapse duplicate rows for one day — same route synced twice, or a
+      // draft copy left alongside its assigned twin — so a single route never
+      // shows (and counts) twice.
+      const seen = seenPerDay.get(row.date) ?? new Set<string>();
+      const signature = row.routeId
+        ?? `${row.routeLabel}|${km}|${row.totalStops}|${row.vehicleRegistration ?? ''}|${row.driverName ?? ''}`;
+      if (seen.has(signature)) return;
+      seen.add(signature);
+      seenPerDay.set(row.date, seen);
       const day = days.get(row.date) ?? { date: row.date, totalKm: 0, allActual: true, routes: [] };
       day.totalKm += km;
       day.allActual = day.allActual && actual;

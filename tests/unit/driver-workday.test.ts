@@ -25,6 +25,7 @@ import {
   MarkStopNotLoaded,
   MarkStopUnloaded,
   parseOdometer,
+  RevertStopToPending,
   ReverseStopOrder,
   ReorderRemainingStops,
   SaveCompletionOdometerDraft,
@@ -388,6 +389,43 @@ describe('driver workday persistence', () => {
       failureReason: 'Nedirba',
       failureComment: 'Durys užrakintos',
     });
+  });
+
+  it('reverts an accidentally processed stop back to pending, any time the route is in progress', async () => {
+    const { db } = createDb();
+    await startedRoute(db);
+    await new MarkStopDelivered(db).execute('route-1', 'stop-1');
+    await new MarkStopFailed(db).execute('route-1', 'stop-2', { reason: 'Nedirba', comment: '' });
+    expect(await new GetRouteProgress(db).execute('route-1')).toMatchObject({ deliveredStops: 1, failedStops: 1, remainingStops: 0 });
+
+    await new RevertStopToPending(db).execute('route-1', 'stop-1');
+    await new RevertStopToPending(db).execute('route-1', 'stop-2');
+    const stops = await new RouteRepository(db).getStops('route-1');
+    expect(stops[0]).toMatchObject({ deliveryStatus: 'pending', deliveredAt: null, failureReason: null });
+    expect(stops[1]).toMatchObject({ deliveryStatus: 'pending', failedAt: null, failureReason: null, failureComment: null });
+    expect(await new GetRouteProgress(db).execute('route-1')).toMatchObject({ deliveredStops: 0, failedStops: 0, remainingStops: 2 });
+    // Idempotent on an already-pending stop.
+    expect((await new RevertStopToPending(db).execute('route-1', 'stop-1')).idempotent).toBe(true);
+    expect((await new RouteRepository(db).listAudit('route-1')).some((entry) => entry.actionType === 'stop_reverted')).toBe(true);
+  });
+
+  it('records a partial return: the stop is delivered but carries the return marker + note', async () => {
+    const { db } = createDb();
+    await startedRoute(db);
+    await expect(new MarkStopDelivered(db).execute('route-1', 'stop-1', { partialReturn: { note: '  ' } }))
+      .rejects.toMatchObject({ code: 'INVALID_STOP' });
+    await new MarkStopDelivered(db).execute('route-1', 'stop-1', { partialReturn: { note: 'grąžino 2 dėžes pieno' } });
+    const stop = (await new RouteRepository(db).getStops('route-1'))[0]!;
+    expect(stop).toMatchObject({
+      deliveryStatus: 'delivered',
+      failureReason: 'Grąžinimas / trūkumas',
+      failureComment: 'grąžino 2 dėžes pieno',
+    });
+    // Counts as delivered — not as a failed / remaining stop.
+    expect(await new GetRouteProgress(db).execute('route-1')).toMatchObject({ deliveredStops: 1, failedStops: 0, remainingStops: 1 });
+    // A return note can still be added to an already-delivered stop.
+    await new MarkStopDelivered(db).execute('route-1', 'stop-1', { partialReturn: { note: 'trūko 1 vnt' } });
+    expect((await new RouteRepository(db).getStops('route-1'))[0]).toMatchObject({ failureComment: 'trūko 1 vnt' });
   });
 
   it('completes transactionally, rejects negative distance and ignores double completion', async () => {

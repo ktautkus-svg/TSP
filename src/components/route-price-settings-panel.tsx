@@ -114,7 +114,7 @@ export function RoutePriceSettingsPanel({
     {!canEdit ? <Text style={styles.notice}>Dispečeris parametrus gali peržiūrėti. Keisti gali tik administratorius.</Text> : null}
     {message ? <Text accessibilityRole="alert" style={styles.message}>{message}</Text> : null}
 
-    <PriceSection title="Bendri skaičiavimo dydžiai" styles={styles}>
+    <PriceSection defaultOpen title="Bendri skaičiavimo dydžiai" styles={styles}>
       <View style={styles.fieldGrid}>
         <NumberField disabled={!canEdit} label="Rezervas / antkainis, %" value={draft.overheadPercent} onChange={(value) => setDraft((current) => ({ ...current, overheadPercent: value }))} styles={styles} />
         <NumberField disabled={!canEdit} label="Darbdavio mokesčiai, %" value={draft.payrollTaxPercent} onChange={(value) => setDraft((current) => ({ ...current, payrollTaxPercent: value }))} styles={styles} />
@@ -124,13 +124,20 @@ export function RoutePriceSettingsPanel({
     </PriceSection>
 
     <PriceSection title="Kuras ir darbo dienos pagal mėnesį" styles={styles}>
-      <View style={styles.monthGrid}>
-        {MONTHS.map((month, index) => <View key={month} style={styles.monthRow}>
-          <Text style={styles.rowTitle}>{month}</Text>
-          <NumberField compact disabled={!canEdit} label="Kuras, €/l" value={draft.fuelPriceByMonth[index]} onChange={(value) => updateMonth('fuelPriceByMonth', index, value)} styles={styles} />
-          <NumberField compact disabled={!canEdit} label="Darbo dienos" value={draft.workingDaysByMonth[index]} onChange={(value) => updateMonth('workingDaysByMonth', index, value)} styles={styles} />
-        </View>)}
+      <View style={styles.monthTableHead}>
+        <Text style={[styles.monthCellLabel, styles.monthNameCol]}>Mėnuo</Text>
+        <Text style={[styles.monthCellLabel, styles.monthValueCol]}>Kuras, €/l</Text>
+        <Text style={[styles.monthCellLabel, styles.monthValueCol]}>Darbo d.</Text>
       </View>
+      {MONTHS.map((month, index) => <View key={month} style={styles.monthTableRow}>
+        <Text style={[styles.rowTitle, styles.monthNameCol]}>{month}</Text>
+        <View style={styles.monthValueCol}>
+          <NumberField bare disabled={!canEdit} label="" value={draft.fuelPriceByMonth[index]} onChange={(value) => updateMonth('fuelPriceByMonth', index, value)} styles={styles} />
+        </View>
+        <View style={styles.monthValueCol}>
+          <NumberField bare disabled={!canEdit} label="" value={draft.workingDaysByMonth[index]} onChange={(value) => updateMonth('workingDaysByMonth', index, value)} styles={styles} />
+        </View>
+      </View>)}
     </PriceSection>
 
     <PriceSection title="Numatytasis vairuotojo tarifas" styles={styles}>
@@ -172,8 +179,15 @@ export function RoutePriceSettingsPanel({
   </View>;
 }
 
-function PriceSection({ title, children, styles }: { title: string; children: React.ReactNode; styles: ReturnType<typeof createStyles> }) {
-  return <View style={styles.section}><Text style={styles.sectionTitle}>{title}</Text>{children}</View>;
+function PriceSection({ title, children, defaultOpen = false, styles }: { title: string; children: React.ReactNode; defaultOpen?: boolean; styles: ReturnType<typeof createStyles> }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return <View style={styles.section}>
+    <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={() => setOpen((value) => !value)} style={styles.sectionToggle}>
+      <Text style={styles.sectionTitle}>{title}</Text>
+      <Text style={styles.sectionChevron}>{open ? '▾' : '▸'}</Text>
+    </Pressable>
+    {open ? children : null}
+  </View>;
 }
 
 function VariableDriverFields({ disabled, profile, onChange, styles }: { disabled: boolean; profile: Exclude<DriverCostProfile, { type: 'fixed' }>; onChange: (key: keyof Omit<typeof profile, 'type'>, value: number) => void; styles: ReturnType<typeof createStyles> }) {
@@ -193,7 +207,7 @@ function VehicleFields({ disabled, profile, onChange, styles }: { disabled: bool
   </View>;
 }
 
-function NumberField({ disabled, label, value, onChange, compact, styles }: { disabled: boolean; label: string; value: number; onChange: (value: number) => void; compact?: boolean; styles: ReturnType<typeof createStyles> }) {
+function NumberField({ disabled, label, value, onChange, compact, bare, styles }: { disabled: boolean; label: string; value: number; onChange: (value: number) => void; compact?: boolean; bare?: boolean; styles: ReturnType<typeof createStyles> }) {
   const [textValue, setTextValue] = useState(formatInput(value));
   useEffect(() => setTextValue(formatInput(value)), [value]);
   const commit = () => {
@@ -201,8 +215,8 @@ function NumberField({ disabled, label, value, onChange, compact, styles }: { di
     if (Number.isFinite(parsed) && parsed >= 0) onChange(parsed);
     else setTextValue(formatInput(value));
   };
-  return <View style={[styles.field, compact && styles.fieldCompact]}>
-    <Text style={styles.label}>{label}</Text>
+  return <View style={[styles.field, compact && styles.fieldCompact, bare && styles.fieldBare]}>
+    {bare ? null : <Text style={styles.label}>{label}</Text>}
     <TextInput
       editable={!disabled}
       keyboardType="decimal-pad"
@@ -231,16 +245,22 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   notice: { ...type.bodyStrong, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.warningSoft, color: colors.warning },
   message: { ...type.bodyStrong, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.infoSoft, color: colors.info },
   section: { gap: spacing.sm, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.borderSubtle },
-  sectionTitle: { ...type.sectionTitle, color: colors.text },
+  sectionToggle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 44 },
+  sectionChevron: { ...type.sectionTitle, color: colors.textMuted },
+  sectionTitle: { ...type.sectionTitle, color: colors.text, flexShrink: 1 },
   sectionHint: { ...type.secondary, color: colors.textMuted },
+  monthTableHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingBottom: 2, borderBottomWidth: 1, borderBottomColor: colors.borderSubtle },
+  monthTableRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 48 },
+  monthCellLabel: { ...type.label, color: colors.textMuted },
+  monthNameCol: { flexGrow: 1, flexBasis: 90, minWidth: 72 },
+  monthValueCol: { width: 96, flexShrink: 0 },
+  fieldBare: { flexGrow: 0, flexBasis: 'auto', minWidth: 0, gap: 0 },
   fieldGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   field: { flexGrow: 1, flexBasis: 200, minWidth: 150, gap: 5 },
   fieldCompact: { flexBasis: 150 },
   label: { ...type.label, color: colors.textMuted },
   input: { minHeight: 44, paddingHorizontal: spacing.sm, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, color: colors.text, ...type.body },
   inputDisabled: { backgroundColor: colors.surfaceMuted, color: colors.textSecondary },
-  monthGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  monthRow: { flexGrow: 1, flexBasis: 300, minWidth: 260, padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.surfaceSubtle, gap: spacing.sm },
   dataRow: { paddingVertical: spacing.sm, gap: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.borderSubtle },
   rowHeading: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: spacing.sm },
   rowTitle: { ...type.bodyStrong, color: colors.text },

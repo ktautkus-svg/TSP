@@ -77,10 +77,13 @@ describe('dispatcher desktop workspace', () => {
     expect(dispatcherSource).toContain('Gautas įrenginyje');
   });
 
-  it('edits an assigned route date in a focused dialog before the route starts', () => {
+  it('edits an assigned route date, driver and vehicle in a focused dialog before the route starts', () => {
     expect(dispatcherSource).toContain('testID="assignment-date-editor"');
     expect(dispatcherSource).toContain("method: 'PATCH'");
-    expect(dispatcherSource).toContain('Išsaugoti datą');
+    expect(dispatcherSource).toContain('assignment-edit-driver-');
+    expect(dispatcherSource).toContain('assignment-edit-vehicle-');
+    expect(dispatcherSource).toContain('body.driverId = editingAssignmentDriverId');
+    expect(dispatcherSource).toContain('body.vehicleId = editingAssignmentVehicleId');
   });
 
   it('lets an administrator close a hanging assignment without deleting it', () => {

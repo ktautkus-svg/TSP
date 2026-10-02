@@ -23,6 +23,7 @@ let legacyAdminMigration: Promise<void> | null = null;
 let fuelAugust2026Migration: Promise<void> | null = null;
 let tripSheetAugust2026VehicleFix: Promise<void> | null = null;
 let august2026ExcelBackfill: Promise<void> | null = null;
+let nll182September2026Backfill: Promise<void> | null = null;
 
 const TRIVIAL_ADMIN_PINS = new Set(['12345', '123456', '000000', '111111']);
 
@@ -152,6 +153,26 @@ export function ensureAugust2026ExcelBackfillMigrated(): Promise<void> {
   return august2026ExcelBackfill;
 }
 
+/** One-shot NLL182 September 2026 backfill — v1 (2026-09-01…03), v2 (drop wrong
+ *  09-02 route, add 09-04 fill, 09-06 empty km), v3 (clear leftover duplicate/
+ *  foreign assignments on 09-01/09-02/09-04). Firestore flags. */
+export function ensureNll182September2026Migrated(): Promise<void> {
+  if (!nll182September2026Backfill) {
+    nll182September2026Backfill = (async () => {
+      const v1 = await store.applySeptember2026Nll182Backfill();
+      process.stdout.write(`${JSON.stringify({ event: 'nll182_september_2026_backfill', ...v1 })}\n`);
+      const v2 = await store.applySeptember2026Nll182BackfillV2();
+      process.stdout.write(`${JSON.stringify({ event: 'nll182_september_2026_backfill_v2', ...v2 })}\n`);
+      const v3 = await store.applySeptember2026Nll182BackfillV3();
+      process.stdout.write(`${JSON.stringify({ event: 'nll182_september_2026_backfill_v3', ...v3 })}\n`);
+    })().catch((error) => {
+      nll182September2026Backfill = null;
+      throw error;
+    });
+  }
+  return nll182September2026Backfill;
+}
+
 export async function handleEmployeeApi(
   request: IncomingMessage,
   response: ServerResponse,
@@ -164,6 +185,7 @@ export async function handleEmployeeApi(
     await ensureFuelAugust2026Migrated();
     await ensureTripSheetAugust2026VehicleFixMigrated();
     await ensureAugust2026ExcelBackfillMigrated();
+    await ensureNll182September2026Migrated();
     if (request.method === 'GET' && pathname === '/api/auth/status') {
       return send(response, 200, { initialized: await store.hasUsers() }, requestId);
     }
@@ -452,10 +474,23 @@ export async function handleEmployeeApi(
     if (adminAssignmentMatch && request.method === 'PATCH') {
       requireRole(profile, ['admin', 'dispatcher']);
       const body = parseObject(await readBody(request, 32_000));
-      const assignment = await store.updateAssignmentSchedule(
-        decodeURIComponent(adminAssignmentMatch[1]),
-        stringField(body, 'date'),
-      );
+      const assignmentId = decodeURIComponent(adminAssignmentMatch[1]);
+      let assignment = body.date === undefined
+        ? (await store.listAssignments(profile)).find((item) => item.id === assignmentId)!
+        : await store.updateAssignmentSchedule(assignmentId, stringField(body, 'date'));
+      if (body.driverId !== undefined || body.vehicleId !== undefined) {
+        assignment = await store.reassignAssignment(assignmentId, {
+          driverId: body.driverId === undefined ? undefined : stringField(body, 'driverId'),
+          vehicleId: body.vehicleId === undefined ? undefined : stringField(body, 'vehicleId'),
+        });
+      }
+      if (body.totalStops !== undefined || body.totalWeightKg !== undefined) {
+        assignment = await store.updateAssignmentManualMetrics(assignmentId, {
+          totalStops: body.totalStops === undefined ? undefined : numberField(body, 'totalStops'),
+          totalWeightKg: body.totalWeightKg === undefined ? undefined : numberField(body, 'totalWeightKg'),
+        });
+      }
+      if (!assignment) throw new EmployeeApiError('ASSIGNMENT_NOT_FOUND', 'Maršruto priskyrimas nerastas.', 404);
       await routeSyncStore.seedAssignment(assignment.driverId, assignment.routeSnapshot);
       return send(response, 200, { assignment }, requestId);
     }
@@ -478,6 +513,9 @@ export async function handleEmployeeApi(
         startOdometer: numberField(body, 'startOdometer'),
         endOdometer: numberField(body, 'endOdometer'),
         driverId: body.driverId === undefined ? undefined : body.driverId === null ? null : stringField(body, 'driverId'),
+        extraDistanceKm: body.extraDistanceKm === undefined
+          ? undefined
+          : body.extraDistanceKm === null ? null : numberField(body, 'extraDistanceKm'),
       });
       return send(response, 200, { reading }, requestId);
     }

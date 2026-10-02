@@ -213,6 +213,12 @@ export type ServerTripSheet = {
   actualDistanceKm: number | null;
   /** Fuel-only remainder km (other/unassigned). Not wage distance. */
   extraDistanceKm?: number | null;
+  /**
+   * Assignment kilometres before a vehicle-day reading was copied onto this
+   * sheet. The kelionės lapas uses it so a 0 km leftover does not contribute
+   * route numbers after that copy. Wage distance still uses the odometer.
+   */
+  ownDistanceKm?: number | null;
   plannedDistanceKm: number | null;
   startedAt: string | null;
   completedAt: string | null;

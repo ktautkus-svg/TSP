@@ -1,0 +1,168 @@
+import { KAROLIS_TAUTKUS_DRIVER_ID } from './trip-sheet-august-2026-vehicle-fix';
+
+/**
+ * Authoritative NLL182 backfill for 2026-09-01 … 2026-09-03 (Karolis, 2026-09-04).
+ *
+ * One-shot production migration, gated by its own Firestore `tsp_settings`
+ * flag. Re-running is a no-op — every write is keyed on a deterministic id and
+ * skipped when it already exists, so a second Cloud Run boot adds nothing.
+ *
+ * Facts (Europe/Vilnius calendar days, odometer chain continues 2026-08-31 →
+ * 283165, which this migration never rewrites):
+ *
+ *   09-01  283165 → 283256  (91 km)   BE VAIRUOTOJO, no routes, no fill
+ *   09-02  283256 → 283671  (415 km)  Karolis, R11;R19;R54, +78 L
+ *   09-03  283671 → 283829  (158 km)  Karolis, M11,          +79 L
+ *
+ * Day-start tank on 09-01 is 21 L (real), seeded as an approved admin
+ * correction so the September ledger opens on 21 L, not a fictitious 30 L.
+ *
+ * The fuel norm is left untouched — NLL182 already carries 13.9 L/100km live.
+ */
+
+export const NLL182_SEPTEMBER_2026_BACKFILL_ID = 'nll182-september-2026-backfill-v1';
+
+/**
+ * Follow-up one-shot after v1 (Karolis, 2026-09-07):
+ * - 2026-09-02 K.Tautkus never drove R88;R90;R82;R86;R15 — that completed
+ *   assignment is deleted. The real work is R11;R54;R19 (kept, from v1's
+ *   route-sep2026-nll182-0902).
+ * - 2026-09-04 gets a 79 L fill.
+ * - 2026-09-06 gets 68 empty (non-route) km — commute home→work — recorded
+ *   as extraDistanceKm so it feeds the fuel ledger but not wage distance.
+ */
+export const NLL182_SEPTEMBER_2026_BACKFILL_V2_ID = 'nll182-september-2026-backfill-v2';
+
+/** The 2026-09-02 codes K.Tautkus did NOT drive; a completed assignment made
+ *  only of these on that date is removed. */
+export const NLL182_SEPTEMBER_0902_WRONG_CODES = ['R88', 'R90', 'R82', 'R86', 'R15'] as const;
+
+export const NLL182_SEPTEMBER_0902_ROUTE_ID = 'route-sep2026-nll182-0902';
+
+/**
+ * Third one-shot (Karolis, 2026-09-07) — clears the leftover duplicate/foreign
+ * assignments the statistics screen was still double-counting:
+ *
+ *   09-01  NLL182 must be odometer-only (91 km, no route). Any completed/
+ *          cancelled NLL182 assignment on that day is removed.
+ *   09-02  Keep ONLY the real driven route (the one with the most delivered
+ *          stops — 20, all delivered). The v1 synthetic stub
+ *          (route-sep2026-nll182-0902, 0 stops) and a foreign R11;R15;R19
+ *          assignment on the same van/day are removed. The 78 L fill and the
+ *          odometer reading are keyed to the vehicle-day, not the assignment,
+ *          so they are untouched.
+ *   09-04  Remove the stray M11 (92,5 km) assignment — M11 is a 09-03 route.
+ *          The real 09-04 route (R11;R15;R19, 451 km) stays as-is.
+ */
+export const NLL182_SEPTEMBER_2026_BACKFILL_V3_ID = 'nll182-september-2026-backfill-v3';
+
+export const NLL182_SEPTEMBER_V3_EMPTY_DAY = '2026-09-01' as const;
+export const NLL182_SEPTEMBER_V3_KEEP_MOST_STOPS_DAY = '2026-09-02' as const;
+export const NLL182_SEPTEMBER_V3_DROP_M11_DAY = '2026-09-04' as const;
+
+/** Region-code set that marks the stray 2026-09-04 assignment to delete. */
+export function isNll182September0904StrayM11(routeCodes: readonly string[]): boolean {
+  const codes = routeCodes.map((code) => code.toUpperCase().trim()).filter(Boolean);
+  return codes.length === 1 && codes[0] === 'M11';
+}
+
+export const NLL182_SEPTEMBER_0904_FILL = { id: 'seed-NLL182-20260904-79', liters: 79, date: '2026-09-04' } as const;
+
+export const NLL182_SEPTEMBER_0906_EMPTY_KM = { date: '2026-09-06', extraKm: 68, note: 'Namai → darbas, ne maršruto km (2026-09-07 pataisymas).' } as const;
+
+export const NLL182_REGISTRATION = 'NLL182';
+
+/** True when a completed assignment's codes are ALL in the wrong-0902 set. */
+export function isNll182September0902WrongAssignment(routeCodes: readonly string[]): boolean {
+  const codes = routeCodes.map((code) => code.toUpperCase().trim()).filter(Boolean);
+  if (codes.length === 0) return false;
+  const wrong = new Set<string>(NLL182_SEPTEMBER_0902_WRONG_CODES);
+  return codes.every((code) => wrong.has(code));
+}
+
+/** Real tank reading at the start of 2026-09-01, per Karolis. */
+export const NLL182_SEPTEMBER_2026_OPENING = {
+  reportId: 'open-NLL182-20260901',
+  liters: 21,
+  effectiveAt: '2026-09-01',
+  note: 'Rugsėjo 1 d. dienos pradžios bako likutis pagal administratoriaus nurodymą (2026-09-04).',
+} as const;
+
+export type Nll182SeptemberFill = {
+  /** Deterministic fuel-entry id — stable across re-runs. */
+  id: string;
+  liters: number;
+};
+
+export type Nll182SeptemberDay = {
+  date: string;
+  startOdometer: number;
+  endOdometer: number;
+  /** null → the vehicle-day has no driver (BE VAIRUOTOJO). */
+  driverId: string | null;
+  driverName: string | null;
+  /** Region codes shown as "Kur važiuota"; empty → odometer-only stub day. */
+  routeCodes: readonly string[];
+  /** Deterministic route id for the completed assignment; null → no assignment. */
+  routeId: string | null;
+  fill: Nll182SeptemberFill | null;
+};
+
+export const NLL182_SEPTEMBER_2026_DAYS: readonly Nll182SeptemberDay[] = [
+  {
+    date: '2026-09-01',
+    startOdometer: 283165,
+    endOdometer: 283256,
+    driverId: null,
+    driverName: null,
+    routeCodes: [],
+    routeId: null,
+    fill: null,
+  },
+  {
+    date: '2026-09-02',
+    startOdometer: 283256,
+    endOdometer: 283671,
+    driverId: KAROLIS_TAUTKUS_DRIVER_ID,
+    driverName: 'Karolis Tautkus',
+    routeCodes: ['R11', 'R19', 'R54'],
+    routeId: 'route-sep2026-nll182-0902',
+    fill: { id: 'seed-NLL182-20260902-78', liters: 78 },
+  },
+  {
+    date: '2026-09-03',
+    startOdometer: 283671,
+    endOdometer: 283829,
+    driverId: KAROLIS_TAUTKUS_DRIVER_ID,
+    driverName: 'Karolis Tautkus',
+    routeCodes: ['M11'],
+    routeId: 'route-sep2026-nll182-0903',
+    fill: { id: 'seed-NLL182-20260903-79', liters: 79 },
+  },
+];
+
+export const NLL182_SEPTEMBER_2026_FILL_IDS = NLL182_SEPTEMBER_2026_DAYS
+  .map((day) => day.fill?.id)
+  .filter((id): id is string => Boolean(id));
+
+/** Km driven that day — always end − start, never a sum of route sheets. */
+export function nll182SeptemberDayDistanceKm(
+  day: Pick<Nll182SeptemberDay, 'startOdometer' | 'endOdometer'>,
+): number {
+  return Math.round((day.endOdometer - day.startOdometer) * 10) / 10;
+}
+
+/** True for a fuel entry this migration owns — used to keep re-runs idempotent. */
+export function isNll182September2026FuelEntry(entry: {
+  id?: string | null;
+  registrationNumber?: string | null;
+}): boolean {
+  return Boolean(entry.id)
+    && NLL182_SEPTEMBER_2026_FILL_IDS.includes(entry.id as string)
+    && (entry.registrationNumber ?? '').toUpperCase() === NLL182_REGISTRATION;
+}
+
+/** Shipment lines that make `uniqueRegionCodes` return the day's route codes. */
+export function nll182SeptemberShipmentLines(day: Pick<Nll182SeptemberDay, 'routeCodes'>): { route_code: string }[] {
+  return day.routeCodes.map((code) => ({ route_code: code }));
+}

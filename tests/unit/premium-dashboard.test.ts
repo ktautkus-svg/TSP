@@ -57,15 +57,18 @@ describe('premium route dashboard', () => {
     // Semicircular steering-rim frame (look through the wheel) — progress fills
     // along the rim; gauges render as children in the instrument bay. Not a
     // tiny disconnected ring, and not an opaque blue dashboard card.
-    expect(road).toContain('const ARC_LENGTH = 520');
+    // Flat corner-to-corner wheel-top arc — big radius, small rise — never a
+    // tall half-circle that eats the windshield or the gauges.
+    expect(road).toContain('const ARC_LENGTH = 372');
     expect(road).toContain('displayedProgress * ARC_LENGTH');
     expect(road).toContain('const RIM_PATH');
-    expect(road).toContain('M 28 198 A 172 172 0 0 1 372 198');
+    expect(road).toContain('M 20 96 A 640 640 0 0 1 380 96');
+    expect(road).not.toContain('A 172 172');
     expect(road).toContain('styles.steeringRim');
     expect(road).toContain('styles.clusterBay');
     expect(road).toContain('styles.gaugeSlot');
     expect(road).toContain('readonly children?: ReactNode');
-    expect(road).toContain('binnacleShade');
+    expect(road).not.toContain('binnacleShade');
     expect(road).not.toContain('dashboardSurface');
     expect(road).not.toContain('WHEEL_CIRCUMFERENCE');
     expect(road).not.toContain('styles.steeringWheelWrap');
@@ -84,7 +87,7 @@ describe('premium route dashboard', () => {
     expect(road).not.toContain('Taškai {percent');
     expect(road).toContain('readonly compact?: boolean');
     expect(road).toContain('styles.windshieldShellCompact');
-    expect(road).toContain('windshieldShellCompact: { aspectRatio: 2.55, maxHeight: 148 }');
+    expect(road).toContain('windshieldShellCompact: { aspectRatio: 2.2, maxHeight: 176 }');
     expect(road).toContain('styles.progressReadout');
     expect(road).not.toContain('styles.instrumentBridge');
     expect(road).toContain('SCENE_ROTATION_INTERVAL_MS');
@@ -97,7 +100,9 @@ describe('premium route dashboard', () => {
     expect(road).not.toContain('<TimeOfDayOverlay');
     // High-contrast weather chips stay readable over bright snow scenes.
     expect(road).toContain("backgroundColor: 'rgba(8, 13, 18, 0.82)'");
-    expect(road).toContain('backgroundColor: cockpit.background');
+    expect(road).toContain('backgroundColor: cockpit.surface');
+    expect(road).toContain('stroke={cockpit.white}');
+    expect(road).toContain('progressStroke > 0');
     // Each state uses a forward windshield image; no decorative celestial objects.
     expect(road).not.toContain('moonGlow');
   });
@@ -150,9 +155,11 @@ describe('premium route dashboard', () => {
     expect(delivery.indexOf('NAVIGUOTI')).toBeLessThan(delivery.indexOf('dashboard-delivered-button'));
     expect(delivery).toContain('minHeight: 48');
     expect(delivery).not.toContain('minHeight: 94');
-    // Larger gauges — product nails inside the rim, not tiny real-car dials.
-    expect(delivery).toContain('Math.min(132, Math.max(118');
-    expect(delivery).toContain('Math.min(140, Math.max(124');
+    // Readable gauges that still fit two-across + the centre block on the
+    // narrowest phone, from a shared budget so nothing pushes the page wide.
+    expect(delivery).toContain('const gaugeBudget = (Math.min(viewportWidth, 412) - 76 - 16) / 2');
+    expect(delivery).toContain('Math.min(132, Math.max(108, gaugeBudget)');
+    expect(delivery).toContain('Math.min(140, Math.max(116, gaugeBudget)');
     // Coherent FiRo cockpit actions: solid Naviguoti/Atlikta, outline Skambinti/Neatlikta.
     expect(delivery).toContain('backgroundColor: colors.actionRoute');
     expect(delivery).toContain('backgroundColor: colors.success');
@@ -202,6 +209,9 @@ describe('premium route dashboard', () => {
     expect(header).not.toContain('TIKSLUS SIUNTŲ PRISTATYMAS<');
     expect(header).not.toContain('>TSP<');
     expect(header).toContain('showNotifications = false');
+    expect(header).not.toContain('brand-header-home');
+    expect(header).toContain('brand-header-logo');
+    expect(header).toContain('brand-header-profile');
     expect(source('src/components/driver-now-dashboard.tsx')).toContain('maxWidth: 900');
     expect(source('src/app/history/[id].tsx')).toContain('maxWidth: 900');
   });

@@ -6,7 +6,9 @@ import type { PlanningMode, RouteEndpoint, SavedLocation, SavedLocationKind } fr
 export const DEFAULT_WAREHOUSE_ADDRESS = 'Savanorių pr. 180, Vilnius';
 export const KRETINGA_WAREHOUSE_ADDRESS = 'Tiekėjų g. 7, Kretinga';
 export const DEFAULT_HOME_ADDRESS = '';
-const LEGACY_EXAMPLE_HOME_ADDRESS = 'Alinkos g. 1A, Elektrėnai';
+/** The demo home row seeded by the schema migration; hidden until the user saves their own. */
+const SEEDED_HOME_ADDRESS = 'Alinkos g. 1A, Elektrėnai';
+const SEEDED_HOME_TIMESTAMP = '2026-08-03T00:00:00.000Z';
 export type PreferredRouteEnd = 'warehouse' | 'home';
 
 export class SaveDefaultLocation {
@@ -29,10 +31,13 @@ export class GetDefaultLocations {
   async execute(): Promise<{ warehouse: SavedLocation | null; home: SavedLocation | null }> {
     const repository = new SavedLocationRepository(this.db);
     const [warehouse, home] = await Promise.all([repository.get('warehouse'), repository.get('home')]);
-    return {
-      warehouse,
-      home: home?.endpoint.originalAddress === LEGACY_EXAMPLE_HOME_ADDRESS ? null : home,
-    };
+    // Only the untouched demo row is hidden — once the user saves a home
+    // address (updatedAt moves off the seed timestamp) it always shows,
+    // even if it happens to be the same street as the demo.
+    const untouchedSeed = home
+      && home.endpoint.originalAddress === SEEDED_HOME_ADDRESS
+      && home.updatedAt === SEEDED_HOME_TIMESTAMP;
+    return { warehouse, home: untouchedSeed ? null : home };
   }
 }
 

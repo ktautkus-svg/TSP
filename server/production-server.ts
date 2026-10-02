@@ -3,7 +3,7 @@ import { createReadStream, existsSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { createServer, request as httpRequest, type IncomingMessage, type ServerResponse } from 'node:http';
 import { extname, join, normalize, resolve } from 'node:path';
-import { authenticateApiRequest, ensureAugust2026ExcelBackfillMigrated, ensureFuelAugust2026Migrated, ensureTripSheetAugust2026VehicleFixMigrated, handleEmployeeApi, requireProductionAdminPin } from './employee-api.js';
+import { authenticateApiRequest, ensureAugust2026ExcelBackfillMigrated, ensureFuelAugust2026Migrated, ensureNll182September2026Migrated, ensureTripSheetAugust2026VehicleFixMigrated, handleEmployeeApi, requireProductionAdminPin } from './employee-api.js';
 import { EmployeeApiError } from './employee-auth-store.js';
 
 const publicPort = numberFromEnv('PORT', 8080);
@@ -31,6 +31,9 @@ async function start(): Promise<void> {
   // errors. v5 unassigns 08-31 NLL182 (13.35 km, no driver) and keeps Erikas
   // R88;R86 off that day. Runs after fuel + vehicle-fix so odometer overlays apply.
   await ensureAugust2026ExcelBackfillMigrated();
+  // Then the NLL182 2026-09-01…03 backfill: 09-01 unassigned odometer-only day,
+  // 09-02 Karolis R11;R19;R54 +78 L, 09-03 Karolis M11 +79 L, opening 21 L.
+  await ensureNll182September2026Migrated();
   const server = createServer(async (request, response) => {
     const requestId = header(request, 'x-request-id') ?? randomUUID();
     response.setHeader('x-request-id', requestId);

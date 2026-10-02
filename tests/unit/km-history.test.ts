@@ -20,4 +20,23 @@ describe('kilometre history', () => {
     expect(history[0]).toMatchObject({ totalKm: 200, allActual: false });
     expect(history[0]?.routes.map((route) => route.direction)).toEqual(['Sandėlis → Panevėžys', 'Sandėlis → Vilnius']);
   });
+
+  it('does not count the same route twice on one day', () => {
+    const history = buildKmHistory([
+      row({ date: '2026-09-02', routeId: 'r-11', routeLabel: 'R11', actualDistanceKm: 415 }),
+      row({ date: '2026-09-02', routeId: 'r-11', routeLabel: 'R11', actualDistanceKm: 415 }),
+    ], { fromKey: '2026-09-01', toKey: '2026-09-30' });
+    expect(history).toHaveLength(1);
+    expect(history[0]?.totalKm).toBe(415);
+    expect(history[0]?.routes).toHaveLength(1);
+  });
+
+  it('collapses a synced draft copy that carries no routeId', () => {
+    const history = buildKmHistory([
+      row({ date: '2026-09-02', routeId: null, routeLabel: 'R19', actualDistanceKm: 200, totalStops: 6, vehicleRegistration: 'NLL182', driverName: 'K. Tautkus' }),
+      row({ date: '2026-09-02', routeId: null, routeLabel: 'R19', actualDistanceKm: 200, totalStops: 6, vehicleRegistration: 'NLL182', driverName: 'K. Tautkus' }),
+    ], { fromKey: '2026-09-01', toKey: '2026-09-30' });
+    expect(history[0]?.routes).toHaveLength(1);
+    expect(history[0]?.totalKm).toBe(200);
+  });
 });

@@ -19,6 +19,20 @@ describe('stage 2.2 deterministic navigation', () => {
     expect(result).not.toContain('router.back(');
   });
 
+  it('labels the preliminary pay as day-wide and re-reads it after the odometer syncs', () => {
+    const result = source('src/app/route/[id]/result.tsx');
+    // Clear that the pay block is a whole-day figure, not this route's numbers.
+    expect(result).toContain('Visos dienos duomenys · preliminaru, kol nesuvestas odometras');
+    expect(result).toContain('testID="route-result-compensation-note"');
+    // Daily part shows the real rate, not a hardcoded €23.
+    expect(result).toContain('formatMoney(compensation.fixedAmountEur)');
+    expect(result).not.toContain('€23,00 diena');
+    // After the completed route reaches the server, the compensation is
+    // re-fetched so it stops using planned distance.
+    expect(result).toContain('const fresh = await fetchCompensation()');
+    expect(result).toContain('.then(async () => {');
+  });
+
   it('provides deterministic history detail exits and blocks stale route states', () => {
     const detail = source('src/app/history/[id].tsx');
     expect(detail).toContain("router.replace('/history' as Href)");

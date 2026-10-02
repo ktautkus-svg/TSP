@@ -19,7 +19,12 @@ export function etaScheduleState(stop: DeliveryStop): { state: EtaScheduleState;
   const differenceMinutes = Math.round(
     (Date.parse(stop.latestEstimatedArrivalAt) - Date.parse(stop.plannedArrivalAt)) / 60_000,
   );
-  if (Math.abs(differenceMinutes) <= 5) return { state: 'on_time', differenceMinutes };
+  // A same-day delivery stop is never legitimately 6+ h off plan — that gap
+  // means the planned timestamp landed on the wrong calendar day, so it is not
+  // a real early/late signal and must not be shown as "23 val. anksčiau".
+  if (Math.abs(differenceMinutes) > 360) return { state: 'on_time', differenceMinutes: null };
+  // 15 min matches PUNCTUALITY_TOLERANCE_MINUTES used by the quality KPI.
+  if (Math.abs(differenceMinutes) <= 15) return { state: 'on_time', differenceMinutes };
   return { state: differenceMinutes > 0 ? 'late' : 'early', differenceMinutes };
 }
 
