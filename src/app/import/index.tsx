@@ -1295,7 +1295,7 @@ export default function ImportScreen() {
               <View style={styles.blockerList} testID="route-creation-blockers">
                 {excelPreview && excelProblemCount > 0 ? (
                   <Text style={styles.issueText}>Reikia sutvarkyti {excelProblemCount} pristatymo {excelProblemCount === 1 ? 'tašką' : 'taškus'}.</Text>
-                ) : routeCreationBlockers.slice(0, 2).map((blocker) => <Text key={blocker} style={styles.issueText}>• {blocker}</Text>)}
+                ) : routeCreationBlockers.map((blocker) => <Text key={blocker} style={styles.issueText}>• {blocker}</Text>)}
                 {!hasRouteCoordinates(selectedStartEndpoint) ? (
                   <Pressable style={styles.secondaryButton} onPress={() => router.push('/settings/locations' as Href)}>
                     <Text style={styles.secondaryText}>Atidaryti vietų nustatymus</Text>

@@ -66,6 +66,31 @@ describe('compact daily Excel UI', () => {
     expect(importScreen).toContain('switchTrackOn');
   });
 
+  it('lists every route-creation blocker instead of only the first two', () => {
+    expect(importScreen).toContain('testID="route-creation-blockers"');
+    expect(importScreen).toContain('routeCreationBlockers.map((blocker)');
+    expect(importScreen).not.toContain('routeCreationBlockers.slice(0, 2)');
+    expect(importScreen).toContain("startMode === null ? ['Pasirinkite sandėlį, iš kurio prasidės maršrutas.']");
+    expect(importScreen).toContain('getRouteCreationBlockers({');
+    // More than two Lithuanian blockers can exist at once; the UI must render the full list.
+    const readinessSource = readFileSync(resolve(here, '../../src/application/import/route-creation-readiness.ts'), 'utf8');
+    const lithuanianBlockers = [
+      'Pasirinkite sandėlį, iš kurio prasidės maršrutas.',
+      'Importe nėra nė vieno pristatymo taško.',
+      'Sandėlio adresui trūksta patvirtintų koordinačių.',
+    ];
+    expect(lithuanianBlockers.length).toBeGreaterThan(2);
+    expect(importScreen).toContain(lithuanianBlockers[0]);
+    expect(readinessSource).toContain(lithuanianBlockers[1]);
+    expect(readinessSource).toContain(lithuanianBlockers[2]);
+    const blockerRender = importScreen.slice(
+      importScreen.indexOf('testID="route-creation-blockers"'),
+      importScreen.indexOf('testID="cancel-route-setup"'),
+    );
+    expect(blockerRender).toContain('routeCreationBlockers.map((blocker)');
+    expect(blockerRender).not.toContain('.slice(');
+  });
+
   it('shows every import source explicitly with progressive disclosure', () => {
     expect(importScreen).toContain('testID="pick-excel"');
     expect(importScreen).toContain("application/vnd.ms-excel.sheet.macroEnabled.12");
