@@ -1,4 +1,4 @@
-import { lithuanianDateKey } from '@/domain/lithuanian-time';
+import { lithuanianDateKey } from '../../domain/lithuanian-time.js';
 
 export type DailyMergeSheet = {
   routeNumbers: string[];

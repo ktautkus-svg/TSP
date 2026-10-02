@@ -154,6 +154,8 @@ describe('trip sheet fuel workflow', () => {
     expect(source).toContain('dailyRouteNumbers(daySheets)');
     expect(dailyMergeSource).toContain('const key = entry.id ||');
     expect(dailyMergeSource).toContain('lithuanianDateKey(entry.filledAt)');
+    expect(dailyMergeSource).toContain("from '../../domain/lithuanian-time.js'");
+    expect(dailyMergeSource).not.toContain("from '@/domain/lithuanian-time'");
   });
 
   it('wires admin-only vehicle changes for completed trip sheets and driver changes for fuel', () => {
