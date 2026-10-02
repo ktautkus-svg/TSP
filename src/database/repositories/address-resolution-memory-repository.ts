@@ -41,7 +41,7 @@ export class AddressResolutionMemoryRepository {
       // settlements from poisoning one another.
       if (
         row
-        && key !== keys[0]
+        && !isExactAddressMemoryKey(key)
         && !isAddressLocalityCompatible(sourceAddress, row.normalized_address)
       ) {
         row = null;
@@ -104,6 +104,7 @@ export class AddressResolutionMemoryRepository {
   private async findInRouteHistory(sourceAddress: string, keys: string[]): Promise<ResolvedAddressCandidate | null> {
     try {
       const expected = new Set(keys);
+      const exactKeys = new Set(keys.filter(isExactAddressMemoryKey));
       const rows = await this.db.getAllAsync<HistoricalStopRow>(
         `SELECT address, original_address, geocoding_query, normalized_address,
                 latitude, longitude
@@ -121,7 +122,7 @@ export class AddressResolutionMemoryRepository {
           row.geocoding_query,
           row.normalized_address,
         ].filter((value): value is string => Boolean(value));
-        const exactMatch = aliases.some((alias) => addressMemoryKeys(alias)[0] === keys[0]);
+        const exactMatch = aliases.some((alias) => addressMemoryKeys(alias).some((key) => exactKeys.has(key)));
         const semanticMatch = aliases.some((alias) => addressMemoryKeys(alias).some((key) => expected.has(key)));
         if (!semanticMatch) continue;
         if (
@@ -161,8 +162,39 @@ export function addressMemoryKey(value: string): string {
 export function addressMemoryKeys(value: string): string[] {
   const exact = addressMemoryKey(value);
   if (!exact) return [];
+  const keys = [exact];
+  const canonical = canonicalAddressMemoryKey(value);
+  if (canonical) keys.push(canonical);
   const street = semanticStreetKey(exact);
-  return street && street !== exact ? [exact, street] : [exact];
+  if (street && street !== exact) keys.push(street);
+  return keys;
+}
+
+/**
+ * The same delivery address arrives in several textual shapes: the raw
+ * multi-line Excel cell ("UAB Lambda LT\r\nVarnių g. 10A\r\n\r\nŠilalė\r\nLietuva"),
+ * the import's single-line form ("Varnių g. 10A Šilalė Lietuva") and comma
+ * separated variants. They differ only in line breaks, commas, the supplier
+ * name and the country, so they share one canonical key. A match on it is as
+ * trustworthy as an exact match: no locality guessing is involved.
+ */
+export function canonicalAddressMemoryKey(value: string): string | null {
+  const lines = value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  // Company / recipient lines above a multi-line address carry no digits;
+  // the import itself starts the address at the first street line.
+  const firstStreetLine = lines.length > 1 ? lines.findIndex((line) => /\d/.test(line)) : -1;
+  const addressText = (firstStreetLine > 0 ? lines.slice(firstStreetLine) : lines).join(' ');
+  const key = addressMemoryKey(addressText)
+    .replace(/[,;]/g, ' ')
+    .replace(/^(?:uab\s+)?(?:lambda(?:\s+lt)?|galiasas)(?=\s|$)/u, ' ')
+    .replace(/(?:^|\s)lietuva\s*$/u, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return key ? `canon:${key}` : null;
+}
+
+function isExactAddressMemoryKey(key: string): boolean {
+  return !key.startsWith('street:');
 }
 
 function semanticStreetKey(value: string): string | null {

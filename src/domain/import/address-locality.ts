@@ -12,10 +12,16 @@ export function isAddressLocalityCompatible(query: string, normalizedAddress: st
 }
 
 function firstLocalityComponent(value: string): string | null {
-  const parts = value
-    .split(',')
+  // Raw Excel cells keep the address on separate lines; a line break is a
+  // component boundary exactly like a comma.
+  const allParts = value
+    .split(/,|\r?\n/)
     .map((part) => part.trim())
     .filter((part) => Boolean(part) && !/^Lietuva$/iu.test(part));
+  // Supplier / recipient lines ("UAB Lambda LT") precede the street line in
+  // multi-line cells and are never the locality.
+  const firstStreetPart = /[\r\n]/.test(value) ? allParts.findIndex((part) => /\d/.test(part)) : -1;
+  const parts = firstStreetPart > 0 ? allParts.slice(firstStreetPart) : allParts;
   if (parts.length >= 2) {
     const locality = cleanLocality(parts[1]!);
     return locality || null;
@@ -31,8 +37,14 @@ function firstLocalityComponent(value: string): string | null {
 }
 
 function cleanLocality(value: string): string {
-  return value
-    .replace(/^(?:LT-?)?\d{5}\s+/iu, '')
+  // „75451 Kaltinėnai Šilalės r.Kaltinėnai 75451 Lietuva“: postcodes, the
+  // country and a trailing district („Šilalės r.“) are not the settlement.
+  const withoutNoise = value
+    .replace(/\b(?:LT-?)?\d{5}\b/giu, ' ')
+    .replace(/\bLietuva\b/giu, ' ');
+  const withoutDistrict = withoutNoise.replace(/(?:^|\s)\p{L}{3,}\s*(?:r|raj|sav)\.(?:\s*sav\.)?/giu, ' ');
+  const base = /\p{L}{3,}/u.test(withoutDistrict) ? withoutDistrict : withoutNoise;
+  return base
     .replace(/\b(?:k|mstl|m|sen|r|raj|sav|apskr)\.?\b/giu, ' ')
     .replace(/\s+/g, ' ')
     .trim();
