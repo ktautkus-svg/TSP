@@ -1,6 +1,7 @@
 import { Firestore } from '@google-cloud/firestore';
 import { createHash, pbkdf2Sync, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { calculateCompositeRouteProgress } from '../src/application/routes/composite-route-progress.js';
+import { sheetMovementKm } from '../src/application/trip-sheet/daily-route-merge.js';
 import {
     DEFAULT_ROUTE_PRICE_SETTINGS,
     normalizeRoutePriceSettings,
@@ -452,6 +453,12 @@ export type ServerTripSheet = {
   actualDistanceKm: number | null;
   /** Fuel-only remainder km (other/unassigned). Not wage distance. */
   extraDistanceKm?: number | null;
+  /**
+   * Assignment kilometres before a vehicle-day reading was copied onto this
+   * sheet. The kelionės lapas uses it so a 0 km leftover does not contribute
+   * route numbers after that copy. Wage distance still uses the odometer.
+   */
+  ownDistanceKm?: number | null;
   plannedDistanceKm: number | null;
   startedAt: string | null;
   completedAt: string | null;
@@ -5514,6 +5521,11 @@ export function applyDayReading(sheet: ServerTripSheet, readings: VehicleDayRead
   }
   return {
     ...sheet,
+    // Remember this assignment's own movement before the shared day odometer
+    // replaces it. The kelionės lapas route label uses it so a 0 km leftover
+    // stamped with this date does not look driven. The displayed kilometres
+    // stay the day reading below.
+    ownDistanceKm: sheetMovementKm(sheet),
     startOdometer: reading.startOdometer,
     endOdometer: reading.endOdometer,
     actualDistanceKm: reading.distanceKm,

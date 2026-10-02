@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
+import { dailyRouteNumbers } from '../../src/application/trip-sheet/daily-route-merge';
 import { attachDailyCompensation, applyDayReading, applyTripSheetCorrectionToDayReading, applyTripSheetDriverCorrectionToDayReading, applyTripSheetVehicleDriverCorrection, buildFuelDayTripSheet, buildServerTripSheet, buildVehicleDayTripSheet, listedTripSheetDriver, odometerReadingCoveredBySheet, tripSheetFuelNorm, tripSheetWorkDate, type RouteAssignment, type VehicleDayReading } from '../../server/employee-auth-store';
 import { DEFAULT_ROUTE_PRICE_SETTINGS } from '../../src/application/routes/route-price';
 
@@ -129,7 +130,7 @@ describe('server trip sheet', () => {
       createdBy: 'gps-import',
     };
     const sheet = applyDayReading(buildServerTripSheet(assignment, assignment.vehicle), [reading]);
-    expect(sheet).toMatchObject({ startOdometer: 274885, endOdometer: 275524, actualDistanceKm: 639 });
+    expect(sheet).toMatchObject({ startOdometer: 274885, endOdometer: 275524, actualDistanceKm: 639, ownDistanceKm: 12 });
     expect(buildVehicleDayTripSheet({ ...reading, date: '2026-08-01', startOdometer: 274885, endOdometer: 274885, distanceKm: 0 }, assignment.vehicle)).toMatchObject({
       assignmentId: 'vehicle-day-nll182-2026-08-01',
       date: '2026-08-01',
@@ -138,6 +139,45 @@ describe('server trip sheet', () => {
       actualDistanceKm: 0,
       fuelEntries: [],
     });
+  });
+
+  it('keeps leftover R88·R86 off the NLL182 2026-08-27 label after the 404 km day reading is copied onto both sheets', () => {
+    const vehicle = { id: 'nll182', registrationNumber: 'NLL182', model: 'Renault Master', maximumPayloadKg: 1500 };
+    const reading: VehicleDayReading = {
+      id: 'nll182:2026-08-27', vehicleId: 'nll182', registrationNumber: 'NLL182', date: '2026-08-27',
+      startOdometer: 282510, endOdometer: 282914, distanceKm: 404, driverId: 'driver-erikas',
+      driverName: 'Erikas', createdAt: '2026-08-27T00:00:00.000Z', updatedAt: '2026-08-27T00:00:00.000Z',
+      createdBy: 'gps-import',
+    };
+    const base: Omit<RouteAssignment, 'id' | 'routeId' | 'routeSnapshot'> = {
+      driverId: 'driver-erikas', driverName: 'Erikas', status: 'completed', progress: null, createdBy: 'admin',
+      assignedAt: '2026-08-27T05:00:00.000Z', updatedAt: '2026-08-27T18:00:00.000Z', vehicle,
+    };
+    const driven = buildServerTripSheet({
+      ...base,
+      id: 'assignment-driven',
+      routeId: 'route-driven',
+      routeSnapshot: {
+        route: { id: 'route-driven', date: '2026-08-27', status: 'completed', start_odometer: 282510, end_odometer: 282914, actual_distance_km: 404 },
+        stops: [],
+        shipmentLines: [{ route_code: 'R07' }, { route_code: 'R22' }, { route_code: 'R09' }],
+      },
+    }, vehicle);
+    const leftover = buildServerTripSheet({
+      ...base,
+      id: 'assignment-leftover',
+      routeId: 'route-leftover',
+      routeSnapshot: {
+        route: { id: 'route-leftover', date: '2026-08-27', status: 'completed', start_odometer: 0, end_odometer: 0, actual_distance_km: 0, estimated_distance_km: 0 },
+        stops: [],
+        shipmentLines: [{ route_code: 'R88' }, { route_code: 'R86' }],
+      },
+    }, vehicle);
+    const overlaid = [driven, leftover].map((sheet) => applyDayReading(sheet, [reading]));
+
+    expect(overlaid.map((sheet) => sheet.actualDistanceKm)).toEqual([404, 404]);
+    expect(overlaid.map((sheet) => sheet.ownDistanceKm)).toEqual([404, 0]);
+    expect(dailyRouteNumbers(overlaid)).toEqual(['R07', 'R22', 'R09']);
   });
 
   it('does not hide a different vehicle’s day reading inside another van’s odometer span', () => {

@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { calculateTripFuelEnd } from '../../src/application/trip-sheet/fuel-balance';
 
 const source = readFileSync(resolve(import.meta.dirname, '../../src/app/trip-sheet.tsx'), 'utf8');
+const dailyMergeSource = readFileSync(resolve(import.meta.dirname, '../../src/application/trip-sheet/daily-route-merge.ts'), 'utf8');
 const vehicleSource = readFileSync(resolve(import.meta.dirname, '../../src/app/vehicle.tsx'), 'utf8');
 
 describe('trip sheet fuel workflow', () => {
@@ -147,11 +148,12 @@ describe('trip sheet fuel workflow', () => {
   });
 
   it('de-duplicates a fill that shows up under two sheets on the same date so Įpilta is not doubled', () => {
-    // 08-27 NLL once reported 166,8 L of "Įpilta" because a leftover
-    // assignment re-stapled onto the day carried the same fuel entry a
-    // second time.
-    expect(source).toContain('dedupeFuelEntries(daySheets.flatMap((sheet) => sheet.fuelEntries))');
-    expect(source).toContain('const key = entry.id ||');
+    // 08-27 NLL once reported 166,8 L of "Įpilta": a leftover sheet re-stapled
+    // onto the day carried another day's fill and could repeat the same entry.
+    expect(source).toContain('dailyFuelEntries(daySheets.flatMap((sheet) => sheet.fuelEntries), date)');
+    expect(source).toContain('dailyRouteNumbers(daySheets)');
+    expect(dailyMergeSource).toContain('const key = entry.id ||');
+    expect(dailyMergeSource).toContain('lithuanianDateKey(entry.filledAt)');
   });
 
   it('wires admin-only vehicle changes for completed trip sheets and driver changes for fuel', () => {

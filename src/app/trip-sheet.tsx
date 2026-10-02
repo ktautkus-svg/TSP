@@ -7,6 +7,7 @@ import { useLocalAccess } from '@/application/auth/local-access-context';
 import { pushCompletedRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
 import { CompanyProfileSettings, type CompanyProfile } from '@/application/settings/company-profile';
 import { TRIP_SHEET_GRID_COLUMNS, tripSheetColumnLegend } from '@/application/trip-sheet/columns';
+import { dailyFuelEntries, dailyRouteNumbers } from '@/application/trip-sheet/daily-route-merge';
 import { driverSheetRunPeriod, splitDriverSheetRuns, type DriverSheetRun } from '@/application/trip-sheet/driver-sheets';
 import { buildTripSheetWorkbook, MIME_XLSX } from '@/application/trip-sheet/export-xlsx';
 import { buildFuelLedger, vehicleDayFuelDistanceKm, type FuelLedgerDay } from '@/application/trip-sheet/fuel-balance';
@@ -796,18 +797,19 @@ function buildDailyRowsWithoutLedger(sheets: DisplayTripSheet[]): Omit<DailyTrip
     const distanceKm = vehicleDayFuelDistanceKm(odometerKm ?? plannedKm, extraKm);
     const fuelNorm = daySheets.find((sheet) => sheet.fuelNormLitersPer100Km !== null)?.fuelNormLitersPer100Km ?? null;
     // Leftover / re-stapled assignments (e.g. R88;R86 pinned onto another
-    // day) can surface the *same* fill under two sheets on one date. Without
-    // an id-level dedupe that fill is counted twice — 08-27 NLL once showed
-    // 166,8 L of "Įpilta" that never happened.
-    const fuelEntries = dedupeFuelEntries(daySheets.flatMap((sheet) => sheet.fuelEntries))
-      .sort((left, right) => left.filledAt.localeCompare(right.filledAt));
+    // day) can carry another day's fills, or the same fill twice. Keep
+    // distinct fills whose Lithuania date is this row (08-27 NLL once showed
+    // 166,8 L of "Įpilta" that never happened).
+    const fuelEntries = dailyFuelEntries(daySheets.flatMap((sheet) => sheet.fuelEntries), date);
     const compensation = daySheets.find((sheet) => sheet.compensation)?.compensation ?? null;
     const targetSheet = daySheets[daySheets.length - 1]!;
     return {
       date,
       driverId: targetSheet.driverId,
       driverName: targetSheet.driverName,
-      routeNumbers: [...new Set(daySheets.flatMap((sheet) => sheet.routeNumbers))],
+      // Only sheets that actually moved contribute route numbers. A leftover
+      // 0 km sheet sharing this date must not be concatenated onto the day.
+      routeNumbers: dailyRouteNumbers(daySheets),
       startAddress: daySheets[0]?.startAddress ?? 'Pradžia nenurodyta',
       endAddress: daySheets[daySheets.length - 1]?.endAddress ?? 'Pabaiga nenurodyta',
       startOdometer,
@@ -862,19 +864,6 @@ function applyFuelLedger(
     fuelEnd: ledger[index]!.endLiters,
     fuelMissing: ledger[index]!.missing,
   }));
-}
-
-/** Collapse fills that appear under more than one sheet on the same date to a single entry. */
-function dedupeFuelEntries(entries: TripFuelEntry[]): TripFuelEntry[] {
-  const seen = new Set<string>();
-  const result: TripFuelEntry[] = [];
-  for (const entry of entries) {
-    const key = entry.id || `${entry.filledAt}|${entry.liters}|${entry.receiptNumber ?? ''}|${entry.odometer ?? ''}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push(entry);
-  }
-  return result;
 }
 
 function minimum(values: (number | null)[]): number | null { const present = values.filter((value): value is number => value !== null); return present.length > 0 ? Math.min(...present) : null; }
