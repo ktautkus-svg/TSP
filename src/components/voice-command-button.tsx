@@ -3,8 +3,10 @@ import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import {
   canUseBrowserVoiceRecording,
+  microphoneErrorMessage,
   pickRecorderMimeType,
   sendVoiceCommand,
+  voiceButtonLabel,
   voiceStatusLabel,
   type VoiceAction,
   type VoiceCommandResult,
@@ -22,14 +24,19 @@ type VoiceCommandButtonProps = {
 };
 
 type BrowserRecorder = {
-  start: () => void;
+  start: (timeslice?: number) => void;
   stop: () => void;
+  requestData?: () => void;
+  state?: string;
   stream: { getTracks: () => { stop: () => void }[] };
   ondataavailable: ((event: { data: Blob }) => void) | null;
   onstop: (() => void | Promise<void>) | null;
+  onerror: (() => void) | null;
 };
 
 const MAX_RECORDING_MS = 8_000;
+const CHUNK_MS = 250;
+const FLUSH_MS = 80;
 
 export function VoiceCommandButton({ disabled = false, onAction }: VoiceCommandButtonProps) {
   const { colors } = useTheme();
@@ -37,6 +44,9 @@ export function VoiceCommandButton({ disabled = false, onAction }: VoiceCommandB
   const recorderRef = useRef<BrowserRecorder | null>(null);
   const stopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const finishingRef = useRef(false);
+  const onActionRef = useRef(onAction);
+  onActionRef.current = onAction;
   const [state, setState] = useState<VoiceState>('idle');
   const [result, setResult] = useState<VoiceCommandResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -47,6 +57,8 @@ export function VoiceCommandButton({ disabled = false, onAction }: VoiceCommandB
   };
 
   const finishRecording = async () => {
+    if (finishingRef.current) return;
+    finishingRef.current = true;
     if (stopTimerRef.current !== null) {
       clearTimeout(stopTimerRef.current);
       stopTimerRef.current = null;
@@ -54,20 +66,57 @@ export function VoiceCommandButton({ disabled = false, onAction }: VoiceCommandB
     const recorder = recorderRef.current;
     recorderRef.current = null;
     stopTracks(recorder);
-    const blob = new Blob(chunksRef.current, { type: chunksRef.current[0]?.type || 'audio/webm' });
+    const blob = new Blob(chunksRef.current, { type: chunksRef.current[0]?.type || 'audio/mp4' });
     chunksRef.current = [];
+    if (blob.size < 64) {
+      finishingRef.current = false;
+      setResult(null);
+      setError('Įrašas tuščias. Palaikykite mygtuką ir pakartokite komandą.');
+      setState('error');
+      return;
+    }
     setState('processing');
     try {
       const next = await sendVoiceCommand(blob);
       setResult(next);
       setError(null);
       setState('idle');
-      if (next.action !== 'none') onAction(next.action);
+      if (next.action !== 'none') onActionRef.current(next.action);
     } catch (reason) {
       setResult(null);
       setError(reason instanceof Error ? reason.message : 'Nepavyko susisiekti su balso serveriu.');
       setState('error');
+    } finally {
+      finishingRef.current = false;
     }
+  };
+
+  const stopRecording = () => {
+    const recorder = recorderRef.current;
+    if (!recorder) return;
+    if (stopTimerRef.current !== null) {
+      clearTimeout(stopTimerRef.current);
+      stopTimerRef.current = null;
+    }
+    try {
+      if (recorder.state !== 'inactive') recorder.requestData?.();
+    } catch {
+      // Safari may reject requestData after the track has already ended.
+    }
+    try {
+      if (recorder.state !== 'inactive') {
+        recorder.stop();
+        return;
+      }
+    } catch {
+      stopTracks(recorder);
+      recorderRef.current = null;
+      void finishRecording();
+      return;
+    }
+    stopTracks(recorder);
+    recorderRef.current = null;
+    void finishRecording();
   };
 
   const startRecording = async () => {
@@ -79,63 +128,96 @@ export function VoiceCommandButton({ disabled = false, onAction }: VoiceCommandB
     }
     const stream = await mediaDevices.getUserMedia({ audio: true });
     const mimeType = pickRecorderMimeType();
-    const recorder = (mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)) as BrowserRecorder;
+    let recorder: BrowserRecorder;
+    try {
+      recorder = (mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)) as BrowserRecorder;
+    } catch (reason) {
+      stream.getTracks().forEach((track) => track.stop());
+      throw reason;
+    }
     chunksRef.current = [];
+    finishingRef.current = false;
     recorder.ondataavailable = (event) => {
       if (event.data.size > 0) chunksRef.current.push(event.data);
     };
     recorder.onstop = () => {
-      void finishRecording();
+      globalThis.setTimeout(() => {
+        void finishRecording();
+      }, FLUSH_MS);
     };
-    recorderRef.current = recorder;
-    recorder.start();
-    stopTimerRef.current = setTimeout(() => {
-      if (recorderRef.current === recorder) recorder.stop();
-    }, MAX_RECORDING_MS);
-    setError(null);
-    setState('recording');
-  };
-
-  const toggleRecording = () => {
-    if (disabled || state === 'processing') return;
-    if (state === 'recording') {
+    recorder.onerror = () => {
       if (stopTimerRef.current !== null) {
         clearTimeout(stopTimerRef.current);
         stopTimerRef.current = null;
       }
-      recorderRef.current?.stop();
+      stopTracks(recorder);
+      recorderRef.current = null;
+      setError('Įrašymas nutrūko. Mikrofonas išjungtas.');
+      setState('error');
+    };
+    recorderRef.current = recorder;
+    recorder.start(CHUNK_MS);
+    stopTimerRef.current = setTimeout(() => {
+      if (recorderRef.current === recorder) stopRecording();
+    }, MAX_RECORDING_MS);
+    setError(null);
+    setResult(null);
+    setState('recording');
+  };
+
+  const stopRecordingRef = useRef<() => void>(() => {});
+  stopRecordingRef.current = stopRecording;
+
+  const toggleRecording = () => {
+    if (disabled || state === 'processing') return;
+    if (state === 'recording') {
+      stopRecording();
       return;
     }
     void startRecording().catch((reason) => {
-      setError(reason instanceof Error ? reason.message : 'Mikrofonas nepasiekiamas.');
+      setError(microphoneErrorMessage(reason));
       setState('error');
     });
   };
 
-  useEffect(() => () => {
-    if (stopTimerRef.current !== null) clearTimeout(stopTimerRef.current);
-    stopTracks(recorderRef.current);
-    recorderRef.current = null;
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') return undefined;
+    const releaseIfHidden = () => {
+      if (document.visibilityState === 'hidden') stopRecordingRef.current();
+    };
+    const releaseOnPageHide = () => stopRecordingRef.current();
+    document.addEventListener('visibilitychange', releaseIfHidden);
+    window.addEventListener('pagehide', releaseOnPageHide);
+    return () => {
+      document.removeEventListener('visibilitychange', releaseIfHidden);
+      window.removeEventListener('pagehide', releaseOnPageHide);
+      if (stopTimerRef.current !== null) clearTimeout(stopTimerRef.current);
+      stopTracks(recorderRef.current);
+      recorderRef.current = null;
+    };
   }, []);
+
+  const buttonLabel = voiceButtonLabel(state);
 
   return (
     <View style={styles.wrap} testID="voice-command">
       <Pressable
-        accessibilityLabel={state === 'recording' ? 'Baigti balso komandą' : 'Įrašyti balso komandą'}
+        accessibilityLabel={state === 'recording' ? 'FIRO klauso. Baigti balso komandą' : 'Įrašyti balso komandą'}
         accessibilityRole="button"
-        accessibilityState={{ disabled: disabled || state === 'processing' || !available }}
+        accessibilityState={{ disabled: disabled || state === 'processing' || !available, busy: state === 'recording' || state === 'processing' }}
         disabled={disabled || state === 'processing' || !available}
         onPress={toggleRecording}
         style={({ pressed }) => [
           styles.button,
           state === 'recording' && styles.recording,
+          state === 'processing' && styles.processing,
           (disabled || state === 'processing' || !available) && styles.disabled,
           pressed && styles.pressed,
         ]}
         testID="voice-command-button">
-        <MicIcon color={state === 'recording' ? colors.textInverse : colors.brandNavy} size={18} />
-        <Text style={[styles.buttonText, state === 'recording' && styles.recordingText]}>
-          {state === 'recording' ? 'BAIGTI ĮRAŠĄ' : 'BALSO KOMANDA'}
+        <MicIcon color={state === 'recording' || state === 'processing' ? colors.textInverse : colors.brandNavy} size={18} />
+        <Text style={[styles.buttonText, (state === 'recording' || state === 'processing') && styles.recordingText]}>
+          {buttonLabel}
         </Text>
       </Pressable>
       <Text style={styles.status} testID="voice-command-status">
@@ -164,6 +246,10 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   recording: {
     backgroundColor: colors.brandBurgundy,
     borderColor: colors.brandBurgundy,
+  },
+  processing: {
+    backgroundColor: colors.brandNavy,
+    borderColor: colors.brandNavy,
   },
   disabled: { opacity: 0.55 },
   pressed: { opacity: 0.88 },

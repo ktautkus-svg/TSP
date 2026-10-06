@@ -4,11 +4,16 @@ import { resolve } from 'node:path';
 
 import {
   canUseBrowserVoiceRecording,
+  interpretLithuanianCommand,
+  microphoneErrorMessage,
   parseVoiceCommandResult,
   pickRecorderMimeType,
   resolveVoiceAction,
   sendVoiceCommand,
+  VOICE_LANGUAGE,
   voiceApiBaseUrl,
+  voiceAudioFileName,
+  voiceButtonLabel,
   voiceCommandUrl,
   voiceStatusLabel,
 } from '../../src/application/voice/voice-command';
@@ -39,7 +44,7 @@ describe('Lithuanian voice commands', () => {
     });
 
     const calls: { url: string; method?: string }[] = [];
-    const result = await sendVoiceCommand(new Blob(['audio'], { type: 'audio/webm' }), async (input, init) => {
+    const result = await sendVoiceCommand(new Blob([new Uint8Array(128)], { type: 'audio/webm' }), async (input, init) => {
       calls.push({ url: String(input), method: init?.method });
       return new Response(JSON.stringify({
         status: 'success',
@@ -52,12 +57,43 @@ describe('Lithuanian voice commands', () => {
     expect(result.action).toBe('open_navigation');
   });
 
-  it('explains idle, recording and recognized command states in Lithuanian', () => {
+  it('explains idle, listening, transcribing, executed and unrecognized states in Lithuanian', () => {
+    expect(VOICE_LANGUAGE).toBe('lt-LT');
+    expect(voiceStatusLabel('idle')).toContain('Mikrofonas laukia');
     expect(voiceStatusLabel('idle')).toContain('pristatyta');
+    expect(voiceStatusLabel('recording')).toContain('FIRO klauso');
     expect(voiceStatusLabel('recording')).toContain('Įrašoma');
     expect(voiceStatusLabel('processing')).toContain('Atpažįstama');
     expect(voiceStatusLabel('idle', { status: 'success', transcription: 'yra klaida', action: 'report_issue' }))
-      .toBe('yra klaida · Pažymėti klaidą');
+      .toBe('yra klaida · Komanda įvykdyta: Pažymėti klaidą');
+    expect(voiceStatusLabel('idle', { status: 'success', transcription: 'kita stotelė', action: 'none' }))
+      .toBe('kita stotelė · Komanda neatpažinta');
+    expect(voiceStatusLabel('error', null, 'Mikrofonas neleidžiamas.')).toBe('Mikrofonas neleidžiamas.');
+    expect(voiceButtonLabel('idle')).toBe('BALSO KOMANDA');
+    expect(voiceButtonLabel('recording')).toBe('KLAUSOSI');
+    expect(voiceButtonLabel('processing')).toBe('ATPAŽĮSTAMA');
+  });
+
+  it('maps the existing Lithuanian phrases and ignores commands that are not implemented', () => {
+    expect(interpretLithuanianCommand('krovinys pristatytas')).toBe('status_delivered');
+    expect(interpretLithuanianCommand('pažymėti pristatyta')).toBe('status_delivered');
+    expect(interpretLithuanianCommand('atidaryk navigaciją')).toBe('open_navigation');
+    expect(interpretLithuanianCommand('yra klaida')).toBe('report_issue');
+    expect(interpretLithuanianCommand('pakrauta')).toBe('none');
+    expect(interpretLithuanianCommand('kita stotelė')).toBe('none');
+    expect(interpretLithuanianCommand('yra problema')).toBe('none');
+    expect(parseVoiceCommandResult({ status: 'success', transcription: 'pristatyta', action: 'none' }).action)
+      .toBe('status_delivered');
+  });
+
+  it('names the upload after the Safari or Chrome mime type and refuses an empty recording', async () => {
+    expect(voiceAudioFileName('audio/mp4')).toBe('command.m4a');
+    expect(voiceAudioFileName('audio/webm;codecs=opus')).toBe('command.webm');
+    await expect(sendVoiceCommand(new Blob(['x'], { type: 'audio/mp4' }), async () => {
+      throw new Error('should not post empty audio');
+    })).rejects.toThrow('Įrašas tuščias');
+    expect(microphoneErrorMessage({ name: 'NotAllowedError', message: 'Permission denied' }))
+      .toContain('Mikrofonas neleidžiamas');
   });
 
   it('picks a supported recorder mime type and refuses environments without getUserMedia', () => {
@@ -75,5 +111,9 @@ describe('Lithuanian voice commands', () => {
     expect(button).toContain('testID="voice-command"');
     expect(button).toContain('testID="voice-command-button"');
     expect(button).toContain('const MAX_RECORDING_MS = 8_000');
+    expect(button).toContain('recorder.start(CHUNK_MS)');
+    expect(button).toContain("document.visibilityState === 'hidden'");
+    expect(button).toContain('pagehide');
+    expect(button).toContain('microphoneErrorMessage');
   });
 });
