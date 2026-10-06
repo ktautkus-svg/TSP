@@ -32,6 +32,30 @@ export default function RootHtml({ children }: PropsWithChildren) {
           html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
           html, body { overscroll-behavior-x: none; }
           body { margin: 0; touch-action: pan-y; }
+          [role="button"], button, a[href] {
+            cursor: pointer;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: rgba(21, 23, 76, 0.16);
+            transition: transform 70ms ease, filter 70ms ease, opacity 70ms ease;
+            user-select: none;
+            -webkit-user-select: none;
+          }
+          [role="button"]:active, button:active, a[href]:active {
+            transform: translateY(1px) scale(0.985);
+            filter: brightness(0.96);
+          }
+          [role="button"][aria-disabled="true"], button:disabled {
+            cursor: default;
+            opacity: 0.58;
+          }
+          [role="button"][aria-disabled="true"]:active, button:disabled:active {
+            transform: none;
+            filter: none;
+          }
+          @media (prefers-reduced-motion: reduce) {
+            [role="button"], button, a[href] { transition: none; }
+            [role="button"]:active, button:active, a[href]:active { transform: none; }
+          }
           #root > div { min-width: 0 !important; max-width: 100vw !important; overflow-x: hidden !important; }
           input, textarea, select { font-size: 16px !important; }
           * { box-sizing: border-box; }

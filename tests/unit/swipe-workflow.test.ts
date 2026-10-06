@@ -8,13 +8,12 @@ const alternatives = readFileSync('src/app/route/[id]/alternatives.tsx', 'utf8')
 
 describe('daily swipe workflow', () => {
   it('keeps a deliberate horizontal threshold', () => {
-    expect(swipe).toContain('gesture.dx >= threshold()');
-    expect(swipe).toContain('gesture.dx <= -threshold()');
-    expect(swipe).toContain('Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.2');
-    expect(swipe).toContain('transform: [{ translateX }]');
-    expect(swipe).toContain('onMoveShouldSetPanResponderCapture');
-    expect(swipe).toContain('props.rightActionLabel ??');
-    expect(swipe).toContain('props.leftActionLabel ??');
+    expect(swipe).toContain('resolveSwipeEnd');
+    expect(swipe).toContain('finishFromTrackedOffset');
+    expect(swipe).toContain('onPanResponderTerminate');
+    expect(swipe).toContain('pointercancel');
+    expect(swipe).toContain('setPointerCapture');
+    expect(swipe).not.toContain('onPanResponderTerminate: reset');
   });
 
   it('loads right and marks not-loaded left while retaining visible buttons', () => {

@@ -26,6 +26,7 @@ import { DEMO_DATABASE_NAME, REAL_DATABASE_NAME } from '@/domain/demo-driver';
 import { getEmployeeSession } from '@/infrastructure/auth/employee-session';
 import { bindDemoDatabase } from '@/infrastructure/auth/demo-employee-api';
 import { ThemeProvider } from '@/ui/theme';
+import { installMobilePressFeedback } from '@/ui/install-mobile-press-feedback';
 import { AlertHost } from '@/ui/alert';
 import { colors, radius, type } from '@/ui/tokens';
 import { useLocalAccess } from '@/application/auth/local-access-context';
@@ -116,6 +117,7 @@ export default function RootLayout() {
   });
 
   useEffect(() => {
+    installMobilePressFeedback();
     const unsubscribe = subscribeActiveDatabase(setDatabaseName);
     void getEmployeeSession()
       .then((session) => setDatabaseName(session?.demo ? DEMO_DATABASE_NAME : REAL_DATABASE_NAME))
