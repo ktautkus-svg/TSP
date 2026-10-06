@@ -46,7 +46,7 @@
   },
   "scripts": {
     "start": "expo start",
-    "postinstall": "node ./scripts/sync-leaflet-css.mjs",
+    "postinstall": "node ./scripts/sync-leaflet-css.mjs && node ./scripts/patch-opfs-access-handle.mjs",
     "assets:leaflet": "node ./scripts/sync-leaflet-css.mjs",
     "android": "expo start --android",
     "ios": "expo start --ios",

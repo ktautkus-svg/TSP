@@ -16,6 +16,7 @@ import { DriverAppTabs } from '@/components/driver-app-tabs';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { PeriodCalendarPicker } from '@/components/period-calendar-picker';
 import { StatBarChart } from '@/components/stat-bar-chart';
+import { userSafeStorageMessage, withStorageRetry } from '@/database/opfs-access-handle';
 import { StatisticsRepository } from '@/database/repositories/statistics-repository';
 import {
   bestPoint,
@@ -95,7 +96,7 @@ export default function StatisticsScreen() {
 
   useFocusEffect(useCallback(() => {
     let mounted = true;
-    void repository.getRows(now, 365, localOwnerId).then(({ rows, failureCounts, lateDeliveries }) => {
+    void withStorageRetry(() => repository.getRows(now, 365, localOwnerId)).then(({ rows, failureCounts, lateDeliveries }) => {
       if (!mounted) return;
       setLocalRows(rows);
       setLocalFailures(failureCounts);
@@ -103,7 +104,7 @@ export default function StatisticsScreen() {
       setError(null);
     }).catch((reason) => {
       devWarn('STATISTICS_LOAD_FAILED', reason);
-      if (mounted) setError(reason instanceof Error ? reason.message : 'Statistikos atkurti nepavyko.');
+      if (mounted) setError(userSafeStorageMessage(reason));
     });
     if (online && earningsPermitted) {
       void employeeApi<{ tripSheets: ServerTripSheet[] }>('/api/trip-sheets')

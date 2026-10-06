@@ -21,6 +21,7 @@ import { LocalAccessGate } from '@/components/local-access-gate';
 import { StackBrandTitle } from '@/components/stack-brand-title';
 import { StackBackButton, StackHeaderActions } from '@/components/stack-navigation';
 import { RouteCloudSyncProvider } from '@/application/sync/route-cloud-sync-context';
+import { isClosedAccessHandleError } from '@/database/opfs-access-handle';
 import { migrateDatabase } from '@/database/migrations';
 import { DEMO_DATABASE_NAME, REAL_DATABASE_NAME } from '@/domain/demo-driver';
 import { getEmployeeSession } from '@/infrastructure/auth/employee-session';
@@ -69,11 +70,14 @@ const failureStyles = {
 };
 
 function localDatabaseError(error: unknown): Error {
+  if (isClosedAccessHandleError(error)) {
+    return new Error('Vietinė statistika laikinai nepasiekiama. Palaukite ir bandykite dar kartą.');
+  }
   const fallback = error instanceof Error ? error.message : String(error);
-  if (/InvalidStateError|NoModificationAllowedError|Access Handles? cannot be created/i.test(fallback)) {
+  if (/NoModificationAllowedError|Access Handles? cannot be created/i.test(fallback)) {
     return new Error('FiRo vietinė bazė jau naudojama kitame naršyklės lange. Uždarykite kitą FiRo kortelę arba įdiegtos programėlės langą ir paspauskite „Perkrauti puslapį“.');
   }
-  return error instanceof Error ? error : new Error(`Vietinės bazės klaida: ${fallback}`);
+  return new Error('Nepavyko paruošti vietinės SQLite duomenų bazės. Tai gali nutikti naršyklės privačiame režime arba ribojant atmintį.');
 }
 
 void SplashScreen.preventAutoHideAsync().catch((reason) => {
@@ -85,7 +89,7 @@ export function ErrorBoundary({ error, retry }: { error: Error; retry: () => Pro
     <View style={failureStyles.screen}>
       <Text style={failureStyles.title}>Įvyko netikėta klaida</Text>
       <Text style={failureStyles.body}>
-        {error?.message || 'Nepavyko užkrauti aplikacijos duomenų arba nepasiekiama vietinė atmintis.'}
+        {isClosedAccessHandleError(error) ? 'Vietinė statistika laikinai nepasiekiama. Palaukite ir bandykite dar kartą.' : 'Nepavyko užkrauti aplikacijos duomenų arba nepasiekiama vietinė atmintis.'}
       </Text>
       <Pressable style={failureStyles.button} onPress={() => void retry()}>
         <Text style={failureStyles.buttonText}>Bandyti iš naujo</Text>
