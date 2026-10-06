@@ -27,6 +27,9 @@ describe('production PWA contract', () => {
     expect(app.expo.icon).toBe('./assets/brand/firo-app-icon-1024.png');
     expect(app.expo.web.favicon).toBe('./assets/brand/firo-favicon-64.png');
     expect(runtime).toContain("register('/service-worker.js'");
+    expect(runtime).toContain("updateViaCache: 'none'");
+    expect(runtime).toContain("addEventListener('visibilitychange', checkForUpdate)");
+    expect(runtime).toContain("addEventListener('focus', checkForUpdate)");
     expect(runtime).toContain('Yra nauja aplikacijos versija');
   });
 

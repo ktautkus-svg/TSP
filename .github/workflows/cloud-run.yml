@@ -90,6 +90,9 @@ jobs:
             GOOGLE_VISION_API_KEY
             HERE_API_KEY
             TSP_INITIAL_ADMIN_PIN
+            GMAIL_OAUTH_CLIENT_ID
+            GMAIL_OAUTH_CLIENT_SECRET
+            MAIL_TOKEN_ENCRYPTION_KEY
           )
           PAIRS=()
           for name in "${SECRET_NAMES[@]}"; do
@@ -105,6 +108,12 @@ jobs:
             echo 'TSP_INITIAL_ADMIN_PIN missing in Secret Manager.' >&2
             exit 1
           fi
+          for name in GMAIL_OAUTH_CLIENT_ID GMAIL_OAUTH_CLIENT_SECRET MAIL_TOKEN_ENCRYPTION_KEY; do
+            if ! gcloud secrets describe "$name" --project="$GCP_PROJECT_ID" >/dev/null 2>&1; then
+              echo "Required Gmail import secret ${name} is missing in Secret Manager." >&2
+              exit 1
+            fi
+          done
           PROVIDER_FOUND=false
           for name in GOOGLE_API_KEY GOOGLE_ROUTES_API_KEY GOOGLE_GEOCODING_API_KEY GOOGLE_MAPS_API_KEY GOOGLE_VISION_API_KEY HERE_API_KEY; do
             if gcloud secrets describe "$name" --project="$GCP_PROJECT_ID" >/dev/null 2>&1; then
@@ -128,7 +137,7 @@ jobs:
             exit 1
           fi
           runtime_service_account="${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
-          for name in GATEWAY_DEVICE_SECRET TSP_INITIAL_ADMIN_PIN GOOGLE_API_KEY GOOGLE_ROUTES_API_KEY GOOGLE_GEOCODING_API_KEY GOOGLE_MAPS_API_KEY GOOGLE_VISION_API_KEY HERE_API_KEY; do
+          for name in GATEWAY_DEVICE_SECRET TSP_INITIAL_ADMIN_PIN GOOGLE_API_KEY GOOGLE_ROUTES_API_KEY GOOGLE_GEOCODING_API_KEY GOOGLE_MAPS_API_KEY GOOGLE_VISION_API_KEY HERE_API_KEY GMAIL_OAUTH_CLIENT_ID GMAIL_OAUTH_CLIENT_SECRET MAIL_TOKEN_ENCRYPTION_KEY; do
             if gcloud secrets describe "$name" --project="$GCP_PROJECT_ID" >/dev/null 2>&1; then
               gcloud secrets add-iam-policy-binding "$name" \
                 --project="$GCP_PROJECT_ID" \
@@ -188,10 +197,23 @@ jobs:
           WEEKLY_BUDGET_CENTS: ${{ vars.GATEWAY_WEEKLY_BUDGET_CENTS || '3000' }}
           DAILY_USAGE_UNITS: ${{ vars.GATEWAY_DAILY_USAGE_UNITS || '900' }}
           WEEKLY_USAGE_UNITS: ${{ vars.GATEWAY_WEEKLY_USAGE_UNITS || '3000' }}
+          GMAIL_OAUTH_REDIRECT_URI: ${{ vars.GMAIL_OAUTH_REDIRECT_URI }}
         run: |
           set -euo pipefail
           git_sha="${GITHUB_SHA:0:7}"
           new_rev="${CLOUD_RUN_SERVICE}-n${git_sha}"
+          gmail_redirect_uri="${GMAIL_OAUTH_REDIRECT_URI}"
+          if [ -z "$gmail_redirect_uri" ]; then
+            service_url=$(gcloud run services describe "$CLOUD_RUN_SERVICE" \
+              --project="$GCP_PROJECT_ID" \
+              --region="$GCP_REGION" \
+              --format='value(status.url)')
+            if [ -z "$service_url" ]; then
+              echo 'Could not determine Cloud Run URL for Gmail OAuth callback.' >&2
+              exit 1
+            fi
+            gmail_redirect_uri="${service_url}/api/mail/callback"
+          fi
 
           # An earlier failed revision can leave a generated revision name in
           # the service template. Clear that name before creating a fresh
@@ -225,7 +247,7 @@ jobs:
             --revision-suffix="n${git_sha}" \
             --async \
             --set-secrets="${{ steps.secrets.outputs.secrets_arg }}" \
-            --set-env-vars="GATEWAY_AUTH_MODE=none,GATEWAY_ENV=production,GATEWAY_REAL_PROVIDER_ARMED=${ARMED},ROUTING_PRICING_CURRENCY=${ROUTING_PRICING_CURRENCY},GOOGLE_PRICE_PER_1000_ELEMENTS=${GOOGLE_PRICE_PER_1000_ELEMENTS},GATEWAY_DAILY_BUDGET_CENTS=${DAILY_BUDGET_CENTS},GATEWAY_WEEKLY_BUDGET_CENTS=${WEEKLY_BUDGET_CENTS},GATEWAY_DAILY_USAGE_UNITS=${DAILY_USAGE_UNITS},GATEWAY_WEEKLY_USAGE_UNITS=${WEEKLY_USAGE_UNITS},APP_VERSION=${GITHUB_SHA}" \
+            --set-env-vars="GATEWAY_AUTH_MODE=none,GATEWAY_ENV=production,GATEWAY_REAL_PROVIDER_ARMED=${ARMED},ROUTING_PRICING_CURRENCY=${ROUTING_PRICING_CURRENCY},GOOGLE_PRICE_PER_1000_ELEMENTS=${GOOGLE_PRICE_PER_1000_ELEMENTS},GATEWAY_DAILY_BUDGET_CENTS=${DAILY_BUDGET_CENTS},GATEWAY_WEEKLY_BUDGET_CENTS=${WEEKLY_BUDGET_CENTS},GATEWAY_DAILY_USAGE_UNITS=${DAILY_USAGE_UNITS},GATEWAY_WEEKLY_USAGE_UNITS=${WEEKLY_USAGE_UNITS},GMAIL_OAUTH_REDIRECT_URI=${gmail_redirect_uri},APP_VERSION=${GITHUB_SHA}" \
             --quiet
           ready=""
           for _ in $(seq 1 90); do

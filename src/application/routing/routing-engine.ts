@@ -12,21 +12,26 @@ import type {
   RouteOptimizationResult,
   RouteOptimizer,
   TravelCostProvider,
+  TravelMatrix,
 } from '@/domain/routing/models';
 import { summarizeStopWeights } from '@/domain/routing/weights';
 
 export class RoutingEngine implements RouteOptimizer {
   constructor(private readonly travelCostProvider: TravelCostProvider) {}
 
-  async optimize(request: RouteOptimizationRequest): Promise<RouteOptimizationResult> {
+  async optimize(
+    request: RouteOptimizationRequest,
+    matrixOverride?: TravelMatrix,
+  ): Promise<RouteOptimizationResult> {
     validateRequest(request);
-    const matrix = await this.travelCostProvider.getMatrix({
-      locations: [request.startLocation, ...request.stops.map((stop) => stop.location), request.endLocation],
-      vehicle: request.vehicle,
-      departureAt: request.plannedDepartureAt,
-      trafficMode: request.trafficMode,
-      timeoutMs: Math.max(1_000, request.maxCalculationMs * 2),
-    });
+    const matrix = matrixOverride ?? await this.travelCostProvider.getMatrix({
+        locations: [request.startLocation, ...request.stops.map((stop) => stop.location), request.endLocation],
+        vehicle: request.vehicle,
+        departureAt: request.plannedDepartureAt,
+        trafficMode: request.trafficMode,
+        timeoutMs: Math.max(1_000, request.maxCalculationMs * 2),
+      });
+    if (matrixOverride) validateMatrixOrder(matrix, request);
     const seeds = generateHeuristicSeeds(request, matrix);
     // One shared wall-clock budget for all seeds. Without it the cost is
     // seedCount x maxCalculationMs of blocked JS thread, which on a phone means
@@ -78,6 +83,7 @@ export class RoutingEngine implements RouteOptimizer {
               },
             ],
           }
+
         : null;
     const conflictingConstraints = uniqueViolations(
       diagnosticCandidate?.violations ?? [],
@@ -102,6 +108,18 @@ export class RoutingEngine implements RouteOptimizer {
         : suggestionsFor(conflictingConstraints),
       warnings: [...new Set(matrix.warnings)],
     };
+  }
+}
+
+function validateMatrixOrder(matrix: TravelMatrix, request: RouteOptimizationRequest): void {
+  const expected = [
+    request.startLocation.id,
+    ...request.stops.map((stop) => stop.id),
+    request.endLocation.id,
+  ];
+  if (matrix.nodeIds.length !== expected.length
+    || expected.some((id, index) => matrix.nodeIds[index] !== id)) {
+    throw new Error('Pakartotinai naudojama kelio matrica neatitinka dabartinio sustojimų sąrašo.');
   }
 }
 

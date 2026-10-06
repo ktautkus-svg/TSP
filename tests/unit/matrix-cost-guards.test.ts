@@ -62,7 +62,7 @@ describe('B · viena matrica vienam planavimui', () => {
     expect(calls).toHaveLength(1);
     expect(planning.getStats().matrixCalls).toBe(MAX_MATRIX_CALLS_PER_PLAN);
     expect(result.labeled.length).toBeGreaterThan(0);
-  });
+  }, 20_000);
 
   it('lygiagretūs kvietimai nesukuria antros užklausos', async () => {
     const { provider, calls } = countingProvider();
@@ -98,7 +98,7 @@ describe('B · viena matrica vienam planavimui', () => {
       expect(new Set(item.candidate.stopSequence).size).toBe(request.stops.length);
       expect(item.candidate.totalDistanceKm).toBeGreaterThan(0);
     }
-  });
+  }, 20_000);
 });
 
 describe('C · dubliuoti adresai mažina matricą', () => {

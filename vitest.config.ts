@@ -9,6 +9,7 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
+    maxWorkers: 2,
     exclude: ['**/node_modules/**', '**/dist/**', '**/.runtime-logs/**', 'tsp-integration/**', 'tsp-premium-cockpit/**', 'firo-*/**', '*.worktrees/**'],
   },
 });

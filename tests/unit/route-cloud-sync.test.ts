@@ -475,6 +475,7 @@ describe('route cloud sync — event-driven multi-device workflow', () => {
   });
 
   it('marks individual loading progress dirty without changing route status', async () => {
+    await saveEmployeeSession({ profile, expiresAt: '2099-01-01T00:00:00.000Z' });
     const { adapter, db } = createDb();
     insertRoute(adapter, {
       id: 'route-loading-progress',
@@ -498,6 +499,49 @@ describe('route cloud sync — event-driven multi-device workflow', () => {
         updated_at: '2026-08-11T09:00:00.000Z',
         cloud_synced_at: '2026-08-11T08:00:00.000Z',
       });
+
+    const pushedSnapshot: {
+      value: {
+        route: Record<string, unknown>;
+        stops: Record<string, unknown>[];
+        shipmentLines: Record<string, unknown>[];
+      } | null;
+    } = { value: null };
+    stubFetch(async (_url, init) => {
+      if (init?.method === 'POST') {
+        const body = JSON.parse(String(init.body)) as {
+          routes: { routeSnapshot: NonNullable<typeof pushedSnapshot.value> }[];
+        };
+        pushedSnapshot.value = body.routes[0]?.routeSnapshot ?? null;
+        return Response.json({ results: [{ routeId: 'route-loading-progress', outcome: 'applied' }] });
+      }
+      return Response.json({ routes: [], cursor: '2026-08-11T09:00:01.000Z' });
+    });
+    await syncRoutesWithCloud(db);
+    expect(pushedSnapshot.value?.stops.find((stop) => stop.id === 'route-loading-progress-stop-1')).toMatchObject({
+      loading_status: 'loaded',
+      loaded_at: '2026-08-11T09:00:00.000Z',
+    });
+
+    const { adapter: secondDevice, db: secondDb } = createDb();
+    stubFetch(async (_url, init) => {
+      if (init?.method === 'POST') return Response.json({ results: [] });
+      return Response.json({
+        routes: [{
+          routeSnapshot: pushedSnapshot.value,
+          deleted: false,
+          serverUpdatedAt: '2026-08-11T09:00:01.000Z',
+        }],
+        cursor: '2026-08-11T09:00:01.000Z',
+      });
+    });
+    await syncRoutesWithCloud(secondDb);
+    expect(secondDevice.raw.prepare(
+      'SELECT loading_status, loaded_at FROM delivery_stops WHERE id = ?',
+    ).get('route-loading-progress-stop-1')).toMatchObject({
+      loading_status: 'loaded',
+      loaded_at: '2026-08-11T09:00:00.000Z',
+    });
   });
 });
 

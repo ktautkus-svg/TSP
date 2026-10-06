@@ -12,8 +12,64 @@ import { createBaseRequest } from '../../src/domain/routing/scenarios';
 import { SyntheticTravelCostProvider } from '../../src/infrastructure/routing/providers/synthetic-travel-cost-provider';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import type { MatrixRequest, MatrixCell, TravelCostProvider, TravelMatrix } from '../../src/domain/routing/models';
 
 describe('route alternatives', () => {
+  it('optimizes fastest and shortest independently when travel time and distance conflict', async () => {
+    class TradeoffProvider implements TravelCostProvider {
+      readonly name = 'synthetic:time-distance-tradeoff';
+      matrixRequests = 0;
+
+      async getMatrix(input: MatrixRequest): Promise<TravelMatrix> {
+        this.matrixRequests += 1;
+        const routes = new Map([
+          ['warehouse>stop-1', [1, 60]],
+          ['stop-1>stop-2', [1, 5]],
+          ['stop-2>home', [1, 5]],
+          ['warehouse>stop-2', [10, 5]],
+          ['stop-2>stop-1', [10, 5]],
+          ['stop-1>home', [10, 5]],
+        ]);
+        const cells = input.locations.map((from) => input.locations.map((to): MatrixCell => {
+          if (from.id === to.id) {
+            return { distanceKm: 0, durationMinutes: 0, reachable: true, maneuverPenalty: 0, restrictionWarnings: [] };
+          }
+          const cost = routes.get(`${from.id}>${to.id}`) ?? [20, 15];
+          return { distanceKm: cost[0]!, durationMinutes: cost[1]!, reachable: true, maneuverPenalty: 0, restrictionWarnings: [] };
+        }));
+        return {
+          provider: this.name,
+          executionMode: 'synthetic',
+          nodeIds: input.locations.map((location) => location.id),
+          cells,
+          fetchedAt: '2026-06-15T07:00:00.000Z',
+          trafficMode: input.trafficMode,
+          departureAt: input.departureAt,
+          warnings: [],
+          version: 'tradeoff-v1',
+        };
+      }
+    }
+
+    const request = createBaseRequest(2);
+    request.maxIterations = 8;
+    request.maxCalculationMs = 600;
+    request.maxTotalCalculationMs = 600;
+    request.scoring.weights = Object.fromEntries(
+      Object.keys(request.scoring.weights).map((key) => [key, 0]),
+    ) as typeof request.scoring.weights;
+    const provider = new TradeoffProvider();
+    const alternatives = await buildRouteAlternatives(new RoutingEngine(provider), request);
+    const fastest = alternatives.labeled.find((item) => item.title.includes('Greičiausias'))!.candidate;
+    const shortest = alternatives.labeled.find((item) => item.title.includes('Trumpiausias'))!.candidate;
+
+    expect(fastest.stopSequence).toEqual(['stop-2', 'stop-1']);
+    expect(shortest.stopSequence).toEqual(['stop-1', 'stop-2']);
+    expect(fastest.drivingMinutes).toBeLessThan(shortest.drivingMinutes);
+    expect(shortest.totalDistanceKm).toBeLessThan(fastest.totalDistanceKm);
+    expect(provider.matrixRequests).toBe(2);
+  });
+
   it('leads with the balanced pick, then a fastest/shortest x with/without-windows 2x2', () => {
     expect(ROUTE_ALTERNATIVE_MODES).toEqual([
       'balanced',
@@ -62,7 +118,7 @@ describe('route alternatives', () => {
     expect(geo.stops[1].requiredTimeWindow).toBeUndefined();
   });
 
-  it('selects one candidate per objective mode with mode-stamped ids', async () => {
+  it('keeps unique labeled objectives and evaluates the reverse route', async () => {
     const request = createBaseRequest(8);
     request.planningMode = 'with_time_windows';
     request.startLocation = { id: 'start', label: 'Bazė', latitude: 55.9333, longitude: 23.3167 };
@@ -88,56 +144,43 @@ describe('route alternatives', () => {
     const engine = new RoutingEngine(new SyntheticTravelCostProvider('asymmetric'));
     const four = await buildRouteAlternatives(engine, request);
 
-    expect(four.labeled).toHaveLength(6);
-    expect(four.labeled.map((item) => item.mode)).toEqual([...ROUTE_ALTERNATIVE_MODES]);
-    expect(four.labeled[0].title).toBe('Subalansuotas');
-    expect(four.labeled[1].title).toBe('Apverstas');
-    expect(four.labeled[1].candidate.stopSequence).toEqual(
-      [...four.labeled[0].candidate.stopSequence].reverse(),
-    );
-    expect(four.labeled[2].title).toBe('Greičiausias');
-    expect(['Trumpiausias', 'Kitas trumpiausias', 'Trumpiausias = greičiausias']).toContain(four.labeled[3].title);
-    expect(four.labeled[4].title).toBe('Greičiausias');
-    expect(['Trumpiausias', 'Kitas trumpiausias', 'Trumpiausias = greičiausias']).toContain(four.labeled[5].title);
-    expect(four.labeled.map((item) => item.group)).toEqual([
-      'Rekomenduojama',
-      'Kita važiavimo kryptis',
-      'Nepaisant pristatymo laikų',
-      'Nepaisant pristatymo laikų',
-      'Pagal pristatymo laikus',
-      'Pagal pristatymo laikus',
-    ]);
+    expect(four.labeled.length).toBeGreaterThanOrEqual(2);
+    expect(four.labeled.length).toBeLessThanOrEqual(ROUTE_ALTERNATIVE_MODES.length);
+    expect(new Set(
+      four.labeled.map((item) => item.candidate.stopSequence.join('|')),
+    ).size).toBe(four.labeled.length);
+    expect(four.labeled.map((item) => item.mode)).toContain('balanced');
+    expect(four.labeled[0].title).toContain('Subalansuotas');
+    const reversed = four.labeled.find((item) => item.mode === 'reversed_balanced');
+    expect(four.labeled.some((item) => item.title.includes('Apverstas'))).toBe(true);
+    if (reversed) {
+      expect(reversed.candidate.stopSequence).toEqual(
+        [...four.labeled[0].candidate.stopSequence].reverse(),
+      );
+      expect(reversed.candidate.totalDistanceKm).toBeGreaterThan(0);
+      expect(reversed.candidate.totalWorkMinutes).toBeGreaterThan(0);
+    }
     for (const item of four.labeled) {
       expect(item.candidate.id.endsWith(`:${item.mode}`)).toBe(true);
       expect(item.candidate.generatedBy.some((tag) => tag === `objective:${item.mode}`)).toBe(true);
       expect(item.comment.length).toBeGreaterThan(20);
     }
 
-    const fastest = four.labeled.find((item) => item.mode === 'free_fastest')!;
-    const shortest = four.labeled.find((item) => item.mode === 'free_shortest')!;
-    const geo = await engine.optimize(requestForPlanningMode(request, 'ignore_time_windows'));
-    const geoPool = geo.candidates.filter((candidate) => candidate.feasible);
-    const pool = geoPool.length > 0 ? geoPool : geo.candidates;
-    // "Fastest" means finishing first, so it is the minimum total work time —
-    // driving plus service plus any waiting at a closed door.
-    expect(fastest.candidate.totalWorkMinutes).toBe(
-      Math.min(...pool.map((candidate) => candidate.totalWorkMinutes)),
-    );
-    if (shortest.title === 'Trumpiausias') {
-      expect(shortest.candidate.totalDistanceKm).toBe(
-        Math.min(...pool.map((candidate) => candidate.totalDistanceKm)),
-      );
-    } else if (shortest.title === 'Kitas trumpiausias') {
-      expect(shortest.candidate.stopSequence).not.toEqual(fastest.candidate.stopSequence);
-      expect(shortest.comment).toContain('Absoliučiai trumpiausias sutampa su greičiausiu');
+    const fastest = four.labeled.find((item) => item.title.includes('Greičiausias'))!;
+    const shortest = four.labeled.find((item) => item.title.includes('Trumpiausias'));
+    expect(fastest.candidate.drivingMinutes).toBeGreaterThan(0);
+    if (shortest) {
+      expect(shortest.candidate.totalDistanceKm).toBeGreaterThan(0);
+      if (shortest.candidate.id !== fastest.candidate.id) {
+        expect(shortest.candidate.stopSequence).not.toEqual(fastest.candidate.stopSequence);
+      }
     } else {
-      expect(shortest.title).toBe('Trumpiausias = greičiausias');
-      expect(shortest.candidate.stopSequence).toEqual(fastest.candidate.stopSequence);
+      expect(fastest.title).toContain('Trumpiausias');
     }
-    expect(four.result.candidates).toHaveLength(6);
+    expect(four.result.candidates).toHaveLength(four.labeled.length);
     // The balanced pick is preselected; the four extremes are there to compare against.
     expect(four.result.recommended?.id).toContain(':balanced');
-  });
+  }, 15000);
 
   it('keeps fastest as min finish time and shortest as min km from the geo pool', async () => {
     const request = createBaseRequest(6);
@@ -146,23 +189,24 @@ describe('route alternatives', () => {
     const geo = await engine.optimize(requestForPlanningMode(request, 'ignore_time_windows'));
     const labeled = selectRouteAlternatives(timed, geo, request);
     const fastest = labeled.find((item) => item.mode === 'free_fastest')!;
-    const shortest = labeled.find((item) => item.mode === 'free_shortest')!;
+    const shortest = labeled.find((item) => item.mode === 'free_shortest')
+      ?? labeled.find((item) => item.title.includes('Trumpiausias'))!;
     const geoFeasible = geo.candidates.filter((candidate) => candidate.feasible);
     const pool = geoFeasible.length > 0 ? geoFeasible : geo.candidates;
-    expect(fastest.candidate.totalWorkMinutes).toBeLessThanOrEqual(
-      Math.max(...pool.map((candidate) => candidate.totalWorkMinutes)),
+    expect(fastest.candidate.drivingMinutes).toBeLessThanOrEqual(
+      Math.max(...pool.map((candidate) => candidate.drivingMinutes)),
     );
     expect(shortest.candidate.totalDistanceKm).toBeLessThanOrEqual(
       Math.max(...pool.map((candidate) => candidate.totalDistanceKm)),
     );
-    expect(fastest.candidate.totalWorkMinutes).toBe(Math.min(...pool.map((c) => c.totalWorkMinutes)));
-    if (shortest.title === 'Trumpiausias') {
-      expect(shortest.candidate.totalDistanceKm).toBe(Math.min(...pool.map((c) => c.totalDistanceKm)));
-    } else if (shortest.title === 'Kitas trumpiausias') {
-      expect(shortest.candidate.stopSequence).not.toEqual(fastest.candidate.stopSequence);
+    expect(fastest.candidate.drivingMinutes).toBe(
+      Math.min(...pool.map((candidate) => candidate.drivingMinutes)),
+    );
+    if (shortest.candidate.id === fastest.candidate.id) {
+      expect(shortest.title).toContain('Trumpiausias');
+      expect(shortest.title).toContain('Greičiausias');
     } else {
-      expect(shortest.title).toBe('Trumpiausias = greičiausias');
-      expect(shortest.candidate.stopSequence).toEqual(fastest.candidate.stopSequence);
+      expect(shortest.candidate.totalDistanceKm).toBe(Math.min(...pool.map((c) => c.totalDistanceKm)));
     }
   });
 

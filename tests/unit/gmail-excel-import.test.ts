@@ -17,6 +17,7 @@ import { readGmailOAuthConfig } from '../../server/gmail-mailbox';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const importScreen = readFileSync(resolve(root, 'src/app/import/index.tsx'), 'utf8');
+const cloudRunWorkflow = readFileSync(resolve(root, '.github/workflows/cloud-run.yml'), 'utf8');
 const config = {
   clientId: 'client-id',
   clientSecret: 'client-secret',
@@ -150,6 +151,14 @@ describe('gmail excel import', () => {
     expect(picker).not.toContain('window.location.assign(result.url)');
     expect(picker).not.toContain("outcome.current === 'error' || popup.closed");
     expect(picker).toContain('if (next.connected) setNotice(null)');
+  });
+
+  it('keeps Gmail OAuth secrets and callback configured by the production deploy workflow', () => {
+    for (const secret of ['GMAIL_OAUTH_CLIENT_ID', 'GMAIL_OAUTH_CLIENT_SECRET', 'MAIL_TOKEN_ENCRYPTION_KEY']) {
+      expect(cloudRunWorkflow).toContain(secret);
+    }
+    expect(cloudRunWorkflow).toContain('GMAIL_OAUTH_REDIRECT_URI');
+    expect(cloudRunWorkflow).toContain('/api/mail/callback');
   });
 
   it('rejects Cloud Run values that accidentally include the variable name', () => {

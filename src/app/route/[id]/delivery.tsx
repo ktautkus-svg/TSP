@@ -1038,7 +1038,14 @@ export default function DeliveryScreen() {
                     <View style={styles.stopNumberBadge}>
                       <Text style={styles.stopNumber}>{nextStop.activeOrder ?? nextStop.optimizedOrder ?? nextStop.originalOrder}</Text>
                     </View>
-                    <Text style={styles.nextStopAddress}>{nextStop.normalizedAddress ?? nextStop.originalAddress}</Text>
+                    <View style={styles.nextStopLocationText}>
+                      {nextStop.recipient?.trim() ? (
+                        <Text style={styles.nextStopCustomerName} testID="dashboard-stop-customer">
+                          {nextStop.recipient}
+                        </Text>
+                      ) : null}
+                      <Text style={styles.nextStopAddress}>{nextStop.normalizedAddress ?? nextStop.originalAddress}</Text>
+                    </View>
                     {hasLearnedParkPin(nextStop) ? (
                       <Pressable
                         accessibilityLabel="Kiemas. Palieskite, kad pamirštumėte išmoktą vietą."
@@ -1247,6 +1254,7 @@ export default function DeliveryScreen() {
               <ScheduleDot stop={stop} colors={colors} routeDate={route?.date} />
               <View style={styles.cardHeaderText}>
                 <Text style={styles.order}>{statusLabel(stop)}{stop.priorityFirst ? ' ⭐' : ''}</Text>
+                {stop.recipient?.trim() ? <Text style={styles.stopCustomerName}>{stop.recipient}</Text> : null}
                 <Text style={styles.address}>{stop.normalizedAddress ?? stop.originalAddress}</Text>
                 {hasLearnedParkPin(stop) ? (
                   <Pressable
@@ -1778,9 +1786,12 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   nextStopCardViewportFill: { flexGrow: 1 },
   dashboardCardLabel: { ...type.label, color: colors.textMuted },
   nextStopHeading: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  nextStopLocationText: { flex: 1, minWidth: 0, gap: 3 },
   stopNumberBadge: { width: 36, height: 36, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.actionPrimary },
   stopNumber: { color: colors.textInverse, fontFamily: fonts.headingExtraBold, fontSize: 16 },
+  nextStopCustomerName: { ...type.sectionTitle, color: colors.text, flexShrink: 1 },
   nextStopAddress: { flex: 1, minWidth: 0, ...type.cardTitle, color: colors.text, fontSize: 15, lineHeight: 20 },
+  stopCustomerName: { ...type.secondaryStrong, color: colors.text },
   parkHint: {
     alignSelf: 'flex-start',
     minHeight: 28,

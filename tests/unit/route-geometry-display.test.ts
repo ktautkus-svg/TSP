@@ -71,7 +71,7 @@ describe('FIRO real road geometry display', () => {
   });
 
   it('keeps optimization on the travel-cost matrix provider (unchanged road-matrix path)', () => {
-    expect(engine).toContain('const matrix = await this.travelCostProvider.getMatrix({');
+    expect(engine).toContain('const matrix = matrixOverride ?? await this.travelCostProvider.getMatrix({');
     expect(engine).toContain('improveWithLocalSearch({');
     expect(engine).toContain('matrix,');
     expect(engine).not.toContain('haversineKm');

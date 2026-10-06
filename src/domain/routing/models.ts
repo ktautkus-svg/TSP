@@ -299,7 +299,7 @@ export type RoutePolylineResult = {
 };
 
 export interface RouteOptimizer {
-  optimize(request: RouteOptimizationRequest): Promise<RouteOptimizationResult>;
+  optimize(request: RouteOptimizationRequest, matrixOverride?: TravelMatrix): Promise<RouteOptimizationResult>;
 }
 
 export type MatrixRequest = {

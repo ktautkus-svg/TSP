@@ -14,6 +14,7 @@ import {
 } from '@/application/operations/departure-readiness';
 import { ActivateRoute, CancelDraftRoute, ReopenRouteForPlanning, UpdateStopPhone } from '@/application/routes/route-commands';
 import { estimateLoadingMinutes, loadingHistorySamples } from '@/application/routes/loading-duration';
+import { partitionLoadingStops } from '@/application/routes/loading-stop-sections';
 import { resolveRoute } from '@/application/routes/route-navigation';
 import {
   GetLatestUndoableAction,
@@ -71,6 +72,7 @@ export default function LoadingScreen() {
   const [bulkBusy, setBulkBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedStopId, setExpandedStopId] = useState<string | null>(null);
+  const [showProcessedStops, setShowProcessedStops] = useState(false);
   const [notLoadedStopId, setNotLoadedStopId] = useState<string | null>(null);
   const [notLoadedReason, setNotLoadedReason] = useState<LoadingFailureReason>('Atšauktas užsakymas');
   const [odometerModalVisible, setOdometerModalVisible] = useState(false);
@@ -223,6 +225,7 @@ export default function LoadingScreen() {
       : null,
     [cargoProfile, stops],
   );
+  const loadingSections = useMemo(() => partitionLoadingStops(stops), [stops]);
 
   const markLoaded = async (stopId: string) => {
     try {
@@ -559,7 +562,7 @@ export default function LoadingScreen() {
           {fuelStatus?.approvalPending ? <Text style={styles.fuelPending}>Pakeitimas laukia administratoriaus patvirtinimo. Maršrutą galite tęsti.</Text> : fuelStatus?.requiresConfirmation ? <Text style={styles.summaryText}>Patvirtinkite esamą likutį. Jei skaičius pasikeitė, administratorius gaus prašymą.</Text> : <Text style={styles.summaryText}>Patvirtinta: {fuelStatus?.vehicle?.fuelRemainingLiters ?? fuelStatus?.latestReport?.reportedLiters ?? '—'} l</Text>}
           {fuelStatus?.requiresConfirmation ? <View style={styles.fuelRow}>
             <TextInput value={fuelInput} onChangeText={(value) => setFuelInput(value.replace(/[^\d.,]/g, '').slice(0, 7))} keyboardType="decimal-pad" placeholder="Kuro likutis, l" style={[styles.input, styles.fuelInput]} />
-            <Pressable disabled={fuelBusy || !fuelInput.trim()} onPress={() => void submitFuel()} style={[styles.fuelButton, (fuelBusy || !fuelInput.trim()) && styles.disabled]}><Text style={styles.primaryText}>{fuelBusy ? 'Saugoma…' : 'Patvirtinti'}</Text></Pressable>
+            <Pressable disabled={fuelBusy || !fuelInput.trim()} onPress={() => void submitFuel()} style={({ pressed }) => [styles.fuelButton, (fuelBusy || !fuelInput.trim()) && styles.disabled, pressed && styles.plannedPressed]}><Text style={styles.primaryText}>{fuelBusy ? 'Saugoma…' : 'Patvirtinti'}</Text></Pressable>
           </View> : null}
         </View> : null}
         {showPlannedPreview ? (
@@ -662,7 +665,7 @@ export default function LoadingScreen() {
             accessibilityRole="button"
             disabled={bulkBusy}
             testID="mark-all-stops-loaded"
-            style={[styles.markAllButton, bulkBusy && styles.disabled]}
+            style={({ pressed }) => [styles.markAllButton, bulkBusy && styles.disabled, pressed && styles.plannedPressed]}
             onPress={markAllLoaded}>
             {bulkBusy ? <ActivityIndicator color="#fff" /> : <Text style={styles.markAllText}>Visus iškart</Text>}
           </Pressable>
@@ -671,7 +674,7 @@ export default function LoadingScreen() {
       {route?.status === 'loaded' ? (
         <Pressable
           disabled={Boolean(readiness && !readiness.canDepart)}
-          style={[styles.primaryButton, Boolean(readiness && !readiness.canDepart) && styles.disabled]}
+          style={({ pressed }) => [styles.primaryButton, Boolean(readiness && !readiness.canDepart) && styles.disabled, pressed && styles.plannedPressed]}
           onPress={() => {
             if (readiness && !readiness.canDepart) {
               Alert.alert('Važiuoti negalima', readiness.blockers[0]?.message ?? 'Pasibaigęs automobilio terminas. Važiuoti negalima.');
@@ -684,23 +687,37 @@ export default function LoadingScreen() {
         </Pressable>
       ) : null}
       {stops.length > 1 && (profile.role !== 'driver' || profile.permissions?.canReorderAssignedRoute) ? (
-        <Pressable style={styles.reverseButton} onPress={reverseDirection}>
+        <Pressable style={({ pressed }) => [styles.reverseButton, pressed && styles.plannedPressed]} onPress={reverseDirection}>
           <Text style={styles.reverseText}>⇄ Apsukti pristatymo kryptį</Text>
         </Pressable>
       ) : null}
       {route?.status === 'loading' && (profile.role !== 'driver' || profile.permissions?.canReorderAssignedRoute) ? (
-        <Pressable style={styles.reverseButton} onPress={pickDifferentAlternative}>
+        <Pressable style={({ pressed }) => [styles.reverseButton, pressed && styles.plannedPressed]} onPress={pickDifferentAlternative}>
           <Text style={styles.reverseText}>← Pasirinkti kitą maršruto variantą</Text>
         </Pressable>
       ) : null}
       {undo ? (
-        <Pressable style={styles.undoButton} onPress={undoLast} testID="undo-loading-action">
+        <Pressable style={({ pressed }) => [styles.undoButton, pressed && styles.plannedPressed]} onPress={undoLast} testID="undo-loading-action">
           <Text style={styles.undoText}>
             {undo.actionType === 'all_stops_loaded' ? 'Atšaukti visų pakrovimą' : 'Atšaukti paskutinį pakrovimą'}
           </Text>
         </Pressable>
       ) : null}
+      {loadingSections.processed.length > 0 ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded: showProcessedStops }}
+          onPress={() => setShowProcessedStops((visible) => !visible)}
+          style={({ pressed }) => [styles.processedStopsToggle, pressed && styles.plannedPressed]}
+          testID="toggle-processed-loading-stops">
+          <Text style={styles.processedStopsToggleText}>
+            {showProcessedStops ? 'Slėpti' : 'Rodyti'} pakrautus / nepakrautus taškus ({loadingSections.processed.length})
+          </Text>
+        </Pressable>
+      ) : null}
       {stops.map((stop, index) => {
+        const processed = stop.loadingStatus === 'loaded' || stop.deliveryStatus === 'failed';
+        if (processed && !showProcessedStops) return null;
         const deliveryOrder = stop.activeOrder ?? stop.optimizedOrder ?? stop.originalOrder;
         const floorPallets = palletLayout?.placed.filter((pallet) => pallet.itemId === stop.id) ?? [];
         const floorUnplaced = palletLayout?.unplaced.some((pallet) => pallet.itemId === stop.id) ?? false;
@@ -716,6 +733,8 @@ export default function LoadingScreen() {
             key={stop.id}
             onSwipeRight={stop.loadingStatus === 'loaded' ? undefined : () => markLoaded(stop.id)}
             onSwipeLeft={stop.loadingStatus === 'loaded' ? () => markUnloaded(stop.id) : markedNotLoaded ? undefined : () => beginNotLoaded(stop.id)}
+            rightActionLabel="PAKRAUTA"
+            leftActionLabel={stop.loadingStatus === 'loaded' ? 'ATŽYMĖTI' : 'NEPAKRAUTA'}
             style={[
               styles.card,
               statusTone === 'loaded' && styles.loadedCard,
@@ -733,7 +752,7 @@ export default function LoadingScreen() {
             <Pressable
               accessibilityRole="button"
               onPress={() => setExpandedStopId(expanded ? null : stop.id)}
-              style={styles.cardHeader}>
+              style={({ pressed }) => [styles.cardHeader, pressed && styles.plannedPressed]}>
               <View style={[
                 styles.orderBadge,
                 statusTone === 'loaded' && styles.orderBadgeLoaded,
@@ -748,6 +767,7 @@ export default function LoadingScreen() {
                 </Text>
               </View>
               <View style={styles.cardHeaderText}>
+                {stop.recipient?.trim() ? <Text style={styles.customerName}>{stop.recipient}</Text> : null}
                 <Text style={styles.address}>{stop.normalizedAddress ?? stop.originalAddress}{stop.priorityFirst ? ' ⭐' : ''}</Text>
                 <Text style={styles.loadingSequenceLabel}>KROVIMO EILĖ {index + 1} · PRISTATYMO TAŠKAS {deliveryOrder}</Text>
                 {showCargoScheme && palletLayout && floorPallets.length > 0 ? (
@@ -788,11 +808,11 @@ export default function LoadingScreen() {
                   <Text style={styles.reverseText}>Išsaugoti telefoną</Text>
                 </Pressable>
                 <View style={styles.loadingActions}>
-                  <Pressable style={[styles.loadButton, stop.loadingStatus === 'loaded' && styles.loadedButton]} onPress={() => stop.loadingStatus === 'loaded' ? markUnloaded(stop.id) : markLoaded(stop.id)}>
+                  <Pressable style={({ pressed }) => [styles.loadButton, stop.loadingStatus === 'loaded' && styles.loadedButton, pressed && styles.plannedPressed]} onPress={() => stop.loadingStatus === 'loaded' ? markUnloaded(stop.id) : markLoaded(stop.id)}>
                     <Text style={styles.loadButtonText}>{stop.loadingStatus === 'loaded' ? 'Atžymėti' : markedNotLoaded ? 'Pakrauti vis tiek' : 'Pakrauta'}</Text>
                   </Pressable>
                   {stop.loadingStatus === 'pending' ? (
-                    <Pressable style={styles.notLoadedButton} onPress={() => beginNotLoaded(stop.id)}>
+                    <Pressable style={({ pressed }) => [styles.notLoadedButton, pressed && styles.plannedPressed]} onPress={() => beginNotLoaded(stop.id)}>
                       <Text style={styles.notLoadedButtonText}>{markedNotLoaded ? 'Keisti priežastį' : 'Nepakrauta'}</Text>
                     </Pressable>
                   ) : null}
@@ -812,7 +832,7 @@ export default function LoadingScreen() {
             <TextInput value={odometer} onChangeText={setOdometer} keyboardType="decimal-pad" placeholder="Pvz. 125430,5" style={styles.input} autoFocus />
             <Pressable
               disabled={!odometer.trim() && route?.startOdometer === null}
-              style={[styles.primaryButton, (!odometer.trim() && route?.startOdometer === null) && styles.disabled]}
+              style={({ pressed }) => [styles.primaryButton, (!odometer.trim() && route?.startOdometer === null) && styles.disabled, pressed && styles.plannedPressed]}
               onPress={() => { void beginRouteWithOdometer(); }}
               testID="confirm-start-route">
               <Text style={styles.primaryText}>Pradėti maršrutą</Text>
@@ -835,10 +855,10 @@ export default function LoadingScreen() {
               </Pressable>
             ))}
             <View style={styles.dialogActions}>
-              <Pressable disabled={bulkBusy} onPress={() => void saveNotLoaded()} style={[styles.dialogSave, bulkBusy && styles.disabled]}>
+              <Pressable disabled={bulkBusy} onPress={() => void saveNotLoaded()} style={({ pressed }) => [styles.dialogSave, bulkBusy && styles.disabled, pressed && styles.plannedPressed]}>
                 <Text style={styles.loadButtonText}>Išsaugoti</Text>
               </Pressable>
-              <Pressable disabled={bulkBusy} onPress={() => setNotLoadedStopId(null)} style={styles.dialogCancel}>
+              <Pressable disabled={bulkBusy} onPress={() => setNotLoadedStopId(null)} style={({ pressed }) => [styles.dialogCancel, pressed && styles.plannedPressed]}>
                 <Text style={styles.secondaryText}>Atšaukti</Text>
               </Pressable>
             </View>
@@ -889,6 +909,17 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     marginBottom: spacing.xs,
   },
   summaryTitle: { ...type.sectionTitle, color: colors.text, flexShrink: 1 },
+  customerName: { ...type.secondaryStrong, color: colors.text },
+  processedStopsToggle: {
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+  },
+  processedStopsToggleText: { ...type.secondaryStrong, color: colors.textSecondary, textAlign: 'center' },
   percentPill: {
     minWidth: 52,
     paddingHorizontal: 10,

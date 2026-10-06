@@ -2,6 +2,7 @@ import type { PlanningMode } from '@/domain/route';
 import { evaluateCandidate } from '@/domain/routing/evaluation/candidate-evaluator';
 import { repairHardOrdering } from '@/domain/routing/heuristics/generators';
 import { normalizeAndScoreCandidates } from '@/domain/routing/scoring/scoring';
+import { routeDiversity } from '@/application/routing/route-comparison';
 import type {
   ExplanationEvidence,
   RouteCandidate,
@@ -87,6 +88,8 @@ export type FourObjectiveAlternatives = {
   request: RouteOptimizationRequest;
 };
 
+export type RouteObjective = 'fastest' | 'shortest';
+
 /**
  * Shares one screen-level time budget across `runs` engine calls. Never drops
  * below a single seed's budget, so short routes are unaffected.
@@ -128,14 +131,34 @@ export function requestForPlanningMode(
   };
 }
 
-// "Fastest" is when the driver gets to go home, not how many minutes the engine
-// was turning. Sorting on drivingMinutes alone ignored waiting, so with time
-// windows on, the card labelled Greičiausias could finish 24 minutes after the
-// card next to it (measured on a 16-stop route: 92 driving / 416 total against
-// 95 driving / 392 total).
+export function requestForObjective(
+  request: RouteOptimizationRequest,
+  objective: RouteObjective,
+): RouteOptimizationRequest {
+  const primaryKey = objective === 'fastest' ? 'drivingTime' : 'distance';
+  const weights = { ...request.scoring.weights };
+  const secondaryWeightTotal = Object.entries(weights)
+    .filter(([key]) => key !== primaryKey)
+    .reduce((sum, [, weight]) => sum + weight, 0);
+  for (const key of Object.keys(weights) as (keyof typeof weights)[]) {
+    weights[key] = key === primaryKey
+      ? 0.8
+      : secondaryWeightTotal > 0 ? (weights[key] / secondaryWeightTotal) * 0.2 : 0;
+  }
+  return {
+    ...request,
+    scoring: {
+      ...request.scoring,
+      weights,
+      normalizationCaps: { ...request.scoring.normalizationCaps },
+      tolerances: { ...request.scoring.tolerances },
+    },
+  };
+}
+
 const byFastest = (left: RouteCandidate, right: RouteCandidate) =>
-  left.totalWorkMinutes - right.totalWorkMinutes
-  || left.drivingMinutes - right.drivingMinutes
+  left.drivingMinutes - right.drivingMinutes
+  || left.totalWorkMinutes - right.totalWorkMinutes
   || left.totalDistanceKm - right.totalDistanceKm;
 
 const byShortest = (left: RouteCandidate, right: RouteCandidate) =>
@@ -147,6 +170,7 @@ export function selectRouteAlternatives(
   timed: RouteOptimizationResult,
   geo: RouteOptimizationResult,
   request: RouteOptimizationRequest,
+  objectiveResults?: ObjectiveResults,
 ): LabeledRouteAlternative[] {
   const planningMode = request.planningMode;
   const timedFallback =
@@ -160,16 +184,22 @@ export function selectRouteAlternatives(
   const timedPool = poolForObjective(timed);
   const geoPool = poolForObjective(geo);
 
-  const freeFastest = pickBest(geoPool, byFastest) ?? geoFallback;
-  const absoluteFreeShortest = pickBest(geoPool, byShortest) ?? geoFallback;
-  const freeShortestAlternative = sameSequence(freeFastest, absoluteFreeShortest)
-    ? pickBestDistinct(geoPool, byShortest, freeFastest)
-    : absoluteFreeShortest;
-  const timedFastest = pickBest(timedPool, byFastest) ?? timedFallback;
-  const absoluteTimedShortest = pickBest(timedPool, byShortest) ?? timedFallback;
-  const timedShortestAlternative = sameSequence(timedFastest, absoluteTimedShortest)
-    ? pickBestDistinct(timedPool, byShortest, timedFastest)
-    : absoluteTimedShortest;
+  const freeFastest = pickBest(
+    objectiveResults ? poolForObjective(objectiveResults.geoFastest) : geoPool,
+    byFastest,
+  ) ?? geoFallback;
+  const freeShortest = pickBest(
+    objectiveResults ? poolForObjective(objectiveResults.geoShortest) : geoPool,
+    byShortest,
+  ) ?? geoFallback;
+  const timedFastest = pickBest(
+    objectiveResults ? poolForObjective(objectiveResults.timedFastest) : timedPool,
+    byFastest,
+  ) ?? timedFallback;
+  const timedShortest = pickBest(
+    objectiveResults ? poolForObjective(objectiveResults.timedShortest) : timedPool,
+    byShortest,
+  ) ?? timedFallback;
 
   // The balanced pick comes from the run that matches how the route is planned,
   // so it answers the same question the driver set up rather than a second one.
@@ -200,20 +230,20 @@ export function selectRouteAlternatives(
     { mode: 'free_fastest', candidate: freeFastest, duplicateWinner: false, alternateShown: false },
     {
       mode: 'free_shortest',
-      candidate: freeShortestAlternative ?? absoluteFreeShortest,
-      duplicateWinner: sameSequence(freeFastest, absoluteFreeShortest),
-      alternateShown: Boolean(freeShortestAlternative),
+      candidate: freeShortest,
+      duplicateWinner: sameSequence(freeFastest, freeShortest),
+      alternateShown: false,
     },
     { mode: 'timed_fastest', candidate: timedFastest, duplicateWinner: false, alternateShown: false },
     {
       mode: 'timed_shortest',
-      candidate: timedShortestAlternative ?? absoluteTimedShortest,
-      duplicateWinner: sameSequence(timedFastest, absoluteTimedShortest),
-      alternateShown: Boolean(timedShortestAlternative),
+      candidate: timedShortest,
+      duplicateWinner: sameSequence(timedFastest, timedShortest),
+      alternateShown: false,
     },
   ];
 
-  return picks.map(({ mode, candidate, duplicateWinner, alternateShown }) => {
+  const labeled = picks.map(({ mode, candidate, duplicateWinner, alternateShown }) => {
     const label = ROUTE_ALTERNATIVE_LABELS[mode];
     const duplicateComment = duplicateWinner
       ? alternateShown
@@ -223,11 +253,36 @@ export function selectRouteAlternatives(
     return {
       mode,
       ...label,
-      title: duplicateWinner ? (alternateShown ? 'Kitas trumpiausias' : 'Trumpiausias = greičiausias') : label.title,
+      title: label.title,
       comment: duplicateComment,
       candidate: stampMode(candidate, mode, duplicateComment),
     };
   });
+
+  const distinct: LabeledRouteAlternative[] = [];
+  for (const item of labeled) {
+    const sameRoute = distinct.find((existing) => sameSequence(existing.candidate, item.candidate));
+    if (sameRoute) {
+      sameRoute.title = `${sameRoute.title} = ${item.title}`;
+      sameRoute.comment = `Tas pats įvertintas sustojimų eiliškumas atitinka: ${sameRoute.title}. ${sameRoute.comment}`;
+      continue;
+    }
+    const nearEquivalent = item.mode === 'reversed_balanced'
+      ? undefined
+      : distinct.find((existing) =>
+      routeDiversity(existing.candidate, item.candidate) < 0.12
+      && Math.abs(existing.candidate.totalWorkMinutes - item.candidate.totalWorkMinutes)
+        < Math.max(5, existing.candidate.totalWorkMinutes * 0.05)
+      && Math.abs(existing.candidate.totalDistanceKm - item.candidate.totalDistanceKm)
+        < Math.max(2, existing.candidate.totalDistanceKm * 0.05),
+      );
+    if (nearEquivalent) {
+      nearEquivalent.comment = `${nearEquivalent.comment} ${item.title} beveik nesiskiria, todėl atskiras pasiūlymas nerodomas.`;
+      continue;
+    }
+    distinct.push(item);
+  }
+  return distinct;
 }
 
 /**
@@ -248,7 +303,22 @@ export async function buildRouteAlternatives(
     engine.optimize(timedRequest),
     engine.optimize(geoRequest),
   ]);
-  const labeled = selectRouteAlternatives(timed, geo, request);
+  const objectiveBudget = {
+    maxCalculationMs: Math.min(600, halved.maxCalculationMs),
+    maxTotalCalculationMs: Math.min(600, halved.maxTotalCalculationMs ?? halved.maxCalculationMs * 3),
+  };
+  const [timedFastest, timedShortest, geoFastest, geoShortest] = await Promise.all([
+    engine.optimize(requestForObjective({ ...timedRequest, ...objectiveBudget }, 'fastest'), timed.matrix),
+    engine.optimize(requestForObjective({ ...timedRequest, ...objectiveBudget }, 'shortest'), timed.matrix),
+    engine.optimize(requestForObjective({ ...geoRequest, ...objectiveBudget }, 'fastest'), geo.matrix),
+    engine.optimize(requestForObjective({ ...geoRequest, ...objectiveBudget }, 'shortest'), geo.matrix),
+  ]);
+  const labeled = selectRouteAlternatives(timed, geo, request, {
+    timedFastest,
+    timedShortest,
+    geoFastest,
+    geoShortest,
+  });
   const candidates = labeled.map((item) => item.candidate);
   // The balanced pick is what the driver gets unless he deliberately reaches for
   // an extreme, so it is also what the screen preselects.
@@ -281,6 +351,13 @@ export async function buildRouteAlternatives(
   return { labeled, result, request: geoRequest };
 }
 
+type ObjectiveResults = {
+  timedFastest: RouteOptimizationResult;
+  timedShortest: RouteOptimizationResult;
+  geoFastest: RouteOptimizationResult;
+  geoShortest: RouteOptimizationResult;
+};
+
 function poolForObjective(result: RouteOptimizationResult): RouteCandidate[] {
   const feasible = result.candidates.filter((candidate) => candidate.feasible);
   return feasible.length > 0 ? feasible : result.candidates;
@@ -296,14 +373,6 @@ function pickBest(
 ): RouteCandidate | null {
   if (pool.length === 0) return null;
   return [...pool].sort(compare)[0] ?? null;
-}
-
-function pickBestDistinct(
-  pool: RouteCandidate[],
-  compare: (left: RouteCandidate, right: RouteCandidate) => number,
-  excluded: RouteCandidate,
-): RouteCandidate | null {
-  return pickBest(pool.filter((candidate) => !sameSequence(candidate, excluded)), compare);
 }
 
 function sameSequence(left: RouteCandidate, right: RouteCandidate): boolean {

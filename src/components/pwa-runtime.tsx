@@ -30,11 +30,19 @@ export function PwaRuntime() {
     const controllerListener = () => {
       if (refreshRequested.current) window.location.reload();
     };
+    const checkForUpdate = () => {
+      if (document.visibilityState === 'hidden') return;
+      void registration.current?.update().catch((reason) => {
+        devWarn('PWA_SERVICE_WORKER_UPDATE_CHECK_FAILED', reason);
+      });
+    };
     window.addEventListener('online', onlineListener);
     window.addEventListener('offline', offlineListener);
+    window.addEventListener('focus', checkForUpdate);
+    document.addEventListener('visibilitychange', checkForUpdate);
     navigator.serviceWorker.addEventListener('message', messageListener);
     navigator.serviceWorker.addEventListener('controllerchange', controllerListener);
-    void navigator.serviceWorker.register('/service-worker.js', { scope: '/' }).then((current) => {
+    void navigator.serviceWorker.register('/service-worker.js', { scope: '/', updateViaCache: 'none' }).then((current) => {
       registration.current = current;
       if (current.waiting) setUpdateReady(true);
       current.addEventListener('updatefound', () => {
@@ -50,6 +58,8 @@ export function PwaRuntime() {
     return () => {
       window.removeEventListener('online', onlineListener);
       window.removeEventListener('offline', offlineListener);
+      window.removeEventListener('focus', checkForUpdate);
+      document.removeEventListener('visibilitychange', checkForUpdate);
       navigator.serviceWorker.removeEventListener('message', messageListener);
       navigator.serviceWorker.removeEventListener('controllerchange', controllerListener);
     };

@@ -17,6 +17,8 @@ const MIN_THRESHOLD = 88;
 export function SwipeActionCard(props: ViewProps & {
   onSwipeRight?: () => void;
   onSwipeLeft?: () => void;
+  rightActionLabel?: string;
+  leftActionLabel?: string;
   disabled?: boolean;
 }) {
   const { colors } = useTheme();
@@ -54,7 +56,15 @@ export function SwipeActionCard(props: ViewProps & {
 
   const responder = useMemo(() => PanResponder.create({
     onMoveShouldSetPanResponder: (_, gesture) =>
-      !props.disabled && Math.abs(gesture.dx) > 8 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.2,
+      !props.disabled
+      && (gesture.dx > 0 ? Boolean(props.onSwipeRight) : Boolean(props.onSwipeLeft))
+      && Math.abs(gesture.dx) > 8
+      && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.2,
+    onMoveShouldSetPanResponderCapture: (_, gesture) =>
+      !props.disabled
+      && (gesture.dx > 0 ? Boolean(props.onSwipeRight) : Boolean(props.onSwipeLeft))
+      && Math.abs(gesture.dx) > 8
+      && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.2,
     onPanResponderGrant: () => translateX.stopAnimation(),
     onPanResponderMove: (_, gesture) => {
       const resistance = Math.abs(gesture.dx) > width.current * 0.75 ? 0.72 : 1;
@@ -79,10 +89,10 @@ export function SwipeActionCard(props: ViewProps & {
   return (
     <View {...viewProps} onLayout={onLayout} style={[styles.shell, style]}>
       <Animated.View pointerEvents="none" style={[styles.action, styles.deliveredAction, { opacity: rightOpacity }]}>
-        <Text style={styles.actionIcon}>✓</Text><Text style={styles.actionText}>PRIDUOTA</Text>
+        <Text style={styles.actionIcon}>✓</Text><Text style={styles.actionText}>{props.rightActionLabel ?? 'PRIDUOTA'}</Text>
       </Animated.View>
       <Animated.View pointerEvents="none" style={[styles.action, styles.failedAction, { opacity: leftOpacity }]}>
-        <Text style={styles.actionText}>NEPRIDUOTA</Text><Text style={styles.actionIcon}>×</Text>
+        <Text style={styles.actionText}>{props.leftActionLabel ?? 'NEPRIDUOTA'}</Text><Text style={styles.actionIcon}>×</Text>
       </Animated.View>
       <Animated.View
         {...responder.panHandlers}

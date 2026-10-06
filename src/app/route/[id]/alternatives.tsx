@@ -88,12 +88,20 @@ export default function RouteAlternativesScreen() {
   const selfCancelled = useRef(false);
   const stayInPlanning = useRef(false);
   const screenFocused = useRef(false);
+  const calculationGeneration = useRef(0);
 
   const calculate = useCallback(async () => {
     if (!routeId || startedForRoute.current === routeId) return;
     startedForRoute.current = routeId;
+    const generation = ++calculationGeneration.current;
+    setRequest(null);
+    setResult(null);
+    setLabeledAlternatives([]);
+    setSelectedId(null);
+    setError(null);
     try {
       const persisted = await repository.getWithStops(routeId);
+      if (generation !== calculationGeneration.current) return;
       if (!persisted) throw new Error('Maršrutas nerastas.');
       if (persisted.route.status !== 'draft') {
         const destination = resolveRoute(persisted.route);
@@ -105,6 +113,7 @@ export default function RouteAlternativesScreen() {
         return;
       }
       const stops = await hydrateStopParkPins(db, persisted.stops);
+      if (generation !== calculationGeneration.current) return;
       const nextRequest = buildOptimizationRequestFromRoute(persisted.route, stops);
       const skipPaidMatrix = isHistoricalPlanningDate(persisted.route.date);
       const provider = createPlanningTravelProvider({
@@ -112,23 +121,25 @@ export default function RouteAlternativesScreen() {
         skipPaidMatrix,
       });
       const four = await buildRouteAlternatives(new RoutingEngine(provider), nextRequest);
+      if (generation !== calculationGeneration.current) return;
       await new SQLiteRoutingAuditRepository(db).saveOptimizationRun(routeId, four.request, four.result);
+      if (generation !== calculationGeneration.current) return;
       setRequest(four.request);
       setResult(four.result);
       setLabeledAlternatives(four.labeled);
       setSelectedId(four.result.recommended?.id ?? four.labeled[0]?.candidate.id ?? null);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Nepavyko apskaičiuoti maršruto.');
+      if (generation === calculationGeneration.current) {
+        startedForRoute.current = null;
+        setError(reason instanceof Error ? reason.message : 'Nepavyko apskaičiuoti maršruto.');
+      }
     }
   }, [allowSynthetic, db, repository, routeId, router]);
-
-  useEffect(() => {
-    void calculate();
-  }, [calculate]);
 
   useFocusEffect(useCallback(() => {
     screenFocused.current = true;
     let active = true;
+    void calculate();
     void repository.getById(routeId).then((current) => {
       if (!active || !current || current.status === 'draft' || selfCancelled.current) return;
       const destination = resolveRoute(current);
@@ -141,8 +152,13 @@ export default function RouteAlternativesScreen() {
       devWarn('ALTERNATIVES_FOCUS_GUARD_FAILED', reason);
       if (active) setError(reason instanceof Error ? reason.message : 'Maršruto būsenos patikrinti nepavyko.');
     });
-    return () => { active = false; screenFocused.current = false; };
-  }, [repository, routeId, router]));
+    return () => {
+      active = false;
+      screenFocused.current = false;
+      calculationGeneration.current += 1;
+      startedForRoute.current = null;
+    };
+  }, [calculate, repository, routeId, router]));
 
   useEffect(() => {
     if (syncRevision === 0 || !screenFocused.current) return;
@@ -569,7 +585,7 @@ export default function RouteAlternativesScreen() {
         <View style={[styles.topActions, wideWorkspace && styles.topActionsWide]}>
           <Pressable
             disabled={saving || cancelling}
-            style={[styles.secondaryButton, wideWorkspace && styles.topActionItem, (saving || cancelling) && styles.disabled]}
+            style={({ pressed }) => [styles.secondaryButton, wideWorkspace && styles.topActionItem, (saving || cancelling) && styles.disabled, pressed && styles.pressedFeedback]}
             onPress={() => {
               stayInPlanning.current = true;
               router.replace({ pathname: '/route/[id]/review', params: { id: routeId } });
@@ -579,14 +595,14 @@ export default function RouteAlternativesScreen() {
           </Pressable>
           <Pressable
             disabled={!selectedId || saving || cancelling}
-            style={[styles.primaryButton, wideWorkspace && styles.topActionPrimary, (!selectedId || saving || cancelling) && styles.disabled]}
+            style={({ pressed }) => [styles.primaryButton, wideWorkspace && styles.topActionPrimary, (!selectedId || saving || cancelling) && styles.disabled, pressed && styles.pressedFeedback]}
             onPress={saveSelectedRoute}
             testID="save-selected-route-top">
             {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>Patvirtinti pasirinktą maršrutą</Text>}
           </Pressable>
           <Pressable
             disabled={saving || cancelling}
-            style={[styles.restartButton, wideWorkspace && styles.topActionItem, (saving || cancelling) && styles.disabled]}
+            style={({ pressed }) => [styles.restartButton, wideWorkspace && styles.topActionItem, (saving || cancelling) && styles.disabled, pressed && styles.pressedFeedback]}
             onPress={cancelAndChooseAnotherFile}
             testID="cancel-route-and-new-file">
             {cancelling ? <ActivityIndicator color={colors.danger} /> : <Text style={styles.restartText}>Atšaukti ir pasirinkti kitą failą</Text>}
@@ -683,7 +699,7 @@ export default function RouteAlternativesScreen() {
         ) : null}
       </View>
       {request ? (
-        <Pressable style={styles.secondaryButton} onPress={toggleManualMode} testID="toggle-manual-sequencing">
+        <Pressable style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressedFeedback]} onPress={toggleManualMode} testID="toggle-manual-sequencing">
           <Text style={styles.secondaryText}>{manualMode ? 'Išjungti rankinį maršrutizavimą' : 'Įjungti rankinį maršrutizavimą'}</Text>
         </Pressable>
       ) : null}
@@ -710,10 +726,11 @@ export default function RouteAlternativesScreen() {
               accessibilityRole="button"
               disabled={priorityCalculating}
               onPress={() => { void recalculateWithPriorities(); }}
-              style={[
+              style={({ pressed }) => [
                 styles.priorityRecalcButton,
                 manualPriorityIds.length > 0 && styles.priorityRecalcButtonReady,
                 priorityCalculating && styles.disabled,
+                pressed && styles.pressedFeedback,
               ]}
               testID="recalculate-priority-stops">
               {priorityCalculating
@@ -724,7 +741,11 @@ export default function RouteAlternativesScreen() {
               accessibilityRole="button"
               disabled={manualRecalculating}
               onPress={() => { void recalculateManualSequence(); }}
-              style={[styles.primaryButton, manualRecalculating && styles.disabled]}
+              style={({ pressed }) => [
+                styles.primaryButton,
+                manualRecalculating && styles.disabled,
+                pressed && styles.pressedFeedback,
+              ]}
               testID="recalculate-manual-sequence">
               {manualRecalculating
                 ? <ActivityIndicator color={colors.textInverse} />
@@ -739,7 +760,7 @@ export default function RouteAlternativesScreen() {
               </Text>
               <Pressable
                 disabled={manualSaving}
-                style={[styles.selectButton, manualSaving && styles.disabled]}
+                style={({ pressed }) => [styles.selectButton, manualSaving && styles.disabled, pressed && styles.pressedFeedback]}
                 onPress={() => { void applyManualSequence(); }}>
                 {manualSaving ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>Naudoti šią seką</Text>}
               </Pressable>
@@ -870,7 +891,7 @@ function CandidateCard(props: {
 
   return (
     <View style={[styles.card, props.recommended && styles.recommended, props.selected && styles.selected]}>
-      <Pressable onPress={props.onSelect} style={styles.candidateSummary} testID={`route-alternative-${props.title}`}>
+      <Pressable onPress={props.onSelect} style={({ pressed }) => [styles.candidateSummary, pressed && styles.pressedFeedback]} testID={`route-alternative-${props.title}`}>
         <View style={styles.candidateTitleRow}>
           <Text style={styles.title}>{props.title}</Text>
           <Text style={styles.selectionLabel}>{props.selected ? '✓ Pasirinkta' : 'Pasirinkti'}</Text>
@@ -898,10 +919,10 @@ function CandidateCard(props: {
         ) : null}
       </Pressable>
       <View style={[styles.candidateActions, props.desktop && styles.candidateActionsDesktop]}>
-        <Pressable onPress={props.onToggleDetails} style={styles.detailsButton}>
+        <Pressable onPress={props.onToggleDetails} style={({ pressed }) => [styles.detailsButton, pressed && styles.pressedFeedback]}>
           <Text style={styles.secondaryText}>{props.expanded ? 'Slėpti eiliškumą' : 'Rodyti eiliškumą'}</Text>
         </Pressable>
-        <Pressable onPress={props.onManualEdit} style={styles.detailsButton} testID={`manual-edit-${props.candidate.id}`}>
+        <Pressable onPress={props.onManualEdit} style={({ pressed }) => [styles.detailsButton, pressed && styles.pressedFeedback]} testID={`manual-edit-${props.candidate.id}`}>
           <Text style={styles.secondaryText}>Redaguoti rankiniu būdu</Text>
         </Pressable>
       </View>
@@ -976,6 +997,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   warningCard: { padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.warning, backgroundColor: colors.warningSoft },
   warningTitle: { ...type.sectionTitle, color: colors.warning },
   disabled: { opacity: 0.45 },
+  pressedFeedback: { transform: [{ translateY: 1 }, { scale: 0.98 }], opacity: 0.84 },
   manualCard: { padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, gap: spacing.sm },
   manualMap: { overflow: 'hidden', borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surfaceSubtle, zIndex: 0 },
   manualActions: { gap: spacing.sm, zIndex: 2, position: 'relative', backgroundColor: colors.surface, paddingTop: spacing.sm },
