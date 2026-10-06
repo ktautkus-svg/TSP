@@ -7,6 +7,7 @@ import {
   pickRecorderMimeType,
   sendVoiceCommand,
   voiceButtonLabel,
+  voiceRequestErrorMessage,
   voiceStatusLabel,
   type VoiceAction,
   type VoiceCommandResult,
@@ -37,6 +38,8 @@ type BrowserRecorder = {
 const MAX_RECORDING_MS = 8_000;
 const CHUNK_MS = 250;
 const FLUSH_MS = 80;
+const SILENCE_STOP_MS = 1_200;
+const SPEECH_RMS = 0.035;
 
 export function VoiceCommandButton({ disabled = false, onAction }: VoiceCommandButtonProps) {
   const { colors } = useTheme();
@@ -45,6 +48,8 @@ export function VoiceCommandButton({ disabled = false, onAction }: VoiceCommandB
   const stopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const finishingRef = useRef(false);
+  const silenceTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const audioContextRef = useRef<{ close: () => void } | null>(null);
   const onActionRef = useRef(onAction);
   onActionRef.current = onAction;
   const [state, setState] = useState<VoiceState>('idle');
@@ -56,6 +61,15 @@ export function VoiceCommandButton({ disabled = false, onAction }: VoiceCommandB
     recorder?.stream.getTracks().forEach((track) => track.stop());
   };
 
+  const stopSilenceWatch = () => {
+    if (silenceTimerRef.current !== null) {
+      clearInterval(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+    audioContextRef.current?.close();
+    audioContextRef.current = null;
+  };
+
   const finishRecording = async () => {
     if (finishingRef.current) return;
     finishingRef.current = true;
@@ -63,6 +77,7 @@ export function VoiceCommandButton({ disabled = false, onAction }: VoiceCommandB
       clearTimeout(stopTimerRef.current);
       stopTimerRef.current = null;
     }
+    stopSilenceWatch();
     const recorder = recorderRef.current;
     recorderRef.current = null;
     stopTracks(recorder);
@@ -80,11 +95,20 @@ export function VoiceCommandButton({ disabled = false, onAction }: VoiceCommandB
       const next = await sendVoiceCommand(blob);
       setResult(next);
       setError(null);
-      setState('idle');
-      if (next.action !== 'none') onActionRef.current(next.action);
+      if (next.action === 'none') {
+        setState('idle');
+        return;
+      }
+      try {
+        await Promise.resolve(onActionRef.current(next.action));
+        setState('idle');
+      } catch {
+        setError('Komanda atpažinta, bet veiksmas nepavyko.');
+        setState('error');
+      }
     } catch (reason) {
       setResult(null);
-      setError(reason instanceof Error ? reason.message : 'Nepavyko susisiekti su balso serveriu.');
+      setError(voiceRequestErrorMessage(reason));
       setState('error');
     } finally {
       finishingRef.current = false;
@@ -98,6 +122,7 @@ export function VoiceCommandButton({ disabled = false, onAction }: VoiceCommandB
       clearTimeout(stopTimerRef.current);
       stopTimerRef.current = null;
     }
+    stopSilenceWatch();
     try {
       if (recorder.state !== 'inactive') recorder.requestData?.();
     } catch {
@@ -150,6 +175,7 @@ export function VoiceCommandButton({ disabled = false, onAction }: VoiceCommandB
         clearTimeout(stopTimerRef.current);
         stopTimerRef.current = null;
       }
+      stopSilenceWatch();
       stopTracks(recorder);
       recorderRef.current = null;
       setError('Įrašymas nutrūko. Mikrofonas išjungtas.');
@@ -157,12 +183,48 @@ export function VoiceCommandButton({ disabled = false, onAction }: VoiceCommandB
     };
     recorderRef.current = recorder;
     recorder.start(CHUNK_MS);
+    watchForSilence(stream);
     stopTimerRef.current = setTimeout(() => {
       if (recorderRef.current === recorder) stopRecording();
     }, MAX_RECORDING_MS);
     setError(null);
     setResult(null);
     setState('recording');
+  };
+
+  const watchForSilence = (stream: MediaStream) => {
+    const AudioContextCtor = globalThis.AudioContext ?? (globalThis as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextCtor) return;
+    try {
+      const context = new AudioContextCtor();
+      const source = context.createMediaStreamSource(stream);
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 2048;
+      source.connect(analyser);
+      audioContextRef.current = context;
+      const samples = new Uint8Array(analyser.fftSize);
+      let heardSpeech = false;
+      let silenceMs = 0;
+      silenceTimerRef.current = setInterval(() => {
+        analyser.getByteTimeDomainData(samples);
+        let energy = 0;
+        for (const sample of samples) {
+          const normalized = (sample - 128) / 128;
+          energy += normalized * normalized;
+        }
+        const rms = Math.sqrt(energy / samples.length);
+        if (rms >= SPEECH_RMS) {
+          heardSpeech = true;
+          silenceMs = 0;
+          return;
+        }
+        if (!heardSpeech) return;
+        silenceMs += 100;
+        if (silenceMs >= SILENCE_STOP_MS) stopRecording();
+      }, 100);
+    } catch {
+      // Silence detection is optional. The BAIGTI button and 8s cap still stop the mic.
+    }
   };
 
   const stopRecordingRef = useRef<() => void>(() => {});
@@ -192,6 +254,7 @@ export function VoiceCommandButton({ disabled = false, onAction }: VoiceCommandB
       document.removeEventListener('visibilitychange', releaseIfHidden);
       window.removeEventListener('pagehide', releaseOnPageHide);
       if (stopTimerRef.current !== null) clearTimeout(stopTimerRef.current);
+      stopSilenceWatch();
       stopTracks(recorderRef.current);
       recorderRef.current = null;
     };

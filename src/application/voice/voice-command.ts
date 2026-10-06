@@ -21,8 +21,10 @@ export function voiceApiBaseUrl(
   return (configured || fallbackUrl).replace(/\/+$/, '');
 }
 
-export function voiceCommandUrl(baseUrl = voiceApiBaseUrl()): string {
-  return `${voiceApiBaseUrl(baseUrl)}/api/voice-command`;
+export function voiceCommandUrl(baseUrl = ''): string {
+  const configured = baseUrl.trim();
+  if (!configured) return '/api/voice-command';
+  return `${configured.replace(/\/+$/, '')}/api/voice-command`;
 }
 
 export function resolveVoiceAction(value: unknown): VoiceAction {
@@ -62,8 +64,8 @@ export function voiceActionLabel(action: VoiceAction): string {
 }
 
 export function voiceStatusLabel(state: 'idle' | 'recording' | 'processing' | 'error', result?: VoiceCommandResult | null, error?: string | null): string {
-  if (state === 'recording') return 'FIRO klauso. Įrašoma. Palieskite dar kartą arba palaukite 8 sek.';
-  if (state === 'processing') return 'Atpažįstama lietuviška komanda…';
+  if (state === 'recording') return 'FIRO klauso. Kalbėkite, tyla sustabdys įrašą. Arba palieskite BAIGTI.';
+  if (state === 'processing') return 'APDOROJU. Atpažįstama lietuviška komanda…';
   if (state === 'error') return error?.trim() || 'Nepavyko susisiekti su balso serveriu.';
   if (result?.transcription) {
     if (result.action === 'none') return `${result.transcription} · Komanda neatpažinta`;
@@ -73,9 +75,25 @@ export function voiceStatusLabel(state: 'idle' | 'recording' | 'processing' | 'e
 }
 
 export function voiceButtonLabel(state: 'idle' | 'recording' | 'processing' | 'error'): string {
-  if (state === 'recording') return 'KLAUSOSI';
-  if (state === 'processing') return 'ATPAŽĮSTAMA';
+  if (state === 'recording') return 'BAIGTI';
+  if (state === 'processing') return 'APDOROJU';
   return 'BALSO KOMANDA';
+}
+
+export const VOICE_FAILURE_MESSAGE = 'Nepavyko atpažinti balso. Bandykite dar kartą.';
+
+export function voiceRequestErrorMessage(error: unknown, status?: number): string {
+  if (status === 401) return 'Reikia prisijungti.';
+  if (error instanceof Error) {
+    const message = error.message.trim();
+    if (
+      message.startsWith('Įrašas tuščias')
+      || message.startsWith('Mikrofonas')
+      || message.startsWith('Komanda atpažinta')
+      || message === 'Reikia prisijungti.'
+    ) return message;
+  }
+  return VOICE_FAILURE_MESSAGE;
 }
 
 export function voiceAudioFileName(mimeType: string): string {
@@ -110,9 +128,19 @@ export async function sendVoiceCommand(
   }
   const body = new FormData();
   body.append('audio', blob, voiceAudioFileName(blob.type));
-  const response = await fetchImpl(endpoint, { method: 'POST', body });
+  let response: Response;
+  try {
+    response = await fetchImpl(endpoint, {
+      method: 'POST',
+      body,
+      credentials: 'same-origin',
+      signal: AbortSignal.timeout(28_000),
+    });
+  } catch (error) {
+    throw new Error(voiceRequestErrorMessage(error));
+  }
   if (!response.ok) {
-    throw new Error(`Balso serveris atsakė ${response.status}.`);
+    throw new Error(voiceRequestErrorMessage(new Error(`status ${response.status}`), response.status));
   }
   return parseVoiceCommandResult(await response.json());
 }

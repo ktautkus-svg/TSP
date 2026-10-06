@@ -5,6 +5,7 @@ import { createServer, request as httpRequest, type IncomingMessage, type Server
 import { extname, join, normalize, resolve } from 'node:path';
 import { authenticateApiRequest, ensureAugust2026ExcelBackfillMigrated, ensureFuelAugust2026Migrated, ensureNll182September2026Migrated, ensureTripSheetAugust2026VehicleFixMigrated, handleEmployeeApi, requireProductionAdminPin } from './employee-api.js';
 import { EmployeeApiError } from './employee-auth-store.js';
+import { handleVoiceCommandProxy } from './voice-command-proxy.js';
 
 const publicPort = numberFromEnv('PORT', 8080);
 const internalGatewayPort = numberFromEnv('INTERNAL_GATEWAY_PORT', 8788);
@@ -50,6 +51,10 @@ async function start(): Promise<void> {
         });
       }
       if (await handleEmployeeApi(request, response, url.pathname, requestId)) return;
+      if (url.pathname === '/api/voice-command') {
+        await authenticateApiRequest(request);
+        return handleVoiceCommandProxy(request, response, requestId);
+      }
       if (url.pathname.startsWith('/api/')) {
         if (url.pathname !== '/api/device/check') await authenticateApiRequest(request);
         return proxyApi(request, response, url.pathname, requestId);

@@ -15,14 +15,16 @@ import {
   voiceAudioFileName,
   voiceButtonLabel,
   voiceCommandUrl,
+  voiceRequestErrorMessage,
   voiceStatusLabel,
 } from '../../src/application/voice/voice-command';
 
 describe('Lithuanian voice commands', () => {
-  it('builds the Cloud Run voice endpoint from the public base URL', () => {
+  it('posts iPhone audio through the same-origin proxy so Safari never sees the broken CORS response', () => {
     expect(voiceApiBaseUrl(' https://voice.example.run.app/ ', 'https://fallback.example')).toBe('https://voice.example.run.app');
-    expect(voiceCommandUrl('https://voice.example.run.app/')).toBe('https://voice.example.run.app/api/voice-command');
     expect(voiceApiBaseUrl('', 'https://firo-voice-dmfmgwluca-lz.a.run.app')).toBe('https://firo-voice-dmfmgwluca-lz.a.run.app');
+    expect(voiceCommandUrl()).toBe('/api/voice-command');
+    expect(voiceCommandUrl('https://voice.example.run.app/')).toBe('https://voice.example.run.app/api/voice-command');
   });
 
   it('accepts only known Firo voice actions', () => {
@@ -62,7 +64,7 @@ describe('Lithuanian voice commands', () => {
     expect(voiceStatusLabel('idle')).toContain('Mikrofonas laukia');
     expect(voiceStatusLabel('idle')).toContain('pristatyta');
     expect(voiceStatusLabel('recording')).toContain('FIRO klauso');
-    expect(voiceStatusLabel('recording')).toContain('Įrašoma');
+    expect(voiceStatusLabel('processing')).toContain('APDOROJU');
     expect(voiceStatusLabel('processing')).toContain('Atpažįstama');
     expect(voiceStatusLabel('idle', { status: 'success', transcription: 'yra klaida', action: 'report_issue' }))
       .toBe('yra klaida · Komanda įvykdyta: Pažymėti klaidą');
@@ -70,8 +72,24 @@ describe('Lithuanian voice commands', () => {
       .toBe('kita stotelė · Komanda neatpažinta');
     expect(voiceStatusLabel('error', null, 'Mikrofonas neleidžiamas.')).toBe('Mikrofonas neleidžiamas.');
     expect(voiceButtonLabel('idle')).toBe('BALSO KOMANDA');
-    expect(voiceButtonLabel('recording')).toBe('KLAUSOSI');
-    expect(voiceButtonLabel('processing')).toBe('ATPAŽĮSTAMA');
+    expect(voiceButtonLabel('recording')).toBe('BAIGTI');
+    expect(voiceButtonLabel('processing')).toBe('APDOROJU');
+  });
+
+  it('hides Safari Load failed and does not execute a command when transcription fails', async () => {
+    expect(voiceRequestErrorMessage(new TypeError('Load failed'))).toBe('Nepavyko atpažinti balso. Bandykite dar kartą.');
+    expect(voiceRequestErrorMessage(new TypeError('Failed to fetch'))).toBe('Nepavyko atpažinti balso. Bandykite dar kartą.');
+    expect(voiceRequestErrorMessage(new Error('status 500'), 500)).toBe('Nepavyko atpažinti balso. Bandykite dar kartą.');
+    expect(voiceRequestErrorMessage(new Error('status 401'), 401)).toBe('Reikia prisijungti.');
+    await expect(sendVoiceCommand(new Blob([new Uint8Array(128)], { type: 'audio/mp4' }), async () => {
+      throw new TypeError('Load failed');
+    })).rejects.toThrow('Nepavyko atpažinti balso');
+    const calls: string[] = [];
+    await expect(sendVoiceCommand(new Blob([new Uint8Array(128)], { type: 'audio/mp4' }), async () => {
+      calls.push('posted');
+      return new Response('nope', { status: 502 });
+    })).rejects.toThrow('Nepavyko atpažinti balso');
+    expect(calls).toEqual(['posted']);
   });
 
   it('maps the existing Lithuanian phrases and ignores commands that are not implemented', () => {
@@ -112,6 +130,9 @@ describe('Lithuanian voice commands', () => {
     expect(button).toContain('testID="voice-command-button"');
     expect(button).toContain('const MAX_RECORDING_MS = 8_000');
     expect(button).toContain('recorder.start(CHUNK_MS)');
+    expect(button).toContain('SILENCE_STOP_MS');
+    expect(button).toContain('voiceRequestErrorMessage');
+    expect(button).toContain('Komanda atpažinta, bet veiksmas nepavyko.');
     expect(button).toContain("document.visibilityState === 'hidden'");
     expect(button).toContain('pagehide');
     expect(button).toContain('microphoneErrorMessage');
