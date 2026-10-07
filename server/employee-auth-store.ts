@@ -1741,6 +1741,26 @@ export class EmployeeAuthStore {
   }
 
   /**
+   * Deletes only a manual accounting trip (`routeId` prefix `accounting-`).
+   * Does not touch fuel entries, vehicle-day odometer readings, or live delivery routes.
+   */
+  async deleteAccountingTrip(assignmentId: string): Promise<RouteAssignment> {
+    const reference = this.assignments.doc(safeId(assignmentId));
+    const document = await reference.get();
+    const assignment = document.data() as RouteAssignment | undefined;
+    if (!assignment) throw new EmployeeApiError('ASSIGNMENT_NOT_FOUND', 'Apskaitos įrašas nerastas.', 404);
+    if (!assignment.routeId.startsWith('accounting-')) {
+      throw new EmployeeApiError(
+        'NOT_ACCOUNTING_TRIP',
+        'Šalinti galima tik rankinį apskaitos įrašą. Pristatymų reisai, kuras ir odometrai čia nešalinami.',
+        400,
+      );
+    }
+    await reference.delete();
+    return assignment;
+  }
+
+  /**
    * A completed accounting row with no delivery stops. It stays out of the
    * driver's route queue.
    */

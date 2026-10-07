@@ -9,6 +9,7 @@ import {
   draftFromRow,
   emptyDraft,
   filterMonthSummaryRows,
+  isManualAccountingTrip,
   monthSummaryExportRows,
   MONTH_SUMMARY_EXPORT_HEADERS,
   reviewMonthSummaryCreate,
@@ -260,5 +261,69 @@ describe('month summary', () => {
     const api = readFileSync(resolve(import.meta.dirname, '../../server/employee-api.ts'), 'utf8');
     expect(api).toContain("pathname === '/api/admin/accounting-trips'");
     expect(api).toContain('/work-date');
+  });
+
+  it('marks only accounting- trips as deletable and hides empty days via filter instead of delete', () => {
+    const summary = buildMonthSummary({
+      year: 2026,
+      month: 10,
+      assignments: [
+        assignment({ id: 'live', driverId: 'driver-a', status: 'completed', routeId: 'route-live' }),
+        assignment({
+          id: 'manual',
+          driverId: 'driver-b',
+          status: 'completed',
+          routeId: 'accounting-manual',
+          vehicle: { id: 'veh-2', registrationNumber: 'ABC123', model: 'Sprinter' },
+          routeSnapshot: {
+            route: { date: '2026-10-03', total_stops: 1, total_weight_kg: 5, actual_distance_km: 4 },
+            stops: [],
+            shipmentLines: [{ route_code: 'Servisas' }],
+          },
+        }),
+      ],
+      tripSheets: [],
+    });
+    const live = summary.rows.find((row) => row.assignmentId === 'live')!;
+    const manual = summary.rows.find((row) => row.assignmentId === 'manual')!;
+    const empty = summary.rows.find((row) => row.source === 'empty')!;
+    expect(isManualAccountingTrip(live.routeId)).toBe(false);
+    expect(isManualAccountingTrip(manual.routeId)).toBe(true);
+    expect(live.canDelete).toBe(false);
+    expect(manual.canDelete).toBe(true);
+    expect(empty.canDelete).toBe(false);
+    expect(empty.source).toBe('empty');
+
+    const hidden = filterMonthSummaryRows(summary.rows, {
+      query: '',
+      driverId: 'all',
+      vehicleId: 'all',
+      plate: 'all',
+      date: '',
+      problemsOnly: false,
+      showEmptyDays: false,
+    });
+    expect(hidden.every((row) => row.source !== 'empty')).toBe(true);
+    expect(hidden.some((row) => row.assignmentId === 'manual')).toBe(true);
+
+    const ui = readFileSync(resolve(import.meta.dirname, '../../src/app/finance/month-summary.tsx'), 'utf8');
+    expect(ui).toContain('month-summary-delete-');
+    expect(ui).toContain('month-summary-empty-days');
+    expect(ui).toContain("method: 'DELETE'");
+    expect(ui).toContain('/api/admin/accounting-trips/');
+    expect(ui).toContain('Pašalinti apskaitos įrašą?');
+    expect(ui).toContain("from '@/components/finance-confirm-dialog'");
+    expect(ui).toContain('FinanceConfirmDialog');
+    expect(ui).toContain('month-summary-delete-confirm');
+    expect(ui).toContain('executeAccountingDelete');
+    const removeBlock = ui.slice(ui.indexOf('const removeAccountingRow'), ui.indexOf('const save = async'));
+    expect(removeBlock).not.toContain('Alert.alert');
+
+    const store = readFileSync(resolve(import.meta.dirname, '../../server/employee-auth-store.ts'), 'utf8');
+    expect(store).toContain('async deleteAccountingTrip(');
+    expect(store).toContain("routeId.startsWith('accounting-')");
+    const api = readFileSync(resolve(import.meta.dirname, '../../server/employee-api.ts'), 'utf8');
+    expect(api).toContain("accountingTripMatch && request.method === 'DELETE'");
+    expect(api).toContain('store.deleteAccountingTrip');
   });
 });

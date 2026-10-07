@@ -165,4 +165,106 @@ describe('finance wage report', () => {
     const api = readFileSync(resolve(import.meta.dirname, '../../server/employee-api.ts'), 'utf8');
     expect(api).toContain('store.updateAssignmentManualMetrics(assignmentId');
   });
+
+  it('removes a manual extra via confirm/cancel without writing a matching negative amount', () => {
+    const source = readFileSync(resolve(import.meta.dirname, '../../src/app/finance/wages.tsx'), 'utf8');
+    expect(source).toContain("from '@/components/finance-confirm-dialog'");
+    expect(source).toContain('FinanceConfirmDialog');
+    expect(source).toContain('Pašalinti papildomą sumą?');
+    expect(source).toContain('finance-remove-confirm-');
+    expect(source).toContain('finance-remove-adjustment-');
+    expect(source).toContain('removeError');
+    expect(source).toContain('executeRemove');
+    expect(source).toContain('day.driverName');
+    expect(source).toContain('formatDateKey(day.date)');
+    expect(source).toContain('amountEur: 0, comment: \'\'');
+    expect(source).not.toContain('amountEur: -');
+    expect(source).toContain('metricsActionLinks');
+    expect(source).toContain('hasManualAdjustment');
+    expect(source).toContain('day.manualAdjustment');
+    const removeBlock = source.slice(source.indexOf('const removeAdjustment'), source.indexOf('return <View style={styles.detailSection}'));
+    expect(removeBlock).not.toContain('Alert.alert');
+
+    const store = readFileSync(resolve(import.meta.dirname, '../../server/employee-auth-store.ts'), 'utf8');
+    expect(store).toContain('if (amountEur === 0 && !comment)');
+    expect(store).toContain('await this.wageAdjustments.doc(id).delete()');
+    const api = readFileSync(resolve(import.meta.dirname, '../../server/employee-api.ts'), 'utf8');
+    expect(api).toContain("pathname === '/api/admin/wage-adjustments' && request.method === 'PUT'");
+    expect(api).toContain("requireManagementPermission(profile, 'canManageFinancials')");
+  });
+
+  it('edits only the saved manualAdjustment and never posts the aggregated day total as a new adjustment', () => {
+    const source = readFileSync(resolve(import.meta.dirname, '../../src/app/finance/wages.tsx'), 'utf8');
+    expect(source).toContain('manualAmount ? String(manualAmount)');
+    expect(source).not.toContain('setAmount(figures.extraEur');
+    expect(source).not.toContain('setAmount(figures.payEur');
+    expect(source).toContain('Papildomai, €');
+    expect(source).toContain('finance-adjustment-save-');
+    expect(source).toContain('finance-quick-edit-adjustment-');
+    expect(source).toContain('applyWageQuickEditOpen');
+    expect(source).toContain('onStartEditingConsumed');
+    expect(source).not.toContain('}, [startEditing, manualAmount, manualComment]');
+    expect(source).toContain("JSON.stringify({ driverId: day.driverId, date: day.date, amountEur: value, comment })");
+    expect(source).not.toMatch(/amountEur:\s*(figures\.payEur|day\.wageEur|wageTotals\.payEur|figures\.extraEur)/);
+  });
+
+  it('keeps positive, negative, zero, comment-only and bonus-without-trip extras on manualAdjustment only', () => {
+    const tripOnly = aggregateWageDays([sheet()], []);
+    expect(tripOnly[0]!.manualAdjustment).toBeNull();
+    expect(tripOnly[0]!.figures.extraEur).toBe(0);
+
+    const withTrip = aggregateWageDays([sheet()], [
+      { driverId: 'driver-1', driverName: 'Karolis Tautkus', date: '2026-08-24', amountEur: 30, comment: 'Priedas' },
+    ]);
+    expect(withTrip[0]!.figures.wageEur).toBe(142.85);
+    expect(withTrip[0]!.manualAdjustment!.amountEur).toBe(30);
+    expect(withTrip[0]!.figures.extraEur).toBe(30);
+    expect(withTrip[0]!.figures.payEur).toBe(172.85);
+
+    const negative = aggregateWageDays([sheet()], [
+      { driverId: 'driver-1', driverName: 'Karolis Tautkus', date: '2026-08-24', amountEur: -12.5, comment: 'Korekcija' },
+    ]);
+    expect(negative[0]!.manualAdjustment!.amountEur).toBe(-12.5);
+    expect(negative[0]!.figures.payEur).toBe(130.35);
+
+    const commentOnly = aggregateWageDays([sheet()], [
+      { driverId: 'driver-1', driverName: 'Karolis Tautkus', date: '2026-08-24', amountEur: 0, comment: 'Sirgau' },
+    ]);
+    expect(commentOnly[0]!.manualAdjustment).not.toBeNull();
+    expect(commentOnly[0]!.figures.extraEur).toBe(0);
+    expect(commentOnly[0]!.figures.comment).toBe('Sirgau');
+    expect(commentOnly[0]!.figures.payEur).toBe(142.85);
+
+    const bonusOnly = aggregateWageDays([], [
+      { driverId: 'driver-1', driverName: 'Karolis Tautkus', date: '2026-09-12', amountEur: 100, comment: 'Šeštadienis' },
+    ]);
+    expect(bonusOnly).toHaveLength(1);
+    expect(bonusOnly[0]!.sheets).toHaveLength(0);
+    expect(bonusOnly[0]!.figures.wageEur).toBeNull();
+    expect(bonusOnly[0]!.manualAdjustment!.amountEur).toBe(100);
+    expect(bonusOnly[0]!.figures.payEur).toBe(100);
+
+    const totals = summarizeWageDays([...withTrip, ...bonusOnly]);
+    expect(totals.extraEur).toBe(130);
+    expect(totals.payEur).toBeCloseTo(totals.wageEur + totals.extraEur);
+    expect(totals.totalEur).toBeCloseTo(totals.fuelCostEur + totals.wageEur + totals.extraEur);
+  });
+
+  it('widens the wage desktop table past the 900px shell so 1366px keeps all amount columns', () => {
+    const source = readFileSync(resolve(import.meta.dirname, '../../src/app/finance/wages.tsx'), 'utf8');
+    expect(source).toMatch(/contentMaxWidth=\{1480\}/);
+    expect(source).toMatch(/wageTableText:.*width: 140/);
+    expect(source).toMatch(/wageTableNumber:.*width: 72/);
+    expect(source).toMatch(/wageTableToggle:.*width: 36/);
+    const textWidth = 140;
+    const numberWidth = 72;
+    const quickWidth = 72;
+    const toggleWidth = 36;
+    const withDriverAndEdit = textWidth * 3 + numberWidth * 9 + quickWidth + toggleWidth;
+    const foundationPadding = 20 * 2;
+    const available1366 = 1366 - foundationPadding;
+    expect(withDriverAndEdit).toBeLessThanOrEqual(available1366);
+    expect(withDriverAndEdit).toBeLessThanOrEqual(1480);
+    expect(source).not.toMatch(/fontSize:\s*(9|10)\b/);
+  });
 });

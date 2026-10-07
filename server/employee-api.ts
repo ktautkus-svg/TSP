@@ -489,6 +489,15 @@ export async function handleEmployeeApi(
       });
       return send(response, 201, created, requestId);
     }
+    const accountingTripMatch = pathname.match(/^\/api\/admin\/accounting-trips\/([^/]+)$/);
+    if (accountingTripMatch && request.method === 'DELETE') {
+      requireManagementPermission(profile, 'canManageFinancials');
+      const assignment = await store.deleteAccountingTrip(decodeURIComponent(accountingTripMatch[1]));
+      // Accounting trips have no delivery stops; tombstone keeps sync clean without
+      // cascading into fuel or odometer collections.
+      await routeSyncStore.tombstone(assignment.routeId);
+      return send(response, 204, null, requestId);
+    }
     if (pathname === '/api/admin/wage-adjustments' && request.method === 'GET') {
       requireManagementPermission(profile, 'canManageFinancials');
       const params = new URL(request.url ?? '', 'http://localhost').searchParams;

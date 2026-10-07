@@ -67,6 +67,11 @@ export type MonthSummaryRow = {
   canEditMetrics: boolean;
   canEditOdometer: boolean;
   canEdit: boolean;
+  /**
+   * True only for manually created accounting trips (`routeId` starts with
+   * `accounting-`). Empty calendar rows and live delivery routes are never deletable here.
+   */
+  canDelete: boolean;
   sharesVehicleDay: boolean;
   lockNotes: string[];
 };
@@ -114,6 +119,8 @@ export type MonthSummaryFilter = {
   plate: string;
   date: string;
   problemsOnly: boolean;
+  /** When false, calendar "Reiso nėra" placeholders stay hidden (not deleted). */
+  showEmptyDays?: boolean;
 };
 
 export type MonthSummaryDraft = {
@@ -224,6 +231,10 @@ export function buildMonthSummary(input: {
   return { monthKey, days, rows };
 }
 
+export function isManualAccountingTrip(routeId: string | null | undefined): boolean {
+  return Boolean(routeId && routeId.startsWith('accounting-'));
+}
+
 export function filterMonthSummaryRows(rows: readonly MonthSummaryRow[], filter: MonthSummaryFilter): MonthSummaryRow[] {
   const query = filter.query.trim().toLocaleLowerCase('lt');
   const narrowing = Boolean(query)
@@ -232,8 +243,10 @@ export function filterMonthSummaryRows(rows: readonly MonthSummaryRow[], filter:
     || filter.plate !== 'all'
     || Boolean(filter.date)
     || filter.problemsOnly;
+  const hideEmpty = filter.showEmptyDays === false || narrowing;
   return rows.filter((row) => {
-    if (row.source === 'empty' && narrowing) return false;
+    // Empty "Reiso nėra" rows are calendar placeholders — hide via filter, never delete.
+    if (row.source === 'empty' && hideEmpty) return false;
     if (filter.problemsOnly && row.issues.length === 0) return false;
     if (filter.driverId !== 'all' && row.driverId !== filter.driverId) return false;
     if (filter.vehicleId !== 'all' && row.vehicleId !== filter.vehicleId) return false;
@@ -665,7 +678,7 @@ function buildEmptyRow(date: string): MonthSummaryRow {
   });
 }
 
-function finalizeRow(row: Omit<MonthSummaryRow, 'issueText' | 'canEditDriver' | 'canEditVehicle' | 'canEditDate' | 'canEditMetrics' | 'canEditOdometer' | 'canEdit' | 'sharesVehicleDay' | 'lockNotes'>): MonthSummaryRow {
+function finalizeRow(row: Omit<MonthSummaryRow, 'issueText' | 'canEditDriver' | 'canEditVehicle' | 'canEditDate' | 'canEditMetrics' | 'canEditOdometer' | 'canEdit' | 'canDelete' | 'sharesVehicleDay' | 'lockNotes'>): MonthSummaryRow {
   const unstarted = row.status === 'assigned' || row.status === 'downloaded';
   const done = row.status === 'completed';
   const assignment = row.source === 'assignment';
@@ -676,13 +689,16 @@ function finalizeRow(row: Omit<MonthSummaryRow, 'issueText' | 'canEditDriver' | 
   const canEditDate = (assignment && (unstarted || done)) || odometerDay;
   const canEditMetrics = assignment && row.status !== 'cancelled';
   const canEditOdometer = (assignment && done && Boolean(row.vehicleId)) || row.source === 'odometer-day';
+  const canDelete = assignment && Boolean(row.assignmentId) && isManualAccountingTrip(row.routeId);
   const lockNotes: string[] = [];
   if (row.status === 'cancelled') lockNotes.push('Atšauktas reisas neredaguojamas.');
   if (row.status === 'in_progress') lockNotes.push('Vykdomo maršruto vairuotojo, automobilio ir datos čia keisti negalima. Galima pataisyti tik taškų skaičių ir svorį. Pristatymai nekeičiami.');
   if (row.source === 'fuel-day') lockNotes.push('Kuro įrašas nėra reisas. Trūkstamą reisą pridėkite atskiru įrašu.');
   if (row.source === 'sheet-only') lockNotes.push('Šis kelionės lapas nesusietas su maršrutu. Jį galima tik peržiūrėti.');
+  if (row.source === 'empty') lockNotes.push('Automatinė „Reiso nėra“ eilutė nėra įrašas — ją galima tik paslėpti filtru.');
   if (done && assignment) lockNotes.push('Užbaigtų pristatymų būsenos nekeičiamos. Vairuotojo, automobilio, taškų, svorio ar kilometrų pataisa pakeičia atlygio priskyrimą.');
   if (row.source === 'odometer-day') lockNotes.push('Tai odometro diena, ne pristatymų maršrutas. Galima pakeisti datą, automobilį, vairuotoją ir rodmenis.');
+  if (canDelete) lockNotes.push('Rankinį apskaitos įrašą galima pašalinti. Kuro ir odometrų įrašai lieka.');
   return {
     ...row,
     issueText: row.issues.map((issue) => MONTH_SUMMARY_ISSUE_LABELS[issue]).join('; '),
@@ -692,6 +708,7 @@ function finalizeRow(row: Omit<MonthSummaryRow, 'issueText' | 'canEditDriver' | 
     canEditMetrics,
     canEditOdometer,
     canEdit: canEditDriver || canEditVehicle || canEditDate || canEditMetrics || canEditOdometer,
+    canDelete,
     sharesVehicleDay: false,
     lockNotes,
   };

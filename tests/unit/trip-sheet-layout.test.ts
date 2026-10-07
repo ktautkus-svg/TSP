@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { strFromU8, unzipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
 
@@ -168,5 +170,30 @@ describe('trip sheet column layout', () => {
     expect(total).not.toContain('<v>2</v>');
     expect(total).toContain('<v>100</v>');
     expect(total).toContain('<v>83</v>');
+  });
+
+  it('uses a wide FoundationScreen so desktop trip-sheet tables escape the 900px shell', () => {
+    const source = readFileSync(resolve(import.meta.dirname, '../../src/app/trip-sheet.tsx'), 'utf8');
+    expect(source).toMatch(/FoundationScreen contentMaxWidth=\{1600\}/);
+    expect(source).toMatch(/reportLineCell: \{ width: 40/);
+    expect(source).toMatch(/reportDateCell: \{ width: 84/);
+    expect(source).toMatch(/reportRouteCell: \{ flex: 1, minWidth: 120/);
+    expect(source).toMatch(/reportNumberCell: \{ width: 60/);
+    expect(source).toMatch(/reportWideNumberCell: \{ width: 104/);
+    expect(source).toMatch(/reportOdoCell: \{ width: 76/);
+    expect(source).toMatch(/reportDriverCell: \{ width: 140/);
+    expect(source).toMatch(/reportReceiptCell: \{ width: 84/);
+    expect(source).toMatch(/reportTable: \{ minWidth: 1052, width: '100%'/);
+
+    const fixed =
+      40 + 84 + 60 + 104 + 60 + 84 + 104 + 104 + 76 + 76 + 140;
+    const routeMin = 120;
+    const need = fixed + routeMin;
+    const foundationPadding = 20 * 2;
+    const sheetPadding = 20 * 2;
+    const available1366 = 1366 - foundationPadding - sheetPadding;
+    expect(need).toBeLessThanOrEqual(available1366);
+    expect(need).toBeLessThanOrEqual(1600);
+    expect(source).not.toMatch(/reportTableCell: \{ \.\.\.type\.(label|meta).*fontSize:\s*(9|10)/);
   });
 });

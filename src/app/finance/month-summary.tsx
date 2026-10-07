@@ -37,6 +37,7 @@ import { buildTableWorkbook } from '@/application/trip-sheet/export-xlsx';
 import { DateInput } from '@/components/date-input';
 import { FiroSelect, type FiroSelectOption } from '@/components/firo-select';
 import { FoundationScreen } from '@/components/foundation-screen';
+import { FinanceConfirmDialog } from '@/components/finance-confirm-dialog';
 import { AppButton, AppTextField } from '@/components/ui-primitives';
 import { lithuanianWallClockNow } from '@/domain/lithuanian-time';
 import {
@@ -94,6 +95,7 @@ export default function MonthSummaryScreen() {
   const [plate, setPlate] = useState('all');
   const [day, setDay] = useState('');
   const [problemsOnly, setProblemsOnly] = useState(false);
+  const [showEmptyDays, setShowEmptyDays] = useState(true);
   const [assignments, setAssignments] = useState<ServerRouteAssignment[]>([]);
   const [tripSheets, setTripSheets] = useState<ServerTripSheet[]>([]);
   const [users, setUsers] = useState<EmployeeProfile[]>([]);
@@ -101,6 +103,9 @@ export default function MonthSummaryScreen() {
   const [corrections, setCorrections] = useState<ServerAdminCorrection[]>([]);
   const [busy, setBusy] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deletingKey, setDeletingKey] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<MonthSummaryRow | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [editor, setEditor] = useState<EditorState | null>(null);
@@ -154,8 +159,8 @@ export default function MonthSummaryScreen() {
     [assignments, month, tripSheets, year],
   );
   const visible = useMemo(
-    () => filterMonthSummaryRows(summary.rows, { query, driverId, vehicleId, plate, date: day, problemsOnly }),
-    [day, driverId, plate, problemsOnly, query, summary.rows, vehicleId],
+    () => filterMonthSummaryRows(summary.rows, { query, driverId, vehicleId, plate, date: day, problemsOnly, showEmptyDays }),
+    [day, driverId, plate, problemsOnly, query, showEmptyDays, summary.rows, vehicleId],
   );
   const totals = useMemo(() => summarizeMonthRows(visible), [visible]);
   const narrowing = Boolean(query.trim()) || driverId !== 'all' || vehicleId !== 'all' || plate !== 'all' || Boolean(day) || problemsOnly;
@@ -203,6 +208,31 @@ export default function MonthSummaryScreen() {
   const openEdit = (row: MonthSummaryRow) => {
     setAttempted(false);
     setEditor({ mode: 'edit', rowKey: row.key, draft: draftFromRow(row), phase: 'form' });
+  };
+
+  // Modal confirm (not RN Alert) — web Alert.alert is a no-op; keep busy/error/retry in-sheet.
+  const removeAccountingRow = (row: MonthSummaryRow) => {
+    if (!row.canDelete || !row.assignmentId) return;
+    setDeleteError(null);
+    setPendingDelete(row);
+  };
+
+  const executeAccountingDelete = async () => {
+    const row = pendingDelete;
+    if (!row?.canDelete || !row.assignmentId) return;
+    setDeletingKey(row.key);
+    setDeleteError(null);
+    try {
+      await employeeApi(`/api/admin/accounting-trips/${encodeURIComponent(row.assignmentId)}`, { method: 'DELETE' });
+      setPendingDelete(null);
+      setDeleteError(null);
+      setNotice('Rankinis apskaitos įrašas pašalintas.');
+      await load();
+    } catch (reason) {
+      setDeleteError(reason instanceof Error ? reason.message : 'Pašalinti nepavyko.');
+    } finally {
+      setDeletingKey(null);
+    }
   };
 
   const save = async () => {
@@ -292,6 +322,15 @@ export default function MonthSummaryScreen() {
             <Text style={styles.problemToggleText}>Tik su trūkumais</Text>
             <Text style={styles.meta}>{problemsOnly ? 'Įjungta' : 'Išjungta'}</Text>
           </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ selected: showEmptyDays }}
+            onPress={() => setShowEmptyDays((current) => !current)}
+            style={[styles.problemToggle, !showEmptyDays && styles.problemToggleOn]}
+            testID="month-summary-empty-days">
+            <Text style={styles.problemToggleText}>Tuščios dienos</Text>
+            <Text style={styles.meta}>{showEmptyDays && !narrowing ? 'Rodomos' : 'Paslėptos'}</Text>
+          </Pressable>
         </View>
         <View style={styles.actions}>
           <AppButton label="Atnaujinti" onPress={() => void load()} variant="secondary" />
@@ -302,13 +341,30 @@ export default function MonthSummaryScreen() {
           {`Reisai ${integer.format(totals.trips)} · Taškai ${integer.format(totals.stops)} · Svoris ${decimal.format(totals.weightKg)} kg · Kilometrai ${decimal.format(totals.distanceKm)} · Trūkumai ${integer.format(totals.problemRows)}`}
         </Text>
         {totals.plannedOnlyRows > 0 ? <Text style={styles.meta}>Planuojami kilometrai į sumą neįtraukti ({integer.format(totals.plannedOnlyRows)}).</Text> : null}
-        {narrowing ? <Text style={styles.meta}>Tuščios dienos paslėptos, kol veikia filtras.</Text> : null}
+        {narrowing || !showEmptyDays ? <Text style={styles.meta}>Tuščios „Reiso nėra“ dienos paslėptos filtru — jos nėra įrašai ir jų trinti nereikia.</Text> : null}
         {visible.some((row) => row.sharesVehicleDay) ? <Text style={styles.meta}>Ta pati automobilio diena dalijasi vienu odometro rodmeniu, jei reisų yra keli.</Text> : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
+        {deleteError && !pendingDelete ? <Text accessibilityRole="alert" style={styles.error} testID="month-summary-delete-error">{deleteError}</Text> : null}
         {notice ? <Text style={styles.notice}>{notice}</Text> : null}
         {busy ? <ActivityIndicator color={colors.primary} /> : desktop
-          ? <DesktopTable corrections={corrections} onCreate={openCreate} onEdit={openEdit} rows={visible} styles={styles} />
-          : <PhoneList corrections={corrections} onCreate={openCreate} onEdit={openEdit} rows={visible} styles={styles} />}
+          ? <DesktopTable
+            corrections={corrections}
+            deletingKey={deletingKey}
+            onCreate={openCreate}
+            onDelete={removeAccountingRow}
+            onEdit={openEdit}
+            rows={visible}
+            styles={styles}
+          />
+          : <PhoneList
+            corrections={corrections}
+            deletingKey={deletingKey}
+            onCreate={openCreate}
+            onDelete={removeAccountingRow}
+            onEdit={openEdit}
+            rows={visible}
+            styles={styles}
+          />}
       </View>}
       <EditorModal
         draft={editor?.draft ?? null}
@@ -331,6 +387,19 @@ export default function MonthSummaryScreen() {
         styles={styles}
         vehicles={vehicles}
         visible={editor !== null} />
+      <FinanceConfirmDialog
+        busy={deletingKey !== null}
+        error={deleteError}
+        message={pendingDelete
+          ? `${formatMonthSummaryDay(pendingDelete.date)} · ${shownDriver(pendingDelete)} · ${pendingDelete.routeLabel || 'be maršruto'} bus pašalintas. Kuro ir odometrų įrašai nekeičiami. Pristatymų reisų čia šalinti negalima.`
+          : ''}
+        onCancel={() => { if (deletingKey === null) { setPendingDelete(null); setDeleteError(null); } }}
+        onConfirm={() => { void executeAccountingDelete(); }}
+        onRetry={() => { void executeAccountingDelete(); }}
+        testID="month-summary-delete-confirm"
+        title="Pašalinti apskaitos įrašą?"
+        visible={pendingDelete !== null}
+      />
     </FoundationScreen>
   </>;
 }
@@ -367,11 +436,13 @@ async function sendMonthSummaryRequest(request: MonthSummarySaveRequest): Promis
   return employeeApi('/api/admin/accounting-trips', { method: 'POST', body: JSON.stringify(request.body) });
 }
 
-function DesktopTable({ rows, corrections, onEdit, onCreate, styles }: {
+function DesktopTable({ rows, corrections, onEdit, onCreate, onDelete, deletingKey, styles }: {
   rows: readonly MonthSummaryRow[];
   corrections: readonly ServerAdminCorrection[];
   onEdit: (row: MonthSummaryRow) => void;
   onCreate: (date: string) => void;
+  onDelete: (row: MonthSummaryRow) => void;
+  deletingKey: string | null;
   styles: ReturnType<typeof createStyles>;
 }) {
   return <View>
@@ -380,18 +451,32 @@ function DesktopTable({ rows, corrections, onEdit, onCreate, styles }: {
         <Text key={label || 'action'} style={[styles.headCell, label === '' && styles.actionCell]}>{label}</Text>
       ))}
     </View>
-    {rows.map((row) => <DesktopRow corrections={corrections} key={row.key} onCreate={onCreate} onEdit={onEdit} row={row} styles={styles} />)}
+    {rows.map((row) => (
+      <DesktopRow
+        corrections={corrections}
+        deletingKey={deletingKey}
+        key={row.key}
+        onCreate={onCreate}
+        onDelete={onDelete}
+        onEdit={onEdit}
+        row={row}
+        styles={styles}
+      />
+    ))}
   </View>;
 }
 
-function DesktopRow({ row, corrections, onEdit, onCreate, styles }: {
+function DesktopRow({ row, corrections, onEdit, onCreate, onDelete, deletingKey, styles }: {
   row: MonthSummaryRow;
   corrections: readonly ServerAdminCorrection[];
   onEdit: (row: MonthSummaryRow) => void;
   onCreate: (date: string) => void;
+  onDelete: (row: MonthSummaryRow) => void;
+  deletingKey: string | null;
   styles: ReturnType<typeof createStyles>;
 }) {
   const severe = isSevere(row);
+  const deleting = deletingKey === row.key;
   return <View style={[styles.row, row.issues.length > 0 && (severe ? styles.rowDanger : styles.rowWarning)]} testID={`month-summary-row-${row.key}`}>
     <Text style={styles.cell}>{formatMonthSummaryDay(row.date)}</Text>
     <Text style={styles.cell}>{shownDriver(row)}</Text>
@@ -404,18 +489,31 @@ function DesktopRow({ row, corrections, onEdit, onCreate, styles }: {
     <View style={styles.actionCell}>
       {row.source === 'empty'
         ? <AppButton label="Pridėti" onPress={() => onCreate(row.date)} variant="secondary" />
-        : row.canEdit
-          ? <AppButton label="Taisyti" onPress={() => onEdit(row)} testID={`month-summary-edit-${row.key}`} variant="secondary" />
-          : <Text style={styles.meta}>Tik peržiūra</Text>}
+        : <>
+          {row.canEdit
+            ? <AppButton label="Taisyti" onPress={() => onEdit(row)} testID={`month-summary-edit-${row.key}`} variant="secondary" />
+            : <Text style={styles.meta}>Tik peržiūra</Text>}
+          {row.canDelete
+            ? <AppButton
+              disabled={deleting}
+              label={deleting ? 'Šalinama…' : 'Šalinti'}
+              onPress={() => onDelete(row)}
+              testID={`month-summary-delete-${row.key}`}
+              variant="ghost"
+            />
+            : null}
+        </>}
     </View>
   </View>;
 }
 
-function PhoneList({ rows, corrections, onEdit, onCreate, styles }: {
+function PhoneList({ rows, corrections, onEdit, onCreate, onDelete, deletingKey, styles }: {
   rows: readonly MonthSummaryRow[];
   corrections: readonly ServerAdminCorrection[];
   onEdit: (row: MonthSummaryRow) => void;
   onCreate: (date: string) => void;
+  onDelete: (row: MonthSummaryRow) => void;
+  deletingKey: string | null;
   styles: ReturnType<typeof createStyles>;
 }) {
   const groups = new Map<string, MonthSummaryRow[]>();
@@ -425,6 +523,7 @@ function PhoneList({ rows, corrections, onEdit, onCreate, styles }: {
       <Text style={styles.dayTitle}>{formatMonthSummaryDay(date)}</Text>
       {items.map((row) => {
         const severe = isSevere(row);
+        const deleting = deletingKey === row.key;
         return <View key={row.key} style={[styles.dayCard, row.issues.length > 0 && (severe ? styles.rowDanger : styles.rowWarning)]} testID={`month-summary-row-${row.key}`}>
           <Fact label="Vairuotojas" styles={styles} value={shownDriver(row)} />
           <Fact label="Valstybinis numeris" styles={styles} value={row.registrationNumber || 'Nėra numerio'} />
@@ -435,9 +534,20 @@ function PhoneList({ rows, corrections, onEdit, onCreate, styles }: {
           <Fact label="Pastabos" styles={styles} value={noteText(row, corrections)} />
           {row.source === 'empty'
             ? <AppButton label="Pridėti" onPress={() => onCreate(date)} variant="secondary" />
-            : row.canEdit
-              ? <AppButton label="Taisyti" onPress={() => onEdit(row)} testID={`month-summary-edit-${row.key}`} variant="secondary" />
-              : <Text style={styles.meta}>Tik peržiūra</Text>}
+            : <View style={styles.actions}>
+              {row.canEdit
+                ? <AppButton label="Taisyti" onPress={() => onEdit(row)} testID={`month-summary-edit-${row.key}`} variant="secondary" />
+                : <Text style={styles.meta}>Tik peržiūra</Text>}
+              {row.canDelete
+                ? <AppButton
+                  disabled={deleting}
+                  label={deleting ? 'Šalinama…' : 'Šalinti'}
+                  onPress={() => onDelete(row)}
+                  testID={`month-summary-delete-${row.key}`}
+                  variant="ghost"
+                />
+                : null}
+            </View>}
         </View>;
       })}
     </View>)}
@@ -595,7 +705,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   rowWarning: { borderLeftColor: colors.warning, backgroundColor: colors.warningSoft },
   rowDanger: { borderLeftColor: colors.danger, backgroundColor: colors.dangerSoft },
   cell: { ...type.secondary, color: colors.text, flex: 1, minWidth: 0 },
-  actionCell: { width: 108, flexGrow: 0, flexShrink: 0 },
+  actionCell: { width: 128, flexGrow: 0, flexShrink: 0, gap: spacing.xs },
   dayList: { gap: spacing.lg, marginTop: spacing.md },
   daySection: { gap: spacing.sm },
   dayTitle: { ...type.sectionTitle, color: colors.text },

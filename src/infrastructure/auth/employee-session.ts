@@ -390,18 +390,44 @@ export async function refreshEmployeeSession(fetcher: typeof fetch = globalThis.
   return refreshed;
 }
 
+export type EmployeeApiTestTransport = (path: string, init: RequestInit) => Promise<Response>;
+
+let testTransport: EmployeeApiTestTransport | null = null;
+
+function testTransportAllowed(): boolean {
+  return (typeof __DEV__ !== 'undefined' && __DEV__) || process.env.NODE_ENV === 'test';
+}
+
+/**
+ * Dev/test seam for the synthetic finance UI harness: every employeeApi call
+ * goes to an in-memory API instead of the network and the stored session.
+ * Refused outside development and tests, so a production build can never be
+ * pointed away from the real server.
+ */
+export function setEmployeeApiTestTransport(transport: EmployeeApiTestTransport | null): void {
+  if (transport && !testTransportAllowed()) {
+    throw new Error('Sintetinė darbuotojų API leidžiama tik vystymo ar testų režime.');
+  }
+  testTransport = transport;
+}
+
 export async function employeeApi<T>(path: string, init: RequestInit = {}, fetcher: typeof fetch = globalThis.fetch): Promise<T> {
-  const session = await getEmployeeSession();
-  if (!session) throw new EmployeeClientError('SESSION_REQUIRED', 'Reikia prisijungti.', 401);
-  if (session.demo) return handleDemoEmployeeRequest<T>(path, init);
-  const response = await fetcher(path, {
+  const requestInit: RequestInit = {
     ...init,
     credentials: 'same-origin',
     headers: {
       ...(init.body ? { 'content-type': 'application/json' } : {}),
       ...(init.headers as Record<string, string> | undefined),
     },
-  });
+  };
+  if (testTransport && testTransportAllowed()) return readEmployeeResponse<T>(await testTransport(path, requestInit));
+  const session = await getEmployeeSession();
+  if (!session) throw new EmployeeClientError('SESSION_REQUIRED', 'Reikia prisijungti.', 401);
+  if (session.demo) return handleDemoEmployeeRequest<T>(path, init);
+  return readEmployeeResponse<T>(await fetcher(path, requestInit));
+}
+
+async function readEmployeeResponse<T>(response: Response): Promise<T> {
   if (response.status === 204) return undefined as T;
   if (!response.ok) throw await readEmployeeError(response);
   return response.json() as Promise<T>;

@@ -38,12 +38,17 @@ function RoleAccessBoundary({ children }: { children: ReactNode }) {
   const { profile } = useLocalAccess();
   const pathname = usePathname();
   const router = useRouter();
+  // __DEV__ finance UI harness mounts real screens with a synthetic API; allow
+  // any unlocked role to open it so browser acceptance does not need prod auth.
+  const financeUiHarness = pathname === '/finance/ui-fixture'
+    && typeof __DEV__ !== 'undefined'
+    && __DEV__;
   const adminOnly = pathname === '/admin'
     || pathname === '/dispatcher'
     || pathname === '/route-management'
     || pathname === '/financial-settings'
     || pathname === '/finance'
-    || pathname.startsWith('/finance/')
+    || (pathname.startsWith('/finance/') && !financeUiHarness)
     || pathname === '/fleet'
     || pathname.startsWith('/import')
     || pathname === '/route/new';

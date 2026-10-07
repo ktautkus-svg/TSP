@@ -7,6 +7,7 @@ import { ChevronDownIcon } from '@/components/app-icons';
 import { normalizeEmployeePermissions } from '@/application/auth/employee-permissions';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { buildWagePrintDocument } from '@/application/finance/wage-document';
+import { applyWageQuickEditOpen } from '@/application/finance/wage-quick-edit-open';
 import { aggregateWageDays, summarizeWageDays, wageDayCell, wageTableColumns, wageTotalCell, type WageAdjustment, type WageColumnKey, type WageDayRow } from '@/application/finance/wage-report';
 import { buildWageWorkbook } from '@/application/finance/wage-workbook';
 import { roleHomePath } from '@/application/navigation/role-home';
@@ -22,6 +23,7 @@ import { FoundationScreen } from '@/components/foundation-screen';
 import { MenuArtwork } from '@/components/menu-artwork';
 import { PeriodCalendarPicker } from '@/components/period-calendar-picker';
 import { parseVehicleDayAssignmentId } from '@/domain/nll182-odometer-log';
+import { FinanceConfirmDialog } from '@/components/finance-confirm-dialog';
 import { employeeApi, type ServerTripSheet } from '@/infrastructure/auth/employee-session';
 import { Alert } from '@/ui/alert';
 import { radius, spacing, type } from '@/ui/tokens';
@@ -55,7 +57,7 @@ export default function FinanceScreen() {
   const desktop = width >= DESKTOP_WIDTH;
   const { profile, online } = useLocalAccess();
   const { colors } = useTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const styles = useMemo(() => createWageScreenStyles(colors), [colors]);
   const [companyName, setCompanyName] = useState('FiRo');
   const permissions = normalizeEmployeePermissions(profile.permissions);
   const allowed = profile.role === 'admin' || (profile.role === 'dispatcher' && permissions.canManageFinancials);
@@ -71,7 +73,10 @@ export default function FinanceScreen() {
   const [driverFilter, setDriverFilter] = useState<string>(ALL_DRIVERS);
   const [driverPickerOpen, setDriverPickerOpen] = useState(false);
   const [expandedDayKey, setExpandedDayKey] = useState<string | null>(null);
+  /** When set, the day detail opens straight into the manual-adjustment form. */
+  const [quickEditDayKey, setQuickEditDayKey] = useState<string | null>(null);
   const [exportNote, setExportNote] = useState<string | null>(null);
+  const consumeQuickEdit = useCallback(() => setQuickEditDayKey(null), []);
 
   useEffect(() => {
     void new CompanyProfileSettings(db).get().then((company) => {
@@ -232,7 +237,7 @@ export default function FinanceScreen() {
     <>
       <Stack.Screen options={{ title: 'Darbuotojų atlygis' }} />
       <FoundationScreen
-        contentMaxWidth={1240}
+        contentMaxWidth={1480}
         description="Kiekvieno vairuotojo atlygis ir kuro sąnaudos pagal kelionės lapų faktinius duomenis."
         showFoundationNotice={false}
         title="Darbuotojų atlygis">
@@ -314,7 +319,16 @@ export default function FinanceScreen() {
           {desktop ? <WageDayTable
             days={wageDays}
             expandedDayKey={expandedDayKey}
-            onToggle={(key) => setExpandedDayKey(expandedDayKey === key ? null : key)}
+            quickEditDayKey={quickEditDayKey}
+            onToggle={(key) => {
+              setQuickEditDayKey(null);
+              setExpandedDayKey(expandedDayKey === key ? null : key);
+            }}
+            onQuickEdit={(key) => {
+              setQuickEditDayKey(key);
+              setExpandedDayKey(key);
+            }}
+            onQuickEditConsumed={consumeQuickEdit}
             showDriverNames={showDriverNames}
             totals={wageTotals}
             canEdit={profile.role === 'admin'}
@@ -323,11 +337,15 @@ export default function FinanceScreen() {
             styles={styles}
           /> : wageDays.map((day) => {
             const expanded = expandedDayKey === day.key;
+            const canEdit = profile.role === 'admin';
             return <View key={day.key} testID={`finance-wage-day-${day.key}`}>
               <Pressable
                 accessibilityRole="button"
                 accessibilityState={{ expanded }}
-                onPress={() => setExpandedDayKey(expanded ? null : day.key)}
+                onPress={() => {
+                  setQuickEditDayKey(null);
+                  setExpandedDayKey(expanded ? null : day.key);
+                }}
                 style={({ pressed }) => [styles.wageDayRow, pressed && styles.wageDayRowPressed]}
                 testID={`finance-wage-day-toggle-${day.key}`}>
                 <View style={styles.wageDayIdentity}>
@@ -338,7 +356,23 @@ export default function FinanceScreen() {
                 <Text style={styles.wageDayAmount}>{formatWageAmount(day.figures.payEur)}</Text>
                 <Text style={styles.wageDayChevron}>{expanded ? '⌃' : '⌄'}</Text>
               </Pressable>
-              {expanded ? <WageDayDetail canEdit={profile.role === 'admin'} day={day} online={online} onSaved={load} styles={styles} /> : null}
+              {canEdit ? <View style={styles.dayQuickActions}>
+                <Pressable
+                  onPress={() => { setQuickEditDayKey(day.key); setExpandedDayKey(day.key); }}
+                  style={({ pressed }) => [styles.metricsEditLink, pressed && styles.driverChipPressed]}
+                  testID={`finance-quick-edit-adjustment-${day.key}`}>
+                  <Text style={styles.metricsEditLinkText}>{day.manualAdjustment ? 'Taisyti priedą' : 'Pridėti priedą'}</Text>
+                </Pressable>
+              </View> : null}
+              {expanded ? <WageDayDetail
+                canEdit={canEdit}
+                day={day}
+                online={online}
+                onSaved={load}
+                onStartEditingConsumed={consumeQuickEdit}
+                startEditingAdjustment={quickEditDayKey === day.key}
+                styles={styles}
+              /> : null}
             </View>;
           })}
           {unassignedRow ? <View style={styles.unassignedCleanup}>
@@ -415,7 +449,7 @@ function aggregateByDriver(sheets: readonly ServerTripSheet[]): DriverFinanceRow
     .sort((left, right) => right.totalEur - left.totalEur);
 }
 
-function Metric({ label, value, emphasis, styles }: { label: string; value: string; emphasis?: boolean; styles: ReturnType<typeof createStyles> }) {
+function Metric({ label, value, emphasis, styles }: { label: string; value: string; emphasis?: boolean; styles: ReturnType<typeof createWageScreenStyles> }) {
   return <View style={styles.metric}>
     <Text style={[styles.metricValue, emphasis && styles.metricValueEmphasis]}>{value}</Text>
     <Text style={styles.metricLabel}>{label}</Text>
@@ -427,7 +461,7 @@ function RouteMetricsRow({ sheet, canEdit, online, onSaved, styles }: {
   canEdit: boolean;
   online: boolean;
   onSaved: () => void;
-  styles: ReturnType<typeof createStyles>;
+  styles: ReturnType<typeof createWageScreenStyles>;
 }) {
   const [editing, setEditing] = useState(false);
   const [stops, setStops] = useState('');
@@ -523,7 +557,7 @@ function AddAdjustmentForm({ driverId, defaultDate, online, onSaved, styles }: {
   defaultDate: string;
   online: boolean;
   onSaved: () => void;
-  styles: ReturnType<typeof createStyles>;
+  styles: ReturnType<typeof createWageScreenStyles>;
 }) {
   const { colors } = useTheme();
   const [open, setOpen] = useState(false);
@@ -580,25 +614,60 @@ function AddAdjustmentForm({ driverId, defaultDate, online, onSaved, styles }: {
   </View>;
 }
 
-function WageAdjustmentEditor({ day, canEdit, online, onSaved, styles }: {
+function WageAdjustmentEditor({ day, canEdit, online, onSaved, styles, startEditing = false, onStartEditingConsumed }: {
   day: WageDayRow;
   canEdit: boolean;
   online: boolean;
   onSaved: () => void;
-  styles: ReturnType<typeof createStyles>;
+  styles: ReturnType<typeof createWageScreenStyles>;
+  /** Open the form immediately (row-level quick action, no long scroll). */
+  startEditing?: boolean;
+  /** Clear parent quickEditDayKey after consuming the one-shot open request. */
+  onStartEditingConsumed?: () => void;
 }) {
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(startEditing);
   const [amount, setAmount] = useState('');
   const [comment, setComment] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const figures = day.figures;
+  const [removeError, setRemoveError] = useState<string | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  // Only the saved wage-adjustments document — never figures.payEur / wageEur.
+  const manual = day.manualAdjustment;
+  const hasManualAdjustment = manual !== null;
+  const manualAmount = manual?.amountEur ?? 0;
+  const manualComment = manual?.comment ?? '';
+
+  useEffect(() => {
+    // Depend only on startEditing (not manualAmount/manualComment): after save,
+    // load refreshes those values and must not reopen the form or overwrite text.
+    applyWageQuickEditOpen({
+      startEditing,
+      manualAmount,
+      manualComment,
+      seed: (nextAmount, nextComment) => {
+        setAmount(nextAmount);
+        setComment(nextComment);
+        setError(null);
+      },
+      setEditing,
+      consume: () => onStartEditingConsumed?.(),
+    });
+    // manualAmount/manualComment are read once per open request; listing them
+    // reopened the editor after every successful save+load (root UI regression).
+  }, [startEditing, onStartEditingConsumed]);
 
   const open = () => {
-    setAmount(figures.extraEur ? String(figures.extraEur).replace('.', ',') : '');
-    setComment(figures.comment);
+    setAmount(manualAmount ? String(manualAmount).replace('.', ',') : '');
+    setComment(manualComment);
     setError(null);
     setEditing(true);
+  };
+
+  const closeEditor = () => {
+    setEditing(false);
+    setError(null);
+    onStartEditingConsumed?.();
   };
 
   const save = async () => {
@@ -607,11 +676,13 @@ function WageAdjustmentEditor({ day, canEdit, online, onSaved, styles }: {
     setBusy(true);
     setError(null);
     try {
+      // Writes only the manual record for this driver+date. Trip wage parts stay
+      // untouched, so saving cannot double legacy/route extras into wage-adjustments.
       await employeeApi('/api/admin/wage-adjustments', {
         method: 'PUT',
         body: JSON.stringify({ driverId: day.driverId, date: day.date, amountEur: value, comment }),
       });
-      setEditing(false);
+      closeEditor();
       onSaved();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Nepavyko išsaugoti.');
@@ -620,16 +691,64 @@ function WageAdjustmentEditor({ day, canEdit, online, onSaved, styles }: {
     }
   };
 
+  // Narrow by driverId + date only, so a failed attempt leaves the record
+  // untouched and can simply be pressed again. Legacy trip amounts never get
+  // a remove button because hasManualAdjustment requires a saved document.
+  // Modal (not RN Alert) keeps cancel/confirm/busy/error/retry working on web.
+  const removeAdjustment = () => {
+    if (!hasManualAdjustment || !manual) return;
+    setRemoveError(null);
+    setConfirmRemove(true);
+  };
+
+  const executeRemove = async () => {
+    if (!hasManualAdjustment || !manual) return;
+    setBusy(true);
+    setRemoveError(null);
+    try {
+      await employeeApi('/api/admin/wage-adjustments', {
+        method: 'PUT',
+        body: JSON.stringify({ driverId: day.driverId, date: day.date, amountEur: 0, comment: '' }),
+      });
+      setConfirmRemove(false);
+      closeEditor();
+      setRemoveError(null);
+      onSaved();
+    } catch (reason) {
+      // The adjustment stays as-is on failure; dialog stays open for retry.
+      setRemoveError(reason instanceof Error ? reason.message : 'Pašalinti nepavyko.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return <View style={styles.detailSection} testID={`finance-wage-adjustment-${day.key}`}>
-    <Text style={styles.detailSectionTitle}>Papildomai ir komentaras</Text>
+    <Text style={styles.detailSectionTitle}>Rankinė papildoma suma ir komentaras</Text>
     {!editing ? <>
-      <DetailLine label={figures.comment || 'Komentaro nėra'} value={figures.extraEur ? eur2Formatter.format(figures.extraEur) : '—'} styles={styles} />
-      {canEdit ? <Pressable
-        onPress={open}
-        style={({ pressed }) => [styles.metricsEditLink, pressed && styles.driverChipPressed]}
-        testID={`finance-edit-adjustment-${day.key}`}>
-        <Text style={styles.metricsEditLinkText}>Taisyti papildomą sumą ir komentarą</Text>
-      </Pressable> : null}
+      <DetailLine
+        label={hasManualAdjustment ? (manualComment || 'Komentaro nėra') : 'Rankinio koregavimo nėra'}
+        value={hasManualAdjustment && manualAmount ? eur2Formatter.format(manualAmount) : hasManualAdjustment ? '0,00 €' : '—'}
+        styles={styles}
+      />
+      {day.figures.wageEur != null && day.figures.wageEur !== 0 ? (
+        <Text style={styles.meta}>Reiso atlygis ({eur2Formatter.format(day.figures.wageEur)}) čia neredaguojamas ir nešalinamas.</Text>
+      ) : null}
+      {removeError && !confirmRemove ? <Text accessibilityRole="alert" style={styles.metricsError}>{removeError}</Text> : null}
+      {canEdit ? <View style={styles.metricsActionLinks}>
+        <Pressable
+          onPress={open}
+          style={({ pressed }) => [styles.metricsEditLink, pressed && styles.driverChipPressed]}
+          testID={`finance-edit-adjustment-${day.key}`}>
+          <Text style={styles.metricsEditLinkText}>{hasManualAdjustment ? 'Taisyti rankinę sumą ir komentarą' : 'Pridėti rankinę sumą ar komentarą'}</Text>
+        </Pressable>
+        {hasManualAdjustment ? <Pressable
+          disabled={busy || !online}
+          onPress={removeAdjustment}
+          style={({ pressed }) => [styles.metricsEditLink, (busy || !online) && styles.disabled, pressed && styles.driverChipPressed]}
+          testID={`finance-remove-adjustment-${day.key}`}>
+          <Text style={[styles.metricsEditLinkText, styles.metricsRemoveText]}>Pašalinti rankinę sumą</Text>
+        </Pressable> : null}
+      </View> : null}
     </> : <View style={styles.metricsEditor}>
       <View style={styles.metricsFieldRow}>
         <View style={styles.metricsField}>
@@ -662,16 +781,33 @@ function WageAdjustmentEditor({ day, canEdit, online, onSaved, styles }: {
           testID={`finance-adjustment-save-${day.key}`}>
           <Text style={styles.metricsSaveText}>{busy ? 'Saugoma…' : 'Išsaugoti'}</Text>
         </Pressable>
-        <Pressable disabled={busy} onPress={() => { setEditing(false); setError(null); }} style={({ pressed }) => [styles.metricsCancel, pressed && styles.driverChipPressed]}>
+        <Pressable disabled={busy} onPress={closeEditor} style={({ pressed }) => [styles.metricsCancel, pressed && styles.driverChipPressed]} testID={`finance-adjustment-cancel-${day.key}`}>
           <Text style={styles.metricsCancelText}>Atšaukti</Text>
         </Pressable>
       </View>
     </View>}
+    <FinanceConfirmDialog
+      busy={busy}
+      error={removeError}
+      message={`${day.driverName} · ${formatDateKey(day.date)} rankinė papildoma suma (${manualAmount ? eur2Formatter.format(manualAmount) : '0,00 €'}${manualComment ? ` · ${manualComment}` : ''}) bus pašalinta. Reisas, kuro ir odometrų įrašai nekeičiami.`}
+      onCancel={() => { if (!busy) { setConfirmRemove(false); setRemoveError(null); } }}
+      onConfirm={() => { void executeRemove(); }}
+      onRetry={() => { void executeRemove(); }}
+      testID={`finance-remove-confirm-${day.key}`}
+      title="Pašalinti papildomą sumą?"
+      visible={confirmRemove}
+    />
   </View>;
 }
 
-function DetailLine({ label, value, emphasis, styles }: { label: string; value: string; emphasis?: boolean; styles: ReturnType<typeof createStyles> }) {
-  return <View style={styles.detailLine}>
+function DetailLine({ label, value, emphasis, styles, testID }: {
+  label: string;
+  value: string;
+  emphasis?: boolean;
+  styles: ReturnType<typeof createWageScreenStyles>;
+  testID?: string;
+}) {
+  return <View style={styles.detailLine} testID={testID}>
     <Text style={styles.detailLineLabel}>{label}</Text>
     <Text style={[styles.detailLineValue, emphasis && styles.detailLineValueEmphasis]}>{value}</Text>
   </View>;
@@ -705,58 +841,97 @@ function formatWageTotal(totals: ReturnType<typeof summarizeWageDays>, key: Wage
   return value;
 }
 
-function WageDayTable({ days, totals, showDriverNames, expandedDayKey, onToggle, canEdit, online, onSaved, styles }: {
+function WageDayTable({ days, totals, showDriverNames, expandedDayKey, quickEditDayKey, onToggle, onQuickEdit, onQuickEditConsumed, canEdit, online, onSaved, styles }: {
   days: WageDayRow[];
   totals: ReturnType<typeof summarizeWageDays>;
   showDriverNames: boolean;
   expandedDayKey: string | null;
+  quickEditDayKey: string | null;
   onToggle: (key: string) => void;
+  onQuickEdit: (key: string) => void;
+  onQuickEditConsumed: () => void;
   canEdit: boolean;
   online: boolean;
   onSaved: () => void;
-  styles: ReturnType<typeof createStyles>;
+  styles: ReturnType<typeof createWageScreenStyles>;
 }) {
   const columns = wageTableColumns(showDriverNames);
   return <ScrollView horizontal showsHorizontalScrollIndicator testID="finance-wage-table">
     <View style={styles.wageTable}>
       <View style={[styles.wageTableRow, styles.wageTableHeader]}>
         {columns.map((column) => <Text key={column.key} style={[styles.wageTableCell, column.format === 'text' ? styles.wageTableText : styles.wageTableNumber, styles.wageTableHeaderText]}>{column.header}</Text>)}
+        {canEdit ? <Text style={[styles.wageTableCell, styles.wageTableQuick, styles.wageTableHeaderText]}>Priedas</Text> : null}
         <Text style={styles.wageTableToggle} />
       </View>
       {days.map((day) => {
         const expanded = expandedDayKey === day.key;
         return <View key={day.key} testID={`finance-wage-day-${day.key}`}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityState={{ expanded }}
-            onPress={() => onToggle(day.key)}
-            style={({ pressed }) => [styles.wageTableRow, pressed && styles.wageDayRowPressed]}
-            testID={`finance-wage-day-toggle-${day.key}`}>
-            {columns.map((column) => <Text key={column.key} style={[styles.wageTableCell, column.format === 'text' ? styles.wageTableText : styles.wageTableNumber, column.key === 'totalEur' ? styles.wageDayAmount : null]}>{formatWageCell(day, column.key)}{column.key === 'date' && day.preliminary ? ' · prel.' : ''}</Text>)}
-            <Text style={styles.wageTableToggle}>{expanded ? '⌃' : '⌄'}</Text>
-          </Pressable>
-          {expanded ? <WageDayDetail canEdit={canEdit} day={day} online={online} onSaved={onSaved} styles={styles} /> : null}
+          <View style={styles.wageTableRow}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ expanded }}
+              onPress={() => onToggle(day.key)}
+              style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }, pressed && styles.wageDayRowPressed]}
+              testID={`finance-wage-day-toggle-${day.key}`}>
+              {columns.map((column) => <Text key={column.key} style={[styles.wageTableCell, column.format === 'text' ? styles.wageTableText : styles.wageTableNumber, column.key === 'totalEur' ? styles.wageDayAmount : null]}>{formatWageCell(day, column.key)}{column.key === 'date' && day.preliminary ? ' · prel.' : ''}</Text>)}
+            </Pressable>
+            {canEdit ? <Pressable
+              onPress={() => onQuickEdit(day.key)}
+              style={({ pressed }) => [styles.wageTableCell, styles.wageTableQuick, pressed && styles.driverChipPressed]}
+              testID={`finance-quick-edit-adjustment-${day.key}`}>
+              <Text style={styles.metricsEditLinkText}>{day.manualAdjustment ? 'Taisyti' : 'Pridėti'}</Text>
+            </Pressable> : null}
+            <Pressable onPress={() => onToggle(day.key)} style={styles.wageTableToggle} testID={`finance-wage-day-chevron-${day.key}`}>
+              <Text style={styles.wageTableToggle}>{expanded ? '⌃' : '⌄'}</Text>
+            </Pressable>
+          </View>
+          {expanded ? <WageDayDetail
+            canEdit={canEdit}
+            day={day}
+            online={online}
+            onSaved={onSaved}
+            onStartEditingConsumed={onQuickEditConsumed}
+            startEditingAdjustment={quickEditDayKey === day.key}
+            styles={styles}
+          /> : null}
         </View>;
       })}
       <View style={[styles.wageTableRow, styles.wageTableTotal]}>
         {columns.map((column) => <Text key={column.key} style={[styles.wageTableCell, column.format === 'text' ? styles.wageTableText : styles.wageTableNumber, styles.wageTableTotalText]}>{formatWageTotal(totals, column.key)}</Text>)}
+        {canEdit ? <Text style={[styles.wageTableCell, styles.wageTableQuick]} /> : null}
         <Text style={styles.wageTableToggle} />
       </View>
     </View>
   </ScrollView>;
 }
 
-function WageDayDetail({ day, canEdit, online, onSaved, styles }: {
+/** Day expansion body: routes, wage composition (incl. manual extra), fuel. Exported for render tests. */
+export function WageDayDetail({ day, canEdit, online, onSaved, styles, startEditingAdjustment = false, onStartEditingConsumed }: {
   day: WageDayRow;
   canEdit: boolean;
   online: boolean;
   onSaved: () => void;
-  styles: ReturnType<typeof createStyles>;
+  styles: ReturnType<typeof createWageScreenStyles>;
+  startEditingAdjustment?: boolean;
+  onStartEditingConsumed?: () => void;
 }) {
   const figures = day.figures;
   const fuelEntries = [...new Map(day.sheets.flatMap((sheet) => sheet.fuelEntries).map((entry) => [entry.id, entry])).values()];
   const distanceSource = day.sheets.find((sheet) => sheet.compensation)?.compensation?.distanceSource;
+  // Manual bonus is already folded into figures.payEur; never add wageEur again.
+  const manual = day.manualAdjustment;
   return <View style={styles.wageDayDetail} testID={`finance-wage-day-detail-${day.key}`}>
+    {/* Manual adjustment first so quick-edit does not require scrolling past routes. */}
+    <WageAdjustmentEditor
+      canEdit={canEdit}
+      day={day}
+      online={online}
+      onSaved={onSaved}
+      onStartEditingConsumed={onStartEditingConsumed}
+      startEditing={startEditingAdjustment}
+      styles={styles}
+    />
+
     <View style={styles.detailSection}>
       <Text style={styles.detailSectionTitle}>{day.sheets.length > 1 ? `Reisai (${day.sheets.length})` : 'Reisas'}</Text>
       {day.sheets.length === 0 ? <Text style={styles.meta}>Šią dieną reiso nėra – tik papildoma suma.</Text> : null}
@@ -765,16 +940,29 @@ function WageDayDetail({ day, canEdit, online, onSaved, styles }: {
       ))}
     </View>
 
-    <WageAdjustmentEditor canEdit={canEdit} day={day} online={online} onSaved={onSaved} styles={styles} />
-
-    {figures.hasCompensation ? <View style={styles.detailSection}>
+    {figures.hasCompensation ? <View style={styles.detailSection} testID={`finance-wage-composition-${day.key}`}>
       <Text style={styles.detailSectionTitle}>Atlygio sudėtis{day.preliminary ? ' · preliminaru' : ''}</Text>
       {day.sheets.length > 1 ? <Text style={styles.meta}>Bazinis dienos atlygis įrašytas vieną kartą ir nėra dauginamas iš reisų skaičiaus. Eurai yra dienos, ne atskiro reiso.</Text> : null}
       <DetailLine label="Bazinis (diena)" value={formatWageAmount(figures.fixedAmountEur)} styles={styles} />
       <DetailLine label={`Atstumas · ${qtyFormatter.format(figures.distanceKm)} km${distanceSource ? ` (${distanceSource === 'odometer' ? 'odometras' : 'planuota'})` : ''}`} value={formatWageAmount(figures.distanceAmountEur)} styles={styles} />
       <DetailLine label={`Svoris · ${qtyFormatter.format(figures.weightKg)} kg`} value={formatWageAmount(figures.weightAmountEur)} styles={styles} />
       <DetailLine label={`Taškai · ${figures.stops}`} value={formatWageAmount(figures.stopsAmountEur)} styles={styles} />
-      <DetailLine label="Dienos suma" value={formatWageAmount(figures.wageEur)} emphasis styles={styles} />
+      {manual ? (
+        <DetailLine
+          label="Papildomai"
+          value={formatWageAmount(manual.amountEur)}
+          styles={styles}
+          testID={`finance-wage-composition-extra-${day.key}`}
+        />
+      ) : null}
+      {/* Same total as the day card (payEur = trip wage + manual), not trip-only wageEur. */}
+      <DetailLine
+        label="Dienos suma"
+        value={formatWageAmount(figures.payEur)}
+        emphasis
+        styles={styles}
+        testID={`finance-wage-composition-total-${day.key}`}
+      />
     </View> : <Text style={styles.meta}>Atlygio detalizacija dar neapskaičiuota.</Text>}
 
     {fuelEntries.length > 0 ? <View style={styles.detailSection}>
@@ -791,7 +979,7 @@ function WageDayDetail({ day, canEdit, online, onSaved, styles }: {
   </View>;
 }
 
-const createStyles = (colors: ColorPalette) => StyleSheet.create({
+export const createWageScreenStyles = (colors: ColorPalette) => StyleSheet.create({
   flex: { flex: 1, minWidth: 0 },
   periodPanel: { padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, gap: spacing.md },
   driverFilter: { gap: spacing.xs },
@@ -823,16 +1011,18 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   exportButton: { minHeight: 48, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
   exportButtonText: { ...type.button, color: colors.textSecondary },
   wageList: { borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, overflow: 'hidden' },
-  wageTable: { minWidth: 860 },
+  wageTable: { minWidth: 860, width: '100%' },
   wageTableRow: { minHeight: 48, flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderTopColor: colors.borderSubtle },
   wageTableHeader: { backgroundColor: colors.surfaceMuted, borderTopWidth: 0 },
   wageTableHeaderText: { ...type.label, color: colors.textMuted },
   wageTableTotal: { backgroundColor: colors.surfaceSubtle },
   wageTableTotalText: { ...type.secondaryStrong, color: colors.text },
   wageTableCell: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
-  wageTableText: { ...type.secondary, color: colors.text, width: 168 },
-  wageTableNumber: { ...type.secondary, color: colors.text, width: 96, textAlign: 'right' },
-  wageTableToggle: { ...type.body, color: colors.textMuted, width: 44, textAlign: 'center' },
+  wageTableText: { ...type.secondary, color: colors.text, width: 140, flexShrink: 0 },
+  wageTableNumber: { ...type.secondary, color: colors.text, width: 72, textAlign: 'right', flexShrink: 0 },
+  wageTableQuick: { width: 72, flexShrink: 0, justifyContent: 'center' },
+  wageTableToggle: { ...type.body, color: colors.textMuted, width: 36, textAlign: 'center' },
+  dayQuickActions: { paddingHorizontal: spacing.md, paddingBottom: spacing.xs, gap: spacing.xs, backgroundColor: colors.surfaceSubtle },
   wageListHeading: { padding: spacing.md, gap: 2, backgroundColor: colors.surfaceSubtle },
   wageListTitle: { ...type.sectionTitle, color: colors.text },
   wageDayRow: { minHeight: 64, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.md, borderTopWidth: 1, borderTopColor: colors.borderSubtle },
@@ -849,10 +1039,12 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   detailRoute: { gap: spacing.xs, paddingBottom: spacing.xs },
   detailRouteTitle: { ...type.secondaryStrong, color: colors.text },
   detailRouteMeta: { ...type.meta, color: colors.textMuted },
-  metricsEditLink: { alignSelf: 'flex-start', minHeight: 32, justifyContent: 'center' },
+  metricsEditLink: { alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center' },
   metricsEditLinkText: { ...type.secondaryStrong, color: colors.info },
+  metricsRemoveText: { color: colors.danger },
+  metricsActionLinks: { gap: spacing.xs },
   metricsEditor: { gap: spacing.sm, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface },
-  metricsFieldRow: { flexDirection: 'row', gap: spacing.sm },
+  metricsFieldRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   metricsField: { flex: 1, minWidth: 0, gap: 2 },
   metricsFieldLabel: { ...type.label, color: colors.textMuted },
   metricsInput: { minHeight: 44, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderStrong, paddingHorizontal: spacing.sm, backgroundColor: colors.surfaceSubtle, color: colors.text, ...type.body },

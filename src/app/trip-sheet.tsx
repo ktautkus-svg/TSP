@@ -348,7 +348,7 @@ export default function TripSheetScreen() {
   return (
     <>
       <Stack.Screen options={{ gestureEnabled: false, title: 'Kelionės lapai' }} />
-      <FoundationScreen showFoundationNotice={false} showHeading={false} title="Kelionės lapai" description="">
+      <FoundationScreen contentMaxWidth={1600} showFoundationNotice={false} showHeading={false} title="Kelionės lapai" description="">
         {/* Filters and actions. Spausdinti / PDF builds a dedicated kelionės
             lapas document; Ctrl+P still hides this toolbar via +html.tsx. */}
         <View style={styles.toolbar} testID="trip-sheet-toolbar">
@@ -761,20 +761,22 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   routeBadge: { borderRadius: radius.sm, backgroundColor: colors.infoSoft, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }, routeBadgeText: { ...type.label, color: colors.info },
   vehicleBar: { padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceMuted, gap: 2 }, vehicleNumber: { ...type.readout, color: colors.text },
   metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }, metric: { flexGrow: 1, minWidth: 115, padding: spacing.sm, borderRadius: radius.sm, backgroundColor: colors.surfaceSubtle, borderWidth: 1, borderColor: colors.borderSubtle, gap: 2 }, metricLabel: { ...type.label, color: colors.textMuted }, metricValue: { ...type.bodyStrong, color: colors.text },
-  reportTable: { minWidth: 1040, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radius.sm, overflow: 'hidden' },
+  // Fixed columns + route minWidth ≈ 1052; keep minWidth at the real need so
+  // 1366/1920 desktop views do not invent horizontal scroll after padding.
+  reportTable: { minWidth: 1052, width: '100%', borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radius.sm, overflow: 'hidden' },
   reportTableScroll: { minWidth: '100%' },
   reportTableRow: { minHeight: 44, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: colors.borderSubtle },
   reportTableHeader: { minHeight: 56, backgroundColor: colors.surfaceMuted },
   reportTableTotal: { backgroundColor: colors.infoSoft, borderBottomWidth: 0 },
   reportTableCell: { ...type.meta, color: colors.text, paddingHorizontal: spacing.xs, paddingVertical: spacing.xs },
-  reportLineCell: { width: 56, textAlign: 'right' },
-  reportDateCell: { width: 96 },
-  reportRouteCell: { flex: 1, minWidth: 140 },
-  reportReceiptCell: { width: 96 },
-  reportDriverCell: { width: 170 },
-  reportNumberCell: { width: 68, textAlign: 'right' },
-  reportWideNumberCell: { width: 118, textAlign: 'right' },
-  reportOdoCell: { width: 84, textAlign: 'right' },
+  reportLineCell: { width: 40, textAlign: 'right' },
+  reportDateCell: { width: 84 },
+  reportRouteCell: { flex: 1, minWidth: 120 },
+  reportReceiptCell: { width: 84 },
+  reportDriverCell: { width: 140 },
+  reportNumberCell: { width: 60, textAlign: 'right' },
+  reportWideNumberCell: { width: 104, textAlign: 'right' },
+  reportOdoCell: { width: 76, textAlign: 'right' },
   reportTotalText: { ...type.secondaryStrong },
   columnLegend: { ...type.meta, color: colors.textMuted },
   fuelOverCapacity: { color: colors.warning },

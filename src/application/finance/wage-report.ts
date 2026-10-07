@@ -71,6 +71,12 @@ export type WageDayRow = {
   preliminary: boolean;
   sheets: ServerTripSheet[];
   figures: WageDayFigures;
+  /**
+   * The saved wage-adjustments record for this driver+date, if any.
+   * Distinct from trip/legacy pay parts in `figures.wageEur` — the editor
+   * must read and write only this record, never the aggregated day total.
+   */
+  manualAdjustment: WageAdjustment | null;
 };
 
 export type WagePeriodTotals = {
@@ -169,6 +175,7 @@ export function aggregateWageDays(sheets: readonly ServerTripSheet[], adjustment
       preliminary: Boolean(sheet.compensation?.preliminary),
       sheets: [sheet],
       figures: emptyFigures(),
+      manualAdjustment: null,
     });
   }
   const countedFuel = new Set<string>();
@@ -222,12 +229,22 @@ export function aggregateWageDays(sheets: readonly ServerTripSheet[], adjustment
         preliminary: false,
         sheets: [],
         figures: emptyFigures(),
+        manualAdjustment: null,
       };
       days.set(key, day);
     }
-    const extra = round2(adjustment.amountEur);
+    // Only the wage-adjustments document counts as a removable manual extra.
+    // Trip/legacy compensation stays in wageEur and must not open the editor.
+    day.manualAdjustment = {
+      driverId: adjustment.driverId,
+      driverName: adjustment.driverName,
+      date: adjustment.date,
+      amountEur: round2(adjustment.amountEur),
+      comment: adjustment.comment,
+    };
+    const extra = day.manualAdjustment.amountEur;
     day.figures.extraEur = extra;
-    day.figures.comment = adjustment.comment;
+    day.figures.comment = day.manualAdjustment.comment;
     if (extra !== 0 || day.figures.wageEur !== null) day.figures.payEur = round2((day.figures.wageEur ?? 0) + extra);
   }
   return [...days.values()].sort((left, right) =>
