@@ -1,6 +1,6 @@
 import { Stack, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 
 import { ChevronDownIcon } from '@/components/app-icons';
@@ -637,14 +637,20 @@ function WageAdjustmentEditor({ day, canEdit, online, onSaved, styles, startEdit
   const hasManualAdjustment = manual !== null;
   const manualAmount = manual?.amountEur ?? 0;
   const manualComment = manual?.comment ?? '';
+  // Refs keep seed values current without listing them as effect deps (that
+  // would re-fire after save+load and reopen / overwrite in-progress text).
+  const manualAmountRef = useRef(manualAmount);
+  const manualCommentRef = useRef(manualComment);
+  manualAmountRef.current = manualAmount;
+  manualCommentRef.current = manualComment;
 
   useEffect(() => {
     // Depend only on startEditing (not manualAmount/manualComment): after save,
     // load refreshes those values and must not reopen the form or overwrite text.
     applyWageQuickEditOpen({
       startEditing,
-      manualAmount,
-      manualComment,
+      manualAmount: manualAmountRef.current,
+      manualComment: manualCommentRef.current,
       seed: (nextAmount, nextComment) => {
         setAmount(nextAmount);
         setComment(nextComment);
@@ -653,8 +659,6 @@ function WageAdjustmentEditor({ day, canEdit, online, onSaved, styles, startEdit
       setEditing,
       consume: () => onStartEditingConsumed?.(),
     });
-    // manualAmount/manualComment are read once per open request; listing them
-    // reopened the editor after every successful save+load (root UI regression).
   }, [startEditing, onStartEditingConsumed]);
 
   const open = () => {

@@ -34,7 +34,6 @@ const ONE_SHOT_MIGRATIONS = [
   'applySeptember2026Nll182Backfill',
   'applySeptember2026Nll182BackfillV2',
   'applySeptember2026Nll182BackfillV3',
-  'applyKarolisSeptember2026PaperSync',
 ] as const;
 
 const NOW = '2026-10-07T08:00:00.000Z';
@@ -55,7 +54,7 @@ const VEHICLES = [
   { id: 'TST202', registrationNumber: 'TST202', model: 'Sintetinis Sprinter', maximumPayloadKg: 1400 },
 ];
 
-let server: Server;
+let server: Server | undefined;
 let baseUrl = '';
 
 function token(user: UserKey): string {
@@ -226,12 +225,15 @@ beforeAll(async () => {
       if (!handled) { response.writeHead(404); response.end(); }
     });
   });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  await new Promise<void>((resolve) => server!.listen(0, '127.0.0.1', resolve));
+  baseUrl = `http://127.0.0.1:${(server!.address() as AddressInfo).port}`;
 });
 
 afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  // beforeAll may fail before listen(); only close a started server.
+  if (server) {
+    await new Promise<void>((resolve) => server!.close(() => resolve()));
+  }
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
 });

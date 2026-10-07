@@ -25,7 +25,13 @@ vi.mock('react', async (original) => {
         },
       ];
     },
-    useEffect: (run: () => void) => {
+    // Harness calls shells as plain functions — real useRef needs a dispatcher.
+    useRef: <T,>(initial: T) => {
+      const index = hooks.cursor++;
+      if (!(index in hooks.values)) hooks.values[index] = { current: initial };
+      return hooks.values[index] as { current: T };
+    },
+    useEffect: (run: () => void, _deps?: unknown[]) => {
       hooks.effects.push(run);
     },
   };
@@ -38,7 +44,7 @@ vi.mock('react-native', () => ({
   Pressable: 'Pressable',
 }));
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 
 type Node = ReactElement<Record<string, any>>;
@@ -70,12 +76,17 @@ function QuickEditShell(props: {
   const [editing, setEditing] = useState(false);
   const [amount, setAmount] = useState('');
   const [comment, setComment] = useState('');
+  // Mirror wages.tsx: seed from refs so deps stay startEditing/onConsumed only.
+  const manualAmountRef = useRef(props.manualAmount);
+  const manualCommentRef = useRef(props.manualComment);
+  manualAmountRef.current = props.manualAmount;
+  manualCommentRef.current = props.manualComment;
 
   useEffect(() => {
     applyWageQuickEditOpen({
       startEditing: props.startEditing,
-      manualAmount: props.manualAmount,
-      manualComment: props.manualComment,
+      manualAmount: manualAmountRef.current,
+      manualComment: manualCommentRef.current,
       seed: (nextAmount, nextComment) => {
         setAmount(nextAmount);
         setComment(nextComment);
@@ -83,7 +94,7 @@ function QuickEditShell(props: {
       setEditing,
       consume: props.onConsumed,
     });
-  });
+  }, [props.startEditing, props.onConsumed]);
 
   const close = () => {
     setEditing(false);
