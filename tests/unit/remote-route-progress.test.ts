@@ -16,4 +16,11 @@ describe('iPad route progress sync', () => {
       { start_odometer: 184320, status: 'loaded' },
     )).toBe(false);
   });
+
+  it('does not treat a completed cloud copy as the missing iPad odometer', () => {
+    expect(remoteProgressMissingLocally(
+      { start_odometer: null, end_odometer: null, status: 'in_progress' },
+      { start_odometer: 184320, end_odometer: 184400, status: 'completed' },
+    )).toBe(false);
+  });
 });

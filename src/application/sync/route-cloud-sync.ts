@@ -318,8 +318,9 @@ async function applyPulledRoute(db: SQLiteDatabase, employeeId: string, pulledRo
   }
 
   // Keep a physically worked route. Same-status progress from another device
-  // (Device B delivered a stop or entered the odometer) must still apply.
-  if (existing && WORKING_STATUSES.includes(existing.status) && !WORKING_STATUSES.includes(incomingStatus) && !missingProgress) {
+  // (Device B delivered a stop or entered the odometer) must still apply;
+  // a completed/cancelled cloud copy waits until this device is done.
+  if (existing && WORKING_STATUSES.includes(existing.status) && !WORKING_STATUSES.includes(incomingStatus)) {
     await deferRoute(db, employeeId, pulledRoute, 'LOCAL_ROUTE_WORKING');
     return 'deferred';
   }

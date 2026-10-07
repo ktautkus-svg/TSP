@@ -13,14 +13,15 @@ export type LocalRouteProgress = {
 };
 
 /**
- * The other device already recorded odometer or moved the route further.
- * A newer local timestamp from merely opening the iPad must not hide that.
+ * The other device already recorded an odometer this device never got.
+ * Opening the iPad can make the local timestamp newer without adding that
+ * reading, and a completed cloud copy must not be treated as the missing
+ * reading — a live local route still has to stay deferred.
  */
 export function remoteProgressMissingLocally(local: LocalRouteProgress | null, remote: Record<string, unknown>): boolean {
-  if (!local) return true;
-  if (local.start_odometer == null && remote.start_odometer != null) return true;
-  if (local.end_odometer == null && remote.end_odometer != null) return true;
-  const localRank = STATUS_RANK[String(local.status ?? '')] ?? 0;
+  if (!local) return false;
   const remoteRank = STATUS_RANK[String(remote.status ?? '')] ?? 0;
-  return remoteRank > localRank && localRank < STATUS_RANK.completed;
+  if (remoteRank >= STATUS_RANK.completed) return false;
+  if (local.start_odometer == null && remote.start_odometer != null) return true;
+  return local.end_odometer == null && remote.end_odometer != null;
 }
