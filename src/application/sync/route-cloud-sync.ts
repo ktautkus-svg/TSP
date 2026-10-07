@@ -1,6 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { applyRouteSnapshot, exportRouteSnapshot } from '@/application/auth/route-assignment-sync';
+import { remoteProgressMissingLocally } from '@/application/sync/remote-route-progress';
 import { employeeApi, getEmployeeSession, type EmployeeProfile, type RouteSnapshot } from '@/infrastructure/auth/employee-session';
 
 const CURSOR_ENTITY = 'routes';
@@ -283,8 +284,8 @@ async function applyPulledRoute(db: SQLiteDatabase, employeeId: string, pulledRo
   const routeId = String(pulledRoute.routeSnapshot?.route?.id ?? '');
   if (!routeId) return 'skipped';
 
-  const existing = await db.getFirstAsync<{ id: string; status: string; updated_at: string }>(
-    'SELECT id, status, updated_at FROM routes WHERE id = ?',
+  const existing = await db.getFirstAsync<{ id: string; status: string; updated_at: string; start_odometer: number | null; end_odometer: number | null }>(
+    'SELECT id, status, updated_at, start_odometer, end_odometer FROM routes WHERE id = ?',
     routeId,
   );
   if (pulledRoute.deleted) {
@@ -310,15 +311,15 @@ async function applyPulledRoute(db: SQLiteDatabase, employeeId: string, pulledRo
   // The local copy is newer: it wins by the same latest-write-wins rule the
   // server applies, and it is still dirty, so the next push carries it up.
   // Applying the older cloud copy here would silently discard local work.
-  if (existing && incomingUpdatedAt && String(existing.updated_at) > incomingUpdatedAt) {
+  const missingProgress = remoteProgressMissingLocally(existing, pulledRoute.routeSnapshot.route);
+  if (existing && incomingUpdatedAt && String(existing.updated_at) > incomingUpdatedAt && !missingProgress) {
     await clearDeferral(db, employeeId, routeId);
     return 'skipped';
   }
 
   // Keep a physically worked route. Same-status progress from another device
-  // (Device B delivered a stop) must still apply; only a status drop to
-  // planned/completed/cancelled is postponed until this device is done.
-  if (existing && WORKING_STATUSES.includes(existing.status) && !WORKING_STATUSES.includes(incomingStatus)) {
+  // (Device B delivered a stop or entered the odometer) must still apply.
+  if (existing && WORKING_STATUSES.includes(existing.status) && !WORKING_STATUSES.includes(incomingStatus) && !missingProgress) {
     await deferRoute(db, employeeId, pulledRoute, 'LOCAL_ROUTE_WORKING');
     return 'deferred';
   }

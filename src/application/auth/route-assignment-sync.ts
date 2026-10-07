@@ -4,6 +4,7 @@ import { LocalAccessService } from '@/application/auth/local-access';
 import { ensureParkMemorySchema, omitUnavailableParkStopColumns } from '@/database/migrations';
 import { AdminCompleteRoute } from '@/application/routes/route-workday';
 import { lithuanianWallClockNow } from '@/domain/lithuanian-time';
+import { remoteProgressMissingLocally } from '@/application/sync/remote-route-progress';
 import { TripSheetRepository } from '@/database/repositories/trip-sheet-repository';
 import {
   EmployeeClientError,
@@ -165,9 +166,14 @@ async function reconcileAndImportAssignments(
       'SELECT route_id, server_revision FROM route_sync_state WHERE assignment_id = ?', assignment.id,
     );
     if (existingSync) {
-      const local = await db.getFirstAsync<{ updated_at: string }>('SELECT updated_at FROM routes WHERE id = ?', existingSync.route_id);
+      const local = await db.getFirstAsync<{ updated_at: string; start_odometer: number | null; end_odometer: number | null; status: string }>(
+        'SELECT updated_at, start_odometer, end_odometer, status FROM routes WHERE id = ?',
+        existingSync.route_id,
+      );
       const incomingUpdatedAt = String(assignment.routeSnapshot.route.updated_at ?? '');
-      if (assignment.updatedAt > String(existingSync.server_revision ?? '') && (!local || incomingUpdatedAt > local.updated_at)) {
+      const remoteAhead = !local || incomingUpdatedAt > local.updated_at;
+      const missingProgress = remoteProgressMissingLocally(local, assignment.routeSnapshot.route);
+      if ((assignment.updatedAt > String(existingSync.server_revision ?? '') && remoteAhead) || missingProgress) {
         await applyRouteSnapshot(db, assignment.routeSnapshot, assignment.updatedAt, employeeId);
       }
       await db.runAsync(
