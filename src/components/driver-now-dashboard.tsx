@@ -2,7 +2,9 @@ import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 
+import { routeDayLabel } from '@/application/routes/driver-home-route';
 import type { RouteProgress } from '@/application/routes/route-workday';
+import { lithuanianWallClockNow } from '@/domain/lithuanian-time';
 import { RouteMapView } from '@/components/route-map';
 import { driverNowCopy } from '@/data/driver-ui';
 import type { DeliveryStop, Route } from '@/domain/route';
@@ -183,7 +185,8 @@ function continueLabel(status: Route['status']): string {
 
 function formatRouteDate(value: string): string {
   const date = new Date(`${value}T12:00:00`);
-  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('lt-LT', { weekday: 'long', month: 'long', day: 'numeric' }).format(date);
+  const formatted = Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('lt-LT', { weekday: 'long', month: 'long', day: 'numeric' }).format(date);
+  return routeDayLabel(value, lithuanianWallClockNow().date, formatted);
 }
 
 type DriverPalette = ReturnType<typeof stitchColorsFor>['driverNow'];

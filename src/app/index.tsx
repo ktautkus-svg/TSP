@@ -5,7 +5,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, SafeAreaView, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
-import { pullAssignedRoutes, pullAssignedRoutesForActingDriver, pushCompletedRouteAssignmentProgress, pushRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
+import { pullAssignedRoutes, pullAssignedRoutesForActingDriver, pushCompletedRouteAssignmentProgress, pushRouteAssignmentProgress, releaseStaleWorkingRoutes } from '@/application/auth/route-assignment-sync';
+import { selectDriverHomeRoute } from '@/application/routes/driver-home-route';
 import { ExportPilotRouteDiagnostic } from '@/application/routes/pilot-route-export';
 import { resolveRoute } from '@/application/routes/route-navigation';
 import { GetRouteProgress, type RouteProgress } from '@/application/routes/route-workday';
@@ -22,6 +23,7 @@ import { RouteRepository } from '@/database/repositories/route-repository';
 import type { DeliveryStop, Route } from '@/domain/route';
 import { Alert } from '@/ui/alert';
 import { devWarn } from '@/ui/dev-log';
+import { lithuanianWallClockNow } from '@/domain/lithuanian-time';
 import { formatWeightKg } from '@/ui/format-weight';
 import { groupRouteCodes, routeCodeLabel, type RouteCodeRow } from '@/ui/route-numbers';
 import { useTheme } from '@/ui/theme';
@@ -90,10 +92,12 @@ export default function HomeScreen() {
           await pushCompletedRouteAssignmentProgress(db);
         }
         await requestSync('home-focus');
+        const todayKey = lithuanianWallClockNow().date;
+        if (showDriverDashboard) await releaseStaleWorkingRoutes(db, todayKey);
         const operational = showDriverDashboard
           ? await repository.listOperational(effectiveDriverId)
           : [];
-        const route = operational[0] ?? null;
+        const route = selectDriverHomeRoute(operational, todayKey);
         const nextProgress = route ? await new GetRouteProgress(db).execute(route.id) : null;
         const nextStops = route ? await repository.getStops(route.id) : [];
         if (online && route) void pushRouteAssignmentProgress(db, route.id).catch(() => undefined);
@@ -120,10 +124,12 @@ export default function HomeScreen() {
     let mounted = true;
     void (async () => {
       if (online && profile.role === 'driver') await pushCompletedRouteAssignmentProgress(db);
+      const todayKey = lithuanianWallClockNow().date;
+      if (showDriverDashboard) await releaseStaleWorkingRoutes(db, todayKey);
       const operational = showDriverDashboard
         ? await repository.listOperational(effectiveDriverId)
         : [];
-      const route = operational[0] ?? null;
+      const route = selectDriverHomeRoute(operational, todayKey);
       const nextProgress = route ? await new GetRouteProgress(db).execute(route.id) : null;
       const nextStops = route ? await repository.getStops(route.id) : [];
       const codeRows = await db.getAllAsync<RouteCodeRow>(

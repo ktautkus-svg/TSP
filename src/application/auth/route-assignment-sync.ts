@@ -3,6 +3,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { LocalAccessService } from '@/application/auth/local-access';
 import { ensureParkMemorySchema, omitUnavailableParkStopColumns } from '@/database/migrations';
 import { AdminCompleteRoute } from '@/application/routes/route-workday';
+import { lithuanianWallClockNow } from '@/domain/lithuanian-time';
 import { TripSheetRepository } from '@/database/repositories/trip-sheet-repository';
 import {
   EmployeeClientError,
@@ -98,6 +99,9 @@ export async function applyRouteSnapshot(
       owner_employee_id: ownerEmployeeId ?? existing?.owner_employee_id ?? null,
       cloud_synced_at: cloudSyncedAt,
       cloud_deleted_at: null,
+      ...(existing && String(existing.status) === 'completed' && String(snapshot.route.status) !== 'completed'
+        ? { status: 'completed', completed_at: existing.completed_at ?? cloudSyncedAt }
+        : {}),
     };
     if (existing) {
       await updateRow(db, 'routes', routeId, route);
@@ -295,6 +299,22 @@ export async function pushRouteAssignmentRevision(
   return true;
 }
 
+export async function releaseStaleWorkingRoutes(db: SQLiteDatabase, todayKey = lithuanianWallClockNow().date): Promise<number> {
+  const stale = await db.getAllAsync<{ id: string }>(
+    `SELECT id FROM routes
+     WHERE status IN ('loading', 'loaded', 'in_progress')
+       AND date < ?
+       AND (end_odometer IS NOT NULL OR remaining_stops = 0)`,
+    todayKey,
+  );
+  let closed = 0;
+  for (const route of stale) {
+    await new AdminCompleteRoute(db).execute(route.id);
+    closed += 1;
+  }
+  return closed;
+}
+
 export async function reconcileAssignedRouteCopies(
   db: SQLiteDatabase,
   employeeId: string,
@@ -308,7 +328,13 @@ export async function reconcileAssignedRouteCopies(
   let removed = 0;
   for (const copy of local) {
     const assignment = serverById.get(copy.assignment_id);
-    if (assignment?.status === 'completed') continue;
+    if (assignment?.status === 'completed') {
+      const localRoute = await db.getFirstAsync<{ status: string }>('SELECT status FROM routes WHERE id = ?', copy.route_id);
+      if (localRoute && !['completed', 'cancelled'].includes(localRoute.status)) {
+        await new AdminCompleteRoute(db).execute(copy.route_id);
+      }
+      continue;
+    }
     if (assignment && assignment.status !== 'cancelled') continue;
     await purgeAssignedRouteCopy(db, copy.route_id);
     removed += 1;

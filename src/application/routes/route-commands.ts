@@ -681,13 +681,15 @@ export class ActivateRoute extends RouteCommandBase {
     // one_working_route unique index: only one loading/loaded/in_progress route.
     // Check before UPDATE so expo-sqlite cannot mask the constraint failure as
     // the opaque "Error finalizing statement" seen on the loading screen.
-    const working = await this.db.getFirstAsync<{ id: string; status: string }>(
-      `SELECT id, status FROM routes
+    const working = await this.db.getFirstAsync<{ id: string; status: string; date: string; end_odometer: number | null; remaining_stops: number }>(
+      `SELECT id, status, date, end_odometer, remaining_stops FROM routes
        WHERE id <> ? AND status IN ('loading', 'loaded', 'in_progress')
        ORDER BY updated_at DESC LIMIT 1`,
       routeId,
     );
-    if (working) {
+    if (working && (working.end_odometer !== null || working.remaining_stops === 0) && working.date < route.date) {
+      await new (await import('./route-workday')).AdminCompleteRoute(this.db).execute(working.id);
+    } else if (working) {
       throw new RouteCommandError(
         'ACTIVE_ROUTE_EXISTS',
         'Jau vykdomas kitas maršrutas. Pirmiausia jį užbaikite arba atšaukite, tada pradėkite krovimą.',
