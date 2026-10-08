@@ -1,3 +1,5 @@
+import { fuelEntryMoneyEur } from '@/application/routes/fuel-entry-money';
+import { isFuelOnlyWorkSheet } from '@/domain/fuel-only-workday';
 import type { ServerTripSheet } from '@/infrastructure/auth/employee-session';
 
 export type WageColumnKey = 'date' | 'driver' | 'km' | 'kmEur' | 'kg' | 'kgEur' | 'stops' | 'stopsEur' | 'baseEur' | 'extraEur' | 'totalEur' | 'comment';
@@ -145,8 +147,13 @@ function measured(sheets: readonly ServerTripSheet[]) {
  */
 export function aggregateWageDays(sheets: readonly ServerTripSheet[], adjustments: readonly WageAdjustment[] = []): WageDayRow[] {
   const days = new Map<string, WageDayRow>();
+  const fuelOnlyByDay = new Map<string, ServerTripSheet[]>();
   for (const sheet of sheets) {
     const key = `${sheet.driverId}:${sheet.date}`;
+    if (isFuelOnlyWorkSheet(sheet)) {
+      fuelOnlyByDay.set(key, [...(fuelOnlyByDay.get(key) ?? []), sheet]);
+      continue;
+    }
     const current = days.get(key);
     if (current) {
       current.sheets.push(sheet);
@@ -167,16 +174,17 @@ export function aggregateWageDays(sheets: readonly ServerTripSheet[], adjustment
   const countedFuel = new Set<string>();
   for (const day of days.values()) {
     day.sheets = dedupeSheets(day.sheets);
-    const compensation = day.sheets.find((sheet) => sheet.compensation)?.compensation ?? null;
-    const fromSheets = measured(day.sheets);
+    const payable = day.sheets.filter((sheet) => !isFuelOnlyWorkSheet(sheet));
+    const compensation = payable.find((sheet) => sheet.compensation)?.compensation ?? null;
+    const fromSheets = measured(payable);
     let fuelLiters = 0;
     let fuelCostEur = 0;
-    for (const sheet of day.sheets) {
+    for (const sheet of [...day.sheets, ...(fuelOnlyByDay.get(day.key) ?? [])]) {
       for (const entry of sheet.fuelEntries) {
         if (countedFuel.has(entry.id)) continue;
         countedFuel.add(entry.id);
         fuelLiters += entry.liters;
-        fuelCostEur += entry.totalCost ?? 0;
+        fuelCostEur += fuelEntryMoneyEur(entry) ?? 0;
       }
     }
     day.wageEur = compensation?.totalNetEur ?? 0;
@@ -191,7 +199,7 @@ export function aggregateWageDays(sheets: readonly ServerTripSheet[], adjustment
       stopsAmountEur: compensation ? compensation.stopsAmountEur : null,
       fixedAmountEur: compensation ? compensation.fixedAmountEur : null,
       wageEur: compensation ? compensation.totalNetEur : null,
-      routeCount: day.sheets.length,
+      routeCount: payable.length,
       fuelLiters,
       fuelCostEur,
       extraEur: 0,
