@@ -622,7 +622,14 @@ export class EmployeeAuthStore {
   }
 
   async updateRoutePriceSettings(input: unknown, updatedBy: string): Promise<RoutePriceSettings> {
-    const settings = normalizeRoutePriceSettings(input);
+    let settings = normalizeRoutePriceSettings(input);
+    // A cached older app still sends one price per month without a year.
+    // Keep the stored year-month prices instead of overwriting them with that.
+    const source = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+    if (!('fuelPriceByYearMonth' in source)) {
+      const stored = await this.getRoutePriceSettings();
+      settings = { ...settings, fuelPriceByYearMonth: stored.fuelPriceByYearMonth };
+    }
     await this.settings.doc('route-pricing').set({
       ...settings,
       updatedAt: new Date().toISOString(),

@@ -1,21 +1,16 @@
-import type { RoutePriceSettings } from '@/application/routes/route-price';
+import { fuelPriceForYearMonth, type RoutePriceSettings } from '@/application/routes/route-price';
 
 /**
  * Litre price valid on a date, taken from the saved route-pricing settings
- * ("Kuro ir atlygio parametrai", one price per calendar month).
+ * ("Kuro ir atlygio parametrai", one price per calendar year and month).
  *
- * Returns null when the settings were not loaded or the month has no usable
+ * Returns null when the settings were not loaded or that year-month has no
  * price. Callers must then show the money as unknown ("—"); they must never
- * fall back to a built-in tariff or show litres as euros.
+ * borrow another year's price, use a built-in tariff or show litres as euros.
  */
 export function fuelPriceForDate(settings: RoutePriceSettings | null, date: string): number | null {
   if (!settings) return null;
-  const match = /^\d{4}-(\d{2})-\d{2}/.exec(date.trim());
-  if (!match) return null;
-  const month = Number(match[1]);
-  if (!Number.isInteger(month) || month < 1 || month > 12) return null;
-  const price = settings.fuelPriceByMonth[month - 1];
-  return typeof price === 'number' && Number.isFinite(price) && price > 0 ? price : null;
+  return fuelPriceForYearMonth(settings, date);
 }
 
 /** Calendar day of a fuel fill (filledAt is stored as an ISO timestamp). */

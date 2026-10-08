@@ -960,7 +960,7 @@ function Summary({ label, value, styles, testID, warning }: { label: string; val
 function PreliminaryPriceCard({ price, styles }: { price: PreliminaryRoutePrice; styles: ReturnType<typeof createStyles> }) {
   return <View style={styles.priceCard} testID="preliminary-route-price">
     <View style={styles.priceHeader}><View style={styles.priceContent}><Text style={styles.priceLabel}>PRELIMINARI MARŠRUTO KAINA</Text><Text style={styles.priceTotal}>{formatMoney(price.totalEur)}</Text></View><Text style={styles.priceSource}>{price.source === 'excel-vehicle' ? 'Excel automobilio tarifai' : 'Įvertinta pagal automobilio dydį'}</Text></View>
-    <Text style={styles.priceBreakdown}>Kuras {formatMoney(price.fuelCostEur)} · automobilis {formatMoney(price.roadCostEur + price.insuranceCostEur)} · vairuotojas {formatMoney(price.driverCostEur)} · rezervas {formatMoney(price.overheadEur)}</Text>
+    <Text style={styles.priceBreakdown}>Kuras {price.fuelPriceKnown ? formatMoney(price.fuelCostEur) : '— (litro kaina neįvesta)'} · automobilis {formatMoney(price.roadCostEur + price.insuranceCostEur)} · vairuotojas {formatMoney(price.driverCostEur)} · rezervas {formatMoney(price.overheadEur)}</Text>
     <Text style={styles.priceAssumptions}>{price.assumptions.join(' · ')}</Text>
   </View>;
 }

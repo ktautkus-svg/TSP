@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { fuelFillDate, fuelMoneyForLiters, fuelPriceForDate, tripFuelMoney } from '../../src/application/finance/fuel-price';
@@ -10,12 +12,15 @@ import {
 } from '../../src/application/routes/route-price';
 import type { ServerFuelEntry, ServerTripSheet } from '../../src/infrastructure/auth/employee-session';
 
-// The prices Karolis saved in "Kuro ir atlygio parametrai": 1,80 €/l for
-// July–August and 1,93 €/l from September.
-const SAVED: RoutePriceSettings = normalizeRoutePriceSettings({
-  ...DEFAULT_ROUTE_PRICE_SETTINGS,
+// The production settings document as saved before prices had a year: one
+// price per month (1,80 €/l July–August, 1,93 €/l from September).
+const { fuelPriceByYearMonth: _ignored, ...LEGACY_REST } = DEFAULT_ROUTE_PRICE_SETTINGS;
+const LEGACY_DOCUMENT = {
+  ...LEGACY_REST,
   fuelPriceByMonth: [1.26, 1.25, 1.17, 1.1, 1.08, 1.13, 1.8, 1.8, 1.93, 1.93, 1.93, 1.93],
-});
+  updatedAt: '2026-10-07T12:43:38.565Z',
+};
+const SAVED: RoutePriceSettings = normalizeRoutePriceSettings(LEGACY_DOCUMENT);
 
 function fuelEntry(overrides: Partial<ServerFuelEntry> = {}): ServerFuelEntry {
   return {
@@ -79,7 +84,7 @@ describe('litre price valid for a date', () => {
     expect(fuelPriceForDate(SAVED, '2026-10-05T23:10:00.000Z')).toBe(1.93);
     expect(fuelPriceForDate(null, '2026-10-05')).toBeNull();
     expect(fuelPriceForDate(SAVED, 'not a date')).toBeNull();
-    const zeroOctober = { ...SAVED, fuelPriceByMonth: SAVED.fuelPriceByMonth.map((value, index) => (index === 9 ? 0 : value)) };
+    const zeroOctober = { ...SAVED, fuelPriceByYearMonth: { ...SAVED.fuelPriceByYearMonth, '2026-10': 0 } };
     expect(fuelPriceForDate(zeroOctober, '2026-10-05')).toBeNull();
   });
 
@@ -111,7 +116,7 @@ describe('Reiso kaina fuel', () => {
     expect(trip!.price.fuelPricePerLiter).toBe(1.93);
     expect(trip!.price.fuelCostEur).toBe(135.79);
     // The built-in default for October is 1,13 €/l — the old screen used it.
-    expect(DEFAULT_ROUTE_PRICE_SETTINGS.fuelPriceByMonth[9]).toBe(1.13);
+    expect(DEFAULT_ROUTE_PRICE_SETTINGS.fuelPriceByYearMonth['2026-10']).toBe(1.13);
     expect(trip!.price.fuelCostEur).not.toBe(Math.round(70.356 * 1.13 * 100) / 100);
     // Fuel is part of the trip total.
     expect(trip!.price.totalEur).toBeGreaterThan(trip!.price.fuelCostEur);
@@ -164,5 +169,62 @@ describe('wage report fuel money', () => {
     });
     const days = aggregateWageDays([sheet], [], (date) => fuelPriceForDate(SAVED, date));
     expect(days[0]!.figures.fuelCostEur).toBe(37.3);
+  });
+});
+
+describe('litre prices stored by year and month', () => {
+  it('keeps the prices saved before years existed, as 2026, without a migration', () => {
+    expect(SAVED.fuelPriceByYearMonth).toEqual({
+      '2026-01': 1.26, '2026-02': 1.25, '2026-03': 1.17, '2026-04': 1.1, '2026-05': 1.08, '2026-06': 1.13,
+      '2026-07': 1.8, '2026-08': 1.8, '2026-09': 1.93, '2026-10': 1.93, '2026-11': 1.93, '2026-12': 1.93,
+    });
+    expect('fuelPriceByMonth' in SAVED).toBe(false);
+    // Saving and reading back keeps the same prices (normalize is stable).
+    expect(normalizeRoutePriceSettings(JSON.parse(JSON.stringify(SAVED))).fuelPriceByYearMonth).toEqual(SAVED.fuelPriceByYearMonth);
+  });
+
+  it('never borrows another year’s price for a month without one', () => {
+    expect(fuelPriceForDate(SAVED, '2027-10-05')).toBeNull();
+    expect(fuelPriceForDate(SAVED, '2025-10-05')).toBeNull();
+    const [trip] = priceTripSheets([nllTrip({ date: '2027-10-05' })], SAVED);
+    expect(trip!.price.fuelCostKnown).toBe(false);
+    expect(trip!.price.fuelPriceKnown).toBe(false);
+    expect(trip!.price.fuelPricePerLiter).toBeNull();
+    expect(trip!.price.fuelCostEur).toBe(0);
+    expect(trip!.price.fuelLiters).toBe(70.36);
+    expect(trip!.price.assumptions.join(' ')).toContain('Kuro piniginė suma nežinoma');
+    const days = aggregateWageDays([nllTrip({ date: '2027-10-05', fuelEntries: [fuelEntry({ filledAt: '2027-10-05T06:00:00.000Z' })] })], [], (date) => fuelPriceForDate(SAVED, date));
+    expect(days[0]!.figures.fuelCostEur).toBe(0);
+    expect(days[0]!.figures.fuelUnpricedLiters).toBe(83);
+  });
+
+  it('uses a price entered for another year only in that year', () => {
+    const with2027 = normalizeRoutePriceSettings({ ...SAVED, fuelPriceByYearMonth: { ...SAVED.fuelPriceByYearMonth, '2027-10': 2.05 } });
+    expect(fuelPriceForDate(with2027, '2027-10-05')).toBe(2.05);
+    expect(fuelPriceForDate(with2027, '2026-10-05')).toBe(1.93);
+    expect(fuelPriceForDate(with2027, '2027-09-05')).toBeNull();
+  });
+
+  it('drops malformed keys and non-positive prices from a saved document', () => {
+    const settings = normalizeRoutePriceSettings({
+      fuelPriceByYearMonth: { '2026-10': 1.93, '2026-13': 1.5, '26-10': 1.5, '2026-11': 0, '2026-12': -1, '2027-01': 'x' },
+    });
+    expect(settings.fuelPriceByYearMonth).toEqual({ '2026-10': 1.93 });
+    // An explicitly empty price table stays empty instead of reviving defaults.
+    expect(normalizeRoutePriceSettings({ fuelPriceByYearMonth: {} }).fuelPriceByYearMonth).toEqual({});
+  });
+});
+
+describe('litre price entry', () => {
+  it('lets the admin choose the year and enter or clear each month for that year', () => {
+    const panel = readFileSync(resolve(import.meta.dirname, '../../src/components/route-price-settings-panel.tsx'), 'utf8');
+    expect(panel).toContain('testID="route-price-fuel-year-prev"');
+    expect(panel).toContain('testID="route-price-fuel-year-next"');
+    expect(panel).toContain('fuelPriceYearMonthKey(fuelYear, index + 1)');
+    expect(panel).toContain('draft.fuelPriceByYearMonth[key] ?? null');
+    // Clearing a field removes the price instead of saving 0 or keeping the old one.
+    expect(panel).toMatch(/if \(!trimmed\) \{ onChange\(null\); return; \}/);
+    expect(panel).toContain('if (value === null) delete prices[key];');
+    expect(panel).not.toContain('fuelPriceByMonth');
   });
 });

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import {
+  fuelPriceYearMonthKey,
   normalizeRoutePriceSettings,
   type DriverCostProfile,
   type RoutePriceSettings,
@@ -30,6 +31,8 @@ export function RoutePriceSettingsPanel({
   const [draft, setDraft] = useState(() => cloneSettings(settings));
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  // Litre prices are entered per year; working days stay one value per month.
+  const [fuelYear, setFuelYear] = useState(() => new Date().getFullYear());
 
   useEffect(() => setDraft(cloneSettings(settings)), [settings]);
 
@@ -54,11 +57,21 @@ export function RoutePriceSettingsPanel({
     }
   };
 
-  const updateMonth = (key: 'fuelPriceByMonth' | 'workingDaysByMonth', index: number, value: number) => {
+  const updateWorkingDays = (index: number, value: number) => {
     setDraft((current) => {
-      const values = [...current[key]];
+      const values = [...current.workingDaysByMonth];
       values[index] = value;
-      return { ...current, [key]: values };
+      return { ...current, workingDaysByMonth: values };
+    });
+  };
+
+  /** null removes the price: that year-month then shows fuel as unknown ("—"). */
+  const updateFuelPrice = (key: string, value: number | null) => {
+    setDraft((current) => {
+      const prices = { ...current.fuelPriceByYearMonth };
+      if (value === null) delete prices[key];
+      else prices[key] = value;
+      return { ...current, fuelPriceByYearMonth: prices };
     });
   };
 
@@ -124,20 +137,29 @@ export function RoutePriceSettingsPanel({
     </PriceSection>
 
     <PriceSection title="Kuras ir darbo dienos pagal mėnesį" styles={styles}>
+      <Text style={styles.sectionHint}>Kuro kaina saugoma pagal metus ir mėnesį. Tuščias laukas – kainos nėra: to mėnesio reisų kuras rodomas „—“, kitų metų kaina nenaudojama.</Text>
+      <View style={styles.yearPicker}>
+        <Pressable accessibilityLabel="Ankstesni metai" accessibilityRole="button" onPress={() => setFuelYear((year) => year - 1)} style={styles.yearButton} testID="route-price-fuel-year-prev"><Text style={styles.yearButtonText}>‹</Text></Pressable>
+        <Text style={styles.yearValue} testID="route-price-fuel-year">{fuelYear} m.</Text>
+        <Pressable accessibilityLabel="Kiti metai" accessibilityRole="button" onPress={() => setFuelYear((year) => year + 1)} style={styles.yearButton} testID="route-price-fuel-year-next"><Text style={styles.yearButtonText}>›</Text></Pressable>
+      </View>
       <View style={styles.monthTableHead}>
         <Text style={[styles.monthCellLabel, styles.monthNameCol]}>Mėnuo</Text>
-        <Text style={[styles.monthCellLabel, styles.monthValueCol]}>Kuras, €/l</Text>
-        <Text style={[styles.monthCellLabel, styles.monthValueCol]}>Darbo d.</Text>
+        <Text style={[styles.monthCellLabel, styles.monthValueCol]}>Kuras {fuelYear}, €/l</Text>
+        <Text style={[styles.monthCellLabel, styles.monthValueCol]}>Darbo d. (kasmet)</Text>
       </View>
-      {MONTHS.map((month, index) => <View key={month} style={styles.monthTableRow}>
-        <Text style={[styles.rowTitle, styles.monthNameCol]}>{month}</Text>
-        <View style={styles.monthValueCol}>
-          <NumberField bare disabled={!canEdit} label="" value={draft.fuelPriceByMonth[index]} onChange={(value) => updateMonth('fuelPriceByMonth', index, value)} styles={styles} />
-        </View>
-        <View style={styles.monthValueCol}>
-          <NumberField bare disabled={!canEdit} label="" value={draft.workingDaysByMonth[index]} onChange={(value) => updateMonth('workingDaysByMonth', index, value)} styles={styles} />
-        </View>
-      </View>)}
+      {MONTHS.map((month, index) => {
+        const key = fuelPriceYearMonthKey(fuelYear, index + 1);
+        return <View key={month} style={styles.monthTableRow}>
+          <Text style={[styles.rowTitle, styles.monthNameCol]}>{month}</Text>
+          <View style={styles.monthValueCol}>
+            <OptionalNumberField disabled={!canEdit} testID={`route-price-fuel-${key}`} value={draft.fuelPriceByYearMonth[key] ?? null} onChange={(value) => updateFuelPrice(key, value)} styles={styles} />
+          </View>
+          <View style={styles.monthValueCol}>
+            <NumberField bare disabled={!canEdit} label="" value={draft.workingDaysByMonth[index]} onChange={(value) => updateWorkingDays(index, value)} styles={styles} />
+          </View>
+        </View>;
+      })}
     </PriceSection>
 
     <PriceSection title="Numatytasis vairuotojo tarifas" styles={styles}>
@@ -229,6 +251,32 @@ function NumberField({ disabled, label, value, onChange, compact, bare, styles }
   </View>;
 }
 
+/** Empty input means "no price"; only a positive number is a price. */
+function OptionalNumberField({ disabled, value, onChange, testID, styles }: { disabled: boolean; value: number | null; onChange: (value: number | null) => void; testID?: string; styles: ReturnType<typeof createStyles> }) {
+  const [textValue, setTextValue] = useState(value === null ? '' : formatInput(value));
+  useEffect(() => setTextValue(value === null ? '' : formatInput(value)), [value]);
+  const commit = () => {
+    const trimmed = textValue.trim();
+    if (!trimmed) { onChange(null); return; }
+    const parsed = Number(trimmed.replace(',', '.'));
+    if (Number.isFinite(parsed) && parsed > 0) onChange(parsed);
+    else setTextValue(value === null ? '' : formatInput(value));
+  };
+  return <View style={[styles.field, styles.fieldBare]}>
+    <TextInput
+      editable={!disabled}
+      keyboardType="decimal-pad"
+      onBlur={commit}
+      onChangeText={setTextValue}
+      placeholder="—"
+      selectTextOnFocus
+      style={[styles.input, disabled && styles.inputDisabled]}
+      testID={testID}
+      value={textValue}
+    />
+  </View>;
+}
+
 function cloneSettings(settings: RoutePriceSettings): RoutePriceSettings {
   return normalizeRoutePriceSettings(JSON.parse(JSON.stringify(settings)) as unknown);
 }
@@ -249,6 +297,10 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   sectionChevron: { ...type.sectionTitle, color: colors.textMuted },
   sectionTitle: { ...type.sectionTitle, color: colors.text, flexShrink: 1 },
   sectionHint: { ...type.secondary, color: colors.textMuted },
+  yearPicker: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  yearButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong },
+  yearButtonText: { ...type.sectionTitle, color: colors.textSecondary },
+  yearValue: { ...type.bodyStrong, color: colors.text, minWidth: 72, textAlign: 'center' },
   monthTableHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingBottom: 2, borderBottomWidth: 1, borderBottomColor: colors.borderSubtle },
   monthTableRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 48 },
   monthCellLabel: { ...type.label, color: colors.textMuted },

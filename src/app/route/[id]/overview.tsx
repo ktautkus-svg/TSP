@@ -249,7 +249,7 @@ export default function RouteOverviewScreen() {
           <View style={styles.managementItem}><Text style={styles.sectionLabel}>AUTOMOBILIS</Text><Text style={styles.managementValue}>{assignment?.vehicle ? `${assignment.vehicle.registrationNumber} · ${assignment.vehicle.model}` : 'Nepriskirtas'}</Text></View>
           {vehicleLoad ? <View style={styles.managementItem} testID="vehicle-load-percent"><Text style={styles.sectionLabel}>APKROVA</Text><Text style={[styles.managementValue, vehicleLoad.overCapacity && styles.loadWarning]}>{vehicleLoad.summaryLabel}</Text></View> : null}
           <View style={styles.managementItem}><Text style={styles.sectionLabel}>PERDAVIMO BŪSENA</Text><Text style={styles.managementValue}>{assignment ? assignmentStatusLabel(assignment.status) : 'Dar nepriskirtas'}</Text></View>
-          <View style={styles.managementItem}><Text style={styles.sectionLabel}>PRELIMINARI KAINA</Text><Text style={styles.managementValue}>{preliminaryPrice ? formatMoney(preliminaryPrice.totalEur) : 'Bus rodoma priskyrus vairuotoją ir automobilį'}</Text></View>
+          <View style={styles.managementItem}><Text style={styles.sectionLabel}>PRELIMINARI KAINA</Text><Text style={styles.managementValue}>{preliminaryPrice ? `${formatMoney(preliminaryPrice.totalEur)}${preliminaryPrice.fuelPriceKnown ? '' : ' · be kuro (litro kaina neįvesta)'}` : 'Bus rodoma priskyrus vairuotoją ir automobilį'}</Text></View>
         </View> : null}
         <View style={styles.actions}>
           {!managementMode ? <Pressable style={styles.primaryButton} onPress={begin}><Text style={styles.primaryText}>{terminal ? 'Peržiūrėti rezultatą' : route.status === 'in_progress' ? 'Tęsti maršrutą' : 'Pradėti maršrutą'}</Text></Pressable> : null}

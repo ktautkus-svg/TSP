@@ -181,7 +181,7 @@ export default function FinanceCalculatorScreen() {
         {tripPrice ? <View style={styles.result} testID="calculator-trip-result">
           <Text style={styles.resultEyebrow}>PRELIMINARI REISO KAINA</Text>
           <Text style={styles.resultTotal}>{eurFormatter.format(tripPrice.totalEur)}</Text>
-          <BreakdownLine label="Kuras" styles={styles} value={eurFormatter.format(tripPrice.fuelCostEur)} />
+          <BreakdownLine label="Kuras" styles={styles} value={tripPrice.fuelPriceKnown ? eurFormatter.format(tripPrice.fuelCostEur) : '—'} />
           <BreakdownLine label="Keliai + draudimas" styles={styles} value={eurFormatter.format(tripPrice.roadCostEur + tripPrice.insuranceCostEur)} />
           <BreakdownLine label="Vairuotojas (su mokesčiais)" styles={styles} value={eurFormatter.format(tripPrice.driverCostEur)} />
           <BreakdownLine label="Rezervas" styles={styles} value={eurFormatter.format(tripPrice.overheadEur)} />

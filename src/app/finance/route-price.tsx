@@ -105,7 +105,7 @@ export default function RoutePriceScreen() {
         {error ? <Text accessibilityRole="alert" style={styles.warning}>{error}</Text> : null}
         {!busy && unknownFuelCount > 0 ? <Text accessibilityRole="alert" style={styles.warning} testID="route-price-fuel-unknown">
           {priceSettings
-            ? `Kuro kaina nežinoma ${unknownFuelCount} ${unknownFuelCount === 1 ? 'reisui' : 'reisams'}: tam mėnesiui neįvesta litro kaina. Kuras rodomas „—“ ir į sumą neįskaičiuotas.`
+            ? `Kuro kaina nežinoma ${unknownFuelCount} ${unknownFuelCount === 1 ? 'reisui' : 'reisams'}: tų metų mėnesiui neįvesta litro kaina. Kuras rodomas „—“ ir į sumą neįskaičiuotas.`
             : 'Litro kainų parametrų gauti nepavyko. Kuras rodomas „—“ ir į sumą neįskaičiuotas.'}
         </Text> : null}
         {busy ? <ActivityIndicator color={colors.info} size="large" /> : null}
@@ -150,7 +150,7 @@ export default function RoutePriceScreen() {
                 <DetailLine label="Km" value={kmFormatter.format(sheet.actualDistanceKm ?? sheet.plannedDistanceKm ?? 0)} styles={styles} />
                 <DetailLine
                   label={price.fuelCostKnown
-                    ? `Kuras · ${litersFormatter.format(price.fuelLiters)} l × ${eur2Formatter.format(price.fuelPricePerLiter)}/l`
+                    ? `Kuras · ${litersFormatter.format(price.fuelLiters)} l × ${eur2Formatter.format(price.fuelPricePerLiter ?? 0)}/l`
                     : `Kuras · ${litersFormatter.format(price.fuelLiters)} l · litro kaina nežinoma`}
                   value={price.fuelCostKnown ? eur2Formatter.format(price.fuelCostEur) : '—'}
                   styles={styles}

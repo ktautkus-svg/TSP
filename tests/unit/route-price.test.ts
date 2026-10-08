@@ -15,6 +15,10 @@ describe('preliminary route price imported from Maršruto kaina.xlsm logic', () 
       stops: 30,
       driverName: 'Dovydas Kučinskis',
       vehicle: { registrationNumber: 'LMC891', maximumPayloadKg: 1_200 },
+    }, {
+      // The workbook's April litre price, saved for that example's year.
+      ...DEFAULT_ROUTE_PRICE_SETTINGS,
+      fuelPriceByYearMonth: { '2025-04': 1.10 },
     });
 
     // The base cost components (fuel/road/insurance/driver) reconcile exactly
@@ -55,7 +59,7 @@ describe('preliminary route price imported from Maršruto kaina.xlsm logic', () 
   it('uses editable fuel, payroll and overhead parameters without changing route data', () => {
     const settings = normalizeRoutePriceSettings({
       ...DEFAULT_ROUTE_PRICE_SETTINGS,
-      fuelPriceByMonth: DEFAULT_ROUTE_PRICE_SETTINGS.fuelPriceByMonth.map((value, index) => index === 7 ? 2 : value),
+      fuelPriceByYearMonth: { ...DEFAULT_ROUTE_PRICE_SETTINGS.fuelPriceByYearMonth, '2026-08': 2 },
       payrollTaxPercent: 0,
       overheadPercent: 0,
     });

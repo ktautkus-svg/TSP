@@ -21,7 +21,10 @@ export type PreliminaryRoutePrice = {
   fuelCostEur: number;
   /** km × norm / 100 — the litres behind fuelCostEur. */
   fuelLiters: number;
-  fuelPricePerLiter: number;
+  /** Litre price saved for the route's year and month; null when none is saved. */
+  fuelPricePerLiter: number | null;
+  /** False when no litre price exists for that year-month: fuel is 0 in the sums and shown as unknown. */
+  fuelPriceKnown: boolean;
   roadCostEur: number;
   insuranceCostEur: number;
   driverCostEur: number;
@@ -49,7 +52,11 @@ export type DriverCostProfile =
   | VariableDriverCostProfile;
 
 export type RoutePriceSettings = {
-  fuelPriceByMonth: number[];
+  /**
+   * Litre price per calendar year and month, keyed "YYYY-MM". A month without
+   * a key has no price; it is never borrowed from another year.
+   */
+  fuelPriceByYearMonth: Record<string, number>;
   workingDaysByMonth: number[];
   overheadPercent: number;
   payrollTaxPercent: number;
@@ -64,10 +71,52 @@ export type RoutePriceSettings = {
   };
 };
 
+/**
+ * Settings saved before prices had a year stored one price per month in
+ * `fuelPriceByMonth`. Those prices were entered for 2026, so reading such a
+ * document assigns them to 2026 instead of dropping them (no migration).
+ */
+export const LEGACY_FUEL_PRICE_YEAR = 2026;
+const LEGACY_DEFAULT_FUEL_PRICE_BY_MONTH = [1.26, 1.25, 1.17, 1.10, 1.08, 1.13, 1.13, 1.13, 1.13, 1.13, 1.13, 1.13];
+
+const YEAR_MONTH_KEY = /^(\d{4})-(0[1-9]|1[0-2])$/;
+
+export function fuelPriceYearMonthKey(year: number, month: number): string {
+  return `${year}-${String(month).padStart(2, '0')}`;
+}
+
+function legacyMonthsToYearMonth(prices: readonly number[], year: number): Record<string, number> {
+  return Object.fromEntries(prices.map((price, index) => [fuelPriceYearMonthKey(year, index + 1), price]));
+}
+
+/** Litre price saved for the year and month of `date` (YYYY-MM-DD…), or null. */
+export function fuelPriceForYearMonth(settings: Pick<RoutePriceSettings, 'fuelPriceByYearMonth'>, date: string): number | null {
+  const match = /^(\d{4})-(\d{2})/.exec(date.trim());
+  if (!match) return null;
+  const price = settings.fuelPriceByYearMonth[`${match[1]}-${match[2]}`];
+  return typeof price === 'number' && Number.isFinite(price) && price > 0 ? price : null;
+}
+
+function normalizeFuelPrices(source: Record<string, unknown>, fallback: Record<string, number>): Record<string, number> {
+  const byYearMonth = source.fuelPriceByYearMonth;
+  if (byYearMonth && typeof byYearMonth === 'object' && !Array.isArray(byYearMonth)) {
+    const prices: Record<string, number> = {};
+    for (const [key, value] of Object.entries(byYearMonth as Record<string, unknown>)) {
+      const price = Number(value);
+      if (YEAR_MONTH_KEY.test(key) && Number.isFinite(price) && price > 0) prices[key] = price;
+    }
+    return prices;
+  }
+  if (Array.isArray(source.fuelPriceByMonth)) {
+    return legacyMonthsToYearMonth(monthArray(source.fuelPriceByMonth, LEGACY_DEFAULT_FUEL_PRICE_BY_MONTH, 0.01), LEGACY_FUEL_PRICE_YEAR);
+  }
+  return { ...fallback };
+}
+
 // Source: "Maršruto kaina.xlsm", sheet "Technine lentele". These are
 // operational price inputs only; they never influence routing or stop order.
 export const DEFAULT_ROUTE_PRICE_SETTINGS: RoutePriceSettings = {
-  fuelPriceByMonth: [1.26, 1.25, 1.17, 1.10, 1.08, 1.13, 1.13, 1.13, 1.13, 1.13, 1.13, 1.13],
+  fuelPriceByYearMonth: legacyMonthsToYearMonth(LEGACY_DEFAULT_FUEL_PRICE_BY_MONTH, LEGACY_FUEL_PRICE_YEAR),
   workingDaysByMonth: [22, 20, 20, 20, 21, 20, 23, 20, 22, 23, 20, 20],
   overheadPercent: 10,
   payrollTaxPercent: 51,
@@ -110,7 +159,7 @@ export function normalizeRoutePriceSettings(value: unknown): RoutePriceSettings 
   const fallback = record(source.fallbackVehicleCosts);
   const thresholds = record(source.fallbackPayloadThresholdsKg);
   return {
-    fuelPriceByMonth: monthArray(source.fuelPriceByMonth, defaults.fuelPriceByMonth, 0.01),
+    fuelPriceByYearMonth: normalizeFuelPrices(source, defaults.fuelPriceByYearMonth),
     workingDaysByMonth: monthArray(source.workingDaysByMonth, defaults.workingDaysByMonth, 1),
     overheadPercent: numberValue(source.overheadPercent, defaults.overheadPercent, 0),
     payrollTaxPercent: numberValue(source.payrollTaxPercent, defaults.payrollTaxPercent, 0),
@@ -136,7 +185,7 @@ export function estimatePreliminaryRoutePrice(
   if (input.distanceKm === null || !Number.isFinite(input.distanceKm) || input.distanceKm < 0) return null;
   const normalizedSettings = normalizeRoutePriceSettings(settings);
   const monthIndex = routeMonthIndex(input.date);
-  const fuelPrice = normalizedSettings.fuelPriceByMonth[monthIndex];
+  const fuelPrice = fuelPriceForYearMonth(normalizedSettings, input.date);
   const workingDays = normalizedSettings.workingDaysByMonth[monthIndex];
   const registration = input.vehicle.registrationNumber.trim().toUpperCase();
   const exactVehicle = normalizedSettings.vehicleCosts[registration];
@@ -153,7 +202,8 @@ export function estimatePreliminaryRoutePrice(
     ? ownNorm
     : vehicleCosts.fuelNormLitersPer100Km;
   const fuelLiters = distance / 100 * fuelNorm;
-  const fuelCostEur = fuelLiters * fuelPrice;
+  // No saved price for this year-month: fuel stays out of the sums (shown "—").
+  const fuelCostEur = fuelPrice === null ? 0 : fuelLiters * fuelPrice;
   const roadCostEur = vehicleCosts.monthlyRoadTaxEur / workingDays;
   const insuranceCostEur = (vehicleCosts.annualInsuranceEur / 12) / workingDays;
   const driverNet = driverCosts.type === 'fixed'
@@ -169,13 +219,14 @@ export function estimatePreliminaryRoutePrice(
     fuelCostEur: money(fuelCostEur),
     fuelLiters: money(fuelLiters),
     fuelPricePerLiter: fuelPrice,
+    fuelPriceKnown: fuelPrice !== null,
     roadCostEur: money(roadCostEur),
     insuranceCostEur: money(insuranceCostEur),
     driverCostEur: money(driverCostEur),
     overheadEur: money(overheadEur),
     source: exactVehicle ? 'excel-vehicle' : 'payload-estimate',
     assumptions: [
-      `Kuro kaina ${fuelPrice.toFixed(2)} €/l`,
+      fuelPriceAssumption(fuelPrice, input.date),
       `${workingDays} darbo d.`,
       `darbdavio koef. ${taxMultiplier.toFixed(2)}`,
       `${formatNumber(normalizedSettings.overheadPercent)} % rezervas`,
@@ -283,7 +334,7 @@ export function estimateCalculatorRoutePrice(
   if (!Number.isFinite(input.distanceKm) || input.distanceKm < 0) return null;
   const normalized = normalizeRoutePriceSettings(settings);
   const monthIndex = routeMonthIndex(input.date);
-  const fuelPrice = normalized.fuelPriceByMonth[monthIndex];
+  const fuelPrice = fuelPriceForYearMonth(normalized, input.date);
   const workingDays = normalized.workingDaysByMonth[monthIndex];
   const averages = averageVehicleDayCosts(input.date, normalized);
   const taxMultiplier = 1 + normalized.payrollTaxPercent / 100;
@@ -296,7 +347,7 @@ export function estimateCalculatorRoutePrice(
   let insuranceCostEur: number;
   let source: PreliminaryRoutePrice['source'];
   const assumptions: string[] = [
-    `Kuro kaina ${fuelPrice.toFixed(2)} €/l`,
+    fuelPriceAssumption(fuelPrice, input.date),
     `${workingDays} darbo d.`,
     `darbdavio koef. ${taxMultiplier.toFixed(2)}`,
     `${formatNumber(normalized.overheadPercent)} % rezervas`,
@@ -320,7 +371,7 @@ export function estimateCalculatorRoutePrice(
     assumptions.push(`kelių+draud. vidurkis iš ${averages.vehicleCount} automobilių`);
   }
 
-  const fuelCostEur = distance / 100 * fuelNorm * fuelPrice;
+  const fuelCostEur = fuelPrice === null ? 0 : distance / 100 * fuelNorm * fuelPrice;
   let driverNet: number;
   if (input.wageMode === 'manual') {
     if (input.manualDriverNetEur == null || !Number.isFinite(input.manualDriverNetEur)) return null;
@@ -353,6 +404,7 @@ export function estimateCalculatorRoutePrice(
     fuelCostEur: money(fuelCostEur),
     fuelLiters: money(distance / 100 * fuelNorm),
     fuelPricePerLiter: fuelPrice,
+    fuelPriceKnown: fuelPrice !== null,
     roadCostEur: money(roadCostEur),
     insuranceCostEur: money(insuranceCostEur),
     driverCostEur: money(driverCostEur),
@@ -452,6 +504,12 @@ function profileRecord<T>(
 function monthArray(value: unknown, fallback: number[], minimum: number): number[] {
   const source = Array.isArray(value) ? value : [];
   return fallback.map((defaultValue, index) => numberValue(source[index], defaultValue, minimum));
+}
+
+function fuelPriceAssumption(fuelPrice: number | null, date: string): string {
+  return fuelPrice === null
+    ? `Kuro kaina nežinoma (${date.slice(0, 7)} kaina neįvesta)`
+    : `Kuro kaina ${fuelPrice.toFixed(2)} €/l`;
 }
 
 function routeMonthIndex(date: string): number {

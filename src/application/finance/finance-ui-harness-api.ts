@@ -16,10 +16,13 @@ import type {
 
 const NOW = '2026-10-07T08:00:00.000Z';
 
-/** Synthetic saved litre prices: 1,93 €/l from September, like the real entry. */
+/** Synthetic saved litre prices: 1,93 €/l from September 2026, like the real entry. */
 const HARNESS_ROUTE_PRICE_SETTINGS = normalizeRoutePriceSettings({
   ...DEFAULT_ROUTE_PRICE_SETTINGS,
-  fuelPriceByMonth: DEFAULT_ROUTE_PRICE_SETTINGS.fuelPriceByMonth.map((value, index) => (index >= 8 ? 1.93 : value)),
+  fuelPriceByYearMonth: {
+    ...DEFAULT_ROUTE_PRICE_SETTINGS.fuelPriceByYearMonth,
+    '2026-09': 1.93, '2026-10': 1.93, '2026-11': 1.93, '2026-12': 1.93,
+  },
 });
 
 const HARNESS_ADMIN: EmployeeProfile = {
