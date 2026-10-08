@@ -60,7 +60,6 @@ import { NavigationPreference } from '@/application/settings/navigation-preferen
 import { fallbackRouteWeatherScene, loadRouteWeatherScene, type RouteWeatherScene } from '@/application/weather/route-weather';
 import { BrandHeader } from '@/components/brand-header';
 import { ClockIcon, DeliveredIcon, DistanceIcon, FailedIcon, NavigateIcon } from '@/components/dashboard-icons';
-import { VoiceCommandButton } from '@/components/voice-command-button';
 import { DateInput } from '@/components/date-input';
 import { FiroSelect } from '@/components/firo-select';
 import { FoundationScreen } from '@/components/foundation-screen';
@@ -1116,28 +1115,6 @@ export default function DeliveryScreen() {
                       </Pressable>
                     </View>
                   </View>
-                  <VoiceCommandButton
-                    disabled={busy}
-                    onAction={(action) => {
-                      if (action === 'status_delivered') void delivered(nextStop.id);
-                      else if (action === 'open_navigation') void navigate(nextStop);
-                      else if (action === 'report_issue') beginFailed(nextStop.id);
-                    }}
-                  />
-                  {canRecalculateRemaining ? (
-                    <Pressable
-                      accessibilityLabel="Perdėlioti likusius sustojimus nuo dabartinės vietos"
-                      accessibilityRole="button"
-                      disabled={busy}
-                      onPress={() => {
-                        setActiveView('stops');
-                        if (recalculationAnchor) void proposeRecalculation(recalculationAnchor.id);
-                      }}
-                      style={[styles.recalculateButton, busy && styles.disabled]}
-                      testID="dashboard-recalculate-remaining-route">
-                      <Text style={styles.secondaryText}>PERDĖLIOTI LIKUSIUS</Text>
-                    </Pressable>
-                  ) : null}
                 </View>
               ) : (
                 <View style={[styles.nextStopCard, compactDashboard && styles.nextStopCardCompact]} testID="dashboard-next-stop">
@@ -1220,16 +1197,17 @@ export default function DeliveryScreen() {
                 ))}
               </View>
               {canRecalculateRemaining ? (
-                    <Pressable
-                      accessibilityLabel="Pažymėti kitą stotelę neatlikta"
-                      accessibilityRole="button"
-                      disabled={busy}
+                <Pressable
+                  accessibilityLabel="Perskaičiuoti nuo dabartinio tik likusius neįvykdytus sustojimus"
+                  accessibilityRole="button"
+                  disabled={busy}
                   testID="recalculate-remaining-route"
                   style={[styles.recalculateButton, busy && styles.disabled]}
                   onPress={() => { if (recalculationAnchor) void proposeRecalculation(recalculationAnchor.id); }}>
-                  <Text style={styles.secondaryText}>Perskaičiuoti likusį maršrutą</Text>
+                  <Text style={styles.secondaryText}>Perskaičiuoti nuo dabartinio</Text>
                 </Pressable>
               ) : null}
+              <Text style={styles.meta}>Perskaičiuojama tik likusi maršruto dalis nuo dabartinės vietos arba paskutinio įvykdyto taško. Užbaigti sustojimai ir priduoti užsakymai negrąžinami.</Text>
               {recalculation ? (
                 <View style={styles.recalculationCard} testID="recalculation-proposal">
                   <Text style={styles.heading}>Naujas likusios sekos variantas</Text>
@@ -1475,10 +1453,11 @@ export default function DeliveryScreen() {
                 onPress={() => {
                   setMenuOpen(false);
                   setActiveMenuExpanded(false);
+                  setActiveView('stops');
                   if (recalculationAnchor) void proposeRecalculation(recalculationAnchor.id);
                   else Alert.alert('Perskaičiuoti dar negalima', 'Pirmiausia pažymėkite bent vieną pristatymą. Esama maršruto seka nekeičiama.');
                 }}>
-                <Text style={styles.menuSubitemText}>Perskaičiuoti maršrutą</Text>
+                <Text style={styles.menuSubitemText}>Perskaičiuoti nuo dabartinio</Text>
               </Pressable> : null}
               <Pressable accessibilityLabel={route?.completionStartedAt ? 'Tęsti užbaigimą' : 'Baigti maršrutą'} disabled={busy} style={[styles.menuSubitem, busy && styles.disabled]} onPress={() => { setMenuOpen(false); setActiveMenuExpanded(false); void beginFinish(); }}><Text style={styles.menuSubitemText}>Baigti maršrutą</Text></Pressable>
               {stops.some((stop) => stop.deliveryStatus === 'pending') ? <Pressable disabled={busy} testID="mark-all-delivered-button" style={[styles.menuSubitem, busy && styles.disabled]} onPress={() => { setMenuOpen(false); setActiveMenuExpanded(false); markAllRemainingDelivered(); }}><Text style={styles.menuSubitemText}>Pažymėti visus pristatytais</Text></Pressable> : null}

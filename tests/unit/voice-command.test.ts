@@ -122,10 +122,9 @@ describe('Lithuanian voice commands', () => {
   it('wires the mic control into the active delivery stop', () => {
     const delivery = readFileSync(resolve(import.meta.dirname, '../../src/app/route/[id]/delivery.tsx'), 'utf8');
     const button = readFileSync(resolve(import.meta.dirname, '../../src/components/voice-command-button.tsx'), 'utf8');
-    expect(delivery).toContain('VoiceCommandButton');
-    expect(delivery).toContain("action === 'status_delivered'");
-    expect(delivery).toContain("action === 'open_navigation'");
-    expect(delivery).toContain("action === 'report_issue'");
+    expect(delivery).not.toContain('VoiceCommandButton');
+    expect(button).toContain('VoiceCommandButton');
+    expect(delivery).not.toContain("action === 'report_issue'");
     expect(button).toContain('testID="voice-command"');
     expect(button).toContain('testID="voice-command-button"');
     expect(button).toContain('const MAX_RECORDING_MS = 8_000');

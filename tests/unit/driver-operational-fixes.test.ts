@@ -31,8 +31,8 @@ describe('driver operational fixes', () => {
   it('offers a short remaining-route action and prefers live GPS as its origin', () => {
     const delivery = source('src/app/route/[id]/delivery.tsx');
     const recalculation = source('src/application/routes/route-recalculation.ts');
-    expect(delivery).toContain('PERDĖLIOTI LIKUSIUS');
-    expect(delivery).toContain('dashboard-recalculate-remaining-route');
+    expect(delivery).toContain('Perskaičiuoti nuo dabartinio');
+    expect(delivery).toContain('recalculate-remaining-route');
     expect(delivery).toContain('gpsFix ? { latitude: gpsFix.latitude, longitude: gpsFix.longitude } : null');
     expect(recalculation).toContain('const origin = liveOrigin ??');
   });
