@@ -70,9 +70,23 @@ describe('Daily Use menu and Dashboard contract', () => {
     for (const label of ['Maršruto veiksmai', 'Maršrutai', 'Statistika', 'Nustatymai']) expect(menu).toContain(`title="${label}"`);
     expect(menu).toContain('label="AKTYVUS MARŠRUTAS"');
     expect(menu).toContain('label="NAVIGACIJA"');
-    for (const label of ['Įtraukti sustojimą', 'Perskaičiuoti maršrutą', 'Baigti maršrutą', 'Nutraukti maršrutą']) expect(menu).toContain(`>${label}<`);
+    for (const label of ['Įtraukti sustojimą', 'Perskaičiuoti nuo dabartinio', 'Baigti maršrutą', 'Nutraukti maršrutą']) expect(menu).toContain(`>${label}<`);
     expect(menu).toContain("route?.status === 'in_progress' && activeMenuExpanded");
     expect(menu).toContain('active-route-menu-actions');
+  });
+
+  it('keeps remaining-route recalculation on the Stops screen, not on the cockpit', () => {
+    const delivery = source('src/app/route/[id]/delivery.tsx');
+    const cockpit = delivery.slice(delivery.indexOf("{activeView === 'dashboard' && progress"), delivery.indexOf("{activeView === 'stops' ? ("));
+    const stopsScreen = delivery.slice(delivery.indexOf("{activeView === 'stops' ? ("), delivery.indexOf('visible={menuOpen}'));
+    const menu = delivery.slice(delivery.indexOf('visible={menuOpen}'), delivery.indexOf('visible={showAddStop}'));
+    expect(stopsScreen).toContain('testID="recalculate-remaining-route"');
+    expect(stopsScreen).toContain('>Perskaičiuoti nuo dabartinio<');
+    expect(cockpit).not.toContain('recalculate-remaining-route');
+    expect(cockpit).not.toContain('PERDĖLIOTI LIKUSIUS');
+    // The menu shortcut leads to the Stops screen instead of recalculating in place.
+    const menuRecalculate = menu.slice(0, menu.indexOf('>Perskaičiuoti nuo dabartinio<'));
+    expect(menuRecalculate.slice(menuRecalculate.lastIndexOf('onPress'))).toContain("setActiveView('stops')");
   });
 
   it('shows a compact whole-route summary instead of next-stop ETA chatter on Home', () => {
