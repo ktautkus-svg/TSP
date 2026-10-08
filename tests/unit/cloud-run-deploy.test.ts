@@ -190,4 +190,42 @@ describe('Cloud Run deploy', () => {
     expect(employeeStore).toContain('async applyAugust2026ExcelBackfillV5');
     expect(productionServer).toContain('await ensureAugust2026ExcelBackfillMigrated()');
   });
+
+  it('keeps every module reachable from the production server free of @/ imports', () => {
+    // tsc maps @/ at compile time but leaves it in the emitted require(); Node
+    // then fails to start the container. Walk the whole server graph, not just
+    // employee-auth-store, so a new shared src/ module cannot reintroduce it.
+    const root = resolve(import.meta.dirname, '../..');
+    const sourceFiles = (dir: string): string[] => readdirSync(resolve(root, dir), { withFileTypes: true })
+      .flatMap((entry) => entry.isDirectory()
+        ? sourceFiles(`${dir}/${entry.name}`)
+        : entry.name.endsWith('.ts') && !entry.name.endsWith('.d.ts') ? [resolve(root, dir, entry.name)] : []);
+    const resolveModule = (from: string, specifier: string): string | null => {
+      const base = resolve(from, '..', specifier.replace(/\.js$/, ''));
+      for (const candidate of [`${base}.ts`, `${base}.tsx`, resolve(base, 'index.ts')]) {
+        if (existsSync(candidate)) return candidate;
+      }
+      return null;
+    };
+    const pending = [...sourceFiles('server'), ...sourceFiles('gateway')];
+    const seen = new Set<string>();
+    const offenders: string[] = [];
+    while (pending.length > 0) {
+      const file = pending.pop()!;
+      if (seen.has(file)) continue;
+      seen.add(file);
+      // Type-only imports are erased by tsc and never reach require().
+      const body = readFileSync(file, 'utf8').replace(/^\s*(?:import|export)\s+type\s[^;]*;/gm, '');
+      for (const match of body.matchAll(/(?:\bfrom\s+|\bimport\s*\(\s*|\brequire\s*\(\s*|^\s*import\s+)['"]([^'"]+)['"]/gm)) {
+        const specifier = match[1];
+        if (specifier.startsWith('@/')) offenders.push(`${file.slice(root.length + 1)} -> ${specifier}`);
+        else if (specifier.startsWith('.')) {
+          const target = resolveModule(file, specifier);
+          if (target) pending.push(target);
+        }
+      }
+    }
+    expect(seen.size).toBeGreaterThan(20);
+    expect(offenders).toEqual([]);
+  });
 });

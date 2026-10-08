@@ -1,4 +1,4 @@
-import { parseVehicleDayAssignmentId } from '@/domain/nll182-odometer-log';
+import { parseVehicleDayAssignmentId } from './nll182-odometer-log';
 
 export type FuelOnlySheet = {
   assignmentId: string;
