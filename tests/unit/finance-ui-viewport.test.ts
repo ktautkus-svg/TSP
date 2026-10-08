@@ -72,7 +72,10 @@ describe('finance UI viewport fit with synthetic data', () => {
     expect(parseContentMaxWidth(wagesSource)).toBe(WAGE_TABLE_LAYOUT.contentMaxWidth);
     expect(parseContentMaxWidth(tripSource)).toBe(TRIP_SHEET_LAYOUT.contentMaxWidth);
     expect(wagesSource).toContain('finance-quick-edit-adjustment-');
-    expect(wagesSource).toContain('ScrollView horizontal');
+    // A horizontal ScrollView lets unwrapped detail text stretch the desktop
+    // table past the screen; the wage table must stay a plain flex row.
+    expect(wagesSource).not.toContain('ScrollView horizontal');
+    expect(wagesSource).not.toMatch(/import \{[^}]*\bScrollView\b[^}]*\} from 'react-native'/);
     expect(tripSource).toContain('reportTableScroll');
 
     // Required widths come from the live style declarations, not mirrored constants alone.
@@ -105,12 +108,29 @@ describe('finance UI viewport fit with synthetic data', () => {
         expect(wageFit.fitsWithoutHorizontalScroll, `wages should fit ${viewport}`).toBe(true);
         expect(tripFit.fitsWithoutHorizontalScroll, `trip-sheet should fit ${viewport}`).toBe(true);
       } else {
-        // Phones/tablets may scroll horizontally, but amounts/buttons stay inside the ScrollView.
+        // Phones/tablets show wrapping day cards for wages; trip sheet may scroll.
+        expect(wageFit.tableShown).toBe(false);
         expect(wageFit.allowsHorizontalScroll).toBe(true);
         expect(tripFit.allowsHorizontalScroll).toBe(true);
         expect(wageTableRequiredWidth({ showDriver: true, canEdit: true })).toBeGreaterThan(wageTableRequiredWidth({ showDriver: false, canEdit: false }));
       }
     }
+  });
+
+  it('fits every wage table column without horizontal scroll from the first desktop width (1280 px) up', () => {
+    const wagesSource = readFileSync(resolve(import.meta.dirname, '../../src/app/finance/wages.tsx'), 'utf8');
+    expect(wagesSource).toContain(`const DESKTOP_WIDTH = ${WAGE_TABLE_LAYOUT.desktopMinWidth};`);
+    for (const width of [WAGE_TABLE_LAYOUT.desktopMinWidth, 1366, 1440, 1920]) {
+      for (const options of [{ showDriver: true, canEdit: true }, { showDriver: false, canEdit: false }]) {
+        const fit = assessWageTableFit(width, options);
+        expect(fit.tableShown, `table at ${width}`).toBe(true);
+        expect(fit.clipped, `clipped at ${width}`).toBe(false);
+        expect(fit.required).toBe(measureWageTableFromSource(wagesSource, options));
+      }
+    }
+    // Amount and comment columns flex; only identity/action columns are fixed.
+    expect(wagesSource).toMatch(/wageTableNumber: \{[^}]*flex: 1, minWidth: \d+/);
+    expect(wagesSource).toMatch(/wageTableComment: \{[^}]*flex: [\d.]+, minWidth: \d+/);
   });
 
   it('separates manual adjustment from trip wage and keeps export totals identical to UI sums', () => {

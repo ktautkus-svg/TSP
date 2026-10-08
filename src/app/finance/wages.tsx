@@ -1,16 +1,18 @@
 import { Stack, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 
 import { ChevronDownIcon } from '@/components/app-icons';
 import { normalizeEmployeePermissions } from '@/application/auth/employee-permissions';
 import { useLocalAccess } from '@/application/auth/local-access-context';
+import { fuelFillDate, fuelPriceForDate } from '@/application/finance/fuel-price';
 import { buildWagePrintDocument } from '@/application/finance/wage-document';
 import { applyWageQuickEditOpen } from '@/application/finance/wage-quick-edit-open';
 import { aggregateWageDays, summarizeWageDays, wageDayCell, wageTableColumns, wageTotalCell, type WageAdjustment, type WageColumnKey, type WageDayRow } from '@/application/finance/wage-report';
 import { buildWageWorkbook } from '@/application/finance/wage-workbook';
 import { roleHomePath } from '@/application/navigation/role-home';
+import { normalizeRoutePriceSettings, type RoutePriceSettings } from '@/application/routes/route-price';
 import {
   calendarPresetRange,
   formatDateKey,
@@ -64,6 +66,8 @@ export default function FinanceScreen() {
 
   const [tripSheets, setTripSheets] = useState<ServerTripSheet[]>([]);
   const [adjustments, setAdjustments] = useState<WageAdjustment[]>([]);
+  /** Saved litre prices; null until loaded or when loading failed (fuel € then unknown). */
+  const [priceSettings, setPriceSettings] = useState<RoutePriceSettings | null>(null);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [cleaningUp, setCleaningUp] = useState(false);
@@ -96,6 +100,12 @@ export default function FinanceScreen() {
         const extra = await employeeApi<{ adjustments: WageAdjustment[] }>('/api/admin/wage-adjustments?from=2000-01-01&to=2100-12-31');
         setAdjustments(extra.adjustments);
       } catch { setAdjustments([]); }
+      // Litre prices from "Kuro ir atlygio parametrai". Without them fuel
+      // money is shown as unknown, never as a built-in tariff guess.
+      try {
+        const saved = await employeeApi<{ settings: RoutePriceSettings }>('/api/admin/route-price-settings');
+        setPriceSettings(normalizeRoutePriceSettings(saved.settings));
+      } catch { setPriceSettings(null); }
       setError(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Kelionės lapų gauti nepavyko.');
@@ -139,7 +149,8 @@ export default function FinanceScreen() {
     () => adjustmentsInPeriod.filter((item) => activeDriver === ALL_DRIVERS || item.driverId === activeDriver),
     [adjustmentsInPeriod, activeDriver],
   );
-  const wageDays = useMemo(() => aggregateWageDays(visible, visibleAdjustments), [visible, visibleAdjustments]);
+  const priceForDate = useCallback((date: string) => fuelPriceForDate(priceSettings, date), [priceSettings]);
+  const wageDays = useMemo(() => aggregateWageDays(visible, visibleAdjustments, priceForDate), [visible, visibleAdjustments, priceForDate]);
   const showDriverNames = useMemo(() => new Set(wageDays.map((day) => day.driverId)).size > 1, [wageDays]);
   const unassignedRow = useMemo(() => rows.find((row) => row.driverId === UNASSIGNED_DRIVER_ID) ?? null, [rows]);
   const wageTotals = useMemo(() => summarizeWageDays(wageDays), [wageDays]);
@@ -292,10 +303,16 @@ export default function FinanceScreen() {
         {!busy && (rows.length > 0 || wageDays.length > 0) ? <View style={styles.totalsRow} testID="finance-totals">
           <Metric label="Reisų" value={String(wageTotals.routes)} styles={styles} />
           <Metric label="Km" value={qtyFormatter.format(wageTotals.km)} styles={styles} />
-          <Metric label="Kuras" value={eur2Formatter.format(wageTotals.fuelCostEur)} styles={styles} />
+          <Metric label="Kuras" value={wageTotals.fuelCostEur > 0 || wageTotals.fuelUnpricedLiters === 0 ? eur2Formatter.format(wageTotals.fuelCostEur) : '—'} styles={styles} />
           <Metric label="Atlygis" value={eur2Formatter.format(wageTotals.payEur)} styles={styles} />
           <Metric label="Iš viso" value={eur2Formatter.format(wageTotals.totalEur)} emphasis styles={styles} />
         </View> : null}
+
+        {!busy && wageTotals.fuelUnpricedLiters > 0 ? <Text accessibilityRole="alert" style={styles.warning} testID="finance-fuel-price-missing">
+          {priceSettings
+            ? `${qtyFormatter.format(wageTotals.fuelUnpricedLiters)} l kuro be litro kainos: tam mėnesiui kaina neįvesta parametruose. Šių litrų suma rodoma „—“ ir į kuro sumą neįskaičiuota.`
+            : 'Litro kainų parametrų gauti nepavyko. Kuro suma rodoma „—“ ir į sumas neįskaičiuota.'}
+        </Text> : null}
 
         {!busy && wageDays.length > 0 ? <View style={styles.exportRow} testID="finance-wage-export">
           <Pressable onPress={exportExcel} style={styles.exportButton} testID="finance-wage-excel"><Text style={styles.exportButtonText}>Eksportuoti į Excel</Text></Pressable>
@@ -331,6 +348,7 @@ export default function FinanceScreen() {
             onQuickEditConsumed={consumeQuickEdit}
             showDriverNames={showDriverNames}
             totals={wageTotals}
+            priceForDate={priceForDate}
             canEdit={profile.role === 'admin'}
             online={online}
             onSaved={load}
@@ -367,8 +385,10 @@ export default function FinanceScreen() {
               {expanded ? <WageDayDetail
                 canEdit={canEdit}
                 day={day}
+                layout="stacked"
                 online={online}
                 onSaved={load}
+                priceForDate={priceForDate}
                 onStartEditingConsumed={consumeQuickEdit}
                 startEditingAdjustment={quickEditDayKey === day.key}
                 styles={styles}
@@ -383,7 +403,7 @@ export default function FinanceScreen() {
           </View> : null}
         </View> : null}
 
-        <Text style={styles.disclaimer}>Atlygis yra rodomų dienų sumų suma. Iš viso prideda kuro pylimų kainą. Kuro suma skaičiuojama iš pylimų, kuriuose nurodyta kaina — jei kaina nenurodyta, litrai matomi, bet į € sumą neįskaičiuojami. Bazinis dienos atlygis skaičiuojamas vieną kartą. „Papildomai“ – ranka įrašytas dienos priedas, jis įtrauktas į dienos sumą. Draudimas ir kelių mokestis į šią sumą neįtraukti.</Text>
+        <Text style={styles.disclaimer}>Atlygis yra rodomų dienų sumų suma. Iš viso prideda kuro kainą: įpilti litrai × tą mėnesį galiojanti litro kaina iš „Kuro ir atlygio parametrų“. Čekių sumos lieka kuro istorijai. Jei kainos nėra, litrai matomi, o suma rodoma „—“ ir neįskaičiuojama. Bazinis dienos atlygis skaičiuojamas vieną kartą. „Papildomai“ – ranka įrašytas dienos priedas, jis įtrauktas į dienos sumą. Draudimas ir kelių mokestis į šią sumą neįtraukti.</Text>
 
         <Pressable
           accessibilityRole="button"
@@ -845,7 +865,19 @@ function formatWageTotal(totals: ReturnType<typeof summarizeWageDays>, key: Wage
   return value;
 }
 
-function WageDayTable({ days, totals, showDriverNames, expandedDayKey, quickEditDayKey, onToggle, onQuickEdit, onQuickEditConsumed, canEdit, online, onSaved, styles }: {
+function wageColumnStyle(key: WageColumnKey, styles: ReturnType<typeof createWageScreenStyles>) {
+  if (key === 'date') return styles.wageTableDate;
+  if (key === 'driver') return styles.wageTableDriver;
+  if (key === 'comment') return styles.wageTableComment;
+  return styles.wageTableNumber;
+}
+
+/**
+ * Desktop day table. It is a plain flex row, not a horizontal ScrollView: inside
+ * a horizontal ScrollView text has no width limit, so an expanded day's notes
+ * stretched the table past the screen and cut off the right-hand columns.
+ */
+function WageDayTable({ days, totals, showDriverNames, expandedDayKey, quickEditDayKey, onToggle, onQuickEdit, onQuickEditConsumed, canEdit, online, onSaved, priceForDate, styles }: {
   days: WageDayRow[];
   totals: ReturnType<typeof summarizeWageDays>;
   showDriverNames: boolean;
@@ -857,60 +889,66 @@ function WageDayTable({ days, totals, showDriverNames, expandedDayKey, quickEdit
   canEdit: boolean;
   online: boolean;
   onSaved: () => void;
+  priceForDate: (date: string) => number | null;
   styles: ReturnType<typeof createWageScreenStyles>;
 }) {
   const columns = wageTableColumns(showDriverNames);
-  return <ScrollView horizontal showsHorizontalScrollIndicator testID="finance-wage-table">
-    <View style={styles.wageTable}>
-      <View style={[styles.wageTableRow, styles.wageTableHeader]}>
-        {columns.map((column) => <Text key={column.key} style={[styles.wageTableCell, column.format === 'text' ? styles.wageTableText : styles.wageTableNumber, styles.wageTableHeaderText]}>{column.header}</Text>)}
-        {canEdit ? <Text style={[styles.wageTableCell, styles.wageTableQuick, styles.wageTableHeaderText]}>Priedas</Text> : null}
-        <Text style={styles.wageTableToggle} />
-      </View>
-      {days.map((day) => {
-        const expanded = expandedDayKey === day.key;
-        return <View key={day.key} testID={`finance-wage-day-${day.key}`}>
-          <View style={styles.wageTableRow}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ expanded }}
-              onPress={() => onToggle(day.key)}
-              style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }, pressed && styles.wageDayRowPressed]}
-              testID={`finance-wage-day-toggle-${day.key}`}>
-              {columns.map((column) => <Text key={column.key} style={[styles.wageTableCell, column.format === 'text' ? styles.wageTableText : styles.wageTableNumber, column.key === 'totalEur' ? styles.wageDayAmount : null]}>{formatWageCell(day, column.key)}{column.key === 'date' && day.preliminary ? ' · prel.' : ''}</Text>)}
-            </Pressable>
-            {canEdit ? <Pressable
-              onPress={() => onQuickEdit(day.key)}
-              style={({ pressed }) => [styles.wageTableCell, styles.wageTableQuick, pressed && styles.driverChipPressed]}
-              testID={`finance-quick-edit-adjustment-${day.key}`}>
-              <Text style={styles.metricsEditLinkText}>{day.manualAdjustment ? 'Taisyti' : 'Pridėti'}</Text>
-            </Pressable> : null}
-            <Pressable onPress={() => onToggle(day.key)} style={styles.wageTableToggle} testID={`finance-wage-day-chevron-${day.key}`}>
-              <Text style={styles.wageTableToggle}>{expanded ? '⌃' : '⌄'}</Text>
-            </Pressable>
-          </View>
-          {expanded ? <WageDayDetail
-            canEdit={canEdit}
-            day={day}
-            online={online}
-            onSaved={onSaved}
-            onStartEditingConsumed={onQuickEditConsumed}
-            startEditingAdjustment={quickEditDayKey === day.key}
-            styles={styles}
-          /> : null}
-        </View>;
-      })}
-      <View style={[styles.wageTableRow, styles.wageTableTotal]}>
-        {columns.map((column) => <Text key={column.key} style={[styles.wageTableCell, column.format === 'text' ? styles.wageTableText : styles.wageTableNumber, styles.wageTableTotalText]}>{formatWageTotal(totals, column.key)}</Text>)}
-        {canEdit ? <Text style={[styles.wageTableCell, styles.wageTableQuick]} /> : null}
-        <Text style={styles.wageTableToggle} />
-      </View>
+  return <View style={styles.wageTable} testID="finance-wage-table">
+    <View style={[styles.wageTableRow, styles.wageTableHeader]}>
+      {columns.map((column) => <Text key={column.key} style={[styles.wageTableCell, wageColumnStyle(column.key, styles), styles.wageTableHeaderText]}>{column.header}</Text>)}
+      {canEdit ? <Text style={[styles.wageTableCell, styles.wageTableQuick, styles.wageTableHeaderText]}>Priedas</Text> : null}
+      <Text style={styles.wageTableToggle} />
     </View>
-  </ScrollView>;
+    {days.map((day) => {
+      const expanded = expandedDayKey === day.key;
+      return <View key={day.key} testID={`finance-wage-day-${day.key}`}>
+        <View style={styles.wageTableRow}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ expanded }}
+            onPress={() => onToggle(day.key)}
+            style={({ pressed }) => [styles.wageTableRowCells, pressed && styles.wageDayRowPressed]}
+            testID={`finance-wage-day-toggle-${day.key}`}>
+            {columns.map((column) => <Text key={column.key} style={[styles.wageTableCell, wageColumnStyle(column.key, styles), column.key === 'totalEur' ? styles.wageTableAmount : null]}>{formatWageCell(day, column.key)}{column.key === 'date' && day.preliminary ? ' · prel.' : ''}</Text>)}
+          </Pressable>
+          {canEdit ? <Pressable
+            onPress={() => onQuickEdit(day.key)}
+            style={({ pressed }) => [styles.wageTableCell, styles.wageTableQuick, pressed && styles.driverChipPressed]}
+            testID={`finance-quick-edit-adjustment-${day.key}`}>
+            <Text style={styles.metricsEditLinkText}>{day.manualAdjustment ? 'Taisyti' : 'Pridėti'}</Text>
+          </Pressable> : null}
+          <Pressable onPress={() => onToggle(day.key)} style={styles.wageTableToggle} testID={`finance-wage-day-chevron-${day.key}`}>
+            <Text style={styles.wageTableToggle}>{expanded ? '⌃' : '⌄'}</Text>
+          </Pressable>
+        </View>
+        {expanded ? <WageDayDetail
+          canEdit={canEdit}
+          day={day}
+          layout="columns"
+          online={online}
+          onSaved={onSaved}
+          onStartEditingConsumed={onQuickEditConsumed}
+          priceForDate={priceForDate}
+          startEditingAdjustment={quickEditDayKey === day.key}
+          styles={styles}
+        /> : null}
+      </View>;
+    })}
+    <View style={[styles.wageTableRow, styles.wageTableTotal]}>
+      {columns.map((column) => <Text key={column.key} style={[styles.wageTableCell, wageColumnStyle(column.key, styles), styles.wageTableTotalText]}>{formatWageTotal(totals, column.key)}</Text>)}
+      {canEdit ? <Text style={[styles.wageTableCell, styles.wageTableQuick]} /> : null}
+      <Text style={styles.wageTableToggle} />
+    </View>
+  </View>;
 }
 
-/** Day expansion body: routes, wage composition (incl. manual extra), fuel. Exported for render tests. */
-export function WageDayDetail({ day, canEdit, online, onSaved, styles, startEditingAdjustment = false, onStartEditingConsumed }: {
+/**
+ * Day expansion body: routes, wage composition (incl. manual extra), fuel.
+ * `columns` (desktop) puts the three blocks side by side; `stacked` (phone)
+ * keeps the manual-adjustment editor first so quick edit needs no scrolling.
+ * Exported for render tests.
+ */
+export function WageDayDetail({ day, canEdit, online, onSaved, styles, startEditingAdjustment = false, onStartEditingConsumed, layout = 'stacked', priceForDate = () => null }: {
   day: WageDayRow;
   canEdit: boolean;
   online: boolean;
@@ -918,68 +956,92 @@ export function WageDayDetail({ day, canEdit, online, onSaved, styles, startEdit
   styles: ReturnType<typeof createWageScreenStyles>;
   startEditingAdjustment?: boolean;
   onStartEditingConsumed?: () => void;
+  layout?: 'columns' | 'stacked';
+  priceForDate?: (date: string) => number | null;
 }) {
   const figures = day.figures;
   const fuelEntries = [...new Map(day.sheets.flatMap((sheet) => sheet.fuelEntries).map((entry) => [entry.id, entry])).values()];
   const distanceSource = day.sheets.find((sheet) => sheet.compensation)?.compensation?.distanceSource;
   // Manual bonus is already folded into figures.payEur; never add wageEur again.
   const manual = day.manualAdjustment;
+
+  const editor = <WageAdjustmentEditor
+    canEdit={canEdit}
+    day={day}
+    online={online}
+    onSaved={onSaved}
+    onStartEditingConsumed={onStartEditingConsumed}
+    startEditing={startEditingAdjustment}
+    styles={styles}
+  />;
+
+  const routes = <View style={styles.detailSection}>
+    <Text style={styles.detailSectionTitle}>{day.sheets.length > 1 ? `Reisai (${day.sheets.length})` : 'Reisas'}</Text>
+    {day.sheets.length === 0 ? <Text style={styles.meta}>Šią dieną reiso nėra – tik papildoma suma.</Text> : null}
+    {day.sheets.map((sheet) => (
+      <RouteMetricsRow key={sheet.id} canEdit={canEdit} onSaved={onSaved} online={online} sheet={sheet} styles={styles} />
+    ))}
+  </View>;
+
+  const composition = figures.hasCompensation ? <View style={styles.detailSection} testID={`finance-wage-composition-${day.key}`}>
+    <Text style={styles.detailSectionTitle}>Atlygio sudėtis{day.preliminary ? ' · preliminaru' : ''}</Text>
+    {day.sheets.length > 1 ? <Text style={styles.meta}>Bazinis dienos atlygis įrašytas vieną kartą ir nėra dauginamas iš reisų skaičiaus. Eurai yra dienos, ne atskiro reiso.</Text> : null}
+    <DetailLine label="Bazinis (diena)" value={formatWageAmount(figures.fixedAmountEur)} styles={styles} />
+    <DetailLine label={`Atstumas · ${qtyFormatter.format(figures.distanceKm)} km${distanceSource ? ` (${distanceSource === 'odometer' ? 'odometras' : 'planuota'})` : ''}`} value={formatWageAmount(figures.distanceAmountEur)} styles={styles} />
+    <DetailLine label={`Svoris · ${qtyFormatter.format(figures.weightKg)} kg`} value={formatWageAmount(figures.weightAmountEur)} styles={styles} />
+    <DetailLine label={`Taškai · ${figures.stops}`} value={formatWageAmount(figures.stopsAmountEur)} styles={styles} />
+    {manual ? (
+      <DetailLine
+        label="Papildomai"
+        value={formatWageAmount(manual.amountEur)}
+        styles={styles}
+        testID={`finance-wage-composition-extra-${day.key}`}
+      />
+    ) : null}
+    {/* Same total as the day card (payEur = trip wage + manual), not trip-only wageEur. */}
+    <DetailLine
+      label="Dienos suma"
+      value={formatWageAmount(figures.payEur)}
+      emphasis
+      styles={styles}
+      testID={`finance-wage-composition-total-${day.key}`}
+    />
+  </View> : <Text style={styles.meta}>Atlygio detalizacija dar neapskaičiuota.</Text>;
+
+  // Fuel money = poured litres × the litre price valid on the fill date.
+  // Receipt totals stay in fuel history; litres are never shown as euros.
+  const fuel = fuelEntries.length > 0 ? <View style={styles.detailSection} testID={`finance-wage-fuel-${day.key}`}>
+    <Text style={styles.detailSectionTitle}>Kuras</Text>
+    {fuelEntries.map((entry) => {
+      const price = priceForDate(fuelFillDate(entry.filledAt, day.date));
+      return <DetailLine
+        key={entry.id}
+        label={`${qtyFormatter.format(entry.liters)} l × ${price === null ? 'kaina nežinoma' : `${eur2Formatter.format(price)}/l`}${entry.receiptNumber ? ` · čekis ${entry.receiptNumber}` : ''}`}
+        value={price === null ? '—' : eur2Formatter.format(Math.round(entry.liters * price * 100) / 100)}
+        styles={styles}
+        testID={`finance-wage-fuel-line-${entry.id}`}
+      />;
+    })}
+    {figures.fuelUnpricedLiters > 0 ? <Text style={styles.metricsError}>Tam mėnesiui neįvesta litro kaina – kuro suma nežinoma.</Text> : null}
+  </View> : null;
+
+  if (layout === 'columns') {
+    return <View style={[styles.wageDayDetail, styles.wageDayDetailColumns]} testID={`finance-wage-day-detail-${day.key}`}>
+      <View style={styles.detailBlock}>{routes}</View>
+      <View style={styles.detailBlock}>{composition}</View>
+      <View style={styles.detailBlock}>
+        {fuel}
+        {editor}
+      </View>
+    </View>;
+  }
+
   return <View style={styles.wageDayDetail} testID={`finance-wage-day-detail-${day.key}`}>
     {/* Manual adjustment first so quick-edit does not require scrolling past routes. */}
-    <WageAdjustmentEditor
-      canEdit={canEdit}
-      day={day}
-      online={online}
-      onSaved={onSaved}
-      onStartEditingConsumed={onStartEditingConsumed}
-      startEditing={startEditingAdjustment}
-      styles={styles}
-    />
-
-    <View style={styles.detailSection}>
-      <Text style={styles.detailSectionTitle}>{day.sheets.length > 1 ? `Reisai (${day.sheets.length})` : 'Reisas'}</Text>
-      {day.sheets.length === 0 ? <Text style={styles.meta}>Šią dieną reiso nėra – tik papildoma suma.</Text> : null}
-      {day.sheets.map((sheet) => (
-        <RouteMetricsRow key={sheet.id} canEdit={canEdit} onSaved={onSaved} online={online} sheet={sheet} styles={styles} />
-      ))}
-    </View>
-
-    {figures.hasCompensation ? <View style={styles.detailSection} testID={`finance-wage-composition-${day.key}`}>
-      <Text style={styles.detailSectionTitle}>Atlygio sudėtis{day.preliminary ? ' · preliminaru' : ''}</Text>
-      {day.sheets.length > 1 ? <Text style={styles.meta}>Bazinis dienos atlygis įrašytas vieną kartą ir nėra dauginamas iš reisų skaičiaus. Eurai yra dienos, ne atskiro reiso.</Text> : null}
-      <DetailLine label="Bazinis (diena)" value={formatWageAmount(figures.fixedAmountEur)} styles={styles} />
-      <DetailLine label={`Atstumas · ${qtyFormatter.format(figures.distanceKm)} km${distanceSource ? ` (${distanceSource === 'odometer' ? 'odometras' : 'planuota'})` : ''}`} value={formatWageAmount(figures.distanceAmountEur)} styles={styles} />
-      <DetailLine label={`Svoris · ${qtyFormatter.format(figures.weightKg)} kg`} value={formatWageAmount(figures.weightAmountEur)} styles={styles} />
-      <DetailLine label={`Taškai · ${figures.stops}`} value={formatWageAmount(figures.stopsAmountEur)} styles={styles} />
-      {manual ? (
-        <DetailLine
-          label="Papildomai"
-          value={formatWageAmount(manual.amountEur)}
-          styles={styles}
-          testID={`finance-wage-composition-extra-${day.key}`}
-        />
-      ) : null}
-      {/* Same total as the day card (payEur = trip wage + manual), not trip-only wageEur. */}
-      <DetailLine
-        label="Dienos suma"
-        value={formatWageAmount(figures.payEur)}
-        emphasis
-        styles={styles}
-        testID={`finance-wage-composition-total-${day.key}`}
-      />
-    </View> : <Text style={styles.meta}>Atlygio detalizacija dar neapskaičiuota.</Text>}
-
-    {fuelEntries.length > 0 ? <View style={styles.detailSection}>
-      <Text style={styles.detailSectionTitle}>Kuras</Text>
-      {fuelEntries.map((entry) => (
-        <DetailLine
-          key={entry.id}
-          label={`${qtyFormatter.format(entry.liters)} l${entry.receiptNumber ? ` · čekis ${entry.receiptNumber}` : ''}`}
-          value={entry.totalCost != null ? eur2Formatter.format(entry.totalCost) : '—'}
-          styles={styles}
-        />
-      ))}
-    </View> : null}
+    {editor}
+    {routes}
+    {composition}
+    {fuel}
   </View>;
 }
 
@@ -1015,17 +1077,24 @@ export const createWageScreenStyles = (colors: ColorPalette) => StyleSheet.creat
   exportButton: { minHeight: 48, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
   exportButtonText: { ...type.button, color: colors.textSecondary },
   wageList: { borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, overflow: 'hidden' },
-  wageTable: { minWidth: 860, width: '100%' },
+  // Desktop table (>= 1280 px): fixed date/driver/action widths, flexible amounts
+  // and comment. Minimum widths fit 1280 px without horizontal scrolling; see
+  // finance-layout-fit.ts.
+  wageTable: { width: '100%' },
   wageTableRow: { minHeight: 48, flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderTopColor: colors.borderSubtle },
   wageTableHeader: { backgroundColor: colors.surfaceMuted, borderTopWidth: 0 },
   wageTableHeaderText: { ...type.label, color: colors.textMuted },
   wageTableTotal: { backgroundColor: colors.surfaceSubtle },
   wageTableTotalText: { ...type.secondaryStrong, color: colors.text },
   wageTableCell: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
-  wageTableText: { ...type.secondary, color: colors.text, width: 140, flexShrink: 0 },
-  wageTableNumber: { ...type.secondary, color: colors.text, width: 72, textAlign: 'right', flexShrink: 0 },
-  wageTableQuick: { width: 72, flexShrink: 0, justifyContent: 'center' },
-  wageTableToggle: { ...type.body, color: colors.textMuted, width: 36, textAlign: 'center' },
+  wageTableRowCells: { flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 },
+  wageTableDate: { ...type.secondary, color: colors.text, width: 100, flexShrink: 0 },
+  wageTableDriver: { ...type.secondary, color: colors.text, width: 132, flexShrink: 0 },
+  wageTableComment: { ...type.secondary, color: colors.text, flex: 1.6, minWidth: 110 },
+  wageTableNumber: { ...type.secondary, color: colors.text, flex: 1, minWidth: 76, textAlign: 'right' },
+  wageTableAmount: { ...type.secondaryStrong, color: colors.text },
+  wageTableQuick: { width: 64, flexShrink: 0, justifyContent: 'center' },
+  wageTableToggle: { ...type.body, color: colors.textMuted, width: 32, textAlign: 'center' },
   dayQuickActions: { paddingHorizontal: spacing.md, paddingBottom: spacing.xs, gap: spacing.xs, backgroundColor: colors.surfaceSubtle },
   wageListHeading: { padding: spacing.md, gap: 2, backgroundColor: colors.surfaceSubtle },
   wageListTitle: { ...type.sectionTitle, color: colors.text },
@@ -1038,6 +1107,8 @@ export const createWageScreenStyles = (colors: ColorPalette) => StyleSheet.creat
   wageDayAmount: { ...type.sectionTitle, color: colors.text, textAlign: 'right' },
   wageDayChevron: { ...type.body, color: colors.textMuted },
   wageDayDetail: { paddingHorizontal: spacing.md, paddingTop: spacing.sm, paddingBottom: spacing.md, gap: spacing.md, backgroundColor: colors.surfaceSubtle, borderTopWidth: 1, borderTopColor: colors.borderSubtle },
+  wageDayDetailColumns: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: spacing.sm },
+  detailBlock: { flex: 1, minWidth: 260, gap: spacing.sm, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderSubtle, backgroundColor: colors.surface },
   detailSection: { gap: spacing.xs },
   detailSectionTitle: { ...type.label, color: colors.textMuted },
   detailRoute: { gap: spacing.xs, paddingBottom: spacing.xs },

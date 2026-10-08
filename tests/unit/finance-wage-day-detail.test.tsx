@@ -213,4 +213,51 @@ describe('WageDayDetail product composition (real component)', () => {
     expect(JSON.stringify(tree)).toContain('Atlygio detalizacija dar neapskaičiuota');
     expect(JSON.stringify(tree)).toContain('Šią dieną reiso nėra');
   });
+
+  it('puts Reisas | Atlygio sudėtis | Kuras ir rankinė suma side by side on desktop', () => {
+    const day = aggregateWageDays([sheet()], [])[0]!;
+    hooks.cursor = 0;
+    const styles = createWageScreenStyles(awaitColors);
+    const root = WageDayDetail({ day, canEdit: true, online: true, onSaved: vi.fn(), styles, layout: 'columns' }) as Node;
+    expect(root.props.style).toEqual([styles.wageDayDetail, styles.wageDayDetailColumns]);
+    const blocks = (root.props.children as Node[]).filter((child) => child && child.props?.style === styles.detailBlock);
+    expect(blocks).toHaveLength(3);
+    expect(JSON.stringify(nodes(blocks[0]))).toContain('Reisas');
+    expect(JSON.stringify(nodes(blocks[1]))).toContain('Atlygio sudėtis');
+    // Third block ends with the manual-adjustment editor.
+    const third = blocks[2]!.props.children as unknown[];
+    expect((third[third.length - 1] as Node).props.day).toBe(day);
+  });
+
+  it('keeps the manual-adjustment editor first on phones (stacked)', () => {
+    const { tree } = renderDetail();
+    const root = tree[0]!;
+    const first = (root.props.children as unknown[]).find(Boolean) as Node;
+    expect(first.props.startEditing).toBe(false);
+    expect(first.props.day).toBeDefined();
+  });
+
+  it('prices fuel as litres × the valid litre price, and shows “—” when no price exists', () => {
+    const entry = {
+      id: 'fuel-83', tripSheetId: 'sheet-1', assignmentId: 'assignment-1', routeId: 'route-1', driverId: 'driver-1', driverName: 'Jonas',
+      vehicleId: 'veh-1', registrationNumber: 'NLL182', filledAt: '2026-10-03T07:00:00.000Z', odometer: null, liters: 83,
+      pricePerLiter: null, totalCost: null, station: null, receiptNumber: '3/1200', notes: null, createdAt: '2026-10-03T07:00:00.000Z', createdBy: 'admin',
+    } as unknown as ServerTripSheet['fuelEntries'][number];
+    const priced = aggregateWageDays([sheet({ fuelEntries: [entry] })], [], () => 1.93)[0]!;
+    hooks.cursor = 0;
+    const styles = createWageScreenStyles(awaitColors);
+    let tree = nodes(WageDayDetail({ day: priced, canEdit: true, online: true, onSaved: vi.fn(), styles, priceForDate: () => 1.93 }));
+    let line = find(tree, 'finance-wage-fuel-line-fuel-83')!;
+    expect(line.props.label).toBe(`83 l × ${eur2.format(1.93)}/l · čekis 3/1200`);
+    expect(line.props.value).toBe(eur2.format(160.19));
+
+    const unpriced = aggregateWageDays([sheet({ fuelEntries: [entry] })], [], () => null)[0]!;
+    hooks.cursor = 0;
+    tree = nodes(WageDayDetail({ day: unpriced, canEdit: true, online: true, onSaved: vi.fn(), styles }));
+    line = find(tree, 'finance-wage-fuel-line-fuel-83')!;
+    expect(line.props.label).toBe('83 l × kaina nežinoma · čekis 3/1200');
+    expect(line.props.value).toBe('—');
+    expect(JSON.stringify(tree)).toContain('neįvesta litro kaina');
+    expect(JSON.stringify(tree)).not.toContain(JSON.stringify(eur2.format(83)));
+  });
 });

@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
+import { measureWageTableFromSource } from '../../src/application/finance/finance-layout-fit';
 import { aggregateWageDays, summarizeWageDays, wageTableColumns } from '../../src/application/finance/wage-report';
 import type { ServerTripSheet } from '../../src/infrastructure/auth/employee-session';
 
@@ -253,17 +254,11 @@ describe('finance wage report', () => {
   it('widens the wage desktop table past the 900px shell so 1366px keeps all amount columns', () => {
     const source = readFileSync(resolve(import.meta.dirname, '../../src/app/finance/wages.tsx'), 'utf8');
     expect(source).toMatch(/contentMaxWidth=\{1480\}/);
-    expect(source).toMatch(/wageTableText:.*width: 140/);
-    expect(source).toMatch(/wageTableNumber:.*width: 72/);
-    expect(source).toMatch(/wageTableToggle:.*width: 36/);
-    const textWidth = 140;
-    const numberWidth = 72;
-    const quickWidth = 72;
-    const toggleWidth = 36;
-    const withDriverAndEdit = textWidth * 3 + numberWidth * 9 + quickWidth + toggleWidth;
+    // Minimum column widths read from the live styles (amounts flex above them).
+    const withDriverAndEdit = measureWageTableFromSource(source, { showDriver: true, canEdit: true });
     const foundationPadding = 20 * 2;
-    const available1366 = 1366 - foundationPadding;
-    expect(withDriverAndEdit).toBeLessThanOrEqual(available1366);
+    expect(withDriverAndEdit).toBeLessThanOrEqual(1366 - foundationPadding);
+    expect(withDriverAndEdit).toBeLessThanOrEqual(1280 - foundationPadding);
     expect(withDriverAndEdit).toBeLessThanOrEqual(1480);
     expect(source).not.toMatch(/fontSize:\s*(9|10)\b/);
   });

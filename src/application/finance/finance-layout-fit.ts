@@ -14,16 +14,23 @@ export const VIEWPORTS = {
 
 export type ViewportName = keyof typeof VIEWPORTS;
 
-/** Mirrors wages.tsx createStyles table column widths. */
+/**
+ * Mirrors wages.tsx createStyles table column widths. The desktop table is a
+ * plain flex row (no horizontal ScrollView): amounts and comment flex above
+ * these minimums, so the sum of minimums must fit the narrowest desktop width.
+ */
 export const WAGE_TABLE_LAYOUT = {
   contentMaxWidth: 1480,
   foundationPaddingX: 20,
-  textColumnWidth: 140,
-  numberColumnWidth: 72,
-  quickActionWidth: 72,
-  toggleWidth: 36,
-  textColumnsWithoutDriver: 2, // date + comment
-  textColumnsWithDriver: 3, // date + driver + comment
+  /** wages.tsx shows the table from this width; narrower screens use day cards. */
+  desktopMinWidth: 1280,
+  dateWidth: 100,
+  driverWidth: 132,
+  commentMinWidth: 110,
+  numberMinWidth: 76,
+  quickActionWidth: 64,
+  toggleWidth: 32,
+  listBorderX: 2,
   numberColumns: 9,
 } as const;
 
@@ -43,14 +50,14 @@ export const TRIP_SHEET_LAYOUT = {
 } as const;
 
 export function wageTableRequiredWidth(options: { showDriver: boolean; canEdit: boolean }): number {
-  const textColumns = options.showDriver
-    ? WAGE_TABLE_LAYOUT.textColumnsWithDriver
-    : WAGE_TABLE_LAYOUT.textColumnsWithoutDriver;
   return (
-    textColumns * WAGE_TABLE_LAYOUT.textColumnWidth
-    + WAGE_TABLE_LAYOUT.numberColumns * WAGE_TABLE_LAYOUT.numberColumnWidth
+    WAGE_TABLE_LAYOUT.dateWidth
+    + (options.showDriver ? WAGE_TABLE_LAYOUT.driverWidth : 0)
+    + WAGE_TABLE_LAYOUT.numberColumns * WAGE_TABLE_LAYOUT.numberMinWidth
+    + WAGE_TABLE_LAYOUT.commentMinWidth
     + (options.canEdit ? WAGE_TABLE_LAYOUT.quickActionWidth : 0)
     + WAGE_TABLE_LAYOUT.toggleWidth
+    + WAGE_TABLE_LAYOUT.listBorderX
   );
 }
 
@@ -77,29 +84,32 @@ export function availableContentWidth(viewportWidth: number, contentMaxWidth: nu
 }
 
 export type LayoutFitResult = {
-  viewport: ViewportName;
+  viewport: ViewportName | number;
   required: number;
   available: number;
   fitsWithoutHorizontalScroll: boolean;
-  /** Horizontal ScrollView is acceptable on narrow phones; amounts must still be reachable. */
+  /** Narrow screens may scroll or switch to cards; amounts must still be reachable. */
   allowsHorizontalScroll: boolean;
   clipped: boolean;
 };
 
-export function assessWageTableFit(viewport: ViewportName, options: { showDriver: boolean; canEdit: boolean }): LayoutFitResult {
-  const { width } = VIEWPORTS[viewport];
+export function assessWageTableFit(viewport: ViewportName | number, options: { showDriver: boolean; canEdit: boolean }): LayoutFitResult & { tableShown: boolean } {
+  const width = typeof viewport === 'number' ? viewport : VIEWPORTS[viewport].width;
   const required = wageTableRequiredWidth(options);
   const available = availableContentWidth(width, WAGE_TABLE_LAYOUT.contentMaxWidth, WAGE_TABLE_LAYOUT.foundationPaddingX);
   const fitsWithoutHorizontalScroll = required <= available;
-  const allowsHorizontalScroll = width < 1280;
+  const tableShown = width >= WAGE_TABLE_LAYOUT.desktopMinWidth;
+  // Below the desktop width the screen shows wrapping day cards instead of the table.
+  const allowsHorizontalScroll = !tableShown;
   return {
     viewport,
     required,
     available,
     fitsWithoutHorizontalScroll,
     allowsHorizontalScroll,
-    // Clipped only when the table cannot fit and horizontal scroll is also unavailable.
-    clipped: !fitsWithoutHorizontalScroll && !allowsHorizontalScroll,
+    tableShown,
+    // Clipped when the table is shown but its minimum widths do not fit.
+    clipped: tableShown && !fitsWithoutHorizontalScroll,
   };
 }
 
@@ -151,12 +161,13 @@ export function parseContentMaxWidth(source: string): number {
  * checks fail when UI styles drift away from finance-layout-fit constants.
  */
 export function measureWageTableFromSource(wagesSource: string, options: { showDriver: boolean; canEdit: boolean }): number {
-  const text = parseStyleWidth(wagesSource, 'wageTableText');
+  const date = parseStyleWidth(wagesSource, 'wageTableDate');
+  const driver = parseStyleWidth(wagesSource, 'wageTableDriver');
+  const comment = parseStyleWidth(wagesSource, 'wageTableComment');
   const number = parseStyleWidth(wagesSource, 'wageTableNumber');
   const quick = parseStyleWidth(wagesSource, 'wageTableQuick');
   const toggle = parseStyleWidth(wagesSource, 'wageTableToggle');
-  const textColumns = options.showDriver ? 3 : 2;
-  return textColumns * text + 9 * number + (options.canEdit ? quick : 0) + toggle;
+  return date + (options.showDriver ? driver : 0) + 9 * number + comment + (options.canEdit ? quick : 0) + toggle + WAGE_TABLE_LAYOUT.listBorderX;
 }
 
 export function measureTripSheetFromSource(tripSource: string): { required: number; declaredMinWidth: number } {

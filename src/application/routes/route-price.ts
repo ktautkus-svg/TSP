@@ -11,12 +11,17 @@ export type RoutePriceInput = {
   driverName: string;
   vehicle: RoutePriceVehicle;
   bonusNetEur?: number;
+  /** The vehicle's own norm (trip sheet) wins over the registration table. */
+  fuelNormLitersPer100Km?: number | null;
 };
 
 export type PreliminaryRoutePrice = {
   totalEur: number;
   baseCostEur: number;
   fuelCostEur: number;
+  /** km × norm / 100 — the litres behind fuelCostEur. */
+  fuelLiters: number;
+  fuelPricePerLiter: number;
   roadCostEur: number;
   insuranceCostEur: number;
   driverCostEur: number;
@@ -143,7 +148,12 @@ export function estimatePreliminaryRoutePrice(
   const weight = finiteNonNegative(input.weightKg);
   const stops = finiteNonNegative(input.stops);
 
-  const fuelCostEur = distance / 100 * vehicleCosts.fuelNormLitersPer100Km * fuelPrice;
+  const ownNorm = input.fuelNormLitersPer100Km;
+  const fuelNorm = typeof ownNorm === 'number' && Number.isFinite(ownNorm) && ownNorm > 0
+    ? ownNorm
+    : vehicleCosts.fuelNormLitersPer100Km;
+  const fuelLiters = distance / 100 * fuelNorm;
+  const fuelCostEur = fuelLiters * fuelPrice;
   const roadCostEur = vehicleCosts.monthlyRoadTaxEur / workingDays;
   const insuranceCostEur = (vehicleCosts.annualInsuranceEur / 12) / workingDays;
   const driverNet = driverCosts.type === 'fixed'
@@ -157,6 +167,8 @@ export function estimatePreliminaryRoutePrice(
     totalEur: money(baseCostEur + overheadEur),
     baseCostEur: money(baseCostEur),
     fuelCostEur: money(fuelCostEur),
+    fuelLiters: money(fuelLiters),
+    fuelPricePerLiter: fuelPrice,
     roadCostEur: money(roadCostEur),
     insuranceCostEur: money(insuranceCostEur),
     driverCostEur: money(driverCostEur),
@@ -171,7 +183,10 @@ export function estimatePreliminaryRoutePrice(
   };
 }
 
-/** Final trip cost only when the route is completed and actual odometer distance is known. */
+/**
+ * Replaces the fuel part of a price with a known amount, or marks it unknown
+ * (null): fuel 0 in the sums, shown as "—", never a tariff guess.
+ */
 export function applyActualFuelMoney(
   price: PreliminaryRoutePrice,
   moneyEur: number | null,
@@ -195,6 +210,7 @@ export function applyActualFuelMoney(
   };
 }
 
+/** Final trip cost only when the route is completed and actual odometer distance is known. */
 export function isFinalTripCost(sheet: {
   status: string;
   actualDistanceKm: number | null;
@@ -335,6 +351,8 @@ export function estimateCalculatorRoutePrice(
     totalEur: money(baseCostEur + overheadEur),
     baseCostEur: money(baseCostEur),
     fuelCostEur: money(fuelCostEur),
+    fuelLiters: money(distance / 100 * fuelNorm),
+    fuelPricePerLiter: fuelPrice,
     roadCostEur: money(roadCostEur),
     insuranceCostEur: money(insuranceCostEur),
     driverCostEur: money(driverCostEur),

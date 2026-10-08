@@ -5,6 +5,7 @@
  */
 
 import type { WageAdjustment } from '@/application/finance/wage-report';
+import { DEFAULT_ROUTE_PRICE_SETTINGS, normalizeRoutePriceSettings } from '@/application/routes/route-price';
 import type {
   EmployeeApiTestTransport,
   EmployeeProfile,
@@ -14,6 +15,12 @@ import type {
 } from '@/infrastructure/auth/employee-session';
 
 const NOW = '2026-10-07T08:00:00.000Z';
+
+/** Synthetic saved litre prices: 1,93 €/l from September, like the real entry. */
+const HARNESS_ROUTE_PRICE_SETTINGS = normalizeRoutePriceSettings({
+  ...DEFAULT_ROUTE_PRICE_SETTINGS,
+  fuelPriceByMonth: DEFAULT_ROUTE_PRICE_SETTINGS.fuelPriceByMonth.map((value, index) => (index >= 8 ? 1.93 : value)),
+});
 
 const HARNESS_ADMIN: EmployeeProfile = {
   id: 'harness-admin',
@@ -414,6 +421,10 @@ export function createFinanceUiHarnessApi(): FinanceUiHarnessApi {
 
     if (pathname === '/api/admin/vehicles' && method === 'GET') {
       return json(200, { vehicles: VEHICLES });
+    }
+
+    if (pathname === '/api/admin/route-price-settings' && method === 'GET') {
+      return json(200, { settings: HARNESS_ROUTE_PRICE_SETTINGS });
     }
 
     if (pathname === '/api/admin/accounting-corrections' && method === 'GET') {

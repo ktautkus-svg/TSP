@@ -15,6 +15,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const hubSource = readFileSync(resolve(root, 'src/app/finance.tsx'), 'utf8');
 const calculatorSource = readFileSync(resolve(root, 'src/app/finance/calculator.tsx'), 'utf8');
 const routePriceSource = readFileSync(resolve(root, 'src/app/finance/route-price.tsx'), 'utf8');
+const tripPriceSource = readFileSync(resolve(root, 'src/application/finance/trip-price.ts'), 'utf8');
 const layoutSource = readFileSync(resolve(root, 'src/app/_layout.tsx'), 'utf8');
 
 describe('finance calculator and trip-cost finality', () => {
@@ -32,7 +33,9 @@ describe('finance calculator and trip-cost finality', () => {
     expect(routePriceSource).toContain('Mašinos nr');
     expect(routePriceSource).toContain('preliminarinė');
     expect(routePriceSource).toContain('galutinė');
-    expect(routePriceSource).toContain('isFinalTripCost');
+    // Finality is decided in the shared trip pricing used by the screen.
+    expect(routePriceSource).toContain('priceTripSheets(');
+    expect(tripPriceSource).toContain('final: isFinalTripCost(sheet)');
     expect(routePriceSource).toContain('route-price-expand-');
     expect(routePriceSource).not.toContain('Kelių+draud.');
     expect(routePriceSource).not.toContain('detailHeaderRow');

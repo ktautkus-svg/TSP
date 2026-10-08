@@ -1,4 +1,4 @@
-import { fuelEntryMoneyEur } from '@/application/routes/fuel-entry-money';
+import { fuelFillDate } from '@/application/finance/fuel-price';
 import { isFuelOnlyWorkSheet } from '@/domain/fuel-only-workday';
 import type { ServerTripSheet } from '@/infrastructure/auth/employee-session';
 
@@ -44,7 +44,10 @@ export type WageDayFigures = {
   wageEur: number | null;
   routeCount: number;
   fuelLiters: number;
+  /** Poured litres × the litre price valid on each fill date (priced litres only). */
   fuelCostEur: number;
+  /** Litres without a valid litre price; their money is unknown, not 0 €. */
+  fuelUnpricedLiters: number;
   /** Manual bonus for the day ("Papildomai"), already included in `payEur`. */
   extraEur: number;
   comment: string;
@@ -86,6 +89,7 @@ export type WagePeriodTotals = {
   stops: number;
   fuelLiters: number;
   fuelCostEur: number;
+  fuelUnpricedLiters: number;
   wageEur: number;
   distanceAmountEur: number;
   weightAmountEur: number;
@@ -116,6 +120,7 @@ function emptyFigures(): WageDayFigures {
     routeCount: 0,
     fuelLiters: 0,
     fuelCostEur: 0,
+    fuelUnpricedLiters: 0,
     extraEur: 0,
     comment: '',
     payEur: null,
@@ -151,7 +156,16 @@ function measured(sheets: readonly ServerTripSheet[]) {
  * breakdown; they are not added again for each route.
  * Days are ordered by the ISO date, oldest first.
  */
-export function aggregateWageDays(sheets: readonly ServerTripSheet[], adjustments: readonly WageAdjustment[] = []): WageDayRow[] {
+export function aggregateWageDays(
+  sheets: readonly ServerTripSheet[],
+  adjustments: readonly WageAdjustment[] = [],
+  /**
+   * Litre price valid on a fill date (saved route-pricing settings). Fuel
+   * money is poured litres × that price; receipt totals stay in fuel history.
+   * Without a price the litres are reported as unpriced, never as euros.
+   */
+  fuelPriceForDate: (date: string) => number | null = () => null,
+): WageDayRow[] {
   const days = new Map<string, WageDayRow>();
   const fuelOnlyByDay = new Map<string, ServerTripSheet[]>();
   for (const sheet of sheets) {
@@ -186,12 +200,15 @@ export function aggregateWageDays(sheets: readonly ServerTripSheet[], adjustment
     const fromSheets = measured(payable);
     let fuelLiters = 0;
     let fuelCostEur = 0;
+    let fuelUnpricedLiters = 0;
     for (const sheet of [...day.sheets, ...(fuelOnlyByDay.get(day.key) ?? [])]) {
       for (const entry of sheet.fuelEntries) {
         if (countedFuel.has(entry.id)) continue;
         countedFuel.add(entry.id);
         fuelLiters += entry.liters;
-        fuelCostEur += fuelEntryMoneyEur(entry) ?? 0;
+        const price = fuelPriceForDate(fuelFillDate(entry.filledAt, sheet.date));
+        if (price === null) fuelUnpricedLiters += entry.liters;
+        else fuelCostEur += entry.liters * price;
       }
     }
     day.wageEur = compensation?.totalNetEur ?? 0;
@@ -207,8 +224,9 @@ export function aggregateWageDays(sheets: readonly ServerTripSheet[], adjustment
       fixedAmountEur: compensation ? compensation.fixedAmountEur : null,
       wageEur: compensation ? compensation.totalNetEur : null,
       routeCount: payable.length,
-      fuelLiters,
-      fuelCostEur,
+      fuelLiters: round2(fuelLiters),
+      fuelCostEur: round2(fuelCostEur),
+      fuelUnpricedLiters: round2(fuelUnpricedLiters),
       extraEur: 0,
       comment: '',
       payEur: compensation ? compensation.totalNetEur : null,
@@ -259,6 +277,7 @@ export function summarizeWageDays(days: readonly WageDayRow[]): WagePeriodTotals
     stops: 0,
     fuelLiters: 0,
     fuelCostEur: 0,
+    fuelUnpricedLiters: 0,
     wageEur: 0,
     distanceAmountEur: 0,
     weightAmountEur: 0,
@@ -274,6 +293,7 @@ export function summarizeWageDays(days: readonly WageDayRow[]): WagePeriodTotals
     totals.stops += figures.stops;
     totals.fuelLiters += figures.fuelLiters;
     totals.fuelCostEur += figures.fuelCostEur;
+    totals.fuelUnpricedLiters += figures.fuelUnpricedLiters;
     totals.extraEur += figures.extraEur;
     if (figures.wageEur !== null) {
       totals.wageEur += figures.wageEur;
@@ -290,6 +310,7 @@ export function summarizeWageDays(days: readonly WageDayRow[]): WagePeriodTotals
     stops: totals.stops,
     fuelLiters: round2(totals.fuelLiters),
     fuelCostEur: round2(totals.fuelCostEur),
+    fuelUnpricedLiters: round2(totals.fuelUnpricedLiters),
     wageEur: round2(totals.wageEur),
     distanceAmountEur: round2(totals.distanceAmountEur),
     weightAmountEur: round2(totals.weightAmountEur),

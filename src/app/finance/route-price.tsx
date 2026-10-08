@@ -5,14 +5,9 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { normalizeEmployeePermissions } from '@/application/auth/employee-permissions';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { roleHomePath } from '@/application/navigation/role-home';
+import { priceTripSheets, type PricedTripSheet } from '@/application/finance/trip-price';
 import { calendarPresetRange } from '@/application/reporting/period-range';
-import { allocateFuelMoney } from '@/application/routes/fuel-entry-money';
-import {
-  applyActualFuelMoney,
-  estimatePreliminaryRoutePrice,
-  isFinalTripCost,
-  type PreliminaryRoutePrice,
-} from '@/application/routes/route-price';
+import { normalizeRoutePriceSettings, type RoutePriceSettings } from '@/application/routes/route-price';
 import { FoundationScreen } from '@/components/foundation-screen';
 import { MenuArtwork } from '@/components/menu-artwork';
 import { PeriodCalendarPicker } from '@/components/period-calendar-picker';
@@ -21,14 +16,10 @@ import { radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 
-type PricedTrip = {
-  sheet: ServerTripSheet;
-  price: PreliminaryRoutePrice & { fuelCostKnown: boolean };
-  final: boolean;
-};
-
 const eurFormatter = new Intl.NumberFormat('lt-LT', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
+const eur2Formatter = new Intl.NumberFormat('lt-LT', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const kmFormatter = new Intl.NumberFormat('lt-LT', { maximumFractionDigits: 0 });
+const litersFormatter = new Intl.NumberFormat('lt-LT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export default function RoutePriceScreen() {
   const router = useRouter();
@@ -39,6 +30,8 @@ export default function RoutePriceScreen() {
   const allowed = profile.role === 'admin' || (profile.role === 'dispatcher' && permissions.canManageFinancials);
 
   const [tripSheets, setTripSheets] = useState<ServerTripSheet[]>([]);
+  /** null until loaded, or when loading failed — fuel is then shown as unknown. */
+  const [priceSettings, setPriceSettings] = useState<RoutePriceSettings | null>(null);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -52,6 +45,12 @@ export default function RoutePriceScreen() {
     try {
       const response = await employeeApi<{ tripSheets: ServerTripSheet[] }>('/api/trip-sheets');
       setTripSheets(response.tripSheets);
+      // The litre prices entered in "Kuro ir atlygio parametrai". Without them
+      // fuel stays unknown rather than falling back to the built-in tariff.
+      try {
+        const saved = await employeeApi<{ settings: RoutePriceSettings }>('/api/admin/route-price-settings');
+        setPriceSettings(normalizeRoutePriceSettings(saved.settings));
+      } catch { setPriceSettings(null); }
       setError(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Kelionės lapų gauti nepavyko.');
@@ -68,30 +67,8 @@ export default function RoutePriceScreen() {
   const period = useMemo(() => ({ from: periodFrom, to: periodTo }), [periodFrom, periodTo]);
   const visible = useMemo(() => tripSheets.filter((sheet) => sheet.date >= period.from && sheet.date <= period.to), [tripSheets, period]);
 
-  const priced: PricedTrip[] = useMemo(() => {
-    const estimated = visible.flatMap((sheet) => {
-      if (!sheet.vehicle) return [];
-      const price = estimatePreliminaryRoutePrice({
-        date: sheet.date,
-        distanceKm: sheet.actualDistanceKm ?? sheet.plannedDistanceKm,
-        weightKg: sheet.totalWeightKg,
-        stops: sheet.totalStops,
-        driverName: sheet.driverName,
-        vehicle: { registrationNumber: sheet.vehicle.registrationNumber, maximumPayloadKg: sheet.vehicle.maximumPayloadKg },
-      });
-      return price ? [{ sheet, price, final: isFinalTripCost(sheet) }] : [];
-    });
-    const allocation = allocateFuelMoney(estimated.map((trip) => ({
-      id: trip.sheet.id,
-      date: trip.sheet.date,
-      vehicleId: trip.sheet.vehicle?.id ?? null,
-      fuelEntries: trip.sheet.fuelEntries,
-    })));
-    return estimated.map((trip) => ({
-      ...trip,
-      price: applyActualFuelMoney(trip.price, allocation.bySheetId.get(trip.sheet.id)?.moneyEur ?? null),
-    })).sort((left, right) => right.sheet.date.localeCompare(left.sheet.date));
-  }, [visible]);
+  const priced: PricedTripSheet[] = useMemo(() => priceTripSheets(visible, priceSettings), [visible, priceSettings]);
+  const unknownFuelCount = priced.filter((trip) => !trip.price.fuelCostKnown).length;
   const skippedCount = visible.length - priced.length;
   const finalCount = priced.filter((trip) => trip.final).length;
   const prelimCount = priced.length - finalCount;
@@ -112,7 +89,7 @@ export default function RoutePriceScreen() {
       <Stack.Screen options={{ title: 'Reiso kaina' }} />
       <FoundationScreen
         contentMaxWidth={1100}
-        description="Kiekvieno reiso savikaina pagal kelionės lapus. Kuras — tik čekio suma arba litrai × litro kaina; litrai nėra eurai."
+        description="Kiekvieno reiso savikaina pagal kelionės lapus. Kuras = km × automobilio norma / 100 × tą mėnesį galiojanti litro kaina."
         showFoundationNotice={false}
         title="Reiso kaina">
 
@@ -126,6 +103,11 @@ export default function RoutePriceScreen() {
         </View>
 
         {error ? <Text accessibilityRole="alert" style={styles.warning}>{error}</Text> : null}
+        {!busy && unknownFuelCount > 0 ? <Text accessibilityRole="alert" style={styles.warning} testID="route-price-fuel-unknown">
+          {priceSettings
+            ? `Kuro kaina nežinoma ${unknownFuelCount} ${unknownFuelCount === 1 ? 'reisui' : 'reisams'}: tam mėnesiui neįvesta litro kaina. Kuras rodomas „—“ ir į sumą neįskaičiuotas.`
+            : 'Litro kainų parametrų gauti nepavyko. Kuras rodomas „—“ ir į sumą neįskaičiuotas.'}
+        </Text> : null}
         {busy ? <ActivityIndicator color={colors.info} size="large" /> : null}
 
         {!busy && priced.length === 0 ? <View style={styles.empty}><Text style={styles.emptyTitle}>Pasirinktu laikotarpiu reisų su pilnais duomenimis nėra</Text><Text style={styles.meta}>Pakeiskite laikotarpį arba patikrinkite, ar reisui priskirtas automobilis.</Text></View> : null}
@@ -166,7 +148,14 @@ export default function RoutePriceScreen() {
               </Pressable>
               {expanded ? <View style={styles.detail} testID={`route-price-detail-${sheet.id}`}>
                 <DetailLine label="Km" value={kmFormatter.format(sheet.actualDistanceKm ?? sheet.plannedDistanceKm ?? 0)} styles={styles} />
-                <DetailLine label="Kuras" value={price.fuelCostKnown ? eurFormatter.format(price.fuelCostEur) : '—'} styles={styles} />
+                <DetailLine
+                  label={price.fuelCostKnown
+                    ? `Kuras · ${litersFormatter.format(price.fuelLiters)} l × ${eur2Formatter.format(price.fuelPricePerLiter)}/l`
+                    : `Kuras · ${litersFormatter.format(price.fuelLiters)} l · litro kaina nežinoma`}
+                  value={price.fuelCostKnown ? eur2Formatter.format(price.fuelCostEur) : '—'}
+                  styles={styles}
+                  testID={`route-price-fuel-${sheet.id}`}
+                />
                 <DetailLine label="Keliai + draudimas" value={eurFormatter.format(price.roadCostEur + price.insuranceCostEur)} styles={styles} />
                 <DetailLine label="Vairuotojas" value={eurFormatter.format(price.driverCostEur)} styles={styles} />
                 <DetailLine label="Rezervas" value={eurFormatter.format(price.overheadEur)} styles={styles} />
@@ -215,8 +204,8 @@ function Metric({ label, value, emphasis, styles }: { label: string; value: stri
   </View>;
 }
 
-function DetailLine({ label, value, strong, styles }: { label: string; value: string; strong?: boolean; styles: ReturnType<typeof createStyles> }) {
-  return <View style={styles.detailLine}>
+function DetailLine({ label, value, strong, styles, testID }: { label: string; value: string; strong?: boolean; styles: ReturnType<typeof createStyles>; testID?: string }) {
+  return <View style={styles.detailLine} testID={testID}>
     <Text style={styles.detailLabel}>{label}</Text>
     <Text style={[styles.detailValue, strong && styles.detailValueStrong]}>{value}</Text>
   </View>;
