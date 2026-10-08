@@ -206,7 +206,8 @@ describe('dispatcher desktop workspace', () => {
   it('sends dispatchers to their workspace and keeps route creation hidden from drivers by default', () => {
     expect(homeSource).toContain("profile.role === 'dispatcher'");
     expect(homeSource).toContain("profile.role !== 'driver'");
-    expect(homeSource).toContain('Maršrutas dar nepriskirtas');
+    expect(homeSource).toContain('Nėra priskirtų maršrutų');
+    expect(homeSource).toContain('routeSync === \'pending\'');
   });
 });
 

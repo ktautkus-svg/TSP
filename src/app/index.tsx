@@ -1,12 +1,13 @@
 import Constants from 'expo-constants';
 import { Link, useFocusEffect, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, SafeAreaView, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { pullAssignedRoutes, pullAssignedRoutesForActingDriver, pushCompletedRouteAssignmentProgress, pushRouteAssignmentProgress, releaseStaleWorkingRoutes } from '@/application/auth/route-assignment-sync';
 import { selectDriverHomeRoute } from '@/application/routes/driver-home-route';
+import { resolveDriverPostLogin } from '@/application/routes/driver-post-login';
 import { ExportPilotRouteDiagnostic } from '@/application/routes/pilot-route-export';
 import { resolveRoute } from '@/application/routes/route-navigation';
 import { GetRouteProgress, type RouteProgress } from '@/application/routes/route-workday';
@@ -43,6 +44,9 @@ export default function HomeScreen() {
   const [routeCodes, setRouteCodes] = useState<Record<string, string>>({});
   const [progress, setProgress] = useState<RouteProgress | null>(null);
   const [loading, setLoading] = useState(true);
+  const [routeSync, setRouteSync] = useState<'pending' | 'ready' | 'failed'>('pending');
+  const [openRoutes, setOpenRoutes] = useState<Route[]>([]);
+  const autoOpened = useRef(false);
   const [exporting, setExporting] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   // An admin who switched this device into "driving as" a chosen driver sees
@@ -97,6 +101,10 @@ export default function HomeScreen() {
         const operational = showDriverDashboard
           ? await repository.listOperational(effectiveDriverId)
           : [];
+        if (mounted) {
+          setOpenRoutes(operational.filter((item) => item.status !== 'completed' && item.status !== 'cancelled'));
+          setRouteSync('ready');
+        }
         const route = selectDriverHomeRoute(operational, todayKey);
         const nextProgress = route ? await new GetRouteProgress(db).execute(route.id) : null;
         const nextStops = route ? await repository.getStops(route.id) : [];
@@ -112,6 +120,7 @@ export default function HomeScreen() {
         setActiveStops(nextStops);
       } catch (error) {
         devWarn('ACTIVE_ROUTE_RESTORE_FAILED', error);
+        if (mounted) setRouteSync('failed');
       } finally {
         if (mounted) setLoading(false);
       }
@@ -129,6 +138,7 @@ export default function HomeScreen() {
       const operational = showDriverDashboard
         ? await repository.listOperational(effectiveDriverId)
         : [];
+      if (mounted) setOpenRoutes(operational.filter((item) => item.status !== 'completed' && item.status !== 'cancelled'));
       const route = selectDriverHomeRoute(operational, todayKey);
       const nextProgress = route ? await new GetRouteProgress(db).execute(route.id) : null;
       const nextStops = route ? await repository.getStops(route.id) : [];
@@ -147,6 +157,14 @@ export default function HomeScreen() {
     });
     return () => { mounted = false; };
   }, [db, effectiveDriverId, online, profile.id, profile.role, repository, showDriverDashboard, syncRevision]);
+
+  const postLogin = resolveDriverPostLogin({ syncState: routeSync, routes: openRoutes });
+  useEffect(() => {
+    if (!showDriverDashboard || autoOpened.current || postLogin.kind !== 'continue') return;
+    autoOpened.current = true;
+    const destination = resolveRoute(postLogin.route as Route);
+    router.replace({ pathname: destination.pathname, params: destination.params } as Href);
+  }, [postLogin, router, showDriverDashboard]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -185,8 +203,25 @@ export default function HomeScreen() {
                   <GroupedMenuRow description="Vietos, navigacija ir programėlė." icon={<MenuArtwork kind="settings" />} onPress={() => router.push('/settings' as Href)} title="Nustatymai" tone="neutral" />
               </GroupedMenuSection></View>
             </View>
-          ) : showDriverDashboard ? loading ? (
+          ) : showDriverDashboard ? loading || routeSync === 'pending' ? (
             <View style={styles.loadingState} testID="home-loading-state"><ActivityIndicator color={colors.primary} size="large" /></View>
+          ) : routeSync === 'failed' ? (
+            <AppCard style={styles.emptyCard} testID="home-route-sync-failed">
+              <Text style={styles.activeTitle}>Maršrutų patikrinti nepavyko</Text>
+              <Text style={styles.activeText}>Tuščias sąrašas nerodomas, kol sinchronizacija nepasisekė. Bandykite dar kartą.</Text>
+            </AppCard>
+          ) : openRoutes.length > 1 && !openRoutes.some((route) => route.status === 'in_progress') ? (
+            <AppCard style={styles.emptyCard} testID="home-route-choices">
+              <Text style={styles.activeTitle}>Pasirinkite maršrutą</Text>
+              {openRoutes.map((route) => (
+                <Pressable key={route.id} onPress={() => {
+                  const destination = resolveRoute(route);
+                  router.replace({ pathname: destination.pathname, params: destination.params } as Href);
+                }} style={styles.navigationButton} testID={`home-route-choice-${route.id}`}>
+                  <Text style={styles.historyLink}>{route.date} · {route.status === 'planned' ? 'Priskirtas' : route.status}</Text>
+                </Pressable>
+              ))}
+            </AppCard>
           ) : active && progress ? (
             <DriverNowDashboard
               onContinue={() => {
@@ -202,10 +237,15 @@ export default function HomeScreen() {
               routeLabel={routeCodeLabel(active.id, routeCodes)}
               stops={activeStops}
             />
+          ) : active ? (
+            <AppCard style={styles.emptyCard} testID="home-assigned-route">
+              <Text style={styles.activeTitle}>{active.date}</Text>
+              <Text style={styles.activeText}>Priskirtas maršrutas atidaromas iškart.</Text>
+            </AppCard>
           ) : (
-            <AppCard style={styles.emptyCard}>
-              <Text style={styles.activeTitle}>Maršrutas dar nepriskirtas</Text>
-              <Text style={styles.activeText}>Kai administratorius priskirs maršrutą, jis automatiškai atsiras šiame įrenginyje.</Text>
+            <AppCard style={styles.emptyCard} testID="home-no-assigned-routes">
+              <Text style={styles.activeTitle}>Nėra priskirtų maršrutų</Text>
+              <Text style={styles.activeText}>Sąrašas tuščias po sėkmingos sinchronizacijos. Kai administratorius priskirs maršrutą, jis atsiras šiame įrenginyje.</Text>
             </AppCard>
           ) : loading ? (
             <View style={styles.loadingState} testID="home-loading-state"><ActivityIndicator color={colors.primary} size="large" /></View>
