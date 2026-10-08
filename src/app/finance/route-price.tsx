@@ -6,7 +6,9 @@ import { normalizeEmployeePermissions } from '@/application/auth/employee-permis
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { roleHomePath } from '@/application/navigation/role-home';
 import { calendarPresetRange } from '@/application/reporting/period-range';
+import { allocateFuelMoney } from '@/application/routes/fuel-entry-money';
 import {
+  applyActualFuelMoney,
   estimatePreliminaryRoutePrice,
   isFinalTripCost,
   type PreliminaryRoutePrice,
@@ -21,7 +23,7 @@ import type { ColorPalette } from '@/ui/theme-palette';
 
 type PricedTrip = {
   sheet: ServerTripSheet;
-  price: PreliminaryRoutePrice;
+  price: PreliminaryRoutePrice & { fuelCostKnown: boolean };
   final: boolean;
 };
 
@@ -66,18 +68,30 @@ export default function RoutePriceScreen() {
   const period = useMemo(() => ({ from: periodFrom, to: periodTo }), [periodFrom, periodTo]);
   const visible = useMemo(() => tripSheets.filter((sheet) => sheet.date >= period.from && sheet.date <= period.to), [tripSheets, period]);
 
-  const priced: PricedTrip[] = useMemo(() => visible.flatMap((sheet) => {
-    if (!sheet.vehicle) return [];
-    const price = estimatePreliminaryRoutePrice({
-      date: sheet.date,
-      distanceKm: sheet.actualDistanceKm ?? sheet.plannedDistanceKm,
-      weightKg: sheet.totalWeightKg,
-      stops: sheet.totalStops,
-      driverName: sheet.driverName,
-      vehicle: { registrationNumber: sheet.vehicle.registrationNumber, maximumPayloadKg: sheet.vehicle.maximumPayloadKg },
+  const priced: PricedTrip[] = useMemo(() => {
+    const estimated = visible.flatMap((sheet) => {
+      if (!sheet.vehicle) return [];
+      const price = estimatePreliminaryRoutePrice({
+        date: sheet.date,
+        distanceKm: sheet.actualDistanceKm ?? sheet.plannedDistanceKm,
+        weightKg: sheet.totalWeightKg,
+        stops: sheet.totalStops,
+        driverName: sheet.driverName,
+        vehicle: { registrationNumber: sheet.vehicle.registrationNumber, maximumPayloadKg: sheet.vehicle.maximumPayloadKg },
+      });
+      return price ? [{ sheet, price, final: isFinalTripCost(sheet) }] : [];
     });
-    return price ? [{ sheet, price, final: isFinalTripCost(sheet) }] : [];
-  }).sort((left, right) => right.sheet.date.localeCompare(left.sheet.date)), [visible]);
+    const allocation = allocateFuelMoney(estimated.map((trip) => ({
+      id: trip.sheet.id,
+      date: trip.sheet.date,
+      vehicleId: trip.sheet.vehicle?.id ?? null,
+      fuelEntries: trip.sheet.fuelEntries,
+    })));
+    return estimated.map((trip) => ({
+      ...trip,
+      price: applyActualFuelMoney(trip.price, allocation.bySheetId.get(trip.sheet.id)?.moneyEur ?? null),
+    })).sort((left, right) => right.sheet.date.localeCompare(left.sheet.date));
+  }, [visible]);
   const skippedCount = visible.length - priced.length;
   const finalCount = priced.filter((trip) => trip.final).length;
   const prelimCount = priced.length - finalCount;
@@ -98,7 +112,7 @@ export default function RoutePriceScreen() {
       <Stack.Screen options={{ title: 'Reiso kaina' }} />
       <FoundationScreen
         contentMaxWidth={1100}
-        description="Kiekvieno reiso savikaina pagal kelionės lapus ir tarifus. Galutinė — tik su odometru; kitaip preliminarinė."
+        description="Kiekvieno reiso savikaina pagal kelionės lapus. Kuras — tik čekio suma arba litrai × litro kaina; litrai nėra eurai."
         showFoundationNotice={false}
         title="Reiso kaina">
 
@@ -118,7 +132,7 @@ export default function RoutePriceScreen() {
 
         {!busy && priced.length > 0 ? <View style={styles.totalsRow} testID="route-price-totals">
           <Metric label="Reisų" value={String(priced.length)} styles={styles} />
-          <Metric label="Kuras" value={eurFormatter.format(totals.fuelCostEur)} styles={styles} />
+          <Metric label="Kuras" value={priced.some((trip) => trip.price.fuelCostKnown) ? eurFormatter.format(totals.fuelCostEur) : '—'} styles={styles} />
           <Metric label="Kelių + draudimas" value={eurFormatter.format(totals.roadCostEur + totals.insuranceCostEur)} styles={styles} />
           <Metric label="Vairuotojas" value={eurFormatter.format(totals.driverCostEur)} styles={styles} />
           <Metric label="Iš viso" value={eurFormatter.format(totals.totalEur)} emphasis styles={styles} />
@@ -152,7 +166,7 @@ export default function RoutePriceScreen() {
               </Pressable>
               {expanded ? <View style={styles.detail} testID={`route-price-detail-${sheet.id}`}>
                 <DetailLine label="Km" value={kmFormatter.format(sheet.actualDistanceKm ?? sheet.plannedDistanceKm ?? 0)} styles={styles} />
-                <DetailLine label="Kuras" value={eurFormatter.format(price.fuelCostEur)} styles={styles} />
+                <DetailLine label="Kuras" value={price.fuelCostKnown ? eurFormatter.format(price.fuelCostEur) : '—'} styles={styles} />
                 <DetailLine label="Keliai + draudimas" value={eurFormatter.format(price.roadCostEur + price.insuranceCostEur)} styles={styles} />
                 <DetailLine label="Vairuotojas" value={eurFormatter.format(price.driverCostEur)} styles={styles} />
                 <DetailLine label="Rezervas" value={eurFormatter.format(price.overheadEur)} styles={styles} />

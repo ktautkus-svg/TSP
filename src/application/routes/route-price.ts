@@ -172,6 +172,29 @@ export function estimatePreliminaryRoutePrice(
 }
 
 /** Final trip cost only when the route is completed and actual odometer distance is known. */
+export function applyActualFuelMoney(
+  price: PreliminaryRoutePrice,
+  moneyEur: number | null,
+): PreliminaryRoutePrice & { fuelCostKnown: boolean } {
+  const known = moneyEur !== null && Number.isFinite(moneyEur);
+  const fuelCostEur = known ? money(moneyEur) : 0;
+  const delta = fuelCostEur - price.fuelCostEur;
+  const baseCostEur = money(price.baseCostEur + delta);
+  const overheadRate = price.baseCostEur > 0 ? price.overheadEur / price.baseCostEur : 0;
+  const overheadEur = money(baseCostEur * overheadRate);
+  return {
+    ...price,
+    fuelCostEur,
+    baseCostEur,
+    overheadEur,
+    totalEur: money(baseCostEur + overheadEur),
+    fuelCostKnown: known,
+    assumptions: known
+      ? price.assumptions.filter((item) => !item.startsWith('Kuro kaina '))
+      : [...price.assumptions.filter((item) => !item.startsWith('Kuro kaina ')), 'Kuro piniginė suma nežinoma'],
+  };
+}
+
 export function isFinalTripCost(sheet: {
   status: string;
   actualDistanceKm: number | null;
