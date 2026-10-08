@@ -1,6 +1,7 @@
 import { Firestore } from '@google-cloud/firestore';
 import { createHash, pbkdf2Sync, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { calculateCompositeRouteProgress } from '../src/application/routes/composite-route-progress.js';
+import { isFuelOnlyWorkSheet } from '../src/domain/fuel-only-workday.js';
 import { sheetMovementKm } from '../src/application/trip-sheet/sheet-movement.js';
 import {
     DEFAULT_ROUTE_PRICE_SETTINGS,
@@ -1634,10 +1635,12 @@ export class EmployeeAuthStore {
       throw new EmployeeApiError('ROUTE_NOT_PLANNED', 'Vairuotojui galima priskirti tik suplanuotą maršrutą.', 409);
     }
     const existing = await this.assignments.where('routeId', '==', routeId).get();
-    if (existing.docs.some((doc) => {
-      const assignment = doc.data() as RouteAssignment;
-      return !['completed', 'cancelled'].includes(assignment.status);
-    })) {
+    const activeExisting = existing.docs
+      .map((doc) => doc.data() as RouteAssignment)
+      .filter((assignment) => !['completed', 'cancelled'].includes(assignment.status));
+    if (activeExisting.length > 0) {
+      const sameDriver = activeExisting.find((assignment) => assignment.driverId === driver.id);
+      if (sameDriver) return sameDriver;
       throw new EmployeeApiError('ROUTE_ALREADY_ASSIGNED', 'Šis maršrutas jau priskirtas vairuotojui.', 409);
     }
     const now = new Date().toISOString();
@@ -2444,6 +2447,7 @@ export class EmployeeAuthStore {
     odometer?: number;
     liters: number;
     pricePerLiter?: number;
+    totalCost?: number;
     station?: string;
     receiptNumber?: string;
     notes?: string;
@@ -2457,6 +2461,7 @@ export class EmployeeAuthStore {
       throw new EmployeeApiError('INVALID_FUEL_AMOUNT', error instanceof Error ? error.message : 'Įpilto kuro kiekis turi būti nuo 0,1 iki 1000 litrų.', 400);
     }
     if (input.pricePerLiter !== undefined && (!Number.isFinite(input.pricePerLiter) || input.pricePerLiter < 0 || input.pricePerLiter > 100)) throw new EmployeeApiError('INVALID_FUEL_PRICE', 'Neteisinga litro kaina.', 400);
+    if (input.totalCost !== undefined && (!Number.isFinite(input.totalCost) || input.totalCost < 0 || input.totalCost > 100_000)) throw new EmployeeApiError('INVALID_FUEL_PRICE', 'Neteisinga pylimo suma.', 400);
     if (input.odometer !== undefined) validateDayOdometer(input.odometer);
 
     const assignmentId = String(assignmentIdInput ?? '').trim();
@@ -2536,7 +2541,9 @@ export class EmployeeAuthStore {
       odometer: roundedOdometer,
       liters,
       pricePerLiter,
-      totalCost: pricePerLiter === null ? null : Math.round(liters * pricePerLiter * 100) / 100,
+      totalCost: input.totalCost !== undefined
+        ? Math.round(input.totalCost * 100) / 100
+        : pricePerLiter === null ? null : Math.round(liters * pricePerLiter * 100) / 100,
       station: optionalText(input.station),
       receiptNumber,
       notes: optionalText(input.notes),
@@ -5364,6 +5371,7 @@ export class EmployeeAuthStore {
     odometer?: number;
     liters?: number;
     pricePerLiter?: number | null;
+    totalCost?: number | null;
     station?: string | null;
     receiptNumber?: string | null;
     notes?: string | null;
@@ -5410,7 +5418,9 @@ export class EmployeeAuthStore {
       odometer,
       liters,
       pricePerLiter,
-      totalCost: pricePerLiter === null ? null : Math.round(liters * pricePerLiter * 100) / 100,
+      totalCost: input.totalCost !== undefined
+        ? input.totalCost === null ? null : Math.round(input.totalCost * 100) / 100
+        : pricePerLiter === null ? current.totalCost : Math.round(liters * pricePerLiter * 100) / 100,
       station: input.station === undefined ? current.station : optionalText(input.station),
       receiptNumber: input.receiptNumber === undefined ? current.receiptNumber : optionalText(input.receiptNumber),
       notes: input.notes === undefined ? current.notes : optionalText(input.notes),
@@ -6241,6 +6251,7 @@ export function attachDailyCompensation(
 ): ServerTripSheet[] {
   const byDriverAndDate = new Map<string, ServerTripSheet[]>();
   for (const sheet of sheets) {
+    if (isFuelOnlyWorkSheet(sheet)) continue;
     const key = `${sheet.driverId}:${sheet.date}`;
     byDriverAndDate.set(key, [...(byDriverAndDate.get(key) ?? []), sheet]);
   }
@@ -6274,7 +6285,9 @@ export function attachDailyCompensation(
   }
   return sheets.map((sheet) => ({
     ...sheet,
-    compensation: compensationByKey.get(`${sheet.driverId}:${sheet.date}`) ?? null,
+    compensation: isFuelOnlyWorkSheet(sheet)
+      ? null
+      : compensationByKey.get(`${sheet.driverId}:${sheet.date}`) ?? null,
   }));
 }
 

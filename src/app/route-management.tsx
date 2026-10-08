@@ -196,6 +196,10 @@ export default function RouteManagementScreen() {
   };
   const assign = async () => {
     if (busy || !selectedRoute || !selectedDriver || !selectedVehicle) return;
+    if (activeAssignments.some((item) => item.routeId === selectedRoute.id && !['completed', 'cancelled'].includes(item.status))) {
+      setMessage('Šis maršrutas jau priskirtas. Pakartotinis paspaudimas dublio nekuria.');
+      return;
+    }
     if (selectedRoute.status !== 'planned') {
       setMessage('Pirmiausia užbaikite maršruto planavimą ir pasirinkite variantą.');
       return;
@@ -605,11 +609,11 @@ export default function RouteManagementScreen() {
           </Pressable>
         </View> : null}
 
-        {!assignmentCompleted && !selectedRoute && activeSegment === 'routes' ? <View style={styles.routeSelectionPanel} testID="route-first-selection">
+        {!assignmentCompleted && activeSegment === 'routes' ? <View style={styles.routeSelectionPanel} testID="route-first-selection">
           <View style={styles.formHeading}>
             <View style={styles.formHeadingText}>
               <Text style={styles.panelTitle}>Pasirinkite maršrutą</Text>
-              <Text style={styles.panelHint}>Pirmiausia pasirinkite darbą. Vairuotoją ir automobilį priskirsite kitame žingsnyje.</Text>
+              <Text style={styles.panelHint}>Pasirinkite maršrutą, tada vairuotoją ir automobilį. Priskyrimas išsaugomas vienu mygtuku.</Text>
             </View>
             <Text style={styles.stepBadge}>{operationalRoutes.length} maršrutai</Text>
           </View>
@@ -632,7 +636,7 @@ export default function RouteManagementScreen() {
               const canCancel = ['loading', 'loaded', 'in_progress'].includes(route.status);
               const menuOpen = openCardMenuId === route.id;
               const primary = canAssign
-                ? { key: 'assign', label: 'Priskirti', onPress: () => selectRoute(route.id) }
+                ? { key: 'assign', label: selectedRouteId === route.id ? 'Pasirinkta' : 'Pasirinkti', onPress: () => selectRoute(route.id) }
                 : canComplete
                   ? { key: 'complete', label: 'Užbaigti', onPress: () => completeLocalRoute(route) }
                   : { key: 'view', label: 'Peržiūrėti', onPress: () => router.push({ pathname: '/route/[id]/overview', params: { id: route.id, mode: 'management' } } as Href) };
@@ -642,7 +646,7 @@ export default function RouteManagementScreen() {
               if (primary.key !== 'complete' && canComplete) overflow.push({ key: 'complete', label: 'Užbaigti', onPress: () => completeLocalRoute(route) });
               if (canCancel) overflow.push({ key: 'cancel', label: 'Atšaukti maršrutą', danger: true, onPress: () => cancelRoute(route) });
               if (canDelete) overflow.push({ key: 'delete', label: 'Ištrinti', danger: true, onPress: () => deleteRoute(route) });
-              return <View key={route.id} style={[styles.routeChoiceCard, desktop && styles.routeChoiceCardDesktop, menuOpen && styles.cardMenuOpen]} testID={`route-choice-card-${route.id}`}>
+              return <View key={route.id} style={[styles.routeChoiceCard, desktop && styles.routeChoiceCardDesktop, menuOpen && styles.cardMenuOpen, selectedRouteId === route.id && styles.routeChoiceCardSelected]} testID={`route-choice-card-${route.id}`}>
                 <View style={styles.routeCardTop}>
                   <View style={styles.routeTitleBlock}>
                     <Text style={styles.routeCode}>{routeCodesLabel(route.route_codes)}</Text>
@@ -763,7 +767,7 @@ export default function RouteManagementScreen() {
         {!assignmentCompleted && selectedRoute ? <View style={styles.assignmentForm} testID="route-assignment-form">
           <View style={styles.formHeading}>
             <View style={styles.formHeadingText}>
-              <Text style={styles.panelTitle}>Priskirti pasirinktą maršrutą</Text>
+              <Text style={styles.panelTitle}>Vairuotojas ir automobilis</Text>
               <Text style={styles.panelHint}>{routeCodesLabel(selectedRoute.route_codes)} · {formatDate(selectedRoute.date)} · {selectedRoute.total_stops} taškų · {Math.round(selectedRoute.total_weight_kg)} kg · {formatKm(selectedRoute.estimated_distance_km)}</Text>
             </View>
             <Pressable style={styles.changeRouteButton} onPress={() => selectRoute(null)}><Text style={styles.changeRouteText}>Keisti maršrutą</Text></Pressable>
@@ -1015,6 +1019,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   activeAssignmentActions: { flexDirection: 'row', flexWrap: 'nowrap', alignItems: 'center', gap: spacing.sm, width: '100%' },
   routeChoiceGrid: { gap: spacing.md, width: '100%' },
   routeChoiceGridDesktop: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start' },
+  routeChoiceCardSelected: { borderColor: colors.info, borderWidth: 2 },
   routeChoiceCard: { width: '100%', maxWidth: '100%', padding: spacing.lg, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, gap: spacing.sm, overflow: 'visible', zIndex: 1 },
   routeChoiceCardDesktop: { flexGrow: 1, flexBasis: 360, minWidth: 280, width: 'auto' },
   routeTitleBlock: { flex: 1, minWidth: 0, gap: 2 },
