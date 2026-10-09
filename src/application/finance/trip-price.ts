@@ -1,29 +1,45 @@
 import {
   applyActualFuelMoney,
-  DEFAULT_ROUTE_PRICE_SETTINGS,
   estimatePreliminaryRoutePrice,
   isFinalTripCost,
   type PreliminaryRoutePrice,
   type RoutePriceSettings,
 } from '@/application/routes/route-price';
-import type { ServerTripSheet } from '@/infrastructure/auth/employee-session';
+import { allocateFuelMoney, type FuelMoneyEntry } from '@/application/routes/fuel-entry-money';
+import type { ServerFuelEntry, ServerTripSheet } from '@/infrastructure/auth/employee-session';
 
 export type PricedTripSheet = {
   sheet: ServerTripSheet;
   price: PreliminaryRoutePrice & { fuelCostKnown: boolean };
   final: boolean;
+  /** Fills in the period that had neither a receipt total nor a litre price. */
+  fuelUnpricedCount: number;
 };
 
+function moneyEntry(entry: ServerFuelEntry): FuelMoneyEntry {
+  return {
+    id: entry.id,
+    liters: entry.liters,
+    pricePerLiter: entry.pricePerLiter,
+    totalCost: entry.totalCost,
+    vehicleId: entry.vehicleId,
+    tripSheetId: entry.tripSheetId,
+  };
+}
+
 /**
- * Trip cost for "Reiso kaina". Fuel is always the norm formula:
- * km × vehicle norm / 100 litres × the litre price saved for the trip's year
- * and month (none saved → unknown, never another year's price). Receipt
- * totals stay in fuel history and accounting; they are not the trip's fuel cost.
- *
- * `settings === null` means the saved settings could not be loaded. Fuel is
- * then unknown ("—") instead of silently using the built-in tariff.
+ * Trip cost for "Reiso kaina". Fuel is the money actually poured:
+ * receipt total, otherwise litres × that fill's litre price. A missing
+ * price stays unknown. The monthly tariff is not used as a fuel guess.
+ * Road, insurance, driver and overhead stay on the existing estimate.
  */
 export function priceTripSheets(sheets: readonly ServerTripSheet[], settings: RoutePriceSettings | null): PricedTripSheet[] {
+  const allocation = allocateFuelMoney(sheets.map((sheet) => ({
+    id: sheet.id,
+    date: sheet.date,
+    vehicleId: sheet.vehicle?.id ?? null,
+    fuelEntries: sheet.fuelEntries.map(moneyEntry),
+  })));
   return sheets.flatMap((sheet) => {
     if (!sheet.vehicle) return [];
     const price = estimatePreliminaryRoutePrice({
@@ -34,11 +50,10 @@ export function priceTripSheets(sheets: readonly ServerTripSheet[], settings: Ro
       driverName: sheet.driverName,
       vehicle: { registrationNumber: sheet.vehicle.registrationNumber, maximumPayloadKg: sheet.vehicle.maximumPayloadKg },
       fuelNormLitersPer100Km: sheet.fuelNormLitersPer100Km,
-    }, settings ?? DEFAULT_ROUTE_PRICE_SETTINGS);
+    }, settings ?? undefined);
     if (!price) return [];
-    const priced = settings !== null && price.fuelPriceKnown
-      ? { ...price, fuelCostKnown: true }
-      : applyActualFuelMoney(price, null);
-    return [{ sheet, price: priced, final: isFinalTripCost(sheet) }];
+    const fuel = allocation.bySheetId.get(sheet.id);
+    const priced = applyActualFuelMoney(price, fuel?.moneyEur ?? null);
+    return [{ sheet, price: priced, final: isFinalTripCost(sheet), fuelUnpricedCount: fuel?.unpricedCount ?? 0 }];
   }).sort((left, right) => right.sheet.date.localeCompare(left.sheet.date));
 }

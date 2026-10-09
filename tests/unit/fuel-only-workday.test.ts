@@ -57,6 +57,14 @@ describe('fuel-only days are not paid work days', () => {
       totalWeightKg: 0,
       totalStops: 4,
     }))).toBe(false);
+    expect(isFuelOnlyWorkSheet({
+      ...sheet({
+        id: 'fill-only',
+        date: '2026-09-08',
+        assignmentId: 'assignment-fill',
+      }),
+      hasFuelEntries: true,
+    })).toBe(true);
   });
 
   it('does not pay the 23 euro base or count a fuel-only day as a route', () => {

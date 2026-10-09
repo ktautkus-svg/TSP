@@ -11,6 +11,8 @@ export type FuelOnlySheet = {
   totalStops: number;
   totalWeightKg: number;
   startAddress?: string | null;
+  /** Present when the sheet exists because fuel was poured. */
+  hasFuelEntries?: boolean;
 };
 
 function moved(sheet: FuelOnlySheet): boolean {
@@ -35,7 +37,8 @@ export function isFuelOnlyWorkSheet(sheet: FuelOnlySheet): boolean {
   const vehicleDay = parseVehicleDayAssignmentId(sheet.assignmentId) !== null
     || (sheet.routeId ? parseVehicleDayAssignmentId(sheet.routeId) !== null : false);
   const labeledFuel = sheet.startAddress === 'Kuro pylimas';
-  if (!vehicleDay && !labeledFuel) return false;
+  const fuelRecord = labeledFuel || sheet.hasFuelEntries === true;
+  if (!vehicleDay && !fuelRecord) return false;
   if (sheet.routeNumbers.some((code) => code.trim().length > 0)) return false;
   if (sheet.totalStops > 0 || sheet.totalWeightKg > 0) return false;
   if (moved(sheet)) return false;

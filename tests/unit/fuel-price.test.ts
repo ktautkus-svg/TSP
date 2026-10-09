@@ -108,34 +108,37 @@ describe('litre price valid for a date', () => {
 });
 
 describe('Reiso kaina fuel', () => {
-  it('prices the trip by the norm formula with the saved price, not the built-in ~1 €/l tariff or receipts', () => {
-    const receipt = fuelEntry({ totalCost: 50, pricePerLiter: 1.5, liters: 33.33 });
+  it('uses the receipt total and does not show poured litres as euros', () => {
+    const receipt = fuelEntry({ totalCost: 50, pricePerLiter: 1.5, liters: 83 });
     const [trip] = priceTripSheets([nllTrip({ fuelEntries: [receipt] })], SAVED);
     expect(trip!.price.fuelCostKnown).toBe(true);
-    expect(trip!.price.fuelLiters).toBe(70.36);
-    expect(trip!.price.fuelPricePerLiter).toBe(1.93);
-    expect(trip!.price.fuelCostEur).toBe(135.79);
-    // The built-in default for October is 1,13 €/l — the old screen used it.
-    expect(DEFAULT_ROUTE_PRICE_SETTINGS.fuelPriceByYearMonth['2026-10']).toBe(1.13);
-    expect(trip!.price.fuelCostEur).not.toBe(Math.round(70.356 * 1.13 * 100) / 100);
-    // Fuel is part of the trip total.
-    expect(trip!.price.totalEur).toBeGreaterThan(trip!.price.fuelCostEur);
+    expect(trip!.price.fuelCostEur).toBe(50);
+    expect(trip!.price.fuelCostEur).not.toBe(83);
+    expect(trip!.price.driverCostEur).toBeGreaterThan(0);
   });
 
-  it('prefers the vehicle norm on the trip sheet over the registration table', () => {
-    const [trip] = priceTripSheets([nllTrip({ fuelNormLitersPer100Km: 15 })], SAVED);
-    expect(trip!.price.fuelLiters).toBe(79.95);
-    expect(trip!.price.fuelCostEur).toBe(154.3);
+  it('multiplies litres by the fill price when the receipt total is missing', () => {
+    const [trip] = priceTripSheets([nllTrip({ fuelEntries: [fuelEntry({ totalCost: null, pricePerLiter: 1.5, liters: 40 })] })], SAVED);
+    expect(trip!.price.fuelCostEur).toBe(60);
   });
 
-  it('shows fuel as unknown, outside the total, when the saved prices could not be loaded', () => {
-    const [known] = priceTripSheets([nllTrip()], SAVED);
-    const [unknown] = priceTripSheets([nllTrip()], null);
+  it('shows fuel as unknown, outside the total, when the fill has no price', () => {
+    const [known] = priceTripSheets([nllTrip({ fuelEntries: [fuelEntry({ totalCost: 50 })] })], SAVED);
+    const [unknown] = priceTripSheets([nllTrip({ fuelEntries: [fuelEntry({ totalCost: null, pricePerLiter: null })] })], SAVED);
     expect(unknown!.price.fuelCostKnown).toBe(false);
     expect(unknown!.price.fuelCostEur).toBe(0);
-    expect(unknown!.price.fuelLiters).toBe(70.36);
     expect(unknown!.price.totalEur).toBeLessThan(known!.price.totalEur);
     expect(unknown!.price.assumptions).toContain('Kuro piniginė suma nežinoma');
+  });
+
+  it('counts several fills once and keeps the period total equal to the split', () => {
+    const shared = fuelEntry({ id: 'shared', totalCost: 60, liters: 40 });
+    const second = fuelEntry({ id: 'second', totalCost: 12, liters: 10, tripSheetId: 'trip-2' });
+    const [first, other] = priceTripSheets([
+      nllTrip({ id: 'trip-1', fuelEntries: [shared, shared] }),
+      nllTrip({ id: 'trip-2', date: '2026-10-06', fuelEntries: [shared, second] }),
+    ], SAVED);
+    expect(first!.price.fuelCostEur + other!.price.fuelCostEur).toBe(72);
   });
 });
 

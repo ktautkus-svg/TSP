@@ -104,9 +104,7 @@ export default function RoutePriceScreen() {
 
         {error ? <Text accessibilityRole="alert" style={styles.warning}>{error}</Text> : null}
         {!busy && unknownFuelCount > 0 ? <Text accessibilityRole="alert" style={styles.warning} testID="route-price-fuel-unknown">
-          {priceSettings
-            ? `Kuro kaina nežinoma ${unknownFuelCount} ${unknownFuelCount === 1 ? 'reisui' : 'reisams'}: tų metų mėnesiui neįvesta litro kaina. Kuras rodomas „—“ ir į sumą neįskaičiuotas.`
-            : 'Litro kainų parametrų gauti nepavyko. Kuras rodomas „—“ ir į sumą neįskaičiuotas.'}
+          {`Kuro piniginė suma nežinoma ${unknownFuelCount} ${unknownFuelCount === 1 ? 'reisui' : 'reisams'}: pylime nėra bendros sumos ir litro kainos. Litrai nerodomi kaip eurai ir į sumą neįskaičiuoti.`}
         </Text> : null}
         {busy ? <ActivityIndicator color={colors.info} size="large" /> : null}
 
@@ -127,8 +125,9 @@ export default function RoutePriceScreen() {
             <Text style={[styles.headerCell, styles.colPlate]}>Mašinos nr</Text>
             <Text style={[styles.headerCell, styles.colPrice]}>Kaina</Text>
           </View>
-          {priced.map(({ sheet, price, final }) => {
+          {priced.map(({ sheet, price, final, fuelUnpricedCount }) => {
             const expanded = expandedId === sheet.id;
+            const poured = sheet.fuelEntries.reduce((sum, entry) => sum + (Number.isFinite(entry.liters) ? entry.liters : 0), 0);
             return <View key={sheet.id} style={styles.rowCard} testID={`route-price-row-${sheet.id}`}>
               <Pressable
                 accessibilityRole="button"
@@ -150,12 +149,13 @@ export default function RoutePriceScreen() {
                 <DetailLine label="Km" value={kmFormatter.format(sheet.actualDistanceKm ?? sheet.plannedDistanceKm ?? 0)} styles={styles} />
                 <DetailLine
                   label={price.fuelCostKnown
-                    ? `Kuras · ${litersFormatter.format(price.fuelLiters)} l × ${eur2Formatter.format(price.fuelPricePerLiter ?? 0)}/l`
-                    : `Kuras · ${litersFormatter.format(price.fuelLiters)} l · litro kaina nežinoma`}
+                    ? `Kuras · piniginė pylimų suma${poured > 0 ? ` · ${litersFormatter.format(poured)} l` : ''}`
+                    : 'Kuras · piniginė suma nežinoma'}
                   value={price.fuelCostKnown ? eur2Formatter.format(price.fuelCostEur) : '—'}
                   styles={styles}
                   testID={`route-price-fuel-${sheet.id}`}
                 />
+                {fuelUnpricedCount > 0 ? <Text style={styles.detailNote}>Dalis pylimų neturi kainos ir į eurų sumą neįtraukta.</Text> : null}
                 <DetailLine label="Keliai + draudimas" value={eurFormatter.format(price.roadCostEur + price.insuranceCostEur)} styles={styles} />
                 <DetailLine label="Vairuotojas" value={eurFormatter.format(price.driverCostEur)} styles={styles} />
                 <DetailLine label="Rezervas" value={eurFormatter.format(price.overheadEur)} styles={styles} />
@@ -177,7 +177,7 @@ export default function RoutePriceScreen() {
         {!busy && skippedCount > 0 ? <Text style={styles.meta}>{skippedCount} {skippedCount === 1 ? 'reisas' : 'reisai'} praleisti — trūksta automobilio arba nuvažiuoto atstumo.</Text> : null}
 
         <Text style={styles.disclaimer}>
-          Preliminarinė reiso kaina — įvertis pagal tuos pačius tarifus, kuriuos dispečeris mato planuodamas maršrutą (kuro norma, kelių mokestis, draudimas, vairuotojo sutartis, rezervas). Galutinė — kai maršrutas užbaigtas ir įvestas odometras. Tai NĖRA buhalterinė suma — tikslinkite tarifus, jei jie pasikeitė.
+          Preliminarinė reiso kaina — keliai, draudimas, vairuotojas ir rezervas pagal tarifus. Kuro suma imama iš pylimo čekio arba litrų × litro kainos. Be kainos kuras rodomas „—“ ir į sumą neįtraukiamas. Litrai niekada nerodomi kaip eurai.
         </Text>
 
         <Pressable
