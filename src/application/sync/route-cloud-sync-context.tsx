@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { AppState, Platform } from 'react-native';
 import { useSQLiteContext } from 'expo-sqlite';
 
+import { syncLearnedCoordinates } from '@/application/location/learned-coordinate-sync';
 import { syncRoutesWithCloud } from '@/application/sync/route-cloud-sync';
 import {
   RouteCloudSyncCoordinator,
@@ -33,7 +34,11 @@ export function RouteCloudSyncProvider({ children }: { children: ReactNode }) {
   const { profile, demo } = useLocalAccess();
   const [state, setState] = useState<RouteCloudSyncState>(initialState);
   const coordinator = useMemo(() => new RouteCloudSyncCoordinator({
-    sync: () => syncRoutesWithCloud(db),
+    sync: async () => {
+      const result = await syncRoutesWithCloud(db);
+      await syncLearnedCoordinates(db).catch(() => undefined);
+      return result;
+    },
     initialOnline: !browserIsOffline(),
     onStateChange: setState,
   }), [db]);

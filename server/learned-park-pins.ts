@@ -1,5 +1,11 @@
 import { Firestore } from '@google-cloud/firestore';
 
+import {
+  mergeLearnedCoordinate,
+  normalizeLearnedCoordinate,
+  type LearnedCoordinateMergeOutcome,
+} from '../src/domain/learned-coordinate-sync.js';
+
 export type LearnedCoordinateSample = {
   address: string;
   normalizedAddress: string;
@@ -20,14 +26,6 @@ export type LearnedCoordinateSample = {
   updatedAt?: string | null;
 };
 
-function keepNewer(existingUpdatedAt: string | null | undefined, incomingUpdatedAt: string): boolean {
-  if (!existingUpdatedAt) return false;
-  const existing = Date.parse(existingUpdatedAt);
-  const incoming = Date.parse(incomingUpdatedAt);
-  if (!Number.isFinite(existing) || !Number.isFinite(incoming)) return false;
-  return existing > incoming;
-}
-
 const COLLECTION = 'tsp_learned_park_pins';
 
 export class LearnedParkPinStore {
@@ -38,21 +36,31 @@ export class LearnedParkPinStore {
     return snapshot.docs.map((doc) => doc.data() as LearnedCoordinateSample);
   }
 
-  async upsert(sample: LearnedCoordinateSample, actor: string): Promise<LearnedCoordinateSample> {
-    const id = sample.normalizedAddress.trim().toLowerCase();
-    const ref = this.pins.doc(id);
+  async upsert(sample: LearnedCoordinateSample | Record<string, unknown>, actor: string): Promise<LearnedCoordinateMergeOutcome> {
+    const incoming = normalizeLearnedCoordinate(sample as Record<string, unknown>, actor);
+    if (!incoming) {
+      throw new Error('Išmoktai koordinatei reikia adreso.');
+    }
+    const ref = this.pins.doc(incoming.canonicalId);
     const existing = await ref.get();
-    const incomingAt = sample.updatedAt ?? sample.lastSampledAt ?? new Date().toISOString();
-    const current = existing.data() as LearnedCoordinateSample | undefined;
-    if (current && keepNewer(current.updatedAt ?? current.lastSampledAt, incomingAt)) return current;
-    const stored: LearnedCoordinateSample = { ...sample, updatedAt: incomingAt, deviceId: sample.deviceId ?? actor };
-    await ref.set(stored);
-    return stored;
+    const current = existing.exists ? normalizeLearnedCoordinate(existing.data() as Record<string, unknown>, actor) : null;
+    const outcome = mergeLearnedCoordinate(current, incoming);
+    if (outcome.applied) await ref.set(outcome.record);
+    return outcome;
+  }
+
+  async sync(samples: (LearnedCoordinateSample | Record<string, unknown>)[], actor: string): Promise<LearnedCoordinateMergeOutcome[]> {
+    const results: LearnedCoordinateMergeOutcome[] = [];
+    for (const sample of samples.slice(0, 200)) {
+      results.push(await this.upsert(sample, actor));
+    }
+    return results;
   }
 
   async remove(normalizedAddress: string): Promise<boolean> {
     const id = normalizedAddress.trim().toLowerCase();
-    const ref = this.pins.doc(id);
+    const canonical = normalizeLearnedCoordinate({ address: normalizedAddress, normalizedAddress }, 'admin')?.canonicalId ?? id;
+    const ref = this.pins.doc(canonical);
     const existing = await ref.get();
     if (!existing.exists) return false;
     const current = existing.data() as LearnedCoordinateSample;

@@ -13,6 +13,7 @@ import { launchNavigation } from '@/application/navigation/navigation-launcher';
 import { buildNavigationUrls, navigationTargetFromStop } from '@/application/navigation/navigation-url-builder';
 import { isRecentGpsSample, readRecentDeviceGpsFix, watchDeviceGps } from '@/application/location/device-gps';
 import { forgetParkPin, hydrateStopParkPins } from '@/application/location/remember-park-pin';
+import { LocationPermissionPrompt } from '@/components/location-permission-prompt';
 import { callPhone } from '@/application/operations/call-phone';
 import { calculateCompositeRouteProgress } from '@/application/routes/composite-route-progress';
 import {
@@ -949,6 +950,9 @@ export default function DeliveryScreen() {
         <View style={[styles.routeContent, wideLayout && styles.routeContentWide]}>
           {redirectReason ? <Text style={styles.notice}>Maršrutas jau pradėtas. Grąžinome į vykdomą maršrutą.</Text> : null}
           {error ? <Text style={styles.error}>{error}</Text> : null}
+          <LocationPermissionPrompt onGranted={() => {
+            void watchDeviceGps((sample) => { gpsFixRef.current = sample; });
+          }} />
           {activeView === 'stops' && progress ? (
             <View style={styles.stopsProgress} testID="driver-day-progress">
               <Pressable

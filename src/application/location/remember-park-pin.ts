@@ -38,8 +38,18 @@ export async function rememberParkPinFromGps(
     nowMs: Date.parse(now) || Date.now(),
   });
   if (!decision.accepted) return decision;
-  await memory.save(address, decision.pin, now);
+  await memory.save(address, decision.pin, now, {
+    originalAddress: stop.originalAddress,
+    normalizedAddress: stop.normalizedAddress,
+    geocodeLatitude: stop.latitude,
+    geocodeLongitude: stop.longitude,
+    syncStatus: 'pending',
+  });
   await writeParkPinOntoMatchingStops(db, stop.routeId, address, decision.pin, now);
+  // Server sync must not block or roll back a completed delivery.
+  void import('./learned-coordinate-sync')
+    .then((sync) => sync.publishLearnedCoordinate(db, stop, decision.pin))
+    .catch(() => undefined);
   return decision;
 }
 
@@ -139,4 +149,22 @@ function withParkPin<T extends StopParkAddress>(stop: T, pin: LearnedParkPin): T
     parkSampleCount: pin.sampleCount,
     parkSampledAt: pin.lastSampledAt,
   };
+}
+
+export async function applyParkPinToAddress(
+  db: SQLiteDatabase,
+  address: string,
+  pin: LearnedParkPin | null,
+  now = new Date().toISOString(),
+): Promise<void> {
+  const keys = new Set(addressMemoryKeys(address));
+  if (keys.size === 0) return;
+  const rows = await db.getAllAsync<{ id: string; route_id: string; original_address: string; normalized_address: string | null }>(
+    'SELECT id, route_id, original_address, normalized_address FROM delivery_stops',
+  );
+  for (const row of rows) {
+    const stopKeys = addressMemoryKeys(row.normalized_address ?? row.original_address);
+    if (!stopKeys.some((key) => keys.has(key))) continue;
+    await writeParkPinOntoMatchingStops(db, row.route_id, address, pin, now);
+  }
 }

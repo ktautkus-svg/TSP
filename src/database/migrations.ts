@@ -1362,6 +1362,29 @@ export async function ensureParkMemorySchema(db: SQLiteDatabase): Promise<void> 
     if (names.has(column.name)) continue;
     await db.execAsync(`ALTER TABLE delivery_stops ADD COLUMN ${column.name} ${column.sqlType};`);
   }
+  await ensureLearnedCoordinateSyncColumns(db);
+}
+
+const LEARNED_SYNC_COLUMNS = [
+  { name: 'original_address', sqlType: 'TEXT' },
+  { name: 'normalized_address', sqlType: 'TEXT' },
+  { name: 'geocode_latitude', sqlType: 'REAL' },
+  { name: 'geocode_longitude', sqlType: 'REAL' },
+  { name: 'sync_status', sqlType: 'TEXT' },
+  { name: 'sample_key', sqlType: 'TEXT' },
+  { name: 'synced_sample_key', sqlType: 'TEXT' },
+  { name: 'server_version', sqlType: 'INTEGER' },
+] as const;
+
+/** Idempotent sync metadata. Existing park pins stay; nothing is deleted. */
+export async function ensureLearnedCoordinateSyncColumns(db: SQLiteDatabase): Promise<void> {
+  const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(location_park_memory)');
+  const names = new Set(columns.map((column) => column.name));
+  if (names.size === 0) return;
+  for (const column of LEARNED_SYNC_COLUMNS) {
+    if (names.has(column.name)) continue;
+    await db.execAsync(`ALTER TABLE location_park_memory ADD COLUMN ${column.name} ${column.sqlType};`);
+  }
 }
 
 export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {

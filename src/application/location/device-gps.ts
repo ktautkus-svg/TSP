@@ -63,6 +63,35 @@ export function toGpsSample(location: LocationObject): GpsSample | null {
   };
 }
 
+
+/** System permission dialog. Only call this from an explicit user action. */
+export async function requestDeviceLocationPermission(): Promise<'granted' | 'denied' | 'prompt' | 'unavailable'> {
+  const Location = await loadLocationModule();
+  if (!Location) return 'unavailable';
+  try {
+    const existing = await Location.getForegroundPermissionsAsync();
+    if (existing.status === 'granted') {
+      permissionDenied = false;
+      return 'granted';
+    }
+    if (existing.status === 'denied' || permissionDenied) {
+      permissionDenied = true;
+      return 'denied';
+    }
+    const requested = await Location.requestForegroundPermissionsAsync();
+    if (requested.status === 'granted') {
+      permissionDenied = false;
+      return 'granted';
+    }
+    permissionDenied = true;
+    return requested.status === 'denied' ? 'denied' : 'prompt';
+  } catch (reason) {
+    devWarn('DEVICE_GPS_PERMISSION_REQUEST_FAILED', reason);
+    permissionDenied = false;
+    return 'unavailable';
+  }
+}
+
 export function isRecentGpsSample(sample: GpsSample | null | undefined, nowMs = Date.now()): sample is GpsSample {
   return Boolean(sample && nowMs - sample.capturedAtMs <= PARK_PIN_MAX_AGE_MS);
 }
@@ -76,18 +105,12 @@ export async function readRecentDeviceGpsFix(nowMs = Date.now()): Promise<GpsSam
   if (!Location) return null;
   try {
     const existing = await Location.getForegroundPermissionsAsync();
-    let status = existing.status;
-    if (status !== 'granted') {
-      if (status === 'denied' || permissionDenied) {
-        permissionDenied = true;
-        return null;
-      }
-      const requested = await Location.requestForegroundPermissionsAsync();
-      status = requested.status;
-      if (status !== 'granted') {
-        permissionDenied = true;
-        return null;
-      }
+    // Never raise the system dialog from a GPS read. Delivery used to call
+    // this at every stop, which repeated the browser prompt. The system
+    // dialog opens only from requestDeviceLocationPermission after a tap.
+    if (existing.status !== 'granted' || permissionDenied) {
+      if (existing.status === 'denied') permissionDenied = true;
+      return null;
     }
     permissionDenied = false;
     const last = await Location.getLastKnownPositionAsync();

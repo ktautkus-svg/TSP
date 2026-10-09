@@ -873,8 +873,8 @@ export async function handleEmployeeApi(
     if (pathname === '/api/admin/learned-coordinates' && request.method === 'PUT') {
       requireRole(profile, ['admin', 'dispatcher', 'driver']);
       const body = parseObject(await readBody(request, 16_000));
-      const pin = await learnedParkPins.upsert(body as never, profile.id);
-      return send(response, 200, { pin }, requestId);
+      const outcome = await learnedParkPins.upsert(body, profile.id);
+      return send(response, 200, { pin: outcome.record, applied: outcome.applied, reason: outcome.reason }, requestId);
     }
     if (pathname === '/api/admin/learned-coordinates' && request.method === 'DELETE') {
       requireRole(profile, ['admin']);
@@ -885,6 +885,13 @@ export async function handleEmployeeApi(
     if (pathname === '/api/learned-coordinates' && request.method === 'GET') {
       requireRole(profile, ['admin', 'dispatcher', 'driver']);
       return send(response, 200, { pins: await learnedParkPins.list() }, requestId);
+    }
+    if (pathname === '/api/learned-coordinates' && request.method === 'POST') {
+      requireRole(profile, ['admin', 'dispatcher', 'driver']);
+      const body = parseObject(await readBody(request, 64_000));
+      const pins = Array.isArray(body.pins) ? body.pins as Record<string, unknown>[] : [body];
+      const results = await learnedParkPins.sync(pins, profile.id);
+      return send(response, 200, { results, pins: results.map((item) => item.record) }, requestId);
     }
 
     send(response, 404, { error: { code: 'NOT_FOUND', message: 'API veiksmas nerastas.' } }, requestId);
