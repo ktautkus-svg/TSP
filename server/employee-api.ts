@@ -18,9 +18,11 @@ import {
 } from './employee-auth-store.js';
 import { FirestoreMailConnectionRepository } from './mail-connection-store.js';
 import { handleMailImport, mailErrorStatus } from './mail-import-api.js';
+import { LearnedParkPinStore } from './learned-park-pins.js';
 import { RouteSyncStore, type RouteSyncPushItem } from './route-sync-store.js';
 
 const store = new EmployeeAuthStore();
+const learnedParkPins = new LearnedParkPinStore();
 const routeSyncStore = new RouteSyncStore();
 const mailConnections = new FirestoreMailConnectionRepository();
 const bootstrapNonces = new GatewayNonceRegistry();
@@ -864,6 +866,27 @@ export async function handleEmployeeApi(
       return send(response, 200, { assignment }, requestId);
     }
 
+    if (pathname === '/api/admin/learned-coordinates' && request.method === 'GET') {
+      requireRole(profile, ['admin']);
+      return send(response, 200, { pins: await learnedParkPins.list() }, requestId);
+    }
+    if (pathname === '/api/admin/learned-coordinates' && request.method === 'PUT') {
+      requireRole(profile, ['admin', 'dispatcher', 'driver']);
+      const body = parseObject(await readBody(request, 16_000));
+      const pin = await learnedParkPins.upsert(body as never, profile.id);
+      return send(response, 200, { pin }, requestId);
+    }
+    if (pathname === '/api/admin/learned-coordinates' && request.method === 'DELETE') {
+      requireRole(profile, ['admin']);
+      const body = parseObject(await readBody(request, 4_000));
+      const removed = await learnedParkPins.remove(stringField(body, 'normalizedAddress'));
+      return send(response, 200, { removed }, requestId);
+    }
+    if (pathname === '/api/learned-coordinates' && request.method === 'GET') {
+      requireRole(profile, ['admin', 'dispatcher', 'driver']);
+      return send(response, 200, { pins: await learnedParkPins.list() }, requestId);
+    }
+
     send(response, 404, { error: { code: 'NOT_FOUND', message: 'API veiksmas nerastas.' } }, requestId);
     return true;
   } catch (error) {
@@ -894,6 +917,7 @@ export function isEmployeePath(pathname: string): boolean {
     || pathname.startsWith('/api/trip-sheets')
     || pathname.startsWith('/api/fuel-entries')
     || pathname.startsWith('/api/fuel-status')
+    || pathname.startsWith('/api/learned-coordinates')
     || pathname.startsWith('/api/operations/')
     || pathname.startsWith('/api/quality/')
     || pathname.startsWith('/api/route-sync')
