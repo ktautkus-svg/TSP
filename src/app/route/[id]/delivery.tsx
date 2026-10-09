@@ -1455,7 +1455,7 @@ export default function DeliveryScreen() {
                   setActiveMenuExpanded(false);
                   setActiveView('stops');
                 }}>
-                <Text style={styles.menuSubitemText}>Likusios stotelės</Text>
+                <Text style={styles.menuSubitemText}>Perskaičiuoti nuo dabartinio</Text>
               </Pressable> : null}
               <Pressable accessibilityLabel={route?.completionStartedAt ? 'Tęsti užbaigimą' : 'Baigti maršrutą'} disabled={busy} style={[styles.menuSubitem, busy && styles.disabled]} onPress={() => { setMenuOpen(false); setActiveMenuExpanded(false); void beginFinish(); }}><Text style={styles.menuSubitemText}>Baigti maršrutą</Text></Pressable>
               {stops.some((stop) => stop.deliveryStatus === 'pending') ? <Pressable disabled={busy} testID="mark-all-delivered-button" style={[styles.menuSubitem, busy && styles.disabled]} onPress={() => { setMenuOpen(false); setActiveMenuExpanded(false); markAllRemainingDelivered(); }}><Text style={styles.menuSubitemText}>Pažymėti visus pristatytais</Text></Pressable> : null}

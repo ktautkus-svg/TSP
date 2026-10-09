@@ -226,7 +226,7 @@ export default function HomeScreen() {
                   <GroupedMenuRow description="Vietos, navigacija ir programėlė." icon={<MenuArtwork kind="settings" />} onPress={() => router.push('/settings' as Href)} title="Nustatymai" tone="neutral" />
               </GroupedMenuSection></View>
             </View>
-          ) : showDriverDashboard ? (loading || postLogin.kind === 'wait' ? (
+          ) : showDriverDashboard ? (loading || routeSync === 'pending' || postLogin.kind === 'wait' ? (
             <View style={styles.loadingState} testID="home-loading-state"><ActivityIndicator color={colors.primary} size="large" /></View>
           ) : postLogin.kind === 'unavailable' ? (
             <AppCard style={styles.emptyCard} testID="home-route-sync-failed">
