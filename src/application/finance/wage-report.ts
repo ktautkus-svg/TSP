@@ -170,7 +170,7 @@ export function aggregateWageDays(
   const fuelOnlyByDay = new Map<string, ServerTripSheet[]>();
   for (const sheet of sheets) {
     const key = `${sheet.driverId}:${sheet.date}`;
-    if (isFuelOnlyWorkSheet({ ...sheet, hasFuelEntries: sheet.fuelEntries.length > 0 })) {
+    if (isFuelOnlyWorkSheet({ ...sheet, hasFuelEntries: (sheet.fuelEntries ?? []).length > 0 })) {
       fuelOnlyByDay.set(key, [...(fuelOnlyByDay.get(key) ?? []), sheet]);
       continue;
     }
@@ -195,7 +195,7 @@ export function aggregateWageDays(
   const countedFuel = new Set<string>();
   for (const day of days.values()) {
     day.sheets = dedupeSheets(day.sheets);
-    const payable = day.sheets.filter((sheet) => !isFuelOnlyWorkSheet({ ...sheet, hasFuelEntries: sheet.fuelEntries.length > 0 }));
+    const payable = day.sheets.filter((sheet) => !isFuelOnlyWorkSheet({ ...sheet, hasFuelEntries: (sheet.fuelEntries ?? []).length > 0 }));
     const compensation = payable.find((sheet) => sheet.compensation)?.compensation ?? null;
     const fromSheets = measured(payable);
     let fuelLiters = 0;

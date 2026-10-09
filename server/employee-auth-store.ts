@@ -6278,7 +6278,7 @@ export function attachDailyCompensation(
 ): ServerTripSheet[] {
   const byDriverAndDate = new Map<string, ServerTripSheet[]>();
   for (const sheet of sheets) {
-    if (isFuelOnlyWorkSheet({ ...sheet, hasFuelEntries: sheet.fuelEntries.length > 0 })) continue;
+    if (isFuelOnlyWorkSheet({ ...sheet, hasFuelEntries: (sheet.fuelEntries ?? []).length > 0 })) continue;
     const key = `${sheet.driverId}:${sheet.date}`;
     byDriverAndDate.set(key, [...(byDriverAndDate.get(key) ?? []), sheet]);
   }
@@ -6312,7 +6312,7 @@ export function attachDailyCompensation(
   }
   return sheets.map((sheet) => ({
     ...sheet,
-    compensation: isFuelOnlyWorkSheet({ ...sheet, hasFuelEntries: sheet.fuelEntries.length > 0 })
+    compensation: isFuelOnlyWorkSheet({ ...sheet, hasFuelEntries: (sheet.fuelEntries ?? []).length > 0 })
       ? null
       : compensationByKey.get(`${sheet.driverId}:${sheet.date}`) ?? null,
   }));

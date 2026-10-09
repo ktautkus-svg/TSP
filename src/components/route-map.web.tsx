@@ -200,6 +200,7 @@ export function RouteMapView({
             </Pressable>
           </View>
         ) : <MapContainer
+          key={orderedStops.map((stop) => stop.id).join('|')}
           center={[startLocation.latitude, startLocation.longitude]}
           zoom={12}
           scrollWheelZoom
