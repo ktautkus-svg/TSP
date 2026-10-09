@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import L from 'leaflet';
 import { MapContainer, Marker, Polyline, TileLayer, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 
+import { mapGeometrySignature, shouldRefitMap } from '@/application/routes/map-camera';
 import { decodePolyline } from '@/domain/routing/evaluation/geo';
 import type { RoutingLocation } from '@/domain/routing/models';
 import { radius, spacing, type } from '@/ui/tokens';
@@ -75,28 +76,53 @@ function WheelZoomGuard() {
   return null;
 }
 
-function FitBounds({ points }: { points: [number, number][] }) {
+function MapCamera({
+  points,
+  signature,
+  fitRequest,
+}: {
+  points: [number, number][];
+  signature: string;
+  fitRequest: number;
+}) {
   const map = useMap();
+  const userAdjusted = useRef(false);
+  const fitting = useRef(false);
+  const fitted = useRef<string | null>(null);
+  const lastRequest = useRef(0);
   useEffect(() => {
-    if (points.length === 0) return;
+    const markAdjusted = () => { if (!fitting.current) userAdjusted.current = true; };
+    map.on('zoomstart', markAdjusted);
+    map.on('dragstart', markAdjusted);
+    return () => {
+      map.off('zoomstart', markAdjusted);
+      map.off('dragstart', markAdjusted);
+    };
+  }, [map]);
+  useEffect(() => {
+    const explicit = fitRequest !== lastRequest.current;
+    if (explicit) {
+      lastRequest.current = fitRequest;
+      userAdjusted.current = false;
+    }
+    if (!shouldRefitMap({
+      previousSignature: fitted.current,
+      nextSignature: signature,
+      userAdjusted: userAdjusted.current,
+      explicit,
+    })) return;
     const fit = () => {
+      fitting.current = true;
       map.invalidateSize({ animate: false });
-      if (points.length === 1) map.setView(points[0], 13);
+      if (points.length === 1) map.setView(points[0]!, 13, { animate: false });
       else map.fitBounds(points, { padding: [28, 28], animate: false });
+      window.setTimeout(() => { fitting.current = false; }, 150);
     };
     fit();
-    const first = window.setTimeout(fit, 80);
-    const second = window.setTimeout(fit, 350);
-    const observer = typeof ResizeObserver === 'undefined'
-      ? null
-      : new ResizeObserver(fit);
-    observer?.observe(map.getContainer());
-    return () => {
-      window.clearTimeout(first);
-      window.clearTimeout(second);
-      observer?.disconnect();
-    };
-  }, [map, points]);
+    fitted.current = signature;
+    const settled = window.setTimeout(fit, 80);
+    return () => window.clearTimeout(settled);
+  }, [fitRequest, map, points, signature]);
   return null;
 }
 
@@ -115,12 +141,13 @@ export function RouteMapView({
   const [tileFailed, setTileFailed] = useState(false);
   const [showFailureDetails, setShowFailureDetails] = useState(false);
   const [tileAttempt, setTileAttempt] = useState(0);
+  const [fitRequest, setFitRequest] = useState(0);
   const { colors } = useTheme();
   const { width } = useWindowDimensions();
   const styles = useMemo(() => createStyles(colors), [colors]);
   // Keep the existing map interaction and reduce only its vertical footprint
   // by roughly one centimetre, leaving page surface available for scrolling.
-  const mapHeight = compact ? 190 : width >= 1024 ? 500 : width >= 720 ? 390 : 330;
+  const mapHeight = compact ? 150 : width >= 1024 ? 500 : width >= 720 ? 390 : 330;
   const routePoints = useMemo(() => (
     encodedPolyline
       ? decodePolyline(encodedPolyline)
@@ -137,6 +164,7 @@ export function RouteMapView({
     ...polylinePositions,
   ] as [number, number][]).filter(([lat, lng]) => Number.isFinite(lat) && Number.isFinite(lng));
 
+  const signature = mapGeometrySignature(allPoints);
   const startIcon = useMemo(() => pinIcon('#10B981', 'S'), []);
   const endIcon = useMemo(() => pinIcon('#EF4444', 'G'), []);
 
@@ -149,7 +177,12 @@ export function RouteMapView({
             {totalDistanceKm.toFixed(1)} km · {Math.round(totalDurationMinutes)} min
           </Text>
         ) : null}
-      </View> : null}
+        <Pressable accessibilityRole="button" onPress={() => setFitRequest((value) => value + 1)} style={styles.retry} testID="show-full-route">
+          <Text style={styles.retryText}>Rodyti visą maršrutą</Text>
+        </Pressable>
+      </View> : <Pressable accessibilityRole="button" onPress={() => setFitRequest((value) => value + 1)} style={styles.retry} testID="show-full-route">
+        <Text style={styles.retryText}>Rodyti visą maršrutą</Text>
+      </Pressable>}
 
       <View style={[styles.canvasContainer, compact && styles.compactCanvas, { height: tileFailed ? 'auto' : mapHeight }]} testID="route-map-canvas">
         {tileFailed ? (
@@ -167,11 +200,8 @@ export function RouteMapView({
             </Pressable>
           </View>
         ) : <MapContainer
-          key={orderedStops.map((stop) => stop.id).join('|')}
           center={[startLocation.latitude, startLocation.longitude]}
           zoom={12}
-          // Left on, but handed to WheelZoomGuard below, which only lets Leaflet
-          // take the wheel while Ctrl (or Cmd) is held.
           scrollWheelZoom
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}>
           <TileLayer
@@ -183,7 +213,7 @@ export function RouteMapView({
             referrerPolicy="strict-origin-when-cross-origin"
           />
           <WheelZoomGuard />
-          <FitBounds points={allPoints} />
+          <MapCamera fitRequest={fitRequest} points={allPoints} signature={signature} />
           {polylinePositions.length > 1 ? (
             <Polyline
               key={polylinePositions.map((point) => point.join(',')).join('|')}
