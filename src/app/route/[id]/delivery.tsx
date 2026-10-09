@@ -1454,10 +1454,8 @@ export default function DeliveryScreen() {
                   setMenuOpen(false);
                   setActiveMenuExpanded(false);
                   setActiveView('stops');
-                  if (recalculationAnchor) void proposeRecalculation(recalculationAnchor.id);
-                  else Alert.alert('Perskaičiuoti dar negalima', 'Pirmiausia pažymėkite bent vieną pristatymą. Esama maršruto seka nekeičiama.');
                 }}>
-                <Text style={styles.menuSubitemText}>Perskaičiuoti nuo dabartinio</Text>
+                <Text style={styles.menuSubitemText}>Likusios stotelės</Text>
               </Pressable> : null}
               <Pressable accessibilityLabel={route?.completionStartedAt ? 'Tęsti užbaigimą' : 'Baigti maršrutą'} disabled={busy} style={[styles.menuSubitem, busy && styles.disabled]} onPress={() => { setMenuOpen(false); setActiveMenuExpanded(false); void beginFinish(); }}><Text style={styles.menuSubitemText}>Baigti maršrutą</Text></Pressable>
               {stops.some((stop) => stop.deliveryStatus === 'pending') ? <Pressable disabled={busy} testID="mark-all-delivered-button" style={[styles.menuSubitem, busy && styles.disabled]} onPress={() => { setMenuOpen(false); setActiveMenuExpanded(false); markAllRemainingDelivered(); }}><Text style={styles.menuSubitemText}>Pažymėti visus pristatytais</Text></Pressable> : null}

@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-import { PIN_GRACE_PERIOD_MS, shouldRestoreSessionWithoutPin } from '../../src/application/auth/session-persistence';
+import { shouldRestoreSessionWithoutPin } from '../../src/application/auth/session-persistence';
 import {
   decideSessionRenewal,
   DRIVER_SESSION_MS,
@@ -19,35 +19,31 @@ const store = readFileSync(resolve(root, 'server/employee-auth-store.ts'), 'utf8
 const now = Date.parse('2026-09-29T12:00:00.000Z');
 
 describe('driver session persistence', () => {
-  it('keeps a driver unlocked without a fresh PIN and still limits other roles to four hours', () => {
+  it('keeps every role unlocked without a fresh PIN until logout or disable', () => {
     expect(shouldRestoreSessionWithoutPin({
       role: 'driver',
       lastUnlockedAt: null,
       nowMs: now,
     })).toBe(true);
     expect(shouldRestoreSessionWithoutPin({
-      role: 'driver',
+      role: 'admin',
       lastUnlockedAt: new Date(now - 30 * 86_400_000).toISOString(),
       nowMs: now,
     })).toBe(true);
     expect(shouldRestoreSessionWithoutPin({
-      role: 'admin',
-      lastUnlockedAt: new Date(now - PIN_GRACE_PERIOD_MS + 1_000).toISOString(),
+      role: 'dispatcher',
+      lastUnlockedAt: null,
+      nowMs: now,
+    })).toBe(true);
+    expect(shouldRestoreSessionWithoutPin({
+      role: 'quality',
+      lastUnlockedAt: new Date(now - 5 * 60 * 60 * 1000).toISOString(),
       nowMs: now,
     })).toBe(true);
     expect(shouldRestoreSessionWithoutPin({
       role: 'admin',
-      lastUnlockedAt: new Date(now - PIN_GRACE_PERIOD_MS - 1_000).toISOString(),
-      nowMs: now,
-    })).toBe(false);
-    expect(shouldRestoreSessionWithoutPin({
-      role: 'dispatcher',
-      lastUnlockedAt: null,
-      nowMs: now,
-    })).toBe(false);
-    expect(shouldRestoreSessionWithoutPin({
-      role: 'quality',
-      lastUnlockedAt: new Date(now - 5 * 60 * 60 * 1000).toISOString(),
+      disabled: true,
+      lastUnlockedAt: new Date(now).toISOString(),
       nowMs: now,
     })).toBe(false);
     expect(gate).toContain('shouldRestoreSessionWithoutPin');
@@ -59,7 +55,8 @@ describe('driver session persistence', () => {
     expect(decideSessionRenewal({ role: 'driver', expiresAtMs: expired, nowMs: now, hasActiveRoute: true }).action).toBe('renew');
     expect(decideSessionRenewal({ role: 'driver', expiresAtMs: expired, nowMs: now, hasActiveRoute: false }).action).toBe('expire');
     expect(decideSessionRenewal({ role: 'admin', expiresAtMs: expired, nowMs: now, hasActiveRoute: true }).action).toBe('expire');
-    expect(decideSessionRenewal({ role: 'dispatcher', expiresAtMs: now + 86_400_000, nowMs: now, hasActiveRoute: false }).action).toBe('keep');
+    expect(decideSessionRenewal({ role: 'admin', expiresAtMs: now + 2 * 86_400_000, nowMs: now, hasActiveRoute: false }).action).toBe('renew');
+    expect(decideSessionRenewal({ role: 'dispatcher', expiresAtMs: now + 86_400_000, nowMs: now, hasActiveRoute: false }).action).toBe('renew');
   });
 
   it('slides a driver session inside the last week and leaves a fresh admin session unchanged', () => {

@@ -31,6 +31,18 @@ import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { fonts, radius, spacing, type } from '@/ui/tokens';
 
+const HOME_SYNC_TIMEOUT_MS = 12_000;
+
+function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Sinchronizacija užtruko per ilgai. Rodomi vietiniai duomenys.')), ms);
+    work.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (reason) => { clearTimeout(timer); reject(reason); },
+    );
+  });
+}
+
 export default function HomeScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
@@ -45,6 +57,7 @@ export default function HomeScreen() {
   const [progress, setProgress] = useState<RouteProgress | null>(null);
   const [loading, setLoading] = useState(true);
   const [routeSync, setRouteSync] = useState<'pending' | 'ready' | 'failed'>('pending');
+  const [routeSyncNote, setRouteSyncNote] = useState<string | null>(null);
   const [openRoutes, setOpenRoutes] = useState<Route[]>([]);
   const autoOpened = useRef(false);
   const [exporting, setExporting] = useState(false);
@@ -86,41 +99,50 @@ export default function HomeScreen() {
     void (async () => {
       try {
         if (online && profile.role === 'driver') {
-          await pullAssignedRoutes(db, profile);
-          await pushCompletedRouteAssignmentProgress(db);
+          await withTimeout(Promise.all([
+            pullAssignedRoutes(db, profile),
+            pushCompletedRouteAssignmentProgress(db),
+          ]), HOME_SYNC_TIMEOUT_MS);
         } else if (online && drivingAsProxy && actingDriver) {
-          // /api/assignments (used by pullAssignedRoutes) is driver-only, so a
-          // route assigned to the acting driver from a different device would
-          // otherwise never reach this device's local copy.
-          await pullAssignedRoutesForActingDriver(db, actingDriver.id);
-          await pushCompletedRouteAssignmentProgress(db);
+          await withTimeout(Promise.all([
+            pullAssignedRoutesForActingDriver(db, actingDriver.id),
+            pushCompletedRouteAssignmentProgress(db),
+          ]), HOME_SYNC_TIMEOUT_MS);
         }
-        await requestSync('home-focus');
+        await withTimeout(requestSync('home-focus'), HOME_SYNC_TIMEOUT_MS);
         const todayKey = lithuanianWallClockNow().date;
         if (showDriverDashboard) await releaseStaleWorkingRoutes(db, todayKey);
         const operational = showDriverDashboard
           ? await repository.listOperational(effectiveDriverId)
           : [];
-        if (mounted) {
-          setOpenRoutes(operational.filter((item) => item.status !== 'completed' && item.status !== 'cancelled'));
-          setRouteSync('ready');
-        }
         const route = selectDriverHomeRoute(operational, todayKey);
         const nextProgress = route ? await new GetRouteProgress(db).execute(route.id) : null;
         const nextStops = route ? await repository.getStops(route.id) : [];
         if (online && route) void pushRouteAssignmentProgress(db, route.id).catch(() => undefined);
         if (!mounted) return;
+        setOpenRoutes(operational.filter((item) => item.status !== 'completed' && item.status !== 'cancelled'));
+        setRouteSyncNote(null);
         setActive(route);
+        setProgress(nextProgress);
+        setActiveStops(nextStops);
         const codeRows = await db.getAllAsync<RouteCodeRow>(
           `SELECT DISTINCT route_id, route_code FROM shipment_lines
            WHERE route_code IS NOT NULL AND TRIM(route_code) <> ''`,
         );
+        if (!mounted) return;
         setRouteCodes(groupRouteCodes(codeRows));
-        setProgress(nextProgress);
-        setActiveStops(nextStops);
+        setRouteSync('ready');
       } catch (error) {
         devWarn('ACTIVE_ROUTE_RESTORE_FAILED', error);
-        if (mounted) setRouteSync('failed');
+        if (!mounted) return;
+        setRouteSyncNote(error instanceof Error ? error.message : 'Sinchronizuoti nepavyko. Rodomi vietiniai duomenys.');
+        try {
+          const operational = showDriverDashboard ? await repository.listOperational(effectiveDriverId) : [];
+          const open = operational.filter((item) => item.status !== 'completed' && item.status !== 'cancelled');
+          setOpenRoutes(open);
+          setActive(selectDriverHomeRoute(operational, lithuanianWallClockNow().date));
+          setRouteSync(open.length > 0 ? 'ready' : 'failed');
+        } catch { /* local read failed too */ setRouteSync('failed'); }
       } finally {
         if (mounted) setLoading(false);
       }
@@ -200,29 +222,30 @@ export default function HomeScreen() {
               </GroupedMenuSection></View>
               <View style={styles.adminMenuGroup}><GroupedMenuSection columns label="SISTEMA" testID="admin-system-menu">
                   <GroupedMenuRow description="Klientai, administracija ir skambinimas iš maršruto." icon={<MenuArtwork kind="navigation" />} onPress={() => router.push({ pathname: '/directory', params: { returnTo: 'home' } } as unknown as Href)} title="Kontaktai" tone="info" />
+                  <GroupedMenuRow description="Išmoktos pridavimo koordinatės, skirtumai ir atmesti mėginiai." icon={<MenuArtwork kind="navigation" />} onPress={() => router.push('/learned-coordinates' as Href)} title="Išmoktos koordinatės" tone="info" />
                   <GroupedMenuRow description="Vietos, navigacija ir programėlė." icon={<MenuArtwork kind="settings" />} onPress={() => router.push('/settings' as Href)} title="Nustatymai" tone="neutral" />
               </GroupedMenuSection></View>
             </View>
-          ) : showDriverDashboard ? loading || routeSync === 'pending' ? (
+          ) : showDriverDashboard ? (loading || postLogin.kind === 'wait' ? (
             <View style={styles.loadingState} testID="home-loading-state"><ActivityIndicator color={colors.primary} size="large" /></View>
-          ) : routeSync === 'failed' ? (
+          ) : postLogin.kind === 'unavailable' ? (
             <AppCard style={styles.emptyCard} testID="home-route-sync-failed">
               <Text style={styles.activeTitle}>Maršrutų patikrinti nepavyko</Text>
-              <Text style={styles.activeText}>Tuščias sąrašas nerodomas, kol sinchronizacija nepasisekė. Bandykite dar kartą.</Text>
+              <Text style={styles.activeText}>{routeSyncNote ?? 'Tuščias sąrašas nerodomas, kol sinchronizacija nepasisekė. Bandykite dar kartą.'}</Text>
             </AppCard>
-          ) : openRoutes.length > 1 && !openRoutes.some((route) => route.status === 'in_progress') ? (
+          ) : postLogin.kind === 'choose' ? (
             <AppCard style={styles.emptyCard} testID="home-route-choices">
               <Text style={styles.activeTitle}>Pasirinkite maršrutą</Text>
-              {openRoutes.map((route) => (
+              {postLogin.routes.map((route) => (
                 <Pressable key={route.id} onPress={() => {
-                  const destination = resolveRoute(route);
+                  const destination = resolveRoute(route as Route);
                   router.replace({ pathname: destination.pathname, params: destination.params } as Href);
                 }} style={styles.navigationButton} testID={`home-route-choice-${route.id}`}>
                   <Text style={styles.historyLink}>{route.date} · {route.status === 'planned' ? 'Priskirtas' : route.status}</Text>
                 </Pressable>
               ))}
             </AppCard>
-          ) : active && progress ? (
+          ) : postLogin.kind === 'continue' && active && progress ? (
             <DriverNowDashboard
               onContinue={() => {
                 const destination = resolveRoute(active);
@@ -242,12 +265,14 @@ export default function HomeScreen() {
               <Text style={styles.activeTitle}>{active.date}</Text>
               <Text style={styles.activeText}>Priskirtas maršrutas atidaromas iškart.</Text>
             </AppCard>
-          ) : (
+          ) : postLogin.kind === 'empty' ? (
             <AppCard style={styles.emptyCard} testID="home-no-assigned-routes">
               <Text style={styles.activeTitle}>Nėra priskirtų maršrutų</Text>
               <Text style={styles.activeText}>Sąrašas tuščias po sėkmingos sinchronizacijos. Kai administratorius priskirs maršrutą, jis atsiras šiame įrenginyje.</Text>
             </AppCard>
-          ) : loading ? (
+          ) : (
+            <View style={styles.loadingState} testID="home-loading-state"><ActivityIndicator color={colors.primary} size="large" /></View>
+          )) : loading ? (
             <View style={styles.loadingState} testID="home-loading-state"><ActivityIndicator color={colors.primary} size="large" /></View>
           ) : active ? (
             <AppCard style={styles.activeCard} testID="active-route-card">

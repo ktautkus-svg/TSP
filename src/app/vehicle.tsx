@@ -199,6 +199,7 @@ export default function VehicleScreen() {
       fuelType: 'diesel',
     });
     setSelectedVehicleId(vehicleId);
+    setFuelForm('closed');
     setName(fleetVehicle.model);
     setRegistrationNumber(fleetVehicle.registrationNumber);
     setFuelType(local?.fuelType ?? 'diesel');

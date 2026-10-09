@@ -597,7 +597,7 @@ export default function LoadingScreen() {
           onPress={openDispatcherAssignment}
           testID="assign-planned-route">
           <TruckIcon size={22} color="#FFFFFF" />
-          <Text style={styles.plannedPrimaryText}>{assignment ? 'Keisti priskyrimą' : 'Priskirti maršrutą'}</Text>
+          <Text style={styles.plannedPrimaryText}>{assignment ? 'Keisti priskyrimą' : 'Pasirinkti vairuotoją'}</Text>
         </Pressable>}
         <Pressable disabled={bulkBusy} style={({ pressed }) => [styles.plannedSecondaryButton, bulkBusy && styles.disabled, pressed && styles.plannedPressed]} onPress={() => setShowPlannedPreview(true)} testID="preview-planned-route">
           <Text style={styles.plannedSecondaryText}>Peržiūrėti maršrutą</Text>

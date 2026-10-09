@@ -89,11 +89,12 @@ export function LocalAccessGate({ children }: LocalAccessGateProps) {
     setDisplayName(cachedSession?.profile.displayName ?? '');
     const demoSession = Boolean(cachedSession?.demo);
     setDemo(demoSession);
-    // Drivers stay unlocked on this device. Administrators, dispatchers and
-    // quality control still need the PIN again after the grace window.
+    // A stored session stays unlocked until logout, disable, or a session that
+    // cannot be restored. A sync or refresh failure must not ask for the PIN.
     const restore = shouldRestoreSessionWithoutPin({
       role: cachedSession?.profile.role,
       demo: demoSession,
+      disabled: cachedSession?.profile.disabled,
       lastUnlockedAt,
       nowMs: Date.now(),
       graceMs: PIN_GRACE_PERIOD_MS,

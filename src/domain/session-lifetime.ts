@@ -12,9 +12,9 @@ export type SessionRenewal =
   | { action: 'expire' };
 
 /**
- * Non-drivers expire exactly when their session says so.
- * A driver with a route still in progress is renewed even after that moment.
- * A driver session that is still valid but inside the last week slides forward.
+ * A still-valid session inside the last week slides forward for every role,
+ * so returning to the app does not ask for a PIN. An expired session is
+ * renewed only for a driver who still has a route in progress.
  */
 export function decideSessionRenewal(input: {
   role: EmployeeRole;
@@ -23,16 +23,13 @@ export function decideSessionRenewal(input: {
   hasActiveRoute: boolean;
 }): SessionRenewal {
   const remaining = input.expiresAtMs - input.nowMs;
-  if (input.role !== 'driver') {
-    return remaining <= 0 ? { action: 'expire' } : { action: 'keep' };
-  }
   if (remaining <= 0) {
-    return input.hasActiveRoute
+    return input.role === 'driver' && input.hasActiveRoute
       ? { action: 'renew', expiresAt: new Date(input.nowMs + DRIVER_SESSION_MS).toISOString() }
       : { action: 'expire' };
   }
   if (remaining < DRIVER_SESSION_SLIDE_THRESHOLD_MS) {
-    return { action: 'renew', expiresAt: new Date(input.nowMs + DRIVER_SESSION_MS).toISOString() };
+    return { action: 'renew', expiresAt: new Date(input.nowMs + sessionLifetimeMs(input.role)).toISOString() };
   }
   return { action: 'keep' };
 }

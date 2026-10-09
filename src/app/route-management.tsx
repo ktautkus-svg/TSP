@@ -194,6 +194,11 @@ export default function RouteManagementScreen() {
     const picked = routeId ? routes.find((route) => route.id === routeId) : null;
     setAssignDate(picked?.date ?? '');
   };
+  useEffect(() => {
+    if (!requestedRouteId || selectedRouteId === requestedRouteId) return;
+    if (!assignableRoutes.some((route) => route.id === requestedRouteId)) return;
+    selectRoute(requestedRouteId);
+  }, [assignableRoutes, requestedRouteId, selectedRouteId]);
   const assign = async () => {
     if (busy || !selectedRoute || !selectedDriver || !selectedVehicle) return;
     if (activeAssignments.some((item) => item.routeId === selectedRoute.id && !['completed', 'cancelled'].includes(item.status))) {

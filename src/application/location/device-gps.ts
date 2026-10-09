@@ -28,6 +28,17 @@ type LocationModule = {
   ) => Promise<{ remove: () => void }>;
 };
 
+let permissionDenied = false;
+
+/** Test seam. A denied permission must not be requested again at every stop. */
+export function resetDeviceGpsPermissionPrompt(): void {
+  permissionDenied = false;
+}
+
+export function deviceGpsPermissionDenied(): boolean {
+  return permissionDenied;
+}
+
 async function loadLocationModule(): Promise<LocationModule | null> {
   try {
     const loaded = await import('expo-location');
@@ -67,10 +78,18 @@ export async function readRecentDeviceGpsFix(nowMs = Date.now()): Promise<GpsSam
     const existing = await Location.getForegroundPermissionsAsync();
     let status = existing.status;
     if (status !== 'granted') {
+      if (status === 'denied' || permissionDenied) {
+        permissionDenied = true;
+        return null;
+      }
       const requested = await Location.requestForegroundPermissionsAsync();
       status = requested.status;
+      if (status !== 'granted') {
+        permissionDenied = true;
+        return null;
+      }
     }
-    if (status !== 'granted') return null;
+    permissionDenied = false;
     const last = await Location.getLastKnownPositionAsync();
     const lastSample = last ? toGpsSample(last) : null;
     if (isRecentGpsSample(lastSample, nowMs)) return lastSample;

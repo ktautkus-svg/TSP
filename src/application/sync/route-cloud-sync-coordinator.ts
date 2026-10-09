@@ -27,6 +27,18 @@ export type RouteCloudSyncTrigger =
   | 'mutation'
   | 'manual-retry';
 
+const SYNC_TIMEOUT_MS = 20_000;
+
+function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Sinchronizacija užtruko per ilgai. Rodomi vietiniai duomenys.')), ms);
+    work.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (reason) => { clearTimeout(timer); reject(reason); },
+    );
+  });
+}
+
 type CoordinatorOptions = {
   sync: () => Promise<unknown>;
   onStateChange?: (state: RouteCloudSyncState) => void;
@@ -99,7 +111,7 @@ export class RouteCloudSyncCoordinator {
 
       this.publish({ status: 'syncing', error: null, attention: null });
       try {
-        const outcome = await this.options.sync();
+        const outcome = await withTimeout(this.options.sync(), SYNC_TIMEOUT_MS);
         if (this.stopped) return;
         if (!this.online) {
           this.publish({ status: 'offline', error: null });
