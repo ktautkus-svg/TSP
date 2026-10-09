@@ -121,7 +121,16 @@ function MapCamera({
     fit();
     fitted.current = signature;
     const settled = window.setTimeout(fit, 80);
-    return () => window.clearTimeout(settled);
+    const observer = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(() => {
+        if (!userAdjusted.current) fit();
+      });
+    observer?.observe(map.getContainer());
+    return () => {
+      window.clearTimeout(settled);
+      observer?.disconnect();
+    };
   }, [fitRequest, map, points, signature]);
   return null;
 }
