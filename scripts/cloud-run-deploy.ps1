@@ -189,10 +189,10 @@ function Get-DeployVar([string]$name, [string]$fallback) {
   return $fallback
 }
 $armed = Get-DeployVar 'GATEWAY_REAL_PROVIDER_ARMED' '0'
-$dailyBudgetCents = Get-DeployVar 'GATEWAY_DAILY_BUDGET_CENTS' '900'
-$weeklyBudgetCents = Get-DeployVar 'GATEWAY_WEEKLY_BUDGET_CENTS' '3000'
-$dailyUsageUnits = Get-DeployVar 'GATEWAY_DAILY_USAGE_UNITS' '900'
-$weeklyUsageUnits = Get-DeployVar 'GATEWAY_WEEKLY_USAGE_UNITS' '3000'
+$dailyBudgetCents = Get-DeployVar 'GATEWAY_DAILY_BUDGET_CENTS' '7290'
+$weeklyBudgetCents = Get-DeployVar 'GATEWAY_WEEKLY_BUDGET_CENTS' '36450'
+$dailyUsageUnits = Get-DeployVar 'GATEWAY_DAILY_USAGE_UNITS' '7290'
+$weeklyUsageUnits = Get-DeployVar 'GATEWAY_WEEKLY_USAGE_UNITS' '36450'
 $gmailRedirectUri = Get-DeployVar 'GMAIL_OAUTH_REDIRECT_URI' ''
 if (-not $gmailRedirectUri) {
   $existingServiceUrl = (& $gcloudExe run services describe $service --project $project --region $region --format='value(status.url)' 2>$null).Trim()

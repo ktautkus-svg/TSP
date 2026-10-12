@@ -193,10 +193,10 @@ jobs:
           # Use the Pro price as a deliberately conservative ceiling even
           # though matrices currently run TRAFFIC_UNAWARE (Essentials).
           GOOGLE_PRICE_PER_1000_ELEMENTS: '10'
-          DAILY_BUDGET_CENTS: ${{ vars.GATEWAY_DAILY_BUDGET_CENTS || '900' }}
-          WEEKLY_BUDGET_CENTS: ${{ vars.GATEWAY_WEEKLY_BUDGET_CENTS || '3000' }}
-          DAILY_USAGE_UNITS: ${{ vars.GATEWAY_DAILY_USAGE_UNITS || '900' }}
-          WEEKLY_USAGE_UNITS: ${{ vars.GATEWAY_WEEKLY_USAGE_UNITS || '3000' }}
+          DAILY_BUDGET_CENTS: ${{ vars.GATEWAY_DAILY_BUDGET_CENTS || '7290' }}
+          WEEKLY_BUDGET_CENTS: ${{ vars.GATEWAY_WEEKLY_BUDGET_CENTS || '36450' }}
+          DAILY_USAGE_UNITS: ${{ vars.GATEWAY_DAILY_USAGE_UNITS || '7290' }}
+          WEEKLY_USAGE_UNITS: ${{ vars.GATEWAY_WEEKLY_USAGE_UNITS || '36450' }}
           GMAIL_OAUTH_REDIRECT_URI: ${{ vars.GMAIL_OAUTH_REDIRECT_URI }}
         run: |
           set -euo pipefail

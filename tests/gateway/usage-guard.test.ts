@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { loadGatewayConfig } from '../../gateway/config';
 import { MemoryGatewayUsageGuard } from '../../gateway/usage-guard';
 
 describe('gateway routing usage guard', () => {
@@ -21,6 +22,25 @@ describe('gateway routing usage guard', () => {
     const now = new Date('2026-08-20T10:00:00Z');
     await guard.reserve(6, null, now);
     await expect(guard.reserve(5, null, now)).rejects.toMatchObject({ code: 'ROUTING_BUDGET_EXCEEDED' });
+  });
+
+  it('allows ten full 25-stop planning runs with the production defaults', async () => {
+    const gateway = loadGatewayConfig({});
+    const guard = new MemoryGatewayUsageGuard({
+      armed: true,
+      dailyUnits: gateway.dailyUsageUnits,
+      weeklyUnits: gateway.weeklyUsageUnits,
+      dailyBudgetCents: null,
+      weeklyBudgetCents: null,
+    });
+    const now = new Date('2026-10-12T10:00:00Z');
+
+    for (let run = 0; run < 10; run += 1) {
+      await expect(guard.reserve(729, null, now)).resolves.toBeUndefined();
+    }
+    await expect(guard.reserve(1, null, now)).rejects.toMatchObject({
+      code: 'ROUTING_BUDGET_EXCEEDED',
+    });
   });
 
   it('allows cache-hit callers to skip the guard entirely by contract', async () => {

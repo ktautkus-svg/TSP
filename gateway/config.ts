@@ -197,8 +197,12 @@ export function loadGatewayConfig(
     // screen only reports "address unconfirmed". That cost a full evening once.
     realProviderArmed,
     usageDirectory: env.GATEWAY_USAGE_DIRECTORY?.trim() || '.gateway-cache/usage',
-    dailyUsageUnits: positiveFiniteNumber(env.GATEWAY_DAILY_USAGE_UNITS, 900),
-    weeklyUsageUnits: positiveFiniteNumber(env.GATEWAY_WEEKLY_USAGE_UNITS, 3000),
+    // Ten full 25-stop planning runs per day, fifty per week. A full run can
+    // legitimately contain 27 nodes (start + 25 stops + end) = 729 elements,
+    // so the old 900/3000 defaults exhausted the application after one or two
+    // ordinary replans.
+    dailyUsageUnits: positiveFiniteNumber(env.GATEWAY_DAILY_USAGE_UNITS, 7290),
+    weeklyUsageUnits: positiveFiniteNumber(env.GATEWAY_WEEKLY_USAGE_UNITS, 36450),
     dailyBudgetCents: optionalBudgetCents(env.GATEWAY_DAILY_BUDGET_CENTS),
     weeklyBudgetCents: optionalBudgetCents(env.GATEWAY_WEEKLY_BUDGET_CENTS),
   };
