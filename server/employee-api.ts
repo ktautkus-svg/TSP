@@ -379,7 +379,9 @@ export async function handleEmployeeApi(
         || body.wheelArchStartMm !== undefined || body.wheelArchEndMm !== undefined
         || body.wheelArchIntrusionMm !== undefined || body.cargoBodyType !== undefined
         || body.cargoBodyKind !== undefined || body.palletCapacity !== undefined
-        || body.hasSideDoor !== undefined;
+        || body.hasSideDoor !== undefined
+        || body.technicalInspectionDueOn !== undefined || body.insuranceDueOn !== undefined
+        || body.roadTaxDueOn !== undefined || body.nextServiceDueOn !== undefined;
       let vehicle = hasVehicleFields
         ? await store.updateVehicle(vehicleMatch[1], {
           registrationNumber: optionalString(body, 'registrationNumber'),
@@ -400,6 +402,10 @@ export async function handleEmployeeApi(
           cargoBodyKind: optionalString(body, 'cargoBodyKind'),
           palletCapacity: typeof body.palletCapacity === 'number' ? body.palletCapacity : undefined,
           hasSideDoor: typeof body.hasSideDoor === 'boolean' ? body.hasSideDoor : undefined,
+          technicalInspectionDueOn: optionalIsoDateField(body, 'technicalInspectionDueOn'),
+          insuranceDueOn: optionalIsoDateField(body, 'insuranceDueOn'),
+          roadTaxDueOn: optionalIsoDateField(body, 'roadTaxDueOn'),
+          nextServiceDueOn: optionalIsoDateField(body, 'nextServiceDueOn'),
         })
         : null;
       if (body.assignedDriverId !== undefined) {
@@ -957,7 +963,7 @@ function requireManagementPermission(profile: EmployeeProfile, permission: 'canM
 }
 
 function requireFleetVehicleListAccess(profile: EmployeeProfile): void {
-  if (profile.role === 'admin' || profile.role === 'dispatcher') return;
+  if (profile.role === 'admin' || profile.role === 'dispatcher' || profile.role === 'quality') return;
   if (profile.permissions.canEnterTripReadings) return;
   throw new EmployeeApiError('FORBIDDEN', 'Šiam veiksmui neturite teisės.', 403);
 }
@@ -1056,6 +1062,16 @@ function stringField(body: Record<string, unknown>, name: string): string {
 function optionalString(body: Record<string, unknown>, name: string): string | undefined {
   const value = body[name];
   return typeof value === 'string' ? value : undefined;
+}
+
+function optionalIsoDateField(body: Record<string, unknown>, name: string): string | null | undefined {
+  if (body[name] === undefined) return undefined;
+  if (body[name] === null) return null;
+  if (typeof body[name] !== 'string') throw new EmployeeApiError('INVALID_REQUEST', `Neteisinga data: ${name}.`, 400);
+  const text = body[name].trim();
+  if (!text) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) throw new EmployeeApiError('INVALID_REQUEST', `Neteisinga data: ${name}.`, 400);
+  return text;
 }
 
 function optionalIsoTimestamp(body: Record<string, unknown>, name: string): string | undefined {

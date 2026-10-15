@@ -51,6 +51,9 @@ import {
     uncoveredFuelDayKeys,
 } from '../src/domain/excel-fuel-log.js';
 import { fuelEntriesOnDate, indexFuelByVehicleFillDate } from '../src/application/trip-sheet/day-rows.js';
+import { assignmentHasDeliveryHistory } from '../src/application/routes/assignment-retention.js';
+import { explicitFuelNorm } from '../src/application/routes/route-fuel-cost.js';
+import { fuelPriceForYearMonth } from '../src/application/routes/route-price.js';
 import {
     bodyKindFromPalletCapacity,
     fleetCargoSpec,
@@ -350,6 +353,10 @@ export type FleetVehicle = {
   fuelRemainingLiters: number | null;
   fuelUpdatedAt: string | null;
   assignmentRevision: number;
+  technicalInspectionDueOn: string | null;
+  insuranceDueOn: string | null;
+  roadTaxDueOn: string | null;
+  nextServiceDueOn: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -525,7 +532,7 @@ export type QualityStopMonitor = {
   address: string;
   routeNumber: string | null;
   status: 'pending' | 'delivered' | 'failed';
-  weightKg: number;
+  weightKg: number | null;
   deliveryTimeFrom: string | null;
   deliveryTimeTo: string | null;
   plannedArrivalAt: string | null;
@@ -557,6 +564,12 @@ export type QualityRouteMonitor = {
   startedAt: string | null;
   completedAt: string | null;
   updatedAt: string;
+  fuelCost: {
+    distanceKm: number | null;
+    litersPer100Km: number | null;
+    pricePerLiter: number | null;
+    consumedLiters: number | null;
+  };
 };
 
 export type RouteSnapshot = {
@@ -999,6 +1012,10 @@ export class EmployeeAuthStore {
       fuelRemainingLiters: null,
       fuelUpdatedAt: null,
       assignmentRevision: 0,
+      technicalInspectionDueOn: null,
+      insuranceDueOn: null,
+      roadTaxDueOn: null,
+      nextServiceDueOn: null,
       createdAt: now,
       updatedAt: now,
     };
@@ -1065,6 +1082,10 @@ export class EmployeeAuthStore {
     wheelArchStartMm?: number | null;
     wheelArchEndMm?: number | null;
     wheelArchIntrusionMm?: number | null;
+    technicalInspectionDueOn?: string | null;
+    insuranceDueOn?: string | null;
+    roadTaxDueOn?: string | null;
+    nextServiceDueOn?: string | null;
   }): Promise<FleetVehicle> {
     const vehicleId = validateVehicleId(vehicleIdInput);
     const currentRef = this.vehicles.doc(vehicleId);
@@ -1122,6 +1143,18 @@ export class EmployeeAuthStore {
       const updatedAt = new Date().toISOString();
       updated = {
         ...current,
+        technicalInspectionDueOn: input.technicalInspectionDueOn === undefined
+          ? optionalIsoDate(current.technicalInspectionDueOn)
+          : optionalIsoDate(input.technicalInspectionDueOn),
+        insuranceDueOn: input.insuranceDueOn === undefined
+          ? optionalIsoDate(current.insuranceDueOn)
+          : optionalIsoDate(input.insuranceDueOn),
+        roadTaxDueOn: input.roadTaxDueOn === undefined
+          ? optionalIsoDate(current.roadTaxDueOn)
+          : optionalIsoDate(input.roadTaxDueOn),
+        nextServiceDueOn: input.nextServiceDueOn === undefined
+          ? optionalIsoDate(current.nextServiceDueOn)
+          : optionalIsoDate(input.nextServiceDueOn),
         id: registrationNumber,
         registrationNumber,
         model,
@@ -1743,6 +1776,13 @@ export class EmployeeAuthStore {
     const document = await reference.get();
     const assignment = document.data() as RouteAssignment | undefined;
     if (!assignment) throw new EmployeeApiError('ASSIGNMENT_NOT_FOUND', 'Maršruto priskyrimas nerastas.', 404);
+    if (assignmentHasDeliveryHistory(assignment.status, assignment.routeSnapshot.stops ?? [])) {
+      throw new EmployeeApiError(
+        'ASSIGNMENT_HAS_HISTORY',
+        'Šiame maršrute jau yra pristatytų arba atmestų taškų. Jį galima atšaukti, bet ne ištrinti.',
+        409,
+      );
+    }
     await reference.delete();
     return assignment;
   }
@@ -5488,12 +5528,21 @@ export class EmployeeAuthStore {
         return [user.id, user.displayName] as const;
       }),
     );
+    const priceSettings = await this.getRoutePriceSettings();
     return assignments
       .filter((assignment) => assignment.status !== 'cancelled')
-      .map((assignment) => buildQualityRouteMonitor(
-        { ...assignment, driverName: currentDriverNames.get(assignment.driverId) ?? assignment.driverName },
-        assignment.vehicle ?? currentVehicles.get(assignment.driverId) ?? null,
-      ))
+      .map((assignment) => {
+        const vehicle = assignment.vehicle ?? currentVehicles.get(assignment.driverId) ?? null;
+        const plate = vehicle?.registrationNumber.trim().toUpperCase() ?? '';
+        return buildQualityRouteMonitor(
+          { ...assignment, driverName: currentDriverNames.get(assignment.driverId) ?? assignment.driverName },
+          vehicle,
+          {
+            pricesByYearMonth: priceSettings.fuelPriceByYearMonth,
+            profileNorm: priceSettings.vehicleCosts[plate]?.fuelNormLitersPer100Km ?? null,
+          },
+        );
+      })
       .sort((left, right) => qualityStatusRank(left.status) - qualityStatusRank(right.status) || right.updatedAt.localeCompare(left.updatedAt));
   }
 
@@ -5724,6 +5773,10 @@ function fleetVehicleFromAugustRef(ref: AugustBackfillVehicleRef, nowIso: string
     fuelRemainingLiters: null,
     fuelUpdatedAt: null,
     assignmentRevision: 0,
+    technicalInspectionDueOn: null,
+    insuranceDueOn: null,
+    roadTaxDueOn: null,
+    nextServiceDueOn: null,
     createdAt: nowIso,
     updatedAt: nowIso,
   };
@@ -5809,6 +5862,10 @@ function normalizeVehicle(vehicle: FleetVehicle): FleetVehicle {
     fuelRemainingLiters: nullableNumber(vehicle.fuelRemainingLiters),
     fuelUpdatedAt: optionalText(vehicle.fuelUpdatedAt),
     assignmentRevision: finiteNumber(vehicle.assignmentRevision, 0),
+    technicalInspectionDueOn: optionalIsoDate(vehicle.technicalInspectionDueOn),
+    insuranceDueOn: optionalIsoDate(vehicle.insuranceDueOn),
+    roadTaxDueOn: optionalIsoDate(vehicle.roadTaxDueOn),
+    nextServiceDueOn: optionalIsoDate(vehicle.nextServiceDueOn),
   };
 }
 
@@ -6322,7 +6379,11 @@ function money(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
-export function buildQualityRouteMonitor(assignment: RouteAssignment, vehicle: FleetVehicleSnapshot | null): QualityRouteMonitor {
+export function buildQualityRouteMonitor(
+  assignment: RouteAssignment,
+  vehicle: FleetVehicleSnapshot | null,
+  fuelContext: { pricesByYearMonth?: Readonly<Record<string, number>> | null; profileNorm?: number | null } = {},
+): QualityRouteMonitor {
   const route = assignment.routeSnapshot.route;
   const stops = [...assignment.routeSnapshot.stops].sort((left, right) => stopSequence(left) - stopSequence(right));
   const shipmentLines = assignment.routeSnapshot.shipmentLines;
@@ -6352,7 +6413,7 @@ export function buildQualityRouteMonitor(assignment: RouteAssignment, vehicle: F
       address: stopAddress(stop),
       routeNumber: stopRegions.get(optionalText(stop.id) ?? '') ?? null,
       status,
-      weightKg: finiteNumber(stop.weight_kg, 0),
+      weightKg: nullableNumber(stop.weight_kg),
       deliveryTimeFrom: optionalText(stop.delivery_time_from),
       deliveryTimeTo: optionalText(stop.delivery_time_to),
       plannedArrivalAt: optionalText(stop.latest_estimated_arrival_at) ?? optionalText(stop.planned_arrival_at),
@@ -6420,6 +6481,18 @@ export function buildQualityRouteMonitor(assignment: RouteAssignment, vehicle: F
     startedAt: optionalText(route.started_at),
     completedAt: optionalText(route.completed_at),
     updatedAt: assignment.updatedAt,
+    fuelCost: {
+      distanceKm: nullableNumber(route.estimated_distance_km),
+      litersPer100Km: explicitFuelNorm(nullableNumber(vehicle?.fuelNormLPer100Km), fuelContext.profileNorm ?? null),
+      pricePerLiter: fuelPriceForYearMonth(
+        { fuelPriceByYearMonth: fuelContext.pricesByYearMonth ?? {} },
+        optionalText(route.completed_at)?.slice(0, 10)
+          ?? optionalText(route.started_at)?.slice(0, 10)
+          ?? optionalText(route.date)
+          ?? assignment.assignedAt.slice(0, 10),
+      ),
+      consumedLiters: null,
+    },
   };
 }
 
@@ -6440,6 +6513,11 @@ function qualityStatusRank(status: RouteAssignment['status']): number {
 
 function optionalText(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function optionalIsoDate(value: unknown): string | null {
+  const text = optionalText(value);
+  return text && /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
 }
 
 /**

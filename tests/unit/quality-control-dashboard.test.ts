@@ -3,12 +3,13 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-import { lateDeliveredStops, workQualityPercent, type WorkQualityStop } from '../../src/application/quality/work-quality-kpi';
+import { formatShare, lateDeliveredStops, sharePercent, stopPunctuality, summarizeOperations, type WorkQualityStop } from '../../src/application/quality/work-quality-kpi';
 import { buildQualityRouteMonitor, type RouteAssignment } from '../../server/employee-auth-store';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const apiSource = readFileSync(resolve(root, 'server/employee-api.ts'), 'utf8');
 const dashboardSource = readFileSync(resolve(root, 'src/app/quality-control.tsx'), 'utf8');
+const weightSource = readFileSync(resolve(root, 'src/application/quality/work-quality-kpi.ts'), 'utf8');
 const deliverySource = readFileSync(resolve(root, 'src/app/route/[id]/delivery.tsx'), 'utf8');
 const layoutSource = readFileSync(resolve(root, 'src/app/_layout.tsx'), 'utf8');
 const brandHeaderSource = readFileSync(resolve(root, 'src/components/brand-header.tsx'), 'utf8');
@@ -51,7 +52,20 @@ describe('quality control dashboard', () => {
       nextStop: { sequence: 8, recipient: 'Klientas Kelmė', address: 'Vytauto Didžiojo g. 58, Kelmė', routeNumber: 'H01', deliveryTimeFrom: '08:00', deliveryTimeTo: '09:00' },
       vehicle: { registrationNumber: 'LRI744', model: 'Renault Master' },
     });
-    expect(route.stops[0]).toMatchObject({ sequence: 1, status: 'delivered', deliveredAt: '2026-08-12T08:05:00.000Z' });
+    expect(route.stops[0]).toMatchObject({ sequence: 1, status: 'delivered', deliveredAt: '2026-08-12T08:05:00.000Z', weightKg: 100 });
+    const weighed = summarizeOperations([route]);
+    expect(weighed.deliveredWeightKg).toBe(700);
+    expect(weighed.remainingWeightKg).toBe(300);
+    expect(weighed.cargoWeightKg).toBe(1000);
+    const withGap = assignment();
+    withGap.routeSnapshot.stops[0]!.weight_kg = null;
+    withGap.routeSnapshot.stops[1]!.delivery_status = 'failed';
+    const gapped = buildQualityRouteMonitor(withGap, withGap.vehicle);
+    expect(gapped.stops[0]?.weightKg).toBeNull();
+    const gappedWeight = summarizeOperations([gapped]);
+    expect(gappedWeight.deliveredWeightKg).toBeNull();
+    expect(gappedWeight.remainingWeightKg).toBe(300);
+    expect(route.fuelCost?.consumedLiters).toBeNull();
   });
 
   it('does not claim 100% points progress when a completed route still has unmarked stops', () => {
@@ -149,7 +163,10 @@ describe('quality control dashboard', () => {
     expect(dashboardSource).toContain("from '@/application/reporting/period-range'");
     expect(periodSource).toContain('CALENDAR_PERIOD_PRESETS');
     expect(dashboardSource).toContain('<PeriodCalendarPicker');
-    expect(dashboardSource).toContain('testID="quality-entity-filters-toggle"');
+    expect(dashboardSource).toContain('testID="quality-driver-filter"');
+    expect(dashboardSource).toContain('testID="quality-vehicle-filter"');
+    expect(dashboardSource).toContain('Ką stebime?');
+    expect(dashboardSource).not.toContain('quality-entity-filters-toggle');
     expect(dashboardSource).toContain("route.date >= period.from && route.date <= period.to");
     expect(dashboardSource).toContain("driverId === 'all' || route.driverId === driverId");
     expect(dashboardSource).toContain('Visi vairuotojai');
@@ -172,37 +189,48 @@ describe('quality control dashboard', () => {
     expect(dashboardSource).toContain('KOKYBĖS KONTROLĖ');
     expect(dashboardSource).not.toContain('Maršrutai gyvai');
     expect(dashboardSource).toContain('MINOR_DELAY_MINUTES = 45');
-    expect(dashboardSource).toContain('Per anksti');
+    expect(dashboardSource).toContain('Laiku ·');
+    expect(dashboardSource).not.toContain('Per anksti');
     expect(dashboardSource).toContain('Pavėlavo');
     expect(dashboardSource).toContain('Vėlavo ${delay} min.');
-  });
-
-  it('shows KPI as darbo kokybė (on-time / all stops), not as the late share', () => {
-    expect(dashboardSource).toContain("label: 'KPI · laiku'");
-    expect(dashboardSource).toContain('workQualityPercent(allStops)');
-    expect(dashboardSource).toContain("stopFilter === 'late'");
-    expect(dashboardSource).toContain('late: lateStopsList.length');
-    expect(dashboardSource).not.toContain('late: stopSharePercent(lateStopsList.length)');
+    expect(dashboardSource).toContain('stopPunctuality');
+    expect(dashboardSource).not.toContain('classifyDeliveryWindow');
     expect(dashboardSource).not.toContain('assessDeliveryTiming');
-    expect(dashboardSource).toContain('classifyDeliveryWindow');
   });
 
-  it('scores 14 on-time of 20 stops as 70% even when the other 6 are late', () => {
-    const stops = [...onTimeStops(14), ...lateStops(6)];
-    expect(stops).toHaveLength(20);
-    expect(workQualityPercent(stops)).toBe(70);
-    expect(lateDeliveredStops(stops)).toHaveLength(6);
+  it('names the five counts and five quality shares, and keeps punctuality off the route close time', () => {
+    expect(dashboardSource).toContain('label="Maršrutai"');
+    expect(dashboardSource).toContain('label="Pristatymo taškai"');
+    expect(dashboardSource).toContain('label="Krovinio svoris"');
+    expect(dashboardSource).toContain('label="Pristatyta taškų"');
+    expect(dashboardSource).toContain('label="Pristatyta kg"');
+    expect(dashboardSource).toContain('label="Liko kg"');
+    expect(weightSource).toContain('calculateRouteMetrics');
+    expect(dashboardSource).toContain('label="Pristatymo įvykdymas"');
+    expect(dashboardSource).toContain('label="Neįvykdyta"');
+    expect(dashboardSource).toContain('label="Atmesta"');
+    expect(dashboardSource).toContain('label="Pristatyta laiku"');
+    expect(dashboardSource).toContain('label="Pavėluota"');
+    expect(dashboardSource).toContain('summarizeOperations(visible)');
+    expect(dashboardSource).toContain('formatShare(summary.onTimeStops, summary.scoredStops)');
+    expect(dashboardSource).toContain('formatShare(summary.lateStops, summary.scoredStops)');
+    expect(dashboardSource).not.toContain('workQualityPercent');
+    expect(dashboardSource).not.toContain("label: 'KPI · laiku'");
   });
 
-  it('scores 100% when every visible stop is delivered on time, and 0% when every stop is late', () => {
-    expect(workQualityPercent(onTimeStops(20))).toBe(100);
-    expect(workQualityPercent(lateStops(20))).toBe(0);
-  });
-
-  it('treats early, failed and pending stops as not pagal reikalavimus', () => {
-    expect(workQualityPercent([...onTimeStops(14), ...earlyStops(6)])).toBe(70);
-    expect(workQualityPercent([...onTimeStops(10), ...pendingStops(5), ...failedStops(5)])).toBe(50);
-    expect(workQualityPercent([])).toBe(0);
+  it('scores punctuality only on delivered stops that have a deadline', () => {
+    const mixed = [...onTimeStops(14), ...lateStops(6)];
+    const summary = summarizeOperations([{ stops: mixed }]);
+    expect(summary.scoredStops).toBe(20);
+    expect(sharePercent(summary.onTimeStops, summary.scoredStops)).toBe(70);
+    expect(formatShare(summary.lateStops, summary.scoredStops)).toBe('6 / 20 (30 %)');
+    expect(lateDeliveredStops(mixed)).toHaveLength(6);
+    expect(stopPunctuality(earlyStops(1)[0]!)).toBe('on_time');
+    const withGaps = summarizeOperations([{ stops: [...onTimeStops(10), ...pendingStops(5), ...failedStops(5)] }]);
+    expect(sharePercent(withGaps.deliveredStops, withGaps.stopCount)).toBe(50);
+    expect(sharePercent(withGaps.onTimeStops, withGaps.scoredStops)).toBe(100);
+    expect(sharePercent(0, 0)).toBeNull();
+    expect(formatShare(0, 0)).toBe('Nėra duomenų');
   });
 });
 
@@ -213,7 +241,7 @@ function qualityStop(input: WorkQualityStop): WorkQualityStop {
 function onTimeStops(count: number): WorkQualityStop[] {
   return Array.from({ length: count }, () => qualityStop({
     status: 'delivered',
-    deliveredAt: '2026-08-12T08:30:00',
+    deliveredAt: '2026-08-12T05:30:00.000Z',
     deliveryTimeFrom: '08:00',
     deliveryTimeTo: '09:00',
   }));
@@ -222,7 +250,7 @@ function onTimeStops(count: number): WorkQualityStop[] {
 function lateStops(count: number): WorkQualityStop[] {
   return Array.from({ length: count }, () => qualityStop({
     status: 'delivered',
-    deliveredAt: '2026-08-12T10:15:00',
+    deliveredAt: '2026-08-12T07:15:00.000Z',
     deliveryTimeFrom: '08:00',
     deliveryTimeTo: '09:00',
   }));
@@ -231,7 +259,7 @@ function lateStops(count: number): WorkQualityStop[] {
 function earlyStops(count: number): WorkQualityStop[] {
   return Array.from({ length: count }, () => qualityStop({
     status: 'delivered',
-    deliveredAt: '2026-08-12T07:10:00',
+    deliveredAt: '2026-08-12T04:10:00.000Z',
     deliveryTimeFrom: '08:00',
     deliveryTimeTo: '09:00',
   }));

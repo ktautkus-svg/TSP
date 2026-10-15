@@ -50,11 +50,12 @@ function RoleAccessBoundary({ children }: { children: ReactNode }) {
     || pathname === '/finance'
     || (pathname.startsWith('/finance/') && !financeUiHarness)
     || pathname === '/fleet'
+    || pathname === '/vehicle-documents'
     || pathname.startsWith('/import')
     || pathname === '/route/new';
   const routePlanning = /\/route\/[^/]+\/(review|alternatives)$/.test(pathname);
   const driverCanPlan = Boolean(profile.permissions?.canCreateRoutes || profile.permissions?.canReorderAssignedRoute);
-  const qualityAllowed = pathname === '/' || pathname === '/quality-control' || pathname === '/statistics' || pathname === '/trip-sheet';
+  const qualityAllowed = pathname === '/' || pathname === '/quality-control' || pathname === '/statistics' || pathname === '/trip-sheet' || pathname === '/vehicle-documents';
   const loadingSchemePreview = pathname === '/loading-schema-preview';
   const blocked = (profile.role === 'driver' && (adminOnly || (routePlanning && !driverCanPlan)))
     || (loadingSchemePreview && profile.role !== 'admin')
@@ -226,6 +227,7 @@ export default function RootLayout() {
               <Stack.Screen name="loading-schema-preview" options={{ title: 'Krovimo schema (peržiūra)' }} />
               <Stack.Screen name="directory" options={{ title: 'Kontaktai' }} />
               <Stack.Screen name="quality-control" options={{ title: 'Kokybės kontrolė' }} />
+              <Stack.Screen name="vehicle-documents" options={{ title: 'Automobilių dokumentai' }} />
               <Stack.Screen name="execute-route" options={{ title: 'Vykdyti maršrutą' }} />
             </Stack>
             </RoleAccessBoundary>

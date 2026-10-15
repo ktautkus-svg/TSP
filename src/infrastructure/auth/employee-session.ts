@@ -73,6 +73,10 @@ export type ServerFleetVehicle = {
   fuelRemainingLiters?: number | null;
   fuelUpdatedAt?: string | null;
   assignmentRevision?: number;
+  technicalInspectionDueOn?: string | null;
+  insuranceDueOn?: string | null;
+  roadTaxDueOn?: string | null;
+  nextServiceDueOn?: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -92,6 +96,10 @@ export type ServerFleetVehicleSnapshot = Pick<ServerFleetVehicle, 'id' | 'regist
   fuelRemainingLiters?: number | null;
   fuelUpdatedAt?: string | null;
   assignmentRevision?: number;
+  technicalInspectionDueOn?: string | null;
+  insuranceDueOn?: string | null;
+  roadTaxDueOn?: string | null;
+  nextServiceDueOn?: string | null;
 };
 
 export type CompensationBreakdown = {
@@ -259,7 +267,7 @@ export type QualityStopMonitor = {
   address: string;
   routeNumber: string | null;
   status: 'pending' | 'delivered' | 'failed';
-  weightKg: number;
+  weightKg: number | null;
   deliveryTimeFrom: string | null;
   deliveryTimeTo: string | null;
   plannedArrivalAt: string | null;
@@ -291,6 +299,12 @@ export type QualityRouteMonitor = {
   startedAt: string | null;
   completedAt: string | null;
   updatedAt: string;
+  fuelCost?: {
+    distanceKm: number | null;
+    litersPer100Km: number | null;
+    pricePerLiter: number | null;
+    consumedLiters: number | null;
+  };
 };
 
 export type RouteSnapshot = {

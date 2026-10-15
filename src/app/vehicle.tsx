@@ -3,7 +3,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { canApproveExpiredDeparture } from '@/application/auth/employee-permissions';
+import { canApproveExpiredDeparture, normalizeEmployeePermissions } from '@/application/auth/employee-permissions';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import {
     approveExpiredDepartureOverride,
@@ -72,6 +72,10 @@ const ODOMETER_CORRECTION_2026_08 = `2026-08-04,671444,672107
 2026-08-31,678895,678895`;
 
 /** Distinct drivers present in a log, keyed by id ('none' for unassigned rows). */
+function dueDateInput(server: string | null | undefined, local: string | null | undefined): string {
+  return server && /^\d{4}-\d{2}-\d{2}$/.test(server) ? server : (local ?? '');
+}
+
 function distinctDrivers(rows: readonly { driverId?: string | null; driverName?: string | null }[]): { id: string; name: string }[] {
   const seen = new Map<string, string>();
   for (const row of rows) {
@@ -132,7 +136,7 @@ function LogFilters({ styles, months, drivers, month, driverId, onMonth, onDrive
 export default function VehicleScreen() {
   const db = useSQLiteContext();
   const { profile, online } = useLocalAccess();
-  const { section = 'terms' } = useLocalSearchParams<{ section?: 'terms' | 'odometer' | 'fuel' }>();
+  const { section = 'terms', vehicleId: requestedVehicleId } = useLocalSearchParams<{ section?: 'terms' | 'odometer' | 'fuel'; vehicleId?: string }>();
   const repository = useMemo(() => new TripSheetRepository(db), [db]);
   const faults = useMemo(() => new VehicleFaultRepository(db), [db]);
   const { colors } = useTheme();
@@ -188,6 +192,7 @@ export default function VehicleScreen() {
   const [fuelMonth, setFuelMonth] = useState('all');
   const [fuelFilterDriverId, setFuelFilterDriverId] = useState('all');
   const canApprove = canApproveExpiredDeparture(profile);
+  const canEditFleetDocuments = profile.role === 'admin' || (profile.role === 'dispatcher' && normalizeEmployeePermissions(profile.permissions).canManageVehicles);
 
   const applyVehicle = useCallback(async (vehicleId: string) => {
     const fleetVehicle = fleetVehicles.find((vehicle) => vehicle.id === vehicleId);
@@ -203,10 +208,10 @@ export default function VehicleScreen() {
     setName(fleetVehicle.model);
     setRegistrationNumber(fleetVehicle.registrationNumber);
     setFuelType(local?.fuelType ?? 'diesel');
-    setInspectionDueOn(local?.technicalInspectionDueOn ?? '');
-    setRoadTaxDueOn(local?.roadTaxDueOn ?? '');
-    setInsuranceDueOn(local?.insuranceDueOn ?? '');
-    setServiceDueOn(local?.nextServiceDueOn ?? '');
+    setInspectionDueOn(dueDateInput(fleetVehicle.technicalInspectionDueOn, local?.technicalInspectionDueOn));
+    setRoadTaxDueOn(dueDateInput(fleetVehicle.roadTaxDueOn, local?.roadTaxDueOn));
+    setInsuranceDueOn(dueDateInput(fleetVehicle.insuranceDueOn, local?.insuranceDueOn));
+    setServiceDueOn(dueDateInput(fleetVehicle.nextServiceDueOn, local?.nextServiceDueOn));
     setServiceOdometer(local?.nextServiceOdometer === null || local?.nextServiceOdometer === undefined ? '' : String(local.nextServiceOdometer));
     setOpenFaults(await faults.listOpen(vehicleId));
     const saved = await new VehicleDepartureOverrideRepository(db).getLatest(vehicleId);
@@ -528,7 +533,8 @@ export default function VehicleScreen() {
       }
     }
     setFleetVehicles(available);
-    const preferred = available.find((vehicle) => 'assignedDriverId' in vehicle && vehicle.assignedDriverId === profile.id) ?? available[0];
+    const requested = typeof requestedVehicleId === 'string' ? available.find((vehicle) => vehicle.id === requestedVehicleId) : undefined;
+    const preferred = requested ?? available.find((vehicle) => 'assignedDriverId' in vehicle && vehicle.assignedDriverId === profile.id) ?? available[0];
     if (preferred) {
       const local = await repository.getVehicleById(preferred.id) ?? await repository.saveVehicle({
         id: preferred.id,
@@ -540,10 +546,10 @@ export default function VehicleScreen() {
       setName(preferred.model);
       setRegistrationNumber(preferred.registrationNumber);
       setFuelType(local?.fuelType ?? 'diesel');
-      setInspectionDueOn(local?.technicalInspectionDueOn ?? '');
-      setRoadTaxDueOn(local?.roadTaxDueOn ?? '');
-      setInsuranceDueOn(local?.insuranceDueOn ?? '');
-      setServiceDueOn(local?.nextServiceDueOn ?? '');
+      setInspectionDueOn(dueDateInput(preferred.technicalInspectionDueOn, local?.technicalInspectionDueOn));
+      setRoadTaxDueOn(dueDateInput(preferred.roadTaxDueOn, local?.roadTaxDueOn));
+      setInsuranceDueOn(dueDateInput(preferred.insuranceDueOn, local?.insuranceDueOn));
+      setServiceDueOn(dueDateInput(preferred.nextServiceDueOn, local?.nextServiceDueOn));
       setServiceOdometer(local?.nextServiceOdometer === null || local?.nextServiceOdometer === undefined ? '' : String(local.nextServiceOdometer));
       setOpenFaults(await faults.listOpen(preferred.id));
       const saved = await new VehicleDepartureOverrideRepository(db).getLatest(preferred.id);
@@ -569,7 +575,7 @@ export default function VehicleScreen() {
     }
     const saved = await new VehicleDepartureOverrideRepository(db).getLatest(vehicle.id);
     setOverride(saved ? { status: saved.status, fingerprint: saved.fingerprint } : null);
-  }, [db, faults, online, profile.id, profile.permissions?.canEnterTripReadings, profile.role, repository]);
+  }, [db, faults, online, profile.id, profile.permissions?.canEnterTripReadings, profile.role, repository, requestedVehicleId]);
 
   useEffect(() => {
     void load().catch((error) => setMessage(error instanceof Error ? error.message : 'Automobilio duomenų atkurti nepavyko.'));
@@ -607,7 +613,22 @@ export default function VehicleScreen() {
         nextServiceDueOn: serviceDueOn,
         nextServiceOdometer: odometer,
       });
-      setMessage('Transporto priemonė išsaugota. Tušti terminai darbo nestabdo.');
+      const documentDates = {
+        technicalInspectionDueOn: inspectionDueOn || null,
+        insuranceDueOn: insuranceDueOn || null,
+        roadTaxDueOn: roadTaxDueOn || null,
+        nextServiceDueOn: serviceDueOn || null,
+      };
+      if (canEditFleetDocuments && online) {
+        await employeeApi(`/api/admin/vehicles/${encodeURIComponent(selectedVehicleId)}`, {
+          method: 'PATCH',
+          body: JSON.stringify(documentDates),
+        });
+        setFleetVehicles((current) => current.map((vehicle) => vehicle.id === selectedVehicleId ? { ...vehicle, ...documentDates } : vehicle));
+      }
+      setMessage(canEditFleetDocuments && !online
+        ? 'Terminai išsaugoti šiame įrenginyje. Prisijungus juos reikės išsaugoti dar kartą, kad matytų kiti dispečeriai.'
+        : 'Transporto priemonė išsaugota. Tušti terminai darbo nestabdo.');
       // Stay on the vehicle the user just edited. Reloading the whole screen
       // selected the driver's default/first vehicle again and made the newly
       // entered TA warning appear to belong to that other vehicle.

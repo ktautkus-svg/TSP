@@ -3,19 +3,22 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
+import { normalizeEmployeePermissions } from '@/application/auth/employee-permissions';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { pullAssignedRoutes, pushRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
-import { DEFAULT_ROUTE_PRICE_SETTINGS, estimatePreliminaryRoutePrice, normalizeRoutePriceSettings, type RoutePriceSettings } from '@/application/routes/route-price';
+import { consumedLitersForSingleRoute, explicitFuelNorm } from '@/application/routes/route-fuel-cost';
+import { DEFAULT_ROUTE_PRICE_SETTINGS, estimatePreliminaryRoutePrice, fuelPriceForYearMonth, normalizeRoutePriceSettings, type RoutePriceSettings } from '@/application/routes/route-price';
 import { ReopenRouteForPlanning } from '@/application/routes/route-commands';
 import { resolveRoute } from '@/application/routes/route-navigation';
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 import { DriverAppTabs } from '@/components/driver-app-tabs';
 import { ChevronDownIcon, ChevronRightIcon } from '@/components/app-icons';
 import { FoundationScreen } from '@/components/foundation-screen';
+import { RouteFuelQuoteCard } from '@/components/route-fuel-quote';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import type { DeliveryStop, Route } from '@/domain/route';
 import { routingCoordinates } from '@/domain/location-park-memory';
-import { employeeApi, type ServerRouteAssignment } from '@/infrastructure/auth/employee-session';
+import { employeeApi, type QualityRouteMonitor, type ServerRouteAssignment, type ServerTripSheet } from '@/infrastructure/auth/employee-session';
 import { formatWeightKg } from '@/ui/format-weight';
 import { describeVehicleLoad } from '@/ui/vehicle-load';
 import { radius, spacing, type } from '@/ui/tokens';
@@ -50,7 +53,12 @@ export default function RouteOverviewScreen() {
   const requestedEditorRef = useRef(false);
   const [assignment, setAssignment] = useState<ServerRouteAssignment | null>(null);
   const [priceSettings, setPriceSettings] = useState<RoutePriceSettings>(() => normalizeRoutePriceSettings(DEFAULT_ROUTE_PRICE_SETTINGS));
+  const [dayRouteCount, setDayRouteCount] = useState<number | null>(null);
+  const [odometerKm, setOdometerKm] = useState<number | null>(null);
+  const [priceDraft, setPriceDraft] = useState('');
+  const [savingPrice, setSavingPrice] = useState(false);
   const managementMode = mode === 'management' && ['admin', 'dispatcher'].includes(profile.role);
+  const canEditFuelPrice = profile.role === 'admin' || (profile.role === 'dispatcher' && normalizeEmployeePermissions(profile.permissions).canManageFinancials);
 
   const load = useCallback(async () => {
     if (online && profile.role === 'driver') {
@@ -113,6 +121,33 @@ export default function RouteOverviewScreen() {
     });
     return () => { mounted = false; };
   }, [managementMode, online, profile.role, routeId]));
+
+  const fuelAssignmentId = assignment?.id ?? null;
+  const fuelVehicleId = assignment?.vehicle?.id ?? null;
+  const fuelRouteDate = route?.date ?? null;
+  const fuelRouteId = route?.id ?? null;
+  useEffect(() => {
+    if (!managementMode || !online || !fuelRouteId || !fuelRouteDate || !fuelAssignmentId || !fuelVehicleId) {
+      setDayRouteCount(null);
+      setOdometerKm(null);
+      return;
+    }
+    let mounted = true;
+    void Promise.all([
+      employeeApi<{ routes: QualityRouteMonitor[] }>('/api/quality/routes'),
+      employeeApi<{ tripSheets: ServerTripSheet[] }>('/api/trip-sheets'),
+    ]).then(([monitor, sheets]) => {
+      if (!mounted) return;
+      setDayRouteCount(monitor.routes.filter((item) => item.vehicle?.id === fuelVehicleId && item.date === fuelRouteDate && item.status !== 'cancelled').length);
+      const sheet = sheets.tripSheets.find((item) => item.assignmentId === fuelAssignmentId || item.routeId === fuelRouteId);
+      setOdometerKm(sheet?.actualDistanceKm ?? null);
+    }).catch(() => {
+      if (!mounted) return;
+      setDayRouteCount(null);
+      setOdometerKm(null);
+    });
+    return () => { mounted = false; };
+  }, [fuelAssignmentId, fuelVehicleId, managementMode, online, fuelRouteDate, fuelRouteId]);
 
   const begin = () => {
     if (!route) return;
@@ -227,6 +262,53 @@ export default function RouteOverviewScreen() {
     driverName: assignment.driverName,
     vehicle: assignment.vehicle,
   }, priceSettings) : null;
+  const fuelQuote = route && assignment?.vehicle ? {
+    distanceKm: route.estimatedDistanceKm,
+    litersPer100Km: explicitFuelNorm(
+      assignment.vehicle.fuelNormLPer100Km,
+      priceSettings.vehicleCosts[assignment.vehicle.registrationNumber.trim().toUpperCase()]?.fuelNormLitersPer100Km ?? null,
+    ),
+    pricePerLiter: fuelPriceForYearMonth(priceSettings, route.date),
+    consumedLiters: consumedLitersForSingleRoute({
+      litersPer100Km: explicitFuelNorm(
+        assignment.vehicle.fuelNormLPer100Km,
+        priceSettings.vehicleCosts[assignment.vehicle.registrationNumber.trim().toUpperCase()]?.fuelNormLitersPer100Km ?? null,
+      ),
+      odometerKm,
+      routeCountOnVehicleDay: dayRouteCount ?? 0,
+    }),
+  } : null;
+  useEffect(() => {
+    if (!route) return;
+    const price = fuelPriceForYearMonth(priceSettings, route.date);
+    setPriceDraft(price === null ? '' : String(price));
+  }, [priceSettings, route]);
+  const saveFuelPrice = async () => {
+    if (!route || savingPrice || !canEditFuelPrice) return;
+    const parsed = Number(priceDraft.replace(',', '.'));
+    const yearMonth = route.date.slice(0, 7);
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(yearMonth) || !Number.isFinite(parsed) || parsed <= 0) {
+      setError('Įveskite kuro kainą eurais už litrą.');
+      return;
+    }
+    const settings = normalizeRoutePriceSettings({
+      ...priceSettings,
+      fuelPriceByYearMonth: { ...priceSettings.fuelPriceByYearMonth, [yearMonth]: parsed },
+    });
+    setSavingPrice(true);
+    try {
+      const response = await employeeApi<{ settings: RoutePriceSettings }>('/api/admin/route-price-settings', {
+        method: 'PATCH',
+        body: JSON.stringify({ settings }),
+      });
+      setPriceSettings(normalizeRoutePriceSettings(response.settings));
+      setError(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Kuro kainos išsaugoti nepavyko.');
+    } finally {
+      setSavingPrice(false);
+    }
+  };
 
   return <View style={styles.screen}>
     <Stack.Screen options={{ gestureEnabled: false, title: 'Maršruto informacija' }} />
@@ -251,6 +333,14 @@ export default function RouteOverviewScreen() {
           <View style={styles.managementItem}><Text style={styles.sectionLabel}>PERDAVIMO BŪSENA</Text><Text style={styles.managementValue}>{assignment ? assignmentStatusLabel(assignment.status) : 'Dar nepriskirtas'}</Text></View>
           <View style={styles.managementItem}><Text style={styles.sectionLabel}>PRELIMINARI KAINA</Text><Text style={styles.managementValue}>{preliminaryPrice ? `${formatMoney(preliminaryPrice.totalEur)}${preliminaryPrice.fuelPriceKnown ? '' : ' · be kuro (litro kaina neįvesta)'}` : 'Bus rodoma priskyrus vairuotoją ir automobilį'}</Text></View>
         </View> : null}
+        {managementMode ? <RouteFuelQuoteCard
+          canEditPrice={canEditFuelPrice}
+          onPriceDraft={setPriceDraft}
+          onSavePrice={() => { void saveFuelPrice(); }}
+          priceDraft={priceDraft}
+          quote={fuelQuote}
+          saving={savingPrice}
+        /> : null}
         <View style={styles.actions}>
           {!managementMode ? <Pressable style={styles.primaryButton} onPress={begin}><Text style={styles.primaryText}>{terminal ? 'Peržiūrėti rezultatą' : route.status === 'in_progress' ? 'Tęsti maršrutą' : 'Pradėti maršrutą'}</Text></Pressable> : null}
           {!managementMode && canEditOrder && ['planned', 'in_progress'].includes(route.status) ? <Pressable style={styles.secondaryButton} onPress={() => void editOrder()} testID="edit-route-order"><Text style={styles.secondaryText}>Redaguoti eiliškumą</Text></Pressable> : null}
