@@ -1,4 +1,4 @@
-import { File } from 'expo-file-system';
+import { readUriAsBase64 } from '@/infrastructure/import/read-uri-base64';
 
 import type { OcrProvider } from '@/application/import/ocr-provider';
 import type { ImportDocument, OcrResult } from '@/domain/import/models';
@@ -46,7 +46,7 @@ export class GoogleVisionOcrProvider implements OcrProvider {
     page: number,
     signal?: AbortSignal,
   ): Promise<OcrResult> {
-    const imageBase64 = await new File(uri).base64();
+    const imageBase64 = await readUriAsBase64(uri);
     const response = await this.fetcher(this.endpoint, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },

@@ -3,6 +3,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import type { ImportAuditRepository } from '@/application/import/import-engine';
 import type { ImportAuditRecord } from '@/domain/import/models';
+import { isWebUri } from '@/infrastructure/import/read-uri-base64';
 
 export class SQLiteImportAuditRepository implements ImportAuditRepository {
   constructor(private readonly db: SQLiteDatabase) {}
@@ -58,6 +59,8 @@ type AuditRow = {
 
 async function preserveOriginalFile(record: ImportAuditRecord): Promise<string | null> {
   if (!record.document.uri || ['clipboard', 'text'].includes(record.document.kind)) return null;
+  // Naršyklėje (blob:/data: adresai) originalo kopijos į programos katalogą nėra.
+  if (isWebUri(record.document.uri)) return null;
   const directory = new Directory(Paths.document, 'import-audit', record.id);
   directory.create({ intermediates: true, idempotent: true });
   const safeName = record.document.fileName.replace(/[^\p{L}\p{N}._-]/gu, '_') || 'original.bin';
