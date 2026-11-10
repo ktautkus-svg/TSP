@@ -27,13 +27,33 @@ export function improveWithLocalSearch(input: {
     startedAt + request.maxCalculationMs,
     input.deadlineAt ?? Number.POSITIVE_INFINITY,
   );
-  let best = evaluateCandidate({
+  const original = evaluateCandidate({
     stopSequence: input.sequence,
     generatedBy: [generatedBy],
     request,
     matrix,
   });
-  const initialObjective = cappedObjective(best.rawScoreComponents, request.scoring);
+  // The full objective is expensive (every neighbour re-simulates the whole
+  // day), so on a phone the budget ran out after a handful of moves and the
+  // driver got a route that loops around the city. A pure road-distance
+  // 2-opt / Or-opt pass costs a few milliseconds and untangles the geography
+  // first; the full search then only has to fine-tune. The polished order is
+  // kept only if the full objective agrees it is at least as good.
+  const polishedSequence = repairHardOrdering(
+    polishByDistance(input.sequence, request, matrix, stopSearchingAt),
+    stopById,
+  );
+  let best = original;
+  if (polishedSequence.join('|') !== input.sequence.join('|')) {
+    const polished = evaluateCandidate({
+      stopSequence: polishedSequence,
+      generatedBy: [generatedBy, 'distance_polish'],
+      request,
+      matrix,
+    });
+    if (!isBetter(original, polished, request)) best = polished;
+  }
+  const initialObjective = cappedObjective(original.rawScoreComponents, request.scoring);
   let iterations = 0;
   let stoppedBy: LocalSearchStats['stoppedBy'] = 'no_improvement';
 
@@ -121,4 +141,77 @@ function* neighborhoods(sequence: string[]): Generator<string[]> {
       yield relocated;
     }
   }
+}
+
+/**
+ * Road-distance-only 2-opt + Or-opt (segments of 1–3 stops) on the open path
+ * start -> stops -> end. First-improvement, repeated until nothing improves or
+ * the time limit is hit. Uses the matrix directly, so it is orders of
+ * magnitude cheaper than evaluateCandidate.
+ */
+export function polishByDistance(
+  sequence: string[],
+  request: RouteOptimizationRequest,
+  matrix: TravelMatrix,
+  stopAt: number = Number.POSITIVE_INFINITY,
+): string[] {
+  const index = new Map(matrix.nodeIds.map((id, position) => [id, position]));
+  const startIdx = index.get(request.startLocation.id);
+  const endIdx = index.get(request.endLocation.id);
+  const nodes = sequence.map((id) => index.get(id));
+  if (startIdx === undefined || endIdx === undefined || nodes.some((n) => n === undefined)) {
+    return sequence;
+  }
+  const d = (from: number, to: number): number => {
+    const value = matrix.cells[from]?.[to]?.distanceKm;
+    return value !== null && value !== undefined && Number.isFinite(value) ? value : 1e6;
+  };
+  const cost = (path: number[]): number => {
+    if (path.length === 0) return d(startIdx, endIdx);
+    let total = d(startIdx, path[0]);
+    for (let i = 1; i < path.length; i += 1) total += d(path[i - 1], path[i]);
+    return total + d(path[path.length - 1], endIdx);
+  };
+  let path = nodes as number[];
+  let bestCost = cost(path);
+  let improved = true;
+  let guard = 0;
+  while (improved && guard < 200) {
+    guard += 1;
+    improved = false;
+    if (performance.now() >= stopAt) break;
+    for (let i = 0; i < path.length - 1; i += 1) {
+      for (let j = i + 1; j < path.length; j += 1) {
+        const next = [...path.slice(0, i), ...path.slice(i, j + 1).reverse(), ...path.slice(j + 1)];
+        const nextCost = cost(next);
+        if (nextCost < bestCost - 1e-9) {
+          path = next;
+          bestCost = nextCost;
+          improved = true;
+        }
+      }
+    }
+    for (let length = 1; length <= 3; length += 1) {
+      for (let i = 0; i + length <= path.length; i += 1) {
+        const segment = path.slice(i, i + length);
+        const rest = [...path.slice(0, i), ...path.slice(i + length)];
+        for (let k = 0; k <= rest.length; k += 1) {
+          if (k === i) continue;
+          for (const piece of length > 1 ? [segment, [...segment].reverse()] : [segment]) {
+            const next = [...rest.slice(0, k), ...piece, ...rest.slice(k)];
+            const nextCost = cost(next);
+            if (nextCost < bestCost - 1e-9) {
+              path = next;
+              bestCost = nextCost;
+              improved = true;
+              break;
+            }
+          }
+          if (improved && path.length !== rest.length + length) break;
+        }
+      }
+    }
+  }
+  const idByIndex = new Map(matrix.nodeIds.map((id, position) => [position, id]));
+  return path.map((n) => idByIndex.get(n)!);
 }

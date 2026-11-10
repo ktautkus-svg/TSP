@@ -37,6 +37,9 @@ import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { radius, spacing, type } from '@/ui/tokens';
 
+// Pause after the last manual move before the road line is re-fetched.
+const MANUAL_LINE_DEBOUNCE_MS = 1_200;
+
 export default function RouteAlternativesScreen() {
   const { width } = useWindowDimensions();
   // A 1024 px tablet does not have enough room for a useful alternatives rail
@@ -80,6 +83,12 @@ export default function RouteAlternativesScreen() {
   const [manualPolylineError, setManualPolylineError] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const manualPolylineRequestId = useRef(0);
+  const [manualLinePending, setManualLinePending] = useState(false);
+  const manualLineTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fetchManualDrivingPolylineRef = useRef<((ids: readonly string[]) => Promise<void>) | null>(null);
+  useEffect(() => () => {
+    if (manualLineTimer.current) clearTimeout(manualLineTimer.current);
+  }, []);
   const savingRef = useRef(false);
   const startedForRoute = useRef<string | null>(null);
   // Cancelling flips the route to 'cancelled', which resolveRoute maps to
@@ -278,13 +287,21 @@ export default function RouteAlternativesScreen() {
     next.splice(targetIndex, 0, stopId);
     setManualOrder(next);
     setManualError(null);
-    // Drop the previous driving line immediately. Pins follow the new order,
-    // but never join them with a misleading straight line. A fresh Google road
-    // line is fetched when the driver asks to recalculate the chosen order.
+    // Drop the previous driving line immediately (it no longer matches the
+    // pins), then fetch the road line for the new order automatically once the
+    // dispatcher stops moving stops for a moment. Debounced so a series of
+    // quick moves costs one gateway request, not one per tap.
     manualPolylineRequestId.current += 1;
     setManualPolyline(null);
     setManualPolylineError(null);
+    setManualLinePending(true);
     setTimeout(() => evaluateManualSequenceRef.current?.(next), 0);
+    if (manualLineTimer.current) clearTimeout(manualLineTimer.current);
+    manualLineTimer.current = setTimeout(() => {
+      manualLineTimer.current = null;
+      void fetchManualDrivingPolylineRef.current?.(next)
+        .finally(() => setManualLinePending(false));
+    }, MANUAL_LINE_DEBOUNCE_MS);
   };
 
   const toggleManualPriority = (stopId: string) => {
@@ -407,6 +424,8 @@ export default function RouteAlternativesScreen() {
       setManualPolylineError(reason instanceof Error ? reason.message : 'Maršruto linijos užklausa nepavyko.');
     }
   };
+
+  fetchManualDrivingPolylineRef.current = fetchManualDrivingPolyline;
 
   const recalculateManualSequence = async () => {
     if (manualRecalculating) return;
@@ -772,9 +791,9 @@ export default function RouteAlternativesScreen() {
                 {...manualMapLocations}
                 encodedPolyline={manualPolyline?.encodedPolyline}
                 allowStraightLineFallback={false}
-                // After a drag the road line is cleared on purpose. Do not claim
-                // it is „still loading“ until the driver asks to recalculate.
-                expectPolyline={manualRecalculating || Boolean(manualPolyline || manualPolylineError)}
+                // After a move the old road line is cleared and a new one is
+                // fetched automatically after a short pause.
+                expectPolyline={manualRecalculating || manualLinePending || Boolean(manualPolyline || manualPolylineError)}
                 totalDistanceKm={manualCandidate?.totalDistanceKm}
                 totalDurationMinutes={manualCandidate?.totalWorkMinutes}
                 polylineError={manualPolylineError}
