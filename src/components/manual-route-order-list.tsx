@@ -172,6 +172,7 @@ function DraggableRow(props: {
       setDragging(false);
       translateY.setValue(0);
     },
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- tick/stop helpers only read refs
   }), [translateY]);
 
   const [positionText, setPositionText] = useState(String(props.index + 1));
