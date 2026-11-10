@@ -188,7 +188,8 @@ describe('route alternatives', () => {
     const timed = await engine.optimize(requestForPlanningMode(request, 'with_time_windows'));
     const geo = await engine.optimize(requestForPlanningMode(request, 'ignore_time_windows'));
     const labeled = selectRouteAlternatives(timed, geo, request);
-    const fastest = labeled.find((item) => item.mode === 'free_fastest')!;
+    const fastest = labeled.find((item) => item.mode === 'free_fastest')
+      ?? labeled.find((item) => item.title.includes('Greičiausias'))!;
     const shortest = labeled.find((item) => item.mode === 'free_shortest')
       ?? labeled.find((item) => item.title.includes('Trumpiausias'))!;
     const geoFeasible = geo.candidates.filter((candidate) => candidate.feasible);

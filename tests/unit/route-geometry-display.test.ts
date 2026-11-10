@@ -35,11 +35,11 @@ describe('FIRO real road geometry display', () => {
 
     // Manual edit: drop the previous road line immediately; never sketch straight joins.
     expect(alternatives).toContain('setManualPolyline(null)');
-    expect(alternatives).toContain('but never join them with a misleading straight line');
+    expect(alternatives).toContain('fetch the road line for the new order automatically');
     expect(alternatives).toContain('encodedPolyline={manualPolyline?.encodedPolyline}');
     expect(alternatives).toContain('fetchManualDrivingPolyline');
     expect(alternatives).toContain(
-      'expectPolyline={manualRecalculating || Boolean(manualPolyline || manualPolylineError)}',
+      'expectPolyline={manualRecalculating || manualLinePending || Boolean(manualPolyline || manualPolylineError)}',
     );
 
     // Active-route reorder: debounce paid polyline so drag bursts do not loop requests.
