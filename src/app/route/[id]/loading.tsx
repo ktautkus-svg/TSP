@@ -52,6 +52,9 @@ import type { ColorPalette } from '@/ui/theme-palette';
 import { fonts, radius, spacing, type } from '@/ui/tokens';
 import { describeVehicleLoad } from '@/ui/vehicle-load';
 
+// Drivers no longer enter or confirm the fuel balance before loading.
+const DRIVER_FUEL_CONFIRMATION_REQUIRED = false;
+
 export default function LoadingScreen() {
   const { profile, online, actingDriver } = useLocalAccess();
   const { requestSync, revision: syncRevision } = useRouteCloudSync();
@@ -409,7 +412,7 @@ export default function LoadingScreen() {
 
   const beginLoading = () => {
     if (bulkInFlight.current) return;
-    if (profile.role === 'driver' && online && fuelStatus?.requiresConfirmation) {
+    if (DRIVER_FUEL_CONFIRMATION_REQUIRED && profile.role === 'driver' && online && fuelStatus?.requiresConfirmation) {
       Alert.alert('Patvirtinkite kuro likutį', 'Prieš pradedant krovimą patvirtinkite šio automobilio kuro likutį.');
       return;
     }
@@ -557,7 +560,7 @@ export default function LoadingScreen() {
             onRequestApproval={() => { void requestOverride(); }}
           />
         ) : null}
-        {profile.role === 'driver' && online ? <View style={styles.fuelCard} testID="fuel-confirmation-card">
+        {DRIVER_FUEL_CONFIRMATION_REQUIRED && profile.role === 'driver' && online ? <View style={styles.fuelCard} testID="fuel-confirmation-card">
           <Text style={styles.summaryTitle}>Kuro likutis · {fuelStatus?.vehicle?.registrationNumber ?? 'automobilis'}</Text>
           {fuelStatus?.approvalPending ? <Text style={styles.fuelPending}>Pakeitimas laukia administratoriaus patvirtinimo. Maršrutą galite tęsti.</Text> : fuelStatus?.requiresConfirmation ? <Text style={styles.summaryText}>Patvirtinkite esamą likutį. Jei skaičius pasikeitė, administratorius gaus prašymą.</Text> : <Text style={styles.summaryText}>Patvirtinta: {fuelStatus?.vehicle?.fuelRemainingLiters ?? fuelStatus?.latestReport?.reportedLiters ?? '—'} l</Text>}
           {fuelStatus?.requiresConfirmation ? <View style={styles.fuelRow}>

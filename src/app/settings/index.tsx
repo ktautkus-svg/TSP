@@ -14,6 +14,7 @@ import {
     restorePwaBackup,
     summarizePwaBackup,
 } from '@/application/backup/pwa-backup';
+import { readTestSnapshotInfo, restoreTestSnapshot, saveTestSnapshot, type TestSnapshotInfo } from '@/application/backup/test-snapshot';
 import { CompanyProfileSettings } from '@/application/settings/company-profile';
 import {
     NavigationPreference,
@@ -277,6 +278,48 @@ export default function SettingsScreen() {
     }
   }
 
+  const [snapshotInfo, setSnapshotInfo] = useState<TestSnapshotInfo | null>(null);
+  useEffect(() => {
+    void readTestSnapshotInfo().then(setSnapshotInfo).catch(() => setSnapshotInfo(null));
+  }, []);
+
+  async function saveSnapshot() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      setSnapshotInfo(await saveTestSnapshot(db, appVersion));
+      setMessage('Bandymo kopija išsaugota.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Kopijos išsaugoti nepavyko.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function confirmRestoreSnapshot() {
+    Alert.alert(
+      'Atkurti bandymo kopiją?',
+      'Visi dabartiniai šio įrenginio duomenys bus pakeisti išsaugota kopija.',
+      [
+        { text: 'Atšaukti', style: 'cancel' },
+        { text: 'Atkurti', style: 'destructive', onPress: () => { void performSnapshotRestore(); } },
+      ],
+    );
+  }
+
+  async function performSnapshotRestore() {
+    setBusy(true);
+    try {
+      await restoreTestSnapshot(db);
+      await refreshDiagnostics();
+      setMessage('Bandymo kopija atkurta. Duomenys tokie, kokie buvo išsaugojimo metu.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Atkurti nepavyko. Dabartiniai duomenys nepakeisti.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <>
       <Stack.Screen options={{ gestureEnabled: false }} />
@@ -345,6 +388,7 @@ export default function SettingsScreen() {
               </View>
               <Text style={styles.chevron}>›</Text>
             </Pressable>
+            {profile.role !== 'driver' ? <>
             <View style={styles.groupDivider} />
             <Pressable style={styles.settingsRow} onPress={() => router.push('/contacts' as Href)} testID="open-contacts-settings">
               <View style={styles.flex}>
@@ -378,6 +422,7 @@ export default function SettingsScreen() {
                 </View>
               ) : null}
             </View>
+            </> : null}
             <View style={styles.groupDivider} />
             <View testID="default-navigation-setting">
               <Pressable accessibilityRole="button" accessibilityState={{ expanded: openSection === 'navigation' }} onPress={() => toggleSection('navigation')} style={styles.settingsRow}>
@@ -465,6 +510,7 @@ export default function SettingsScreen() {
                 </View>
               ) : null}
             </View>
+            {profile.role !== 'driver' ? <>
             <View style={styles.groupDivider} />
             <View testID="data-backup-section">
               <Pressable accessibilityRole="button" accessibilityState={{ expanded: openSection === 'data' }} onPress={() => toggleSection('data')} style={styles.settingsRow}>
@@ -486,9 +532,11 @@ export default function SettingsScreen() {
               <Text style={styles.meta}>Kopijoje nėra API raktų ar Gateway įrenginio rakto.</Text>
               <Pressable disabled={busy} style={styles.primaryButton} onPress={() => void exportBackup()}><Text style={styles.primaryText}>Eksportuoti atsarginę kopiją</Text></Pressable>
               <Pressable disabled={busy} style={styles.secondaryButton} onPress={() => void chooseBackup()}><Text style={styles.secondaryText}>Atkurti iš atsarginės kopijos</Text></Pressable>
+              <View style={styles.advancedDivider} />              <Text style={styles.meta}>Bandymo kopija: išsaugo visą dabartinę duomenų būseną (maršrutus, taškus) šiame įrenginyje, kad po bandymo ją būtų galima atkurti tiksliai tokią, kokia buvo.</Text>              <Text style={styles.meta}>{snapshotInfo ? `Išsaugota: ${new Date(snapshotInfo.savedAt).toLocaleString('lt-LT')} · ${snapshotInfo.routeCount} maršr., ${snapshotInfo.stopCount} taškų` : 'Bandymo kopijos dar nėra.'}</Text>              <Pressable disabled={busy} style={styles.primaryButton} onPress={() => void saveSnapshot()} testID="save-test-snapshot"><Text style={styles.primaryText}>Išsaugoti bandymo kopiją</Text></Pressable>              <Pressable disabled={busy || !snapshotInfo} style={[styles.secondaryButton, !snapshotInfo && styles.rowPressed]} onPress={confirmRestoreSnapshot} testID="restore-test-snapshot"><Text style={styles.secondaryText}>Atkurti bandymo kopiją</Text></Pressable>
                 </View>
               ) : null}
             </View>
+            </> : null}
           </View>
         </View>
 
