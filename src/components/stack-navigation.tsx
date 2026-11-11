@@ -40,12 +40,16 @@ export function StackHeaderActions() {
 
 function useLogicalStackNavigation(explicitFallback?: Href) {
   const pathname = usePathname();
-  const params = useGlobalSearchParams<{ id?: string | string[]; mode?: string | string[]; returnTo?: string | string[] }>();
+  const params = useGlobalSearchParams<{ id?: string | string[]; mode?: string | string[]; edit?: string | string[]; returnTo?: string | string[] }>();
   const { profile } = useLocalAccess();
   const homeTarget = roleHomePath(profile.role);
   const driverPrimary = profile.role === 'driver' && ['/', '/history', '/statistics', '/settings'].includes(pathname);
   const roleRoot = pathname === homeTarget;
-  const backTarget = explicitFallback ?? returnTarget(params.returnTo) ?? logicalParent(pathname, firstParam(params.id), firstParam(params.mode), homeTarget);
+  const routeId = firstParam(params.id);
+  const plannedEditBack: Href | undefined = /^\/route\/[^/]+\/alternatives$/.test(pathname) && routeId && firstParam(params.edit) === 'planned-order'
+    ? { pathname: '/route/[id]/loading', params: { id: routeId } }
+    : undefined;
+  const backTarget = explicitFallback ?? plannedEditBack ?? returnTarget(params.returnTo) ?? logicalParent(pathname, firstParam(params.id), firstParam(params.mode), homeTarget);
   return {
     backTarget,
     homeTarget,

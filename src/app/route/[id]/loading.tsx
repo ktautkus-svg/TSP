@@ -471,6 +471,10 @@ export default function LoadingScreen() {
 
   const editPlannedRoute = async () => {
     if (bulkInFlight.current) return;
+    if (profile.role === 'driver') {
+      router.replace({ pathname: '/route/[id]/alternatives', params: { id: routeId, edit: 'planned-order' } });
+      return;
+    }
     bulkInFlight.current = true;
     setBulkBusy(true);
     try {

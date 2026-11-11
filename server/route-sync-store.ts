@@ -25,6 +25,7 @@ export type PushDecisionInput = {
   ownerEmployeeId: string;
   status: string | null;
   updatedAt: string | null;
+  deleted?: boolean;
 };
 
 export type PushDecision = 'applied' | 'conflict' | 'forbidden';
@@ -33,13 +34,15 @@ export type PushDecision = 'applied' | 'conflict' | 'forbidden';
  * Pure conflict-resolution rule (no Firestore access) so it can be unit
  * tested directly. See docs/CLOUD_SYNC_ARCHITECTURE.md §4.3:
  * 1. wrong owner is always rejected;
- * 2. a terminal (completed/cancelled) stored route can never be changed
+ * 2. a deleted route cannot be restored by a device push;
+ * 3. a terminal (completed/cancelled) stored route can never be changed
  *    away from that status by an older/conflicting write;
- * 3. otherwise latest-write-wins by `updated_at`.
+ * 4. otherwise latest-write-wins by `updated_at`.
  */
 export function decidePushOutcome(existing: PushDecisionInput | null, incoming: PushDecisionInput): PushDecision {
   if (!existing) return 'applied';
   if (existing.ownerEmployeeId !== incoming.ownerEmployeeId) return 'forbidden';
+  if (existing.deleted) return 'conflict';
 
   const existingIsTerminal = existing.status !== null && TERMINAL_STATUSES.has(existing.status);
   if (existingIsTerminal && incoming.status !== existing.status) return 'conflict';
@@ -151,6 +154,7 @@ export class RouteSyncStore {
             ownerEmployeeId: existing.ownerEmployeeId,
             status: String(existing.routeSnapshot.route.status ?? '') || null,
             updatedAt: String(existing.routeSnapshot.route.updated_at ?? '') || null,
+            deleted: existing.deleted,
           },
           { ownerEmployeeId: employeeId, status: incomingStatus || null, updatedAt: incomingUpdatedAt || null },
         );

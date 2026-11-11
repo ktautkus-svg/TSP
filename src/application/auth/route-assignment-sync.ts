@@ -173,7 +173,10 @@ async function reconcileAndImportAssignments(
       const incomingUpdatedAt = String(assignment.routeSnapshot.route.updated_at ?? '');
       const remoteAhead = !local || incomingUpdatedAt > local.updated_at;
       const missingProgress = remoteProgressMissingLocally(local, assignment.routeSnapshot.route);
-      if ((assignment.updatedAt > String(existingSync.server_revision ?? '') && remoteAhead) || missingProgress) {
+      // Earlier versions turned an assigned plan into a local draft as soon as
+      // editing opened. The saved assignment is the last confirmed plan.
+      const abandonedPlanEdit = local?.status === 'draft' && assignment.routeSnapshot.route.status === 'planned';
+      if ((assignment.updatedAt > String(existingSync.server_revision ?? '') && remoteAhead) || missingProgress || abandonedPlanEdit) {
         await applyRouteSnapshot(db, assignment.routeSnapshot, assignment.updatedAt, employeeId);
       }
       await db.runAsync(

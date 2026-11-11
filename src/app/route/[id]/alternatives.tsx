@@ -51,7 +51,10 @@ export default function RouteAlternativesScreen() {
   const db = useSQLiteContext();
   const { requestSync, revision: syncRevision } = useRouteCloudSync();
   const { profile } = useLocalAccess();
-  const { id: routeId = '', returnTo } = useLocalSearchParams<{ id: string; returnTo?: string }>();
+  const { id: routeId = '', returnTo, edit } = useLocalSearchParams<{ id: string; returnTo?: string; edit?: string }>();
+  const editingPlannedOrder = edit === 'planned-order';
+  const canEditPlannedOrder = editingPlannedOrder && profile.role === 'driver' && profile.permissions?.canReorderAssignedRoute === true;
+  const editableStatus = canEditPlannedOrder ? 'planned' : 'draft';
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const repository = useMemo(() => new RouteRepository(db), [db]);
@@ -112,7 +115,7 @@ export default function RouteAlternativesScreen() {
       const persisted = await repository.getWithStops(routeId);
       if (generation !== calculationGeneration.current) return;
       if (!persisted) throw new Error('Maršrutas nerastas.');
-      if (persisted.route.status !== 'draft') {
+      if (persisted.route.status !== editableStatus) {
         const destination = resolveRoute(persisted.route);
         setRecoveryDestination(destination);
         router.replace({
@@ -133,6 +136,7 @@ export default function RouteAlternativesScreen() {
       if (generation !== calculationGeneration.current) return;
       await new SQLiteRoutingAuditRepository(db).saveOptimizationRun(routeId, four.request, four.result);
       if (generation !== calculationGeneration.current) return;
+      if (canEditPlannedOrder) setManualOrder(persisted.stops.map((stop) => stop.id));
       setRequest(four.request);
       setResult(four.result);
       setLabeledAlternatives(four.labeled);
@@ -143,14 +147,14 @@ export default function RouteAlternativesScreen() {
         setError(reason instanceof Error ? reason.message : 'Nepavyko apskaičiuoti maršruto.');
       }
     }
-  }, [allowSynthetic, db, repository, routeId, router]);
+  }, [allowSynthetic, canEditPlannedOrder, db, editableStatus, repository, routeId, router]);
 
   useFocusEffect(useCallback(() => {
     screenFocused.current = true;
     let active = true;
     void calculate();
     void repository.getById(routeId).then((current) => {
-      if (!active || !current || current.status === 'draft' || selfCancelled.current) return;
+      if (!active || !current || current.status === editableStatus || selfCancelled.current) return;
       const destination = resolveRoute(current);
       setRecoveryDestination(destination);
       router.replace({
@@ -167,20 +171,21 @@ export default function RouteAlternativesScreen() {
       calculationGeneration.current += 1;
       startedForRoute.current = null;
     };
-  }, [calculate, repository, routeId, router]));
+  }, [calculate, editableStatus, repository, routeId, router]));
 
   useEffect(() => {
     if (syncRevision === 0 || !screenFocused.current) return;
     void repository.getById(routeId).then((current) => {
-      if (!current || current.status === 'draft' || selfCancelled.current) return;
+      if (!current || current.status === editableStatus || selfCancelled.current) return;
       const destination = resolveRoute(current);
       router.replace({ pathname: destination.pathname, params: destination.params } as Href);
     }).catch((reason) => {
       devWarn('ALTERNATIVES_SYNC_GUARD_FAILED', reason);
     });
-  }, [repository, routeId, router, syncRevision]);
+  }, [editableStatus, repository, routeId, router, syncRevision]);
 
   useEffect(() => {
+    if (editingPlannedOrder) return;
     const unsubscribe = navigation.addListener('beforeRemove', () => {
       if (stayInPlanning.current || selfCancelled.current) return;
       void new PruneUncommittedDraftRoutes(db).execute({ keepRouteId: routeId })
@@ -192,7 +197,7 @@ export default function RouteAlternativesScreen() {
         });
     });
     return unsubscribe;
-  }, [db, navigation, requestSync, routeId]);
+  }, [db, editingPlannedOrder, navigation, requestSync, routeId]);
 
   const defaultCandidate = result?.recommended ?? result?.diagnosticCandidate ?? labeledAlternatives[0]?.candidate ?? result?.candidates[0];
   const candidates = labeledAlternatives.length > 0
@@ -233,7 +238,7 @@ export default function RouteAlternativesScreen() {
     try {
       const current = await repository.getById(routeId);
       if (!current) throw new Error('Maršrutas nerastas.');
-      if (current.status !== 'draft') {
+      if (current.status !== editableStatus) {
         const destination = resolveRoute(current);
         setRecoveryDestination(destination);
         router.replace({
@@ -463,7 +468,7 @@ export default function RouteAlternativesScreen() {
     try {
       const current = await repository.getById(routeId);
       if (!current) throw new Error('Maršrutas nerastas.');
-      if (current.status !== 'draft') {
+      if (current.status !== editableStatus) {
         const destination = resolveRoute(current);
         setRecoveryDestination(destination);
         router.replace({
@@ -569,14 +574,14 @@ export default function RouteAlternativesScreen() {
         </Pressable>
       ) : error ? (
         <View style={{ gap: spacing.md, marginTop: spacing.md }}>
-          <Pressable
+          {!editingPlannedOrder ? <Pressable
             style={styles.primaryButton}
             onPress={() => {
               stayInPlanning.current = true;
               router.replace({ pathname: '/route/[id]/review', params: { id: routeId } });
             }}>
             <Text style={styles.primaryText}>Grįžti į adresų patikrą</Text>
-          </Pressable>
+          </Pressable> : null}
           <Pressable
             style={[styles.primaryButton, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.primary }]}
             onPress={() => router.replace(roleHomePath(profile.role) as Href)}>
@@ -602,7 +607,7 @@ export default function RouteAlternativesScreen() {
       ) : null}
       {candidates.length > 0 ? (
         <View style={[styles.topActions, wideWorkspace && styles.topActionsWide]}>
-          <Pressable
+          {!editingPlannedOrder ? <Pressable
             disabled={saving || cancelling}
             style={({ pressed }) => [styles.secondaryButton, wideWorkspace && styles.topActionItem, (saving || cancelling) && styles.disabled, pressed && styles.pressedFeedback]}
             onPress={() => {
@@ -611,7 +616,7 @@ export default function RouteAlternativesScreen() {
             }}
             testID="change-warehouse-or-stops">
             <Text style={styles.secondaryText}>Keisti sandėlį arba taškus</Text>
-          </Pressable>
+          </Pressable> : null}
           <Pressable
             disabled={!selectedId || saving || cancelling}
             style={({ pressed }) => [styles.primaryButton, wideWorkspace && styles.topActionPrimary, (!selectedId || saving || cancelling) && styles.disabled, pressed && styles.pressedFeedback]}
@@ -619,13 +624,13 @@ export default function RouteAlternativesScreen() {
             testID="save-selected-route-top">
             {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>Patvirtinti pasirinktą maršrutą</Text>}
           </Pressable>
-          <Pressable
+          {!editingPlannedOrder ? <Pressable
             disabled={saving || cancelling}
             style={({ pressed }) => [styles.restartButton, wideWorkspace && styles.topActionItem, (saving || cancelling) && styles.disabled, pressed && styles.pressedFeedback]}
             onPress={cancelAndChooseAnotherFile}
             testID="cancel-route-and-new-file">
             {cancelling ? <ActivityIndicator color={colors.danger} /> : <Text style={styles.restartText}>Atšaukti ir pasirinkti kitą failą</Text>}
-          </Pressable>
+          </Pressable> : null}
         </View>
       ) : null}
       <View style={[styles.workspace, wideWorkspace && styles.workspaceWide]}>

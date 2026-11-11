@@ -157,6 +157,11 @@ export default function RouteOverviewScreen() {
   const editOrder = useCallback(async () => {
     if (!route) return;
     if (route.status === 'planned') {
+      if (profile.role === 'driver') {
+        if (!profile.permissions?.canReorderAssignedRoute) return;
+        router.replace({ pathname: '/route/[id]/alternatives', params: { id: route.id, edit: 'planned-order' } });
+        return;
+      }
       try {
         await new ReopenRouteForPlanning(db).execute(route.id);
         await requestSync('mutation');
@@ -175,7 +180,7 @@ export default function RouteOverviewScreen() {
       setPendingOrder(pending.map((stop) => stop.id));
       setEditingOrder(true);
     }
-  }, [db, requestSync, route, router, stops]);
+  }, [db, profile.permissions?.canReorderAssignedRoute, profile.role, requestSync, route, router, stops]);
   useEffect(() => {
     if (edit !== 'order' || !route || stops.length === 0 || requestedEditorRef.current) return;
     requestedEditorRef.current = true;

@@ -172,7 +172,7 @@ describe('pushRouteAssignmentProgress self-assignment', () => {
     expect(route?.owner_employee_id).toBe('driver-karka');
   });
 
-  it('pulls a route assigned to the acting driver from a different device via /api/admin/assignments', async () => {
+  it('pulls an assigned plan and restores its order after an older client reopened it locally', async () => {
     const { db } = database();
     const { routeId } = await new CreateDraftRouteWithStops(db).execute({
       commandId: 'cmd-pull-1', startLocation: endpoint, endLocation: endpoint,
@@ -184,6 +184,8 @@ describe('pushRouteAssignmentProgress self-assignment', () => {
         weightKg: 10, phone: null, notes: null,
       }],
     });
+    await db.runAsync("UPDATE routes SET status = 'planned' WHERE id = ?", routeId);
+    await db.runAsync('UPDATE delivery_stops SET active_order = 1 WHERE route_id = ?', routeId);
     const routeSnapshot = await exportRouteSnapshot(db, routeId);
     // Simulate a route that was created and assigned from a different
     // device: it does not exist in this device's local database yet.
@@ -221,6 +223,12 @@ describe('pushRouteAssignmentProgress self-assignment', () => {
     expect(localRoute?.owner_employee_id).toBe('driver-karka');
     const otherRoute = await db.getFirstAsync<{ id: string } | null>('SELECT id FROM routes WHERE id = ?', 'other-route');
     expect(otherRoute).toBeNull();
+
+    await db.runAsync("UPDATE routes SET status = 'draft', updated_at = '2090-01-01T00:00:00.000Z' WHERE id = ?", routeId);
+    await db.runAsync('UPDATE delivery_stops SET active_order = NULL WHERE route_id = ?', routeId);
+    await pullAssignedRoutesForActingDriver(db, 'driver-karka');
+    expect(await db.getFirstAsync('SELECT status FROM routes WHERE id = ?', routeId)).toMatchObject({ status: 'planned' });
+    expect(await db.getFirstAsync('SELECT active_order FROM delivery_stops WHERE route_id = ?', routeId)).toMatchObject({ active_order: 1 });
   });
 
   it('does not attempt self-assignment for a plain driver (no permission for that endpoint)', async () => {

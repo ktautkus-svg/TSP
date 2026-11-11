@@ -42,6 +42,12 @@ describe('route sync push conflict decision', () => {
     expect(decidePushOutcome(existing, staleDraft)).toBe('conflict');
   });
 
+  it('keeps the deletion marker when an offline phone later uploads the deleted assignment as a draft', () => {
+    const existing: PushDecisionInput = { ...owner, status: 'planned', deleted: true };
+    const laterDraft: PushDecisionInput = { ...owner, status: 'draft', updatedAt: '2026-08-12T10:00:00.000Z' };
+    expect(decidePushOutcome(existing, laterDraft)).toBe('conflict');
+  });
+
   it('still allows a newer correction that keeps the same terminal status', () => {
     const existing: PushDecisionInput = { ...owner, status: 'completed', updatedAt: '2026-08-11T10:00:00.000Z' };
     const laterCorrection: PushDecisionInput = { ...owner, status: 'completed', updatedAt: '2026-08-11T10:05:00.000Z' };
