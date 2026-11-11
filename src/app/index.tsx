@@ -212,7 +212,6 @@ export default function HomeScreen() {
               <View style={styles.adminMenuFeatured}><GroupedMenuSection columns label="MARŠRUTIZAVIMAS" testID="admin-urgent-menu">
                 <GroupedMenuRow description="Kurti, redaguoti, priskirti, vykdyti ir stebėti maršrutus." icon={<MenuArtwork kind="dispatch" />} onPress={() => router.push('/dispatcher' as Href)} title="Dispečerio skydelis" tone="success" />
                 <GroupedMenuRow description="Taškų seka, laikai ir pristatymo kokybė." icon={<MenuArtwork kind="quality" />} onPress={() => router.push('/quality-control' as Href)} title="Kokybės kontrolė" tone="success" />
-                <GroupedMenuRow description="Nukopijuoti maršrutą kitai dienai su tuo pačiu taškų eiliškumu." icon={<MenuArtwork kind="edit" />} onPress={() => router.push('/copy-route' as Href)} title="Kopijuoti maršrutą" tone="neutral" />
               </GroupedMenuSection></View>
               <View style={styles.adminMenuGroup}><GroupedMenuSection columns label="STEBĖJIMAS IR APSKAITA" testID="admin-monitoring-menu">
                   <GroupedMenuRow description="Kilometrai, taškai, svoris ir kokybė pagal laikotarpį." icon={<MenuArtwork kind="statistics" />} onPress={() => router.push({ pathname: '/statistics', params: { returnTo: 'home' } } as Href)} title="Statistika" tone="info" />
