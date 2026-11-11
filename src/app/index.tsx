@@ -212,6 +212,7 @@ export default function HomeScreen() {
               <View style={styles.adminMenuFeatured}><GroupedMenuSection columns label="MARŠRUTAI" testID="admin-urgent-menu">
                 <GroupedMenuRow description="Naujas maršrutas iš Excel failo." icon={<MenuArtwork kind="route" />} onPress={() => router.push('/import' as Href)} title="Kurti maršrutą" tone="success" />
                 <GroupedMenuRow description="Pasirinkti vairuotoją ir tęsti jo darbą." icon={<MenuArtwork kind="execute" />} onPress={() => router.push('/execute-route' as Href)} title="Vykdyti maršrutą" tone="info" />
+                <GroupedMenuRow description="Nukopijuoti maršrutą kitai dienai su tuo pačiu taškų eiliškumu." icon={<MenuArtwork kind="edit" />} onPress={() => router.push('/copy-route' as Href)} title="Kopijuoti maršrutą" tone="neutral" />
               </GroupedMenuSection></View>
             </View>
           ) : showDriverDashboard ? (loading || routeSync === 'pending' || postLogin.kind === 'wait' ? (
