@@ -167,7 +167,8 @@ describe('dispatcher desktop workspace', () => {
     expect(dispatcherSource).toContain("'/api/admin/route-price-settings'");
   });
 
-  it('keeps finance, vehicles and drivers off the dispatcher dashboard', () => {
+  it('keeps the finance report reachable from the home menu instead of the dispatcher dashboard', () => {
+    expect(homeSource).toContain('title="Finansai"');
     expect(dispatcherHomeSource).not.toContain('Finansiniai duomenys');
     expect(dispatcherHomeSource).not.toContain('title="Automobiliai"');
     expect(dispatcherHomeSource).not.toContain('title="Vairuotojai"');

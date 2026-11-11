@@ -36,6 +36,7 @@ describe('shared client and operational directories', () => {
     expect(screen).toContain("'/api/admin/clients'");
     expect(screen).toContain('TRŪKSTA KONTAKTŲ');
     expect(directory).toContain('title="Klientai"');
+    expect(home).toContain('title="Kontaktai"');
   });
 
   it('selects contacts and maintenance vehicles from existing shared lists', () => {
