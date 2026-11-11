@@ -1056,7 +1056,7 @@ export default function ImportScreen() {
             ))}
           </View>
         ) : <>
-        <Text style={styles.sourceDivider}>PASIRINKITE ŠALTINĮ</Text>
+        <Text style={styles.sourceDivider}>MARŠRUTAS IŠ EXCEL</Text>
         <View style={styles.sourceGrid}>
           <Pressable style={styles.excelPrimaryButton} onPress={pickExcel} testID="pick-excel">
             <View style={styles.sourceIconBadge}><ExcelIcon size={24} /></View>
@@ -1065,22 +1065,6 @@ export default function ImportScreen() {
               <Text style={styles.sourceButtonHint}>.xlsx · galima pasirinkti lapą</Text>
             </View>
           </Pressable>
-          <SourceButton
-            styles={styles}
-            title="Nuotrauka"
-            description="Kamera arba galerija"
-            icon={<CameraIcon size={24} />}
-            onPress={() => { setShowPhotoSources((current) => !current); setShowPasteField(false); }}
-          />
-          <SourceButton styles={styles} title="PDF dokumentas" description="Vienas dokumentas" icon={<PdfIcon size={24} />} onPress={pickPdf} />
-          <SourceButton
-            styles={styles}
-            title="Įklijuoti tekstą"
-            description="Adresai eilutėmis"
-            icon={<ClipboardIcon size={24} />}
-            onPress={() => { setShowPasteField((current) => !current); setShowPhotoSources(false); }}
-            testID="toggle-paste-field"
-          />
         </View>
 
         {showPhotoSources ? (

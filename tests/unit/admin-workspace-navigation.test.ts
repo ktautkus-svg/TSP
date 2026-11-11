@@ -18,16 +18,12 @@ const dateInput = readFileSync(resolve(root, 'src/components/date-input.tsx'), '
 describe('administrator workspace navigation', () => {
   it('shows administrator tools instead of automatically continuing a local route', () => {
     expect(home).toContain('testID="admin-home-menu"');
-    expect(home).toContain('title="Dispečerio skydelis"');
+    expect(home).toContain('title="Kurti maršrutą"');
     expect(home).not.toContain('title="Maršrutai"');
-    expect(home).toContain('Kokybės kontrolė');
-    expect(home).not.toContain('Vykdyti maršrutą');
+    expect(home).toContain('title="Vykdyti maršrutą"');
     // Kelionės lapai lives only on the dispatcher dashboard now — the admin
     // home menu no longer duplicates it.
     expect(home).not.toContain('Kelionės lapai');
-    expect(home).toContain('title="Automobiliai"');
-    expect(home).toContain('title="Vairuotojai"');
-    expect(home).toContain('title="Finansai"');
     // The admin menu itself only renders when not driving as a chosen driver
     // (see the "VAIRUOTI KAIP" picker test below) — an admin with no acting
     // driver selected still sees an empty operational list.
@@ -38,7 +34,7 @@ describe('administrator workspace navigation', () => {
     const dispatcher = readFileSync(resolve(root, 'src/app/dispatcher.tsx'), 'utf8');
     expect(home).not.toContain('testID="acting-driver-picker"');
     // "Vykdyti vairuotojo maršrutą" lives only on the dispatcher now.
-    expect(home).not.toContain("router.push('/execute-route' as Href)");
+    expect(home).toContain("router.push('/execute-route' as Href)");
     expect(dispatcher).toContain("open('/execute-route' as Href)");
     expect(execute).toContain('await setActingDriver({ id: driver.id, displayName: driver.displayName })');
     expect(home).toContain('testID="acting-driver-banner"');
@@ -57,8 +53,6 @@ describe('administrator workspace navigation', () => {
     expect(admin).toContain("requestedSection === 'employees' || requestedSection === 'fleet'");
     expect(appLayout).toContain('headerLeft: () => <StackBackButton />');
     // The home menu still carries drivers + vehicles.
-    expect(home).toContain('title="Automobiliai"');
-    expect(home).toContain('title="Vairuotojai"');
   });
 
   it('edits the route date inline in the assign step and drops the @username handle', () => {
@@ -118,10 +112,9 @@ describe('administrator workspace navigation', () => {
   });
 
   it('keeps the administrator home groups in the requested responsive grids', () => {
-    expect(home).toContain('<GroupedMenuSection columns label="MARŠRUTIZAVIMAS"');
-    expect(home).toContain('<GroupedMenuSection columns label="STEBĖJIMAS IR APSKAITA"');
-    expect(home).toContain('<GroupedMenuSection columns label="SISTEMA"');
-    expect(home.indexOf('title="Kokybės kontrolė"')).toBeLessThan(home.indexOf('label="STEBĖJIMAS IR APSKAITA"'));
+    // The admin home is limited to creating (Excel) and executing a route.
+    expect(home).toContain('<GroupedMenuSection columns label="MARŠRUTAI"');
+    expect(home.indexOf('title="Kurti maršrutą"')).toBeLessThan(home.indexOf('title="Vykdyti maršrutą"'));
   });
 
   it('keeps the quality-control period input on the native calendar even with an external keyboard', () => {

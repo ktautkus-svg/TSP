@@ -52,7 +52,8 @@ describe('compact daily Excel UI', () => {
     expect(importScreen).toContain("routed ? 'Suplanuotas'");
     expect(importScreen).toContain('saveActiveBatchFileHashes');
     expect(importScreen).toContain('findLatestByFingerprint(excelPreview.fileHash, targetSheet)');
-    expect(importScreen).toContain('toggle-paste-field');
+    // Routes are created from Excel only: no paste / photo / PDF sources.
+    expect(importScreen).not.toContain('toggle-paste-field');
     expect(importScreen).toContain("pathname: '/route/[id]/alternatives'");
     expect(importScreen).toContain("result && (!excelPreview || excelProblemCount === 0)");
     expect(importScreen).not.toContain('Duomenys prasideda nuo');
@@ -96,10 +97,8 @@ describe('compact daily Excel UI', () => {
     expect(importScreen).toContain("application/vnd.ms-excel.sheet.macroEnabled.12");
     expect(importScreen).toContain('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     expect(importScreen).toContain('Pasirinkti Excel failą');
-    expect(importScreen).toContain('PASIRINKITE ŠALTINĮ');
-    expect(importScreen).toContain('Nuotrauka');
-    expect(importScreen).toContain('PDF dokumentas');
-    expect(importScreen).toContain('Įklijuoti tekstą');
+    expect(importScreen).toContain('MARŠRUTAS IŠ EXCEL');
+    expect(importScreen).not.toContain('PDF dokumentas');
     expect(importScreen).toContain('excelPrimaryButton');
     expect(importScreen).toContain('toggle-excel-content');
     expect(importScreen).toContain('testID="route-setup-visible"');

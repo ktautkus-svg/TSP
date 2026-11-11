@@ -209,22 +209,9 @@ export default function HomeScreen() {
               <View style={styles.adminMenuHeading}>
                 <Text style={styles.adminMenuTitle}>FiRo valdymo centras</Text>
               </View>
-              <View style={styles.adminMenuFeatured}><GroupedMenuSection columns label="MARŠRUTIZAVIMAS" testID="admin-urgent-menu">
-                <GroupedMenuRow description="Kurti, redaguoti, priskirti, vykdyti ir stebėti maršrutus." icon={<MenuArtwork kind="dispatch" />} onPress={() => router.push('/dispatcher' as Href)} title="Dispečerio skydelis" tone="success" />
-                <GroupedMenuRow description="Taškų seka, laikai ir pristatymo kokybė." icon={<MenuArtwork kind="quality" />} onPress={() => router.push('/quality-control' as Href)} title="Kokybės kontrolė" tone="success" />
-              </GroupedMenuSection></View>
-              <View style={styles.adminMenuGroup}><GroupedMenuSection columns label="STEBĖJIMAS IR APSKAITA" testID="admin-monitoring-menu">
-                  <GroupedMenuRow description="Kilometrai, taškai, svoris ir kokybė pagal laikotarpį." icon={<MenuArtwork kind="statistics" />} onPress={() => router.push({ pathname: '/statistics', params: { returnTo: 'home' } } as Href)} title="Statistika" tone="info" />
-                  <GroupedMenuRow description="Terminai, techniniai duomenys, kilometražas ir kuras." icon={<MenuArtwork kind="vehicles" />} onPress={() => router.push({ pathname: '/fleet', params: { returnTo: 'home' } } as unknown as Href)} title="Automobiliai" tone="neutral" />
-                  <GroupedMenuRow description="Techninės apžiūros ir draudimo galiojimas." icon={<MenuArtwork kind="vehicles" />} onPress={() => router.push({ pathname: '/vehicle-documents', params: { returnTo: 'home' } } as unknown as Href)} title="Automobilių dokumentai" tone="warning" />
-                  <GroupedMenuRow description="Reiso savikaina, kuras ir atlygis pagal laikotarpį." icon={<MenuArtwork kind="finance" />} onPress={() => router.push({ pathname: '/finance', params: { returnTo: 'home' } } as unknown as Href)} title="Finansai" tone="neutral" />
-                  <GroupedMenuRow description="Mėnesio reisai dienomis sutikrinimui su apskaita." icon={<MenuArtwork kind="statistics" />} onPress={() => router.push({ pathname: '/finance/month-summary', params: { returnTo: 'home' } } as unknown as Href)} title="Mėnesio suvestinė" tone="neutral" />
-                  <GroupedMenuRow description="Duomenys, prisijungimai ir leidimai." icon={<MenuArtwork kind="drivers" />} onPress={() => router.push({ pathname: '/admin', params: { section: 'employees', returnTo: 'home' } } as Href)} title="Vairuotojai" />
-              </GroupedMenuSection></View>
-              <View style={styles.adminMenuGroup}><GroupedMenuSection columns label="SISTEMA" testID="admin-system-menu">
-                  <GroupedMenuRow description="Klientai, administracija ir skambinimas iš maršruto." icon={<MenuArtwork kind="navigation" />} onPress={() => router.push({ pathname: '/directory', params: { returnTo: 'home' } } as unknown as Href)} title="Kontaktai" tone="info" />
-                  <GroupedMenuRow description="Išmoktos pridavimo koordinatės, skirtumai ir atmesti mėginiai." icon={<MenuArtwork kind="navigation" />} onPress={() => router.push('/learned-coordinates' as Href)} title="Išmoktos koordinatės" tone="info" />
-                  <GroupedMenuRow description="Vietos, navigacija ir programėlė." icon={<MenuArtwork kind="settings" />} onPress={() => router.push('/settings' as Href)} title="Nustatymai" tone="neutral" />
+              <View style={styles.adminMenuFeatured}><GroupedMenuSection columns label="MARŠRUTAI" testID="admin-urgent-menu">
+                <GroupedMenuRow description="Naujas maršrutas iš Excel failo." icon={<MenuArtwork kind="route" />} onPress={() => router.push('/import' as Href)} title="Kurti maršrutą" tone="success" />
+                <GroupedMenuRow description="Pasirinkti vairuotoją ir tęsti jo darbą." icon={<MenuArtwork kind="execute" />} onPress={() => router.push('/execute-route' as Href)} title="Vykdyti maršrutą" tone="info" />
               </GroupedMenuSection></View>
             </View>
           ) : showDriverDashboard ? (loading || routeSync === 'pending' || postLogin.kind === 'wait' ? (
