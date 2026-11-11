@@ -375,6 +375,23 @@ describe('driver workday persistence', () => {
     expect((await new RouteRepository(db).getById('route-1'))).toMatchObject({ startOdometer: 123.4, startOdometerSkippedAt: null });
   });
 
+  it('starts and completes a route without odometers when skipping is allowed', async () => {
+    const { db } = createDb();
+    await loadingRoute(db);
+    await new MarkAllStopsLoaded(db).execute('route-1');
+    const start = new StartRoute(db);
+    await expect(start.execute('route-1', { allowSkippedOdometer: true })).rejects.toMatchObject({ code: 'INVALID_ROUTE_STATE' });
+    await new SkipStartOdometer(db).execute('route-1');
+    await expect(start.execute('route-1', { allowSkippedOdometer: true })).resolves.toEqual({ idempotent: false });
+    const complete = new CompleteRoute(db);
+    const options = { endOdometer: null, confirmUnfinished: true };
+    await expect(complete.execute('route-1', options)).resolves.toMatchObject({ summary: { actualDistanceKm: null } });
+    await expect(complete.execute('route-1', options)).resolves.toMatchObject({ idempotent: true });
+    expect(await new RouteRepository(db).getById('route-1')).toMatchObject({
+      status: 'completed', startOdometer: null, endOdometer: null, endOdometerRecordedAt: null,
+    });
+  });
+
   it('starts once and cannot mark a delivery before the route starts', async () => {
     const { db } = createDb();
     await loadingRoute(db);

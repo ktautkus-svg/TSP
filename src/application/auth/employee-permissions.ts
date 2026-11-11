@@ -83,7 +83,7 @@ export const DRIVER_PERMISSION_LABELS: Record<DriverPermissionKey, { title: stri
   },
   canEnterTripReadings: {
     title: 'Įvesti odometrą ir kurą',
-    description: 'Gali kelionės lape suvesti dienos odometrą ir kuro pylimus.',
+    description: 'Vairuotojas įveda pradinį ir galutinį odometrą bei gali registruoti kuro pylimus kelionės lape.',
   },
 };
 
@@ -199,3 +199,10 @@ export function canEnterTripReadings(profile: {
   return normalizeEmployeePermissions(profile.permissions).canEnterTripReadings === true;
 }
 
+export function requiresRouteOdometer(
+  profile: Parameters<typeof canEnterTripReadings>[0],
+  actingDriver: { canEnterTripReadings?: boolean } | null,
+): boolean {
+  if (profile.role === 'driver' || !actingDriver) return canEnterTripReadings(profile);
+  return actingDriver.canEnterTripReadings === true;
+}

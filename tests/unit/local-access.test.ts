@@ -64,8 +64,8 @@ describe('local owner access', () => {
     const adapter = new ExpoLikeDatabase();
     const service = new LocalAccessService(adapter as unknown as SQLiteDatabase);
     expect(await service.getActingDriver()).toBeNull();
-    await service.setActingDriver({ id: 'driver-karka', displayName: 'Karolis Tautkus' });
-    expect(await service.getActingDriver()).toEqual({ id: 'driver-karka', displayName: 'Karolis Tautkus' });
+    await service.setActingDriver({ id: 'driver-karka', displayName: 'Karolis Tautkus', canEnterTripReadings: true });
+    expect(await service.getActingDriver()).toEqual({ id: 'driver-karka', displayName: 'Karolis Tautkus', canEnterTripReadings: true });
     await service.setActingDriver(null);
     expect(await service.getActingDriver()).toBeNull();
   });

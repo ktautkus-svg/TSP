@@ -1,8 +1,8 @@
-import { useRouter, type Href } from 'expo-router';
 import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
+import { useHomeNavigation } from '@/application/navigation/use-home-navigation';
 import { BackIcon } from '@/components/app-icons';
 import { CloudSyncStatus } from '@/components/cloud-sync-status';
 import { FiroBrand } from '@/components/firo-brand';
@@ -27,7 +27,7 @@ export function BrandHeader({
 }: BrandHeaderProps = {}) {
   const driver = variant === 'driver';
   const { width } = useWindowDimensions();
-  const router = useRouter();
+  const goHome = useHomeNavigation();
   const { profile } = useLocalAccess();
   const profileInitials = profile.displayName
     .split(/\s+/)
@@ -35,7 +35,6 @@ export function BrandHeader({
     .slice(0, 2)
     .map((part) => part[0]?.toLocaleUpperCase('lt-LT'))
     .join('') || 'FR';
-  const goHome = () => (onHomePress ? onHomePress() : router.push('/' as Href));
   return (
     <View style={[styles.header, driver && styles.driverHeader]} testID="brand-header">
       <View style={styles.sideSlot}>
@@ -54,7 +53,7 @@ export function BrandHeader({
       <Pressable
         accessibilityLabel="Į pradžią"
         accessibilityRole="button"
-        onPress={goHome}
+        onPress={onHomePress ?? (() => void goHome())}
         style={[styles.brandCenter, driver && styles.driverBrandCenter]}
         testID="brand-header-logo">
         <FiroBrand compact />

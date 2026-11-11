@@ -1,5 +1,5 @@
 import Constants from 'expo-constants';
-import { Link, useFocusEffect, useRouter, type Href } from 'expo-router';
+import { Link, useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, SafeAreaView, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
@@ -46,6 +46,7 @@ function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
 export default function HomeScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
+  const { showDashboard } = useLocalSearchParams<{ showDashboard?: string }>();
   const { profile, online, actingDriver, setActingDriver } = useLocalAccess();
   const { requestSync, revision: syncRevision } = useRouteCloudSync();
   const { colors } = useTheme();
@@ -182,11 +183,11 @@ export default function HomeScreen() {
 
   const postLogin = resolveDriverPostLogin({ syncState: routeSync, routes: openRoutes });
   useEffect(() => {
-    if (!showDriverDashboard || autoOpened.current || postLogin.kind !== 'continue') return;
+    if (profile.role !== 'driver' || showDashboard === '1' || autoOpened.current || postLogin.kind !== 'continue') return;
     autoOpened.current = true;
     const destination = resolveRoute(postLogin.route as Route);
     router.replace({ pathname: destination.pathname, params: destination.params } as Href);
-  }, [postLogin, router, showDriverDashboard]);
+  }, [postLogin, profile.role, router, showDashboard]);
 
   return (
     <SafeAreaView style={styles.safeArea}>

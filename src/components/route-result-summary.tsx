@@ -14,8 +14,8 @@ export interface RouteResultSummaryProps {
   readonly failedStops: number;
   readonly distanceDeviation: string;
   readonly durationDeviation: string;
-  readonly startOdometer: string;
-  readonly endOdometer: string;
+  readonly startOdometer: string | null;
+  readonly endOdometer: string | null;
   readonly loadingTime?: string | null;
   readonly totalWorkTime?: string | null;
 }
@@ -49,7 +49,9 @@ export function RouteResultSummary(props: RouteResultSummaryProps) {
         <Detail label="Planuotas atstumas" value={props.plannedDistance} styles={styles} />
         <Detail label="Atstumo nuokrypis" value={props.distanceDeviation} styles={styles} />
         <Detail label="Laiko nuokrypis" value={props.durationDeviation} styles={styles} />
-        <Detail label="Odometras" value={`${props.startOdometer} → ${props.endOdometer}`} styles={styles} />
+        {props.startOdometer || props.endOdometer ? (
+          <Detail label="Odometras" value={`${props.startOdometer ?? '—'} → ${props.endOdometer ?? '—'}`} styles={styles} />
+        ) : null}
       </View>
     </View>
   );

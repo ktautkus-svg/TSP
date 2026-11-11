@@ -14,7 +14,8 @@ import { spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { useLocalAccess } from '@/application/auth/local-access-context';
-import { roleHomePath } from '@/application/navigation/role-home';
+import { requiresRouteOdometer } from '@/application/auth/employee-permissions';
+import { useHomeNavigation } from '@/application/navigation/use-home-navigation';
 import { pushRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 import { employeeApi, type CompensationBreakdown, type ServerTripSheet } from '@/infrastructure/auth/employee-session';
@@ -22,9 +23,11 @@ import { devWarn } from '@/ui/dev-log';
 
 export default function RouteResultScreen() {
   const db = useSQLiteContext();
-  const { profile, online } = useLocalAccess();
+  const { profile, online, actingDriver } = useLocalAccess();
+  const odometerRequired = requiresRouteOdometer(profile, actingDriver);
   const { requestSync } = useRouteCloudSync();
   const router = useRouter();
+  const goHome = useHomeNavigation();
   const { id: routeId = '', returnTo } = useLocalSearchParams<{ id: string; returnTo?: string }>();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -50,7 +53,7 @@ export default function RouteResultScreen() {
       }
       if (persisted.status !== 'completed') {
         const destination = resolveRoute(persisted);
-        router.replace({ pathname: destination.pathname, params: destination.params } as Href);
+        router.replace({ pathname: destination.pathname, params: { ...destination.params, ...(returnTo ? { returnTo } : {}) } } as Href);
         return;
       }
       setRoute(persisted);
@@ -60,7 +63,7 @@ export default function RouteResultScreen() {
       if (mounted) setError(reason instanceof Error ? reason.message : 'Rezultato atkurti nepavyko.');
     });
     return () => { mounted = false; };
-  }, [repository, routeId, router]));
+  }, [repository, returnTo, routeId, router]));
 
   useFocusEffect(useCallback(() => {
     let mounted = true;
@@ -101,8 +104,6 @@ export default function RouteResultScreen() {
     return () => { mounted = false; };
   }, [fetchCompensation, online, profile.permissions?.canViewCompensation, profile.role]));
 
-  const goHome = () => router.replace((returnTo === 'execute-route' ? '/execute-route' : roleHomePath(profile.role)) as Href);
-
   return (
     <>
       <Stack.Screen options={{ gestureEnabled: false, title: 'Maršruto rezultatas' }} />
@@ -115,11 +116,11 @@ export default function RouteResultScreen() {
             distanceDeviation={formatSigned(route.completionSummary?.distanceDeviationKm, 'km', 1)}
             duration={formatMinutes(route.completionSummary?.actualDurationMinutes)}
             durationDeviation={formatSigned(route.completionSummary?.durationDeviationMinutes, 'min')}
-            endOdometer={route.endOdometer == null ? 'neįvestas' : String(route.endOdometer)}
+            endOdometer={!odometerRequired || route.endOdometer == null ? null : String(route.endOdometer)}
             failedStops={route.completionSummary?.failedStops ?? 0}
             loadingTime={loadingMinutes === null ? null : formatMinutes(loadingMinutes)}
             plannedDistance={`${route.estimatedDistanceKm?.toFixed(1) ?? '—'} km`}
-            startOdometer={route.startOdometer == null ? 'neįvestas' : String(route.startOdometer)}
+            startOdometer={!odometerRequired || route.startOdometer == null ? null : String(route.startOdometer)}
             totalWorkTime={loadingMinutes === null || route.completionSummary?.actualDurationMinutes == null
               ? null
               : formatMinutes(loadingMinutes + route.completionSummary.actualDurationMinutes)}
@@ -131,14 +132,14 @@ export default function RouteResultScreen() {
           <Text style={styles.compensationMeta}>{formatMoney(compensation.fixedAmountEur)} diena + {compensation.distanceKm.toFixed(1)} km + {Math.round(compensation.weightKg)} kg + {compensation.stops} tašk.</Text>
           <Text style={styles.compensationHint} testID="route-result-compensation-note">
             {compensation.preliminary
-              ? 'Visos dienos duomenys · preliminaru, kol nesuvestas odometras'
+              ? odometerRequired ? 'Visos dienos duomenys · preliminaru, kol nesuvestas odometras' : 'Visos dienos duomenys · preliminarus skaičiavimas'
               : 'Skaičiuojama už visą darbo dieną — visus šio vairuotojo tos dienos maršrutus.'}
           </Text>
         </View> : null}
         {route ? (
           <AppButton label="Peržiūrėti maršrutą" onPress={() => router.replace(`/history/${route.id}` as Href)} />
         ) : null}
-        <AppButton label="Į pradžią" onPress={goHome} variant="secondary" />
+        <AppButton label="Į pradžią" onPress={() => void goHome()} variant="secondary" />
       </FoundationScreen>
     </>
   );

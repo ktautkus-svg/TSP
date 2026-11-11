@@ -5,6 +5,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 import Svg, { Circle, Path } from 'react-native-svg';
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
+import { useHomeNavigation } from '@/application/navigation/use-home-navigation';
 import { resolveRoute } from '@/application/routes/route-navigation';
 import { RouteRepository } from '@/database/repositories/route-repository';
 import { stitchColorsFor } from '@/theme';
@@ -22,6 +23,7 @@ export interface DriverAppTabsProps {
 
 export function DriverAppTabs({ active }: DriverAppTabsProps) {
   const router = useRouter();
+  const goHome = useHomeNavigation();
   const db = useSQLiteContext();
   const { profile, actingDriver } = useLocalAccess();
   // An admin "driving as" a chosen driver sees that driver's route here too.
@@ -67,7 +69,11 @@ export function DriverAppTabs({ active }: DriverAppTabsProps) {
             accessibilityState={{ selected, disabled }}
             disabled={disabled}
             key={tab.key}
-            onPress={() => { if (!selected && tab.href) router.replace(tab.href); }}
+            onPress={() => {
+              if (selected || !tab.href) return;
+              if (tab.key === 'now') void goHome();
+              else router.replace(tab.href);
+            }}
             style={[styles.tab, selected && styles.tabActive, disabled && styles.tabDisabled]}>
             <TabIcon active={selected} palette={palette} tab={tab.key} />
             <Text numberOfLines={1} style={[styles.label, selected && styles.labelActive]}>{tab.label}</Text>

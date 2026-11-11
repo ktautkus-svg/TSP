@@ -1,8 +1,5 @@
 import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
-import { useRouter, type Href } from 'expo-router';
-
-import { useLocalAccess } from '@/application/auth/local-access-context';
-import { roleHomePath } from '@/application/navigation/role-home';
+import { useHomeNavigation } from '@/application/navigation/use-home-navigation';
 import { FiroBrand } from '@/components/firo-brand';
 import { colors, spacing, type } from '@/ui/tokens';
 
@@ -12,15 +9,14 @@ export interface StackBrandTitleProps {
 
 export function StackBrandTitle({ title }: StackBrandTitleProps) {
   const { width } = useWindowDimensions();
-  const router = useRouter();
-  const { profile } = useLocalAccess();
+  const goHome = useHomeNavigation();
   const showTitle = width >= 760;
   return (
     <View style={styles.row}>
       <Pressable
         accessibilityLabel="Į pradžią"
         accessibilityRole="button"
-        onPress={() => router.replace(roleHomePath(profile.role) as Href)}
+        onPress={() => void goHome()}
         style={({ pressed }) => [styles.brandButton, pressed && styles.pressed]}
         testID="stack-brand-home">
         <FiroBrand compact />

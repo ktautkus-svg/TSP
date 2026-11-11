@@ -381,13 +381,13 @@ export class SkipStartOdometer extends WorkdayCommand {
 }
 
 export class StartRoute extends WorkdayCommand {
-  async execute(routeId: string): Promise<{ idempotent: boolean }> {
+  async execute(routeId: string, options: { allowSkippedOdometer?: boolean } = {}): Promise<{ idempotent: boolean }> {
     const route = await this.route(routeId);
     if (route.status === 'in_progress') return { idempotent: true };
     if (route.status !== 'loaded') {
       throw new RouteCommandError('INVALID_ROUTE_STATE', 'Maršrutą galima pradėti tik užbaigus krovimą.');
     }
-    if (route.startOdometer === null) {
+    if (route.startOdometer === null && !(options.allowSkippedOdometer && route.startOdometerSkippedAt)) {
       throw new RouteCommandError('INVALID_ROUTE_STATE', 'Prieš pradėdami įveskite pradinį odometrą.');
     }
     const pending = await this.db.getFirstAsync<{ count: number }>(
@@ -924,7 +924,7 @@ export class CompleteRoute extends WorkdayCommand {
   async execute(
     routeId: string,
     input: {
-      endOdometer: number;
+      endOdometer: number | null;
       confirmUnfinished?: boolean;
       confirmLargeDifference?: boolean;
       /**
@@ -936,7 +936,8 @@ export class CompleteRoute extends WorkdayCommand {
       actualFinishedAt?: string;
     },
   ): Promise<{ idempotent: boolean; summary: RouteCompletionSummary }> {
-    validateOdometer(input.endOdometer);
+    const { endOdometer } = input;
+    if (endOdometer !== null) validateOdometer(endOdometer);
     const route = await this.route(routeId);
     if (route.status === 'completed' && route.completionSummary) {
       return { idempotent: true, summary: route.completionSummary };
@@ -950,7 +951,7 @@ export class CompleteRoute extends WorkdayCommand {
         'Maršrutas dar nebaigtas. Pasirinkite grįžimą namo arba į sandėlį ir patvirtinkite atvykimą.',
       );
     }
-    if (route.startOdometer !== null && input.endOdometer < route.startOdometer) {
+    if (route.startOdometer !== null && endOdometer !== null && endOdometer < route.startOdometer) {
       throw new RouteCommandError('INVALID_ROUTE_STATE', 'Galutinis odometras negali būti mažesnis už pradinį.');
     }
     const stops = await this.routes.getStops(routeId);
@@ -960,7 +961,9 @@ export class CompleteRoute extends WorkdayCommand {
         unfinishedStops: String(unfinished.length),
       });
     }
-    const actual = route.startOdometer === null ? null : round(input.endOdometer - route.startOdometer);
+    const actual = route.startOdometer === null || endOdometer === null
+      ? null
+      : round(endOdometer - route.startOdometer);
     const suspiciousThreshold = Math.max((route.estimatedDistanceKm ?? 0) * 3, 500);
     if (actual !== null && actual > suspiciousThreshold && !input.confirmLargeDifference) {
       throw new RouteCommandError('INVALID_ROUTE_STATE', 'Odometrų skirtumas atrodo neįprastai didelis. Patvirtinkite rodmenį.', {
@@ -1027,8 +1030,8 @@ export class CompleteRoute extends WorkdayCommand {
          completion_summary_json = ?, completion_end_odometer_draft = NULL,
          completed_at = ?, updated_at = ?
          WHERE id = ? AND status = 'in_progress'`,
-        input.endOdometer,
-        now,
+        endOdometer,
+        endOdometer === null ? null : now,
         actual,
         JSON.stringify(summary),
         routeEndedAt,
@@ -1039,7 +1042,7 @@ export class CompleteRoute extends WorkdayCommand {
         throw new RouteCommandError('INVALID_ROUTE_STATE', 'Maršruto būsena jau pasikeitė.');
       }
       await this.journal(routeId, null, 'route_completed', { status: 'in_progress' }, {
-        status: 'completed', endOdometer: input.endOdometer, completedAt: routeEndedAt, summary,
+        status: 'completed', endOdometer, completedAt: routeEndedAt, summary,
       });
     });
     return { idempotent: false, summary };

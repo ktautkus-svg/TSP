@@ -5,6 +5,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 
 import { importAssignmentSnapshot, prepareAssignmentSnapshotImport } from '@/application/auth/route-assignment-sync';
 import { effectiveAssignmentStatus, isActiveAssignment } from '@/application/auth/route-assignment-status';
+import { canEnterTripReadings } from '@/application/auth/employee-permissions';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { roleHomePath } from '@/application/navigation/role-home';
 import { resolveRouteDestination } from '@/application/routes/route-navigation';
@@ -74,7 +75,11 @@ export default function ExecuteRouteScreen() {
       // action on the route (starting loading, etc.) stayed unreachable for
       // admin/dispatcher even after importing and opening it.
       const driver = drivers.find((item) => item.id === selectedAssignment.driverId);
-      if (driver) await setActingDriver({ id: driver.id, displayName: driver.displayName });
+      if (driver) await setActingDriver({
+        id: driver.id,
+        displayName: driver.displayName,
+        canEnterTripReadings: canEnterTripReadings(driver),
+      });
       const route = selectedAssignment.routeSnapshot.route;
       const destination = resolveRouteDestination(String(route.status ?? 'planned') as 'draft' | 'planned' | 'loading' | 'loaded' | 'in_progress' | 'completed' | 'cancelled', {
         routeId: selectedAssignment.routeId,

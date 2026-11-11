@@ -5,7 +5,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { Pressable, Share, StyleSheet, Text, View } from 'react-native';
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
-import { roleHomePath } from '@/application/navigation/role-home';
+import { useHomeNavigation } from '@/application/navigation/use-home-navigation';
 import { ExportPilotRouteDiagnostic } from '@/application/routes/pilot-route-export';
 import { resolveRoute } from '@/application/routes/route-navigation';
 import { FoundationScreen } from '@/components/foundation-screen';
@@ -65,7 +65,7 @@ export default function RouteHistoryDetailScreen() {
   }, [repository, routeId, router, shipmentRepository]));
 
   const goHistory = () => router.replace('/history' as Href);
-  const goHome = () => router.replace(roleHomePath(profile.role) as Href);
+  const goHome = useHomeNavigation();
   const goActiveDashboard = () => {
     if (!activeRoute) return goHome();
     const destination = resolveRoute(activeRoute);
@@ -169,7 +169,7 @@ export default function RouteHistoryDetailScreen() {
       ) : null}
       </> : null}
       <Pressable style={styles.historyButton} onPress={goHistory}><Text style={styles.historyText}>← Maršrutai</Text></Pressable>
-      <Pressable style={styles.homeButton} onPress={goHome}><Text style={styles.homeText}>Į pradžią</Text></Pressable>
+      <Pressable style={styles.homeButton} onPress={() => void goHome()}><Text style={styles.homeText}>Į pradžią</Text></Pressable>
     </FoundationScreen>
     <RouteBottomTabs active="dashboard" onContacts={() => router.push('/contacts' as Href)} onDashboard={goActiveDashboard} onStops={goActiveStops} />
     </View>

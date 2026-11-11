@@ -17,7 +17,7 @@ import { fonts, radius, spacing, type } from '@/ui/tokens';
 import { useTheme } from '@/ui/theme';
 import type { ColorPalette } from '@/ui/theme-palette';
 import { useLocalAccess } from '@/application/auth/local-access-context';
-import { roleHomePath } from '@/application/navigation/role-home';
+import { useHomeNavigation } from '@/application/navigation/use-home-navigation';
 import { pullAssignedRoutes, pushCompletedRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
 import { devWarn } from '@/ui/dev-log';
 
@@ -70,7 +70,7 @@ export default function RoutesScreen() {
     return () => { mounted = false; };
   }, [db, online, profile, repository]));
 
-  const goHome = () => router.replace(roleHomePath(profile.role) as Href);
+  const goHome = useHomeNavigation();
   const activeRoutes = operationalRoutes.filter((route) => ['loading', 'loaded', 'in_progress'].includes(route.status));
   const plannedRoutes = operationalRoutes.filter((route) => !['loading', 'loaded', 'in_progress'].includes(route.status));
   const plannedGroups = groupRoutesByDate(plannedRoutes);
@@ -174,7 +174,7 @@ export default function RoutesScreen() {
             </View>
           ) : null}
 
-          {profile.role !== 'driver' ? <Pressable accessibilityLabel="Grįžti į skydelį" accessibilityRole="button" style={styles.homeButton} onPress={goHome}><Text style={styles.homeText}>Į skydelį</Text></Pressable> : null}
+          {profile.role !== 'driver' ? <Pressable accessibilityLabel="Grįžti į skydelį" accessibilityRole="button" style={styles.homeButton} onPress={() => void goHome()}><Text style={styles.homeText}>Į skydelį</Text></Pressable> : null}
         </FoundationScreen>
         {profile.role === 'driver' ? <DriverAppTabs active={null} /> : null}
       </View>

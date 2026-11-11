@@ -9,6 +9,7 @@ const UPDATED_KEY = 'local_access_updated_at';
 const UNLOCKED_AT_KEY = 'local_access_unlocked_at';
 const ACTING_DRIVER_ID_KEY = 'admin_acting_driver_id';
 const ACTING_DRIVER_NAME_KEY = 'admin_acting_driver_name';
+const ACTING_DRIVER_TRIP_READINGS_KEY = 'admin_acting_driver_trip_readings';
 export const LOCAL_ACCESS_PREFERENCE_PREFIX = 'local_access_';
 
 export type LocalAccessConfiguration = {
@@ -18,7 +19,7 @@ export type LocalAccessConfiguration = {
 };
 
 /** A driver an admin/dispatcher has chosen to operate this device as, on this device only. */
-export type ActingDriver = { id: string; displayName: string };
+export type ActingDriver = { id: string; displayName: string; canEnterTripReadings?: boolean };
 
 export class LocalAccessService {
   constructor(private readonly db: SQLiteDatabase) {}
@@ -93,24 +94,32 @@ export class LocalAccessService {
   /** The driver this device's admin/dispatcher session is currently operating as, if any. */
   async getActingDriver(): Promise<ActingDriver | null> {
     const rows = await this.db.getAllAsync<{ key: string; value: string }>(
-      'SELECT key, value FROM app_preferences WHERE key IN (?, ?)',
+      'SELECT key, value FROM app_preferences WHERE key IN (?, ?, ?)',
       ACTING_DRIVER_ID_KEY,
       ACTING_DRIVER_NAME_KEY,
+      ACTING_DRIVER_TRIP_READINGS_KEY,
     );
     const values = new Map(rows.map((row) => [row.key, row.value]));
     const id = values.get(ACTING_DRIVER_ID_KEY);
     const displayName = values.get(ACTING_DRIVER_NAME_KEY);
-    return id && displayName ? { id, displayName } : null;
+    return id && displayName
+      ? { id, displayName, canEnterTripReadings: values.get(ACTING_DRIVER_TRIP_READINGS_KEY) === 'true' }
+      : null;
   }
 
   async setActingDriver(driver: ActingDriver | null): Promise<void> {
     const now = new Date().toISOString();
     if (!driver) {
-      await this.db.runAsync('DELETE FROM app_preferences WHERE key IN (?, ?)', ACTING_DRIVER_ID_KEY, ACTING_DRIVER_NAME_KEY);
+      await this.db.runAsync('DELETE FROM app_preferences WHERE key IN (?, ?, ?)', ACTING_DRIVER_ID_KEY, ACTING_DRIVER_NAME_KEY, ACTING_DRIVER_TRIP_READINGS_KEY);
       return;
     }
     await this.db.withTransactionAsync(async () => {
-      for (const [key, value] of [[ACTING_DRIVER_ID_KEY, driver.id], [ACTING_DRIVER_NAME_KEY, driver.displayName]]) {
+      const preferences = [
+        [ACTING_DRIVER_ID_KEY, driver.id],
+        [ACTING_DRIVER_NAME_KEY, driver.displayName],
+        [ACTING_DRIVER_TRIP_READINGS_KEY, String(driver.canEnterTripReadings === true)],
+      ];
+      for (const [key, value] of preferences) {
         await this.db.runAsync(
           `INSERT INTO app_preferences (key, value, updated_at) VALUES (?, ?, ?)
            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,

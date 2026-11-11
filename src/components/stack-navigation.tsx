@@ -3,6 +3,7 @@ import { useGlobalSearchParams, usePathname, useRouter, type Href } from 'expo-r
 
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { roleHomePath } from '@/application/navigation/role-home';
+import { useHomeNavigation } from '@/application/navigation/use-home-navigation';
 import { BackIcon, HomeIcon } from '@/components/app-icons';
 import { CloudSyncStatus } from '@/components/cloud-sync-status';
 import { colors, fonts, spacing, type } from '@/ui/tokens';
@@ -11,10 +12,15 @@ export function StackBackButton({ fallback }: { readonly fallback?: Href }) {
   const router = useRouter();
   const { width } = useWindowDimensions();
   const navigation = useLogicalStackNavigation(fallback);
+  const goHome = useHomeNavigation();
+  const goBack = () => {
+    if (navigation.backTarget === navigation.homeTarget) void goHome();
+    else router.replace(navigation.backTarget);
+  };
   const showLabel = width >= 390;
   if (navigation.hideBack) return null;
   return (
-    <Pressable accessibilityLabel="Atgal" accessibilityRole="button" onPress={() => router.replace(navigation.backTarget)} style={styles.action} testID="stack-back">
+    <Pressable accessibilityLabel="Atgal" accessibilityRole="button" onPress={goBack} style={styles.action} testID="stack-back">
       <BackIcon size={25} />
       {showLabel ? <Text style={styles.label}>Atgal</Text> : null}
     </Pressable>
@@ -22,7 +28,7 @@ export function StackBackButton({ fallback }: { readonly fallback?: Href }) {
 }
 
 export function StackHeaderActions() {
-  const router = useRouter();
+  const goHome = useHomeNavigation();
   const { width } = useWindowDimensions();
   const navigation = useLogicalStackNavigation();
   const showHome = !navigation.hideHome && navigation.homeTarget !== navigation.backTarget;
@@ -30,7 +36,7 @@ export function StackHeaderActions() {
   return (
     <View style={styles.actions}>
       {width >= 760 ? <CloudSyncStatus compact /> : null}
-      {showHome ? <Pressable accessibilityLabel="Pradžia" accessibilityRole="button" onPress={() => router.replace(navigation.homeTarget)} style={styles.action} testID="stack-home">
+      {showHome ? <Pressable accessibilityLabel="Pradžia" accessibilityRole="button" onPress={() => void goHome()} style={styles.action} testID="stack-home">
         <HomeIcon />
         {width >= 520 ? <Text style={styles.label}>Pradžia</Text> : null}
       </Pressable> : null}
@@ -49,7 +55,8 @@ function useLogicalStackNavigation(explicitFallback?: Href) {
   const plannedEditBack: Href | undefined = /^\/route\/[^/]+\/alternatives$/.test(pathname) && routeId && firstParam(params.edit) === 'planned-order'
     ? { pathname: '/route/[id]/loading', params: { id: routeId } }
     : undefined;
-  const backTarget = explicitFallback ?? plannedEditBack ?? returnTarget(params.returnTo) ?? logicalParent(pathname, firstParam(params.id), firstParam(params.mode), homeTarget);
+  const driverReviewBack = profile.role === 'driver' && /^\/route\/[^/]+\/review$/.test(pathname) ? '/history' : undefined;
+  const backTarget = explicitFallback ?? plannedEditBack ?? returnTarget(params.returnTo) ?? driverReviewBack ?? logicalParent(pathname, routeId, firstParam(params.mode), homeTarget);
   return {
     backTarget,
     homeTarget,

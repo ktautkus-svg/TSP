@@ -151,7 +151,7 @@ describe('Daily Use menu and Dashboard contract', () => {
       expect(settings).toContain(`openSection === '${section}'`);
     }
     expect(settings).toContain('Duomenys ir atsarginė kopija');
-    expect(stackNavigation).toContain('router.replace(navigation.homeTarget)');
+    expect(stackNavigation).toContain('useHomeNavigation()');
     expect(stackNavigation).toContain('roleHomePath(profile.role)');
     expect(stackNavigation).toContain('>Pradžia<');
   });

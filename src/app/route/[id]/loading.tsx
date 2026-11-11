@@ -1,4 +1,5 @@
-import { canApproveExpiredDeparture } from '@/application/auth/employee-permissions';
+import { canApproveExpiredDeparture, requiresRouteOdometer } from '@/application/auth/employee-permissions';
+import { isActiveAssignment } from '@/application/auth/route-assignment-status';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { markRouteDeletedForCloud } from '@/application/sync/route-cloud-sync';
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
@@ -26,6 +27,7 @@ import {
   parseOdometer,
   ReverseStopOrder,
   SaveStartOdometer,
+  SkipStartOdometer,
   StartRoute,
   UndoRouteAction,
   type RouteProgress,
@@ -57,6 +59,7 @@ const DRIVER_FUEL_CONFIRMATION_REQUIRED = false;
 
 export default function LoadingScreen() {
   const { profile, online, actingDriver } = useLocalAccess();
+  const odometerRequired = requiresRouteOdometer(profile, actingDriver);
   const { requestSync, revision: syncRevision } = useRouteCloudSync();
   const db = useSQLiteContext();
   const router = useRouter();
@@ -107,7 +110,7 @@ export default function LoadingScreen() {
     try {
       const persisted = await repository.getWithStops(routeId);
       if (!persisted) throw new Error('Maršrutas nerastas.');
-      if (persisted.route.startOdometer === null) {
+      if (odometerRequired && persisted.route.startOdometer === null) {
         const previous = await db.getFirstAsync<{ end_odometer: number }>(
           `SELECT end_odometer FROM routes
            WHERE id <> ? AND status = 'completed' AND end_odometer IS NOT NULL
@@ -128,15 +131,15 @@ export default function LoadingScreen() {
       const refreshed = persisted;
       if (refreshed.route.status === 'in_progress') {
         const destination = resolveRoute(refreshed.route);
-        router.replace({ pathname: destination.pathname, params: destination.params } as Href);
+        router.replace({ pathname: destination.pathname, params: { ...destination.params, ...(returnTo ? { returnTo } : {}) } } as Href);
         return;
       }
       if (!['loading', 'loaded'].includes(refreshed.route.status)) {
         const destination = resolveRoute(refreshed.route);
-        router.replace({ pathname: destination.pathname, params: destination.params } as Href);
+        router.replace({ pathname: destination.pathname, params: { ...destination.params, ...(returnTo ? { returnTo } : {}) } } as Href);
         return;
       }
-      if (refreshed.route.status === 'loaded' && !odometerPrompted.current) {
+      if (odometerRequired && refreshed.route.status === 'loaded' && refreshed.route.startOdometer === null && !odometerPrompted.current) {
         const nextReadiness = await refreshDepartureReadiness(db, await repository.getStops(routeId, 'loading'), { online, vehicleId: refreshed.route.vehicleId });
         if (nextReadiness.canDepart) {
           odometerPrompted.current = true;
@@ -156,7 +159,7 @@ export default function LoadingScreen() {
     } finally {
       setBusy(false);
     }
-  }, [db, online, repository, routeId, router]);
+  }, [db, odometerRequired, online, repository, returnTo, routeId, router]);
 
   const loadFuel = useCallback(async () => {
     if (profile.role !== 'driver' || !online) return;
@@ -185,7 +188,7 @@ export default function LoadingScreen() {
     }
     try {
       const response = await employeeApi(assignmentPath) as { assignments: ServerRouteAssignment[] };
-      setAssignment(response.assignments.find((item) => item.routeId === routeId && item.status !== 'cancelled') ?? null);
+      setAssignment(response.assignments.find((item) => item.routeId === routeId && isActiveAssignment(item)) ?? null);
     } catch {
       setAssignment(null);
     }
@@ -365,7 +368,8 @@ export default function LoadingScreen() {
 
   const startRoute = async () => {
     try {
-      await new StartRoute(db).execute(routeId);
+      if (!odometerRequired && route?.startOdometer === null) await new SkipStartOdometer(db).execute(routeId);
+      await new StartRoute(db).execute(routeId, { allowSkippedOdometer: !odometerRequired });
       void requestSync('mutation');
       router.replace({ pathname: '/route/[id]/delivery', params: { id: routeId, ...(returnTo ? { returnTo } : {}) } });
     } catch (reason) {
@@ -687,10 +691,11 @@ export default function LoadingScreen() {
               Alert.alert('Važiuoti negalima', readiness.blockers[0]?.message ?? 'Pasibaigęs automobilio terminas. Važiuoti negalima.');
               return;
             }
-            setOdometerModalVisible(true);
+            if (odometerRequired && route.startOdometer === null) setOdometerModalVisible(true);
+            else void startRoute();
           }}
           testID="open-start-odometer">
-          <Text style={styles.primaryText}>{route.startOdometer === null ? 'Įvesti odometrą ir pradėti' : 'Pradėti maršrutą'}</Text>
+          <Text style={styles.primaryText}>{odometerRequired && route.startOdometer === null ? 'Įvesti odometrą ir pradėti' : 'Pradėti maršrutą'}</Text>
         </Pressable>
       ) : null}
       {stops.length > 1 && (profile.role !== 'driver' || profile.permissions?.canReorderAssignedRoute) ? (
@@ -829,7 +834,7 @@ export default function LoadingScreen() {
           </SwipeActionCard>
         );
       })}
-      <Modal animationType="fade" transparent visible={odometerModalVisible && route?.status === 'loaded'} onRequestClose={() => setOdometerModalVisible(false)}>
+      <Modal animationType="fade" transparent visible={odometerRequired && odometerModalVisible && route?.status === 'loaded'} onRequestClose={() => setOdometerModalVisible(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalBackdrop} testID="start-odometer-modal">
           <View style={styles.odometerDialog}>
             <Text style={styles.dialogTitle}>Pradinis odometras</Text>

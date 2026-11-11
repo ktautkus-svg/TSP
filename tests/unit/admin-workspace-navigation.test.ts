@@ -40,7 +40,8 @@ describe('administrator workspace navigation', () => {
     // "Vykdyti vairuotojo maršrutą" lives only on the dispatcher now.
     expect(home).not.toContain("router.push('/execute-route' as Href)");
     expect(dispatcher).toContain("open('/execute-route' as Href)");
-    expect(execute).toContain('await setActingDriver({ id: driver.id, displayName: driver.displayName })');
+    expect(execute).toContain('await setActingDriver({');
+    expect(execute).toContain('canEnterTripReadings: canEnterTripReadings(driver)');
     expect(home).toContain('testID="acting-driver-banner"');
     expect(home).toContain('Vairuojate kaip');
     expect(home).toContain('void setActingDriver(null)');
@@ -78,7 +79,7 @@ describe('administrator workspace navigation', () => {
     expect(stackNavigation).not.toContain('router.canGoBack()');
     expect(stackNavigation).not.toContain('router.back()');
     expect(stackNavigation).toContain('router.replace(navigation.backTarget)');
-    expect(stackNavigation).toContain('router.replace(navigation.homeTarget)');
+    expect(stackNavigation).toContain('useHomeNavigation()');
     expect(stackNavigation).toContain('roleHomePath(profile.role)');
     expect(roleHome).toContain("if (role === 'dispatcher') return '/dispatcher'");
     expect(roleHome).toContain("if (role === 'driver') return '/'");
@@ -98,7 +99,8 @@ describe('administrator workspace navigation', () => {
     // route (starting loading, etc.) unreachable, since those were gated to
     // a real driver-role login only — this is what "neleidžia važiuoti"
     // (won't let me drive) turned out to be.
-    expect(execute).toContain('await setActingDriver({ id: driver.id, displayName: driver.displayName })');
+    expect(execute).toContain('await setActingDriver({');
+    expect(execute).toContain('canEnterTripReadings: canEnterTripReadings(driver)');
     expect(home).toContain('drivingAsProxy'); // sanity: same acting-driver concept used on the home screen
   });
 

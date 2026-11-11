@@ -39,7 +39,7 @@ describe('stage 2.2 deterministic navigation', () => {
   it('provides deterministic history detail exits and blocks stale route states', () => {
     const detail = source('src/app/history/[id].tsx');
     expect(detail).toContain("router.replace('/history' as Href)");
-    expect(detail).toContain('router.replace(roleHomePath(profile.role) as Href)');
+    expect(detail).toContain('useHomeNavigation()');
     expect(detail).toContain('← Maršrutai');
     expect(detail).toContain('Į pradžią');
     expect(detail).toContain("!['completed', 'cancelled'].includes(persisted.route.status)");
@@ -51,7 +51,7 @@ describe('stage 2.2 deterministic navigation', () => {
 
   it('combines operational and historical routes with deterministic exits', () => {
     const history = source('src/app/history.tsx');
-    expect(history).toContain('router.replace(roleHomePath(profile.role) as Href)');
+    expect(history).toContain('useHomeNavigation()');
     expect(history).toContain('Į skydelį');
     expect(history).toContain('VYKDOMA DABAR');
     expect(history).toContain('Suplanuoti maršrutai');
@@ -99,7 +99,7 @@ describe('stage 2.2 deterministic navigation', () => {
     const stackNavigation = source('src/components/stack-navigation.tsx');
     const roleHome = source('src/application/navigation/role-home.ts');
     expect(layout).toContain('headerRight: () => <StackHeaderActions />');
-    expect(stackNavigation).toContain('router.replace(navigation.homeTarget)');
+    expect(stackNavigation).toContain('useHomeNavigation()');
     expect(stackNavigation).toContain('roleHomePath(profile.role)');
     expect(roleHome).toContain("if (role === 'driver') return '/'");
     expect(roleHome).toContain("if (role === 'dispatcher') return '/dispatcher'");

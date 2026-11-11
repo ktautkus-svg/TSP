@@ -1,6 +1,7 @@
+import { requiresRouteOdometer } from '@/application/auth/employee-permissions';
 import { useLocalAccess } from '@/application/auth/local-access-context';
 import { pullAssignedRoutes, pushRouteAssignmentProgress } from '@/application/auth/route-assignment-sync';
-import { roleHomePath } from '@/application/navigation/role-home';
+import { useHomeNavigation } from '@/application/navigation/use-home-navigation';
 import { useRouteCloudSync } from '@/application/sync/route-cloud-sync-context';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
@@ -113,10 +114,12 @@ function hasLearnedParkPin(stop: Pick<DeliveryStop, 'parkLatitude' | 'parkLongit
 }
 
 export default function DeliveryScreen() {
-  const { profile, online, demo } = useLocalAccess();
+  const { profile, online, demo, actingDriver } = useLocalAccess();
+  const odometerRequired = requiresRouteOdometer(profile, actingDriver);
   const { requestSync, revision: syncRevision } = useRouteCloudSync();
   const db = useSQLiteContext();
   const router = useRouter();
+  const goHome = useHomeNavigation();
   const insets = useSafeAreaInsets();
   const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
   const { id: routeId = '', redirectReason, returnTo, view } = useLocalSearchParams<{ id: string; redirectReason?: string; returnTo?: string; view?: string }>();
@@ -175,7 +178,7 @@ export default function DeliveryScreen() {
       if (!persisted) return setError('Maršrutas nerastas.');
       if (persisted.route.status !== 'in_progress') {
         const destination = resolveRoute(persisted.route);
-        router.replace({ pathname: destination.pathname, params: destination.params } as Href);
+        router.replace({ pathname: destination.pathname, params: { ...destination.params, ...(returnTo ? { returnTo } : {}) } } as Href);
         return;
       }
       await new RefreshRouteEtas(db).execute(routeId);
@@ -233,7 +236,7 @@ export default function DeliveryScreen() {
       devWarn('DELIVERY_ROUTE_LOAD_FAILED', reason);
       setError(reason instanceof Error ? reason.message : 'Maršruto atkurti nepavyko.');
     }
-  }, [db, repository, routeId, router]);
+  }, [db, repository, returnTo, routeId, router]);
 
   const publishProgress = useCallback(async () => {
     if (!online || !['driver', 'admin', 'dispatcher'].includes(profile.role)) return;
@@ -708,7 +711,7 @@ export default function DeliveryScreen() {
         Alert.alert('Neteisingas laikas', 'Patikrinkite užbaigimo datą ir pasirinktą valandą bei minutę.');
         return;
       }
-      const fuelFieldError = routeCompletionFuelFieldError(completionFuelChoice, fuelLiters);
+      const fuelFieldError = odometerRequired ? routeCompletionFuelFieldError(completionFuelChoice, fuelLiters) : null;
       if (fuelFieldError) {
         Alert.alert('Kuro įrašas', fuelFieldError);
         return;
@@ -722,14 +725,14 @@ export default function DeliveryScreen() {
         Alert.alert('Neteisingas laikas', 'Užbaigimo laikas negali būti ateityje.');
         return;
       }
-      if (!endOdometer.trim()) {
+      if (odometerRequired && !endOdometer.trim()) {
         Alert.alert('Odometras', 'Įveskite galutinį odometro rodmenį.');
         return;
       }
-      const parsedEndOdometer = parseOdometer(endOdometer);
+      const parsedEndOdometer = odometerRequired ? parseOdometer(endOdometer) : null;
       let fuelRequest;
       try {
-        fuelRequest = buildRouteCompletionFuelRequest({
+        fuelRequest = parsedEndOdometer === null ? null : buildRouteCompletionFuelRequest({
           choice: completionFuelChoice,
           filledAt: actualFinishedAt,
           odometer: parsedEndOdometer,
@@ -813,7 +816,7 @@ export default function DeliveryScreen() {
       if (!current) throw new Error('Maršrutas nerastas.');
       if (current.status !== 'in_progress') {
         const destination = resolveRoute(current);
-        router.replace({ pathname: destination.pathname, params: destination.params } as Href);
+        router.replace({ pathname: destination.pathname, params: { ...destination.params, ...(returnTo ? { returnTo } : {}) } } as Href);
         return;
       }
       if (!current.returnArrivedAt) {
@@ -851,7 +854,7 @@ export default function DeliveryScreen() {
         setShowFinish(false);
       });
     };
-    if (endOdometer.trim()) {
+    if (odometerRequired && endOdometer.trim()) {
       Alert.alert('Odometras dar nepatvirtintas', 'Maršrutas liks vykdomas, o įvestas rodmuo – juodraštyje.', [
         { text: 'Tęsti redagavimą', style: 'cancel' },
         { text: 'Išeiti neišsaugojus', onPress: exit },
@@ -860,13 +863,15 @@ export default function DeliveryScreen() {
       exit();
     }
     return true;
-  }, [endOdometer]);
+  }, [endOdometer, odometerRequired]);
 
   const handleBack = useCallback(() => {
     if (showFinish) return leaveFinish();
-    router.replace(roleHomePath(profile.role) as Href);
+    router.replace(returnTo === 'execute-route'
+      ? '/execute-route' as Href
+      : { pathname: '/route/[id]/overview', params: { id: routeId } } as Href);
     return true;
-  }, [leaveFinish, profile.role, router, showFinish]);
+  }, [leaveFinish, returnTo, routeId, router, showFinish]);
 
   useEffect(() => {
     if (Platform.OS !== 'android') return;
@@ -922,7 +927,8 @@ export default function DeliveryScreen() {
             await new CancelDraftRoute(db).execute(routeId);
             await pushRouteAssignmentProgress(db, routeId).catch(() => undefined);
             await requestSync('mutation');
-            router.replace(roleHomePath(profile.role) as Href);
+            if (returnTo === 'execute-route') router.replace('/execute-route' as Href);
+            else await goHome();
           } catch (reason) {
             selfCancelled.current = false;
             Alert.alert('Nepavyko nutraukti', reason instanceof Error ? reason.message : 'Bandykite dar kartą.');
@@ -939,10 +945,7 @@ export default function DeliveryScreen() {
     <Stack.Screen options={{ gestureEnabled: false, headerBackVisible: false, headerShown: false }} />
     <View style={[styles.routeApp, wideLayout && styles.routeAppWide]}>
       <BrandHeader
-        onBackPress={() => router.replace(returnTo === 'execute-route'
-          ? '/execute-route' as Href
-          : { pathname: '/route/[id]/overview', params: { id: routeId } } as Href)}
-        onHomePress={() => router.replace(returnTo === 'execute-route' ? '/execute-route' as Href : '/history' as Href)}
+        onBackPress={handleBack}
         onMenuPress={() => setMenuOpen(true)}
       />
       <View style={styles.routeMain}>
@@ -1336,9 +1339,9 @@ export default function DeliveryScreen() {
               <Text style={styles.meta}>Taškai: {progress?.totalStops ?? 0} · sėkmingi {progress?.deliveredStops ?? 0} · nepavykę {progress?.failedStops ?? 0} · liko {progress?.remainingStops ?? 0}</Text>
               <Text style={styles.meta}>Pristatytas žinomas svoris: {formatWeightKg((progress?.totalKnownWeightKg ?? 0) - (progress?.remainingKnownWeightKg ?? 0))} kg</Text>
               <Text style={styles.meta}>Nepristatytas žinomas svoris: {formatWeightKg(progress?.remainingKnownWeightKg ?? 0)} kg</Text>
-              <Text style={styles.meta}>Pradinis odometras: {route?.startOdometer ?? 'neįvestas'}</Text>
+              {odometerRequired ? <Text style={styles.meta}>Pradinis odometras: {route?.startOdometer ?? 'neįvestas'}</Text> : null}
               <Text style={styles.meta}>Planuoti kilometrai: {route?.estimatedDistanceKm?.toFixed(1) ?? '—'}</Text>
-              <View style={styles.reminder} testID="route-fuel-entry-card">
+              {odometerRequired ? <View style={styles.reminder} testID="route-fuel-entry-card">
                 <Text style={styles.heading}>Ar pilta kuro?</Text>
                 <Text style={styles.meta}>Pasirinkite aiškiai. Pasirinkus NE, kuro įrašas nebus kuriamas.</Text>
                 <View style={styles.fuelChoiceRow}>
@@ -1371,7 +1374,7 @@ export default function DeliveryScreen() {
                     {!online ? <Text style={styles.activeReason}>Nėra ryšio — kuro pylimo išsaugoti dabar nepavyks.</Text> : null}
                   </>
                 ) : null}
-              </View>
+              </View> : null}
               <View style={styles.reminder} testID="route-finish-time-card">
                 <Text style={styles.heading}>Kada iš tikrųjų baigėte?</Text>
                 <Text style={styles.meta}>Laikas užpildytas pagal Vilniaus laiką. Jei uždarote maršrutą vėliau, patikslinkite — kitaip statistika parodys neteisingą trukmę.</Text>
@@ -1421,7 +1424,7 @@ export default function DeliveryScreen() {
                   <Text style={styles.secondaryText}>Nustatyti dabartinį Vilniaus laiką</Text>
                 </Pressable>
               </View>
-              <TextInput value={endOdometer} onChangeText={(value) => { setEndOdometer(value); persistCompletionDraft(value); }} keyboardType="decimal-pad" placeholder="Galutinis odometras" style={styles.input} />
+              {odometerRequired ? <TextInput value={endOdometer} onChangeText={(value) => { setEndOdometer(value); persistCompletionDraft(value); }} keyboardType="decimal-pad" placeholder="Galutinis odometras" style={styles.input} /> : null}
             </ScrollView>
             <Pressable disabled={busy} style={[styles.finishButton, busy && styles.disabled]} onPress={() => void finish(false, false)}><Text style={styles.buttonText}>Patvirtinti užbaigimą</Text></Pressable>
             <Pressable disabled={busy} style={styles.cancelButton} onPress={leaveFinish}><Text style={styles.secondaryText}>Grįžti</Text></Pressable>
